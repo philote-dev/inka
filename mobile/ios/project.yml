@@ -1,0 +1,87 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+#
+# XcodeGen spec for the PGRE study app. Regenerate the .xcodeproj with:
+#   brew install xcodegen        # once
+#   cd mobile/ios && xcodegen generate
+# The generated PgrepStudy.xcodeproj is gitignored (see mobile/ios/.gitignore);
+# project.yml is the source of truth. The app links the shared engine via
+# ../../out/ios/AnkiFfi.xcframework (a build artifact under the gitignored out/,
+# produced by tools/build-xcframework.sh).
+
+name: PgrepStudy
+
+options:
+  bundleIdPrefix: net.ankiweb.pgrep
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+packages:
+  SwiftProtobuf:
+    url: https://github.com/apple/swift-protobuf
+    from: "1.38.1"
+
+targets:
+  PgrepStudy:
+    type: application
+    platform: iOS
+    sources:
+      - path: PgrepStudy
+      - path: ../sample-deck/collection.anki2
+        buildPhase: resources
+    dependencies:
+      - package: SwiftProtobuf
+      - framework: ../../out/ios/AnkiFfi.xcframework
+        embed: false
+      - sdk: Security.framework
+      - sdk: SystemConfiguration.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.ankiweb.pgrep.PgrepStudy
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        # Rust std / getrandom (SecRandomCopyBytes) and reqwest need these.
+        OTHER_LDFLAGS: ["-lc++", "-liconv"]
+        # Simulator runs are unsigned.
+        CODE_SIGNING_ALLOWED: NO
+    scheme:
+      testTargets:
+        - PgrepStudyTests
+      gatherCoverageData: false
+
+  # Standalone (host-less) logic-test bundle: it compiles the engine bridge and
+  # generated protos directly and links the shared xcframework, so it proves the
+  # engine on-Simulator without depending on the SwiftUI app target.
+  PgrepStudyTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: PgrepStudyTests
+      - path: PgrepStudy/AnkiBackend.swift
+      - path: PgrepStudy/StudySandbox.swift
+      - path: PgrepStudy/Generated
+      - path: ../sample-deck/collection.anki2
+        buildPhase: resources
+    dependencies:
+      - package: SwiftProtobuf
+      - framework: ../../out/ios/AnkiFfi.xcframework
+        embed: false
+      - sdk: Security.framework
+      - sdk: SystemConfiguration.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.ankiweb.pgrep.PgrepStudyTests
+        GENERATE_INFOPLIST_FILE: YES
+        # Rust std / getrandom (SecRandomCopyBytes) and reqwest need these.
+        OTHER_LDFLAGS: ["-lc++", "-liconv"]
+        CODE_SIGNING_ALLOWED: NO
+    # A dedicated scheme so the engine smoke can be run without building the
+    # SwiftUI app: xcodebuild ... -scheme PgrepStudyTests test
+    scheme:
+      testTargets:
+        - PgrepStudyTests
+      gatherCoverageData: false
