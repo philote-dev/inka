@@ -3,9 +3,9 @@
 **Status: coordination contract for Build Layer L1 (locked for this layer).**
 This is the shared schema both L1 tracks build against so they don't collide:
 
-- **L1.1 (Rust selector)** *consumes* the topic-tag format (to compute per-topic
+- **L1.1 (Rust selector)** _consumes_ the topic-tag format (to compute per-topic
   weakness/worth). It does **not** read the attempt log.
-- **L1.2 (Data model)** *implements* the two-level topic tags on notes/cards and
+- **L1.2 (Data model)** _implements_ the two-level topic tags on notes/cards and
   the attempt log as notes (notes-as-log, "A now, C-ready").
 
 Sources: `feature-interleaving.md` (topic taxonomy, selector), `anki-rooting-and-rust.md`
@@ -33,17 +33,17 @@ topic::<category>::<subtopic>         # optional finer level (big-3 only)
 Blueprint % is the PGRE's official topic percentages (stable 20+ yrs; `overview.md`).
 **Worth uses category-level %** — subtopics inherit their category's weight.
 
-| Category slug         | PGRE area              | blueprint % |
-| --------------------- | ---------------------- | ----------: |
-| `mechanics`           | Classical Mechanics    |          20 |
-| `electromagnetism`    | Electromagnetism (E&M) |          18 |
-| `quantum`             | Quantum Mechanics      |          13 |
-| `thermodynamics`      | Thermo / Stat Mech     |          10 |
-| `atomic`              | Atomic Physics         |          10 |
-| `optics_waves`        | Optics & Waves         |           8 |
-| `special_relativity`  | Special Relativity     |           6 |
-| `lab`                 | Lab Methods            |           6 |
-| `specialized`         | Specialized Topics     |           9 |
+| Category slug        | PGRE area              | blueprint % |
+| -------------------- | ---------------------- | ----------: |
+| `mechanics`          | Classical Mechanics    |          20 |
+| `electromagnetism`   | Electromagnetism (E&M) |          18 |
+| `quantum`            | Quantum Mechanics      |          13 |
+| `thermodynamics`     | Thermo / Stat Mech     |          10 |
+| `atomic`             | Atomic Physics         |          10 |
+| `optics_waves`       | Optics & Waves         |           8 |
+| `special_relativity` | Special Relativity     |           6 |
+| `lab`                | Lab Methods            |           6 |
+| `specialized`        | Specialized Topics     |           9 |
 
 Sum = 100. Store as a fraction (e.g. `0.20`) or percent consistently within each
 language; the table is duplicated per language (normal cross-language boundary
@@ -93,32 +93,32 @@ note per problem-attempt event, riding Anki's free note sync.
 
 One note = one event. Fields (order matters for Anki; field 1 is the sort field):
 
-| # | Field         | Meaning                                                                 |
-| - | ------------- | ---------------------------------------------------------------------- |
+| # | Field         | Meaning                                                                      |
+| - | ------------- | ---------------------------------------------------------------------------- |
 | 1 | `event_id`    | **= the note's GUID** (K2). Canonical event identity; every fold keys on it. |
-| 2 | `event_json`  | Single JSON blob (K3): the full immutable payload — see below.          |
-| 3 | `topic`       | Denormalized hot filter: the item's finest `topic::…` value.            |
-| 4 | `correct`     | Denormalized: `"1"` / `"0"`.                                            |
-| 5 | `answered_at` | Denormalized: unix epoch seconds (UTC) as a string.                    |
+| 2 | `event_json`  | Single JSON blob (K3): the full immutable payload — see below.               |
+| 3 | `topic`       | Denormalized hot filter: the item's finest `topic::…` value.                 |
+| 4 | `correct`     | Denormalized: `"1"` / `"0"`.                                                 |
+| 5 | `answered_at` | Denormalized: unix epoch seconds (UTC) as a string.                          |
 
 `event_json` payload (superset; keep it self-contained — no external joins, K1):
 
 ```json
 {
-  "event_id": "<= note guid>",
-  "schema": 1,
-  "item_card_id": 0,
-  "item_note_id": 0,
-  "topic": "topic::mechanics::lagrangian",
-  "category": "mechanics",
-  "correct": true,
-  "selected_option": "C",
-  "ladder_depth": 0,
-  "subgoal_productions": [],
-  "session_id": "<uuid>",
-  "answered_at": 1780000000,
-  "latency_ms": 0,
-  "device": "<hlc/device id>"
+    "event_id": "<= note guid>",
+    "schema": 1,
+    "item_card_id": 0,
+    "item_note_id": 0,
+    "topic": "topic::mechanics::lagrangian",
+    "category": "mechanics",
+    "correct": true,
+    "selected_option": "C",
+    "ladder_depth": 0,
+    "subgoal_productions": [],
+    "session_id": "<uuid>",
+    "answered_at": 1780000000,
+    "latency_ms": 0,
+    "device": "<hlc/device id>"
 }
 ```
 
@@ -138,7 +138,7 @@ One note = one event. Fields (order matters for Anki; field 1 is the sort field)
   key on it (idempotent rebuild, union-by-id dedup, consistent with the documented
   sync conflict rule).
 - **K3 Payload = one JSON blob + a few flat fields** (`topic`, `correct`, `answered_at`)
-  + topic on tags. A parses JSON on demand; C would parse the *same* JSON into cache rows.
+  - topic on tags. A parses JSON on demand; C would parse the _same_ JSON into cache rows.
 - **K4 One read-model seam:** ALL attempt analytics go through a single interface —
   `attempts(topic, window) -> [Event]` and `performance_fold(topic, window) -> stats`.
   Callers (Performance L5, calibration dashboard) never touch storage directly.
@@ -156,6 +156,7 @@ duplicate, do not mutate the existing note). This keeps the fold union-by-id cle
 ## 4. File-ownership boundaries (so the two ∥ tracks never touch the same file)
 
 **L1.1 (Rust selector) owns:**
+
 - `proto/anki/deck_config.proto` (+ `proto/anki/scheduler.proto` only if a config RPC is added)
 - `rslib/src/**` (selector, gather, scorer module, service impl)
 - NEW Python test: `pylib/tests/test_pgrep_selector.py`
@@ -164,6 +165,7 @@ duplicate, do not mutate the existing note). This keeps the fold union-by-id cle
   `get_queued_cards` (no hand-written wrapper needed).
 
 **L1.2 (Data model) owns:**
+
 - NEW package `pylib/anki/pgrep/**` (e.g. `tags.py`, `blueprint.py`, `attempt_log.py`)
 - NEW Python tests: `pylib/tests/test_pgrep_tags.py`, `pylib/tests/test_pgrep_attempt_log.py`
 - **Must NOT** edit `proto/**`, `rslib/**`, or `pylib/tests/test_pgrep_selector.py`.
