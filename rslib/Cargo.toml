@@ -99,7 +99,11 @@ sha2.workspace = true
 snafu.workspace = true
 strum.workspace = true
 tempfile.workspace = true
-tokio.workspace = true
+# io-util is required by the sync/update code (AsyncReadExt/AsyncWriteExt). It is
+# normally unified in via other workspace members, but must be declared here so
+# `anki` (and dependents like rslib/ffi) also build when compiled in isolation,
+# e.g. `cargo build -p anki-ffi --target aarch64-apple-ios-sim`.
+tokio = { workspace = true, features = ["io-util"] }
 tokio-util.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
