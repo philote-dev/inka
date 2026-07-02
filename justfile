@@ -84,6 +84,10 @@ ios-xcframework:
 ios-smoke:
     ./tools/ios-smoke.sh
 
+# Build + launch the pgrep iOS app in the Simulator (visible review UI); macOS-only
+ios-run:
+    ./tools/ios-run.sh
+
 [private]
 _test:
     {{ ninja }} check:rust_test check:pytest check:vitest

@@ -83,7 +83,13 @@ from aqt.webview import AnkiWebView, AnkiWebViewKind
 install_pylib_legacy()
 
 MainWindowState = Literal[
-    "startup", "deckBrowser", "overview", "review", "resetRequired", "profileManager"
+    "startup",
+    "deckBrowser",
+    "overview",
+    "review",
+    "resetRequired",
+    "profileManager",
+    "pgrep",
 ]
 
 
@@ -168,6 +174,9 @@ class AnkiQt(QMainWindow):
     pm: ProfileManagerType
     web: MainWebView
     bottomWeb: BottomWebView
+    # pgrep host takeover (L2.5): a second central webview hosting the pgrep
+    # SPA; None only when the surface mode is "off". See aqt/pgrep_host.py.
+    pgrep_web: AnkiWebView | None
 
     def __init__(
         self,
@@ -662,7 +671,11 @@ class AnkiQt(QMainWindow):
             self.update_undo_actions()
             gui_hooks.collection_did_load(self.col)
             self.apply_collection_options()
-            self.moveToState("deckBrowser")
+            # pgrep host takeover: open into the pgrep surface by default (see
+            # aqt/pgrep_host.py); falls back to the deck browser in "off" mode.
+            from aqt import pgrep_host
+
+            self.moveToState(pgrep_host.default_state(self))
         except Exception:
             # dump error to stderr so it gets picked up by errors.py
             traceback.print_exc()
@@ -765,12 +778,24 @@ class AnkiQt(QMainWindow):
         self.state = state
         gui_hooks.state_will_change(state, oldState)
         getattr(self, f"_{state}State", lambda *_: None)(oldState, *args)
+        # pgrep host takeover: show the pgrep surface for the pgrep state and
+        # Anki's central webview otherwise (see aqt/pgrep_host.py).
+        from aqt import pgrep_host
+
+        pgrep_host.sync_central_surface(self, state)
         if state != "resetRequired":
             self.bottomWeb.adjustHeightToFit()
         gui_hooks.state_did_change(state, oldState)
 
     def _deckBrowserState(self, oldState: MainWindowState) -> None:
         self.deckBrowser.show()
+
+    def _pgrepState(self, oldState: MainWindowState) -> None:
+        # pgrep host takeover (L2.5): load the pgrep SPA into the central
+        # webview on first entry; visibility is handled in moveToState.
+        from aqt import pgrep_host
+
+        pgrep_host.enter_pgrep(self)
 
     def _selectedDeck(self) -> DeckDict | None:
         did = self.col.decks.selected()
@@ -952,6 +977,12 @@ title="{}" {}>{}</button>""".format(
         self.toolbar = Toolbar(self, tweb)
         # main area
         self.web = MainWebView(self)
+        # pgrep host takeover: a second central webview that hosts the pgrep SPA
+        # in place of Anki's screens (see aqt/pgrep_host.py). Only one of web /
+        # pgrep_web is visible at a time (toggled in moveToState).
+        from aqt import pgrep_host
+
+        self.pgrep_web = pgrep_host.make_surface_web(self)
         # bottom area
         sweb = self.bottomWeb = BottomWebView(self)
         sweb.setFocusPolicy(Qt.FocusPolicy.WheelFocus)
@@ -962,6 +993,8 @@ title="{}" {}>{}</button>""".format(
         self.mainLayout.setSpacing(0)
         self.mainLayout.addWidget(tweb)
         self.mainLayout.addWidget(self.web)
+        if self.pgrep_web is not None:
+            self.mainLayout.addWidget(self.pgrep_web)
         self.mainLayout.addWidget(sweb)
         self.form.centralwidget.setLayout(self.mainLayout)
 
@@ -1455,6 +1488,8 @@ title="{}" {}>{}</button>""".format(
         qconnect(pgrep_action.triggered, self.on_pgrep)
         pgrep_seed_action = m.menuTools.addAction("pgrep: seed sample content")
         qconnect(pgrep_seed_action.triggered, self.on_pgrep_seed_sample)
+        pgrep_anki_action = m.menuTools.addAction("Open Anki screens")
+        qconnect(pgrep_anki_action.triggered, self.on_open_anki_screens)
 
         # View
         qconnect(
@@ -1747,6 +1782,12 @@ title="{}" {}>{}</button>""".format(
         import aqt.pgrep_window
 
         aqt.pgrep_window.open_pgrep_window()
+
+    def on_open_anki_screens(self) -> None:
+        # pgrep host fallback (Option A): reach Anki's own screens from the
+        # pgrep-hosted main window. Retired when the surface mode goes
+        # "exclusive" (Option C).
+        self.moveToState("deckBrowser")
 
     def on_pgrep_seed_sample(self) -> None:
         from anki.pgrep import seed
