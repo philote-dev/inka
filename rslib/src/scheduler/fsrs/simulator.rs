@@ -106,8 +106,10 @@ fn create_review_priority_fn(
             wrap!(move |c, w| -(c.retrievability(w) * 1000.0) as i32)
         }
 
-        // Due date ordering
-        Day | DayThenDeck | DeckThenDay => {
+        // Due date ordering. PointsAtStake reorders within the due set at queue
+        // build time using note tags the simulator can't see, so simulate it
+        // with the same neutral due-date ordering it gathers in.
+        Day | DayThenDeck | DeckThenDay | PointsAtStake => {
             wrap!(|c, _w| c.scheduled_due() as i32)
         }
 

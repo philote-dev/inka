@@ -4,6 +4,7 @@
 mod burying;
 mod gathering;
 pub(crate) mod intersperser;
+mod points_at_stake;
 pub(crate) mod sized_chain;
 mod sorting;
 
@@ -471,6 +472,367 @@ mod test {
         col.update_cards_maybe_undoable(cards, false)?;
         col.set_deck_review_order(&mut deck, ReviewCardOrder::RelativeOverdueness);
         assert_eq!(col.queue_as_due_and_ivl(deck.id), expected_queue);
+
+        Ok(())
+    }
+
+    /// pgrep Rust test 1: with `PointsAtStake`, due reviews are reordered by
+    /// worth (blueprint% × FSRS-native weakness), an untagged card sorts last
+    /// but is never dropped, and building the queue mutates no card at all.
+    #[test]
+    fn points_at_stake_orders_by_worth_and_never_mutates() -> Result<()> {
+        use crate::card::FsrsMemoryState;
+
+        let mut col = Collection::new();
+        let mut deck = col.get_or_create_normal_deck("Default").unwrap();
+        let nt = col.get_notetype_by_name("Basic")?.unwrap();
+
+        // Distinct blueprint weights so the expected order is unambiguous. Every
+        // card shares the same FSRS state + last review, so each single-card
+        // topic has the same weakness and band factor; worth therefore ranks
+        // strictly by blueprint%. The final entry is untagged (must sort last).
+        let setup: Vec<(&str, Option<&str>)> = vec![
+            ("mechanics", Some("topic::mechanics::kinematics")),
+            ("electromagnetism", Some("topic::electromagnetism::gauss")),
+            ("quantum", Some("topic::quantum::spin")),
+            ("specialized", Some("topic::specialized::misc")),
+            ("optics_waves", Some("topic::optics_waves::lenses")),
+            (
+                "special_relativity",
+                Some("topic::special_relativity::lorentz"),
+            ),
+            ("unknown", None),
+        ];
+
+        let last_review = col.timing_today()?.now.adding_secs(-30 * 86_400);
+        let memory = FsrsMemoryState {
+            stability: 50.0,
+            difficulty: 5.0,
+        };
+
+        let mut cards = vec![];
+        let mut card_category: HashMap<CardId, &str> = HashMap::new();
+        for (category, topic) in &setup {
+            let mut note = nt.new_note();
+            note.set_field(0, "foo")?;
+            if let Some(topic) = topic {
+                note.tags = vec![topic.to_string()];
+            }
+            note.id.0 = 0;
+            col.add_note(&mut note, deck.id)?;
+            let mut card = col.storage.get_card_by_ordinal(note.id, 0)?.unwrap();
+            card.ctype = CardType::Review;
+            card.queue = CardQueue::Review;
+            card.due = 0;
+            card.interval = 40;
+            card.memory_state = Some(memory);
+            card.last_review_time = Some(last_review);
+            card_category.insert(card.id, category);
+            cards.push(card);
+        }
+        col.update_cards_maybe_undoable(cards, false)?;
+        col.set_deck_review_order(&mut deck, ReviewCardOrder::PointsAtStake);
+
+        // Snapshot every card as persisted, so we can prove the build wrote
+        // nothing (no reorder-driven mutation of scheduling state).
+        let ids: Vec<CardId> = card_category.keys().copied().collect();
+        let before: HashMap<CardId, Card> = ids
+            .iter()
+            .map(|id| (*id, col.storage.get_card(*id).unwrap().unwrap()))
+            .collect();
+
+        let order: Vec<&str> = col
+            .build_queues(deck.id)?
+            .iter()
+            .map(|entry| card_category[&entry.card_id()])
+            .collect();
+
+        assert_eq!(
+            order,
+            vec![
+                "mechanics",
+                "electromagnetism",
+                "quantum",
+                "specialized",
+                "optics_waves",
+                "special_relativity",
+                "unknown",
+            ]
+        );
+
+        // Reorder-only invariant: nothing about any card changed on disk.
+        for id in &ids {
+            let after = col.storage.get_card(*id)?.unwrap();
+            assert_eq!(after, before[id]);
+        }
+
+        Ok(())
+    }
+
+    /// pgrep: with a review limit of N, the queue keeps the top-N reviews by
+    /// worth (not the first-N gathered), and the shared review limit still caps
+    /// new cards exactly as stock Anki would.
+    #[test]
+    fn points_at_stake_respects_review_limit_and_new_cap() -> Result<()> {
+        use crate::card::FsrsMemoryState;
+
+        let mut col = Collection::new();
+        let mut deck = col.get_or_create_normal_deck("Default").unwrap();
+        let nt = col.get_notetype_by_name("Basic")?.unwrap();
+
+        let last_review = col.timing_today()?.now.adding_secs(-30 * 86_400);
+        let memory = FsrsMemoryState {
+            stability: 50.0,
+            difficulty: 5.0,
+        };
+
+        // Five due reviews with distinct blueprint weights (uniform R => order
+        // is by blueprint%): mechanics .20 > em .18 > quantum .13 > optics .08
+        // > special_relativity .06.
+        let review_setup = [
+            ("mechanics", "topic::mechanics::a"),
+            ("electromagnetism", "topic::electromagnetism::b"),
+            ("quantum", "topic::quantum::c"),
+            ("optics_waves", "topic::optics_waves::d"),
+            ("special_relativity", "topic::special_relativity::e"),
+        ];
+        let mut cards = vec![];
+        let mut card_category: HashMap<CardId, &str> = HashMap::new();
+        for (category, topic) in review_setup {
+            let mut note = nt.new_note();
+            note.set_field(0, "foo")?;
+            note.tags = vec![topic.to_string()];
+            note.id.0 = 0;
+            col.add_note(&mut note, deck.id)?;
+            let mut card = col.storage.get_card_by_ordinal(note.id, 0)?.unwrap();
+            card.ctype = CardType::Review;
+            card.queue = CardQueue::Review;
+            card.due = 0;
+            card.interval = 40;
+            card.memory_state = Some(memory);
+            card.last_review_time = Some(last_review);
+            card_category.insert(card.id, category);
+            cards.push(card);
+        }
+        col.update_cards_maybe_undoable(cards, false)?;
+
+        // Two brand-new cards in the same deck.
+        for _ in 0..2 {
+            let mut note = nt.new_note();
+            note.set_field(0, "new")?;
+            note.id.0 = 0;
+            col.add_note(&mut note, deck.id)?;
+        }
+
+        col.set_deck_review_order(&mut deck, ReviewCardOrder::PointsAtStake);
+        col.set_deck_review_limit(deck.id, 3);
+
+        let entries: Vec<CardId> = col
+            .build_queues(deck.id)?
+            .iter()
+            .map(|entry| entry.card_id())
+            .collect();
+        let review_order: Vec<&str> = entries
+            .iter()
+            .filter_map(|id| card_category.get(id).copied())
+            .collect();
+        let new_count = entries
+            .iter()
+            .filter(|id| !card_category.contains_key(id))
+            .count();
+
+        // Top-3 reviews by worth are kept (not the first-3 gathered)...
+        assert_eq!(
+            review_order,
+            vec!["mechanics", "electromagnetism", "quantum"]
+        );
+        // ...and the 3 reviews consume the shared limit, capping new to 0 just
+        // as stock would (bypassing the decrements would have shown new cards).
+        assert_eq!(new_count, 0);
+
+        Ok(())
+    }
+
+    /// pgrep HC3 regression: a note whose first-gathered review sibling is in a
+    /// deck already at its review limit must still contribute its eligible
+    /// sibling in another deck. Sibling burying is deferred to the
+    /// worth-ordered selection pass, so an over-limit sibling can't
+    /// pre-bury (and thereby drop) the whole note.
+    #[test]
+    fn points_at_stake_keeps_eligible_cross_deck_sibling() -> Result<()> {
+        let mut col = Collection::new();
+
+        // Root uses PointsAtStake + bury_reviews, with a generous review limit.
+        let parent = DeckAdder::new("parent")
+            .with_config(|c| {
+                c.inner.review_order = ReviewCardOrder::PointsAtStake as i32;
+                c.inner.bury_reviews = true;
+                c.inner.reviews_per_day = 200;
+            })
+            .add(&mut col);
+        // Child deck whose review limit is 0 (its cards can never be shown).
+        let blocked = DeckAdder::new("parent::blocked")
+            .with_config(|c| {
+                c.inner.bury_reviews = true;
+                c.inner.reviews_per_day = 0;
+            })
+            .add(&mut col);
+
+        // One note with two review cards (Basic + reversed).
+        let nt = col
+            .get_notetype_by_name("Basic (and reversed card)")?
+            .unwrap();
+        let mut note = nt.new_note();
+        note.set_field(0, "front")?;
+        note.set_field(1, "back")?;
+        note.id.0 = 0;
+        col.add_note(&mut note, parent.id)?;
+
+        // C1 -> blocked deck, gathered first (smaller due); C2 -> parent, eligible.
+        let mut c1 = col.storage.get_card_by_ordinal(note.id, 0)?.unwrap();
+        let mut c2 = col.storage.get_card_by_ordinal(note.id, 1)?.unwrap();
+        c1.deck_id = blocked.id;
+        c1.ctype = CardType::Review;
+        c1.queue = CardQueue::Review;
+        c1.due = -10;
+        c1.interval = 10;
+        c2.deck_id = parent.id;
+        c2.ctype = CardType::Review;
+        c2.queue = CardQueue::Review;
+        c2.due = 0;
+        c2.interval = 10;
+        let (c1_id, c2_id) = (c1.id, c2.id);
+        col.update_cards_maybe_undoable(vec![c1, c2], false)?;
+
+        let queue: Vec<CardId> = col
+            .build_queues(parent.id)?
+            .iter()
+            .map(|entry| entry.card_id())
+            .collect();
+
+        // The eligible sibling C2 is shown; the over-limit sibling C1 is not.
+        assert_eq!(queue, vec![c2_id]);
+        assert!(!queue.contains(&c1_id));
+
+        Ok(())
+    }
+
+    /// pgrep regression: with bury_reviews on, two review siblings of one note
+    /// in the *same* deck still collapse to a single shown card under
+    /// PointsAtStake (deferred burying still buries same-note siblings).
+    #[test]
+    fn points_at_stake_still_buries_same_note_siblings() -> Result<()> {
+        let mut col = Collection::new();
+        let parent = DeckAdder::new("parent")
+            .with_config(|c| {
+                c.inner.review_order = ReviewCardOrder::PointsAtStake as i32;
+                c.inner.bury_reviews = true;
+                c.inner.reviews_per_day = 200;
+            })
+            .add(&mut col);
+
+        let nt = col
+            .get_notetype_by_name("Basic (and reversed card)")?
+            .unwrap();
+        let mut note = nt.new_note();
+        note.set_field(0, "front")?;
+        note.set_field(1, "back")?;
+        note.id.0 = 0;
+        col.add_note(&mut note, parent.id)?;
+
+        let mut cards = vec![];
+        for ord in 0..2 {
+            let mut card = col.storage.get_card_by_ordinal(note.id, ord)?.unwrap();
+            card.ctype = CardType::Review;
+            card.queue = CardQueue::Review;
+            card.due = 0;
+            card.interval = 10;
+            cards.push(card);
+        }
+        col.update_cards_maybe_undoable(cards, false)?;
+
+        let queue: Vec<CardId> = col
+            .build_queues(parent.id)?
+            .iter()
+            .map(|entry| entry.card_id())
+            .collect();
+
+        // Exactly one sibling survives; the other is buried.
+        assert_eq!(queue.len(), 1);
+
+        Ok(())
+    }
+
+    /// pgrep: selection truncates to top-N by worth BEFORE anti-blocking, so
+    /// anti-blocking pressure never drops a higher-worth card in favour of a
+    /// lower-worth one at the daily-limit boundary. Four equal-high-worth
+    /// mechanics cards + one low-worth lab card, review limit 4: all four
+    /// mechanics survive and the lab card is cut. (Anti-block-before-truncate
+    /// would have pulled the lab card in at position 4 and cut a mechanics
+    /// card.)
+    #[test]
+    fn points_at_stake_truncates_by_worth_before_anti_blocking() -> Result<()> {
+        use crate::card::FsrsMemoryState;
+
+        let mut col = Collection::new();
+        let mut deck = col.get_or_create_normal_deck("Default").unwrap();
+        let nt = col.get_notetype_by_name("Basic")?.unwrap();
+
+        let last_review = col.timing_today()?.now.adding_secs(-30 * 86_400);
+        let memory = FsrsMemoryState {
+            stability: 50.0,
+            difficulty: 5.0,
+        };
+
+        // Uniform FSRS state => worth ranks purely by blueprint. mechanics (0.20)
+        // outranks lab (0.06), and the four mechanics cards share a category so
+        // anti-blocking wants to interleave the lab card among them.
+        let setup = [
+            ("mechanics", "topic::mechanics::core"),
+            ("mechanics", "topic::mechanics::core"),
+            ("mechanics", "topic::mechanics::core"),
+            ("mechanics", "topic::mechanics::core"),
+            ("lab", "topic::lab::methods"),
+        ];
+        let mut cards = vec![];
+        let mut lab_ids = std::collections::HashSet::new();
+        for (category, topic) in setup {
+            let mut note = nt.new_note();
+            note.set_field(0, "foo")?;
+            note.tags = vec![topic.to_string()];
+            note.id.0 = 0;
+            col.add_note(&mut note, deck.id)?;
+            let mut card = col.storage.get_card_by_ordinal(note.id, 0)?.unwrap();
+            card.ctype = CardType::Review;
+            card.queue = CardQueue::Review;
+            card.due = 0;
+            card.interval = 40;
+            card.memory_state = Some(memory);
+            card.last_review_time = Some(last_review);
+            if category == "lab" {
+                lab_ids.insert(card.id);
+            }
+            cards.push(card);
+        }
+        col.update_cards_maybe_undoable(cards, false)?;
+
+        col.set_deck_review_order(&mut deck, ReviewCardOrder::PointsAtStake);
+        col.set_deck_review_limit(deck.id, 4);
+
+        let queue: Vec<CardId> = col
+            .build_queues(deck.id)?
+            .iter()
+            .map(|entry| entry.card_id())
+            .collect();
+
+        // The daily limit's worth of cards is shown, and every one is a
+        // higher-worth mechanics card -- the lower-worth lab card is truncated,
+        // not interleaved in.
+        assert_eq!(queue.len(), 4);
+        assert!(
+            queue.iter().all(|id| !lab_ids.contains(id)),
+            "lower-worth lab card must be truncated, not retained over a mechanics card"
+        );
 
         Ok(())
     }
