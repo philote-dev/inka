@@ -173,9 +173,7 @@ def _overall(scored: list[tuple[float, float, float]]) -> dict[str, Any]:
         }
     total_weight = sum(weight for weight, _, _ in scored)
     point = sum(weight * pt for weight, pt, _ in scored) / total_weight
-    variance = sum(
-        (weight / total_weight) ** 2 * var for weight, _, var in scored
-    )
+    variance = sum((weight / total_weight) ** 2 * var for weight, _, var in scored)
     sd = math.sqrt(variance)
     return {
         "point": point,

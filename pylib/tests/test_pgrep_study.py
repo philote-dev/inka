@@ -14,7 +14,6 @@ from anki.notes import NoteId
 from anki.pgrep import attempt_log, problem, seed, study
 from tests.shared import getEmptyCol
 
-
 # Cards door
 ##########################################################################
 
@@ -48,9 +47,7 @@ def test_answer_card_is_a_real_fsrs_review():
     card_before = col.get_card(card_id)
     reps_before = card_before.reps
     last_review_before = card_before.last_review_time
-    revlog_before = col.db.scalar(
-        "select count() from revlog where cid = ?", card_id
-    )
+    revlog_before = col.db.scalar("select count() from revlog where cid = ?", card_id)
     total_cards_before = col.card_count()
 
     result = study.answer_card(col, card_id, 3)  # Good

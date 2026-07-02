@@ -63,7 +63,12 @@ there is no cold bucket. No AI, no confidence or self-rating.
         },
         electromagnetism: {
             prompt: "The electric field from a point charge changes with distance r as",
-            choices: ["1 over r", "1 over r squared", "1 over r cubed", "it stays constant"],
+            choices: [
+                "1 over r",
+                "1 over r squared",
+                "1 over r cubed",
+                "it stays constant",
+            ],
             answer: 1,
         },
         quantum: {
@@ -88,7 +93,12 @@ there is no cold bucket. No AI, no confidence or self-rating.
         },
         special_relativity: {
             prompt: "As the speed approaches the speed of light, the Lorentz factor gamma",
-            choices: ["approaches 1", "approaches 0", "grows without bound", "stays constant"],
+            choices: [
+                "approaches 1",
+                "approaches 0",
+                "grows without bound",
+                "stays constant",
+            ],
             answer: 2,
         },
         lab: {
@@ -228,8 +238,8 @@ there is no cold bucket. No AI, no confidence or self-rating.
         <div class="card intro">
             <p class="lead">Answer one quick check per topic.</p>
             <p class="muted">
-                We combine each answer with what your reviews already show, then place every
-                topic strong or rusty. Run it again whenever you like.
+                We combine each answer with what your reviews already show, then place
+                every topic strong or rusty. Run it again whenever you like.
             </p>
         </div>
 
@@ -238,7 +248,11 @@ there is no cold bucket. No AI, no confidence or self-rating.
                 <p class="muted small">Your last placement</p>
                 <ul class="grid">
                     {#each priorPlaced as topic (topic.category)}
-                        <li class="chip" class:strong={topic.placement === "strong"} class:rusty={topic.placement === "rusty"}>
+                        <li
+                            class="chip"
+                            class:strong={topic.placement === "strong"}
+                            class:rusty={topic.placement === "rusty"}
+                        >
                             <span class="chip-name">{label(topic.category)}</span>
                             <span class="pill">{topic.placement}</span>
                         </li>
@@ -270,7 +284,9 @@ there is no cold bucket. No AI, no confidence or self-rating.
                                     class:picked={answers[item.category] === i}
                                     on:click={() => pick(item.category, i)}
                                 >
-                                    <span class="letter">{String.fromCharCode(65 + i)}</span>
+                                    <span class="letter">
+                                        {String.fromCharCode(65 + i)}
+                                    </span>
                                     <span class="choice-text">{choice}</span>
                                 </button>
                             </li>
@@ -283,23 +299,37 @@ there is no cold bucket. No AI, no confidence or self-rating.
         <div class="actions">
             <button class="btn ghost" on:click={back} disabled={busy}>Back</button>
             {#if isLastStep}
-                <button class="btn primary" on:click={submit} disabled={!batchComplete || busy}>
+                <button
+                    class="btn primary"
+                    on:click={submit}
+                    disabled={!batchComplete || busy}
+                >
                     {busy ? "Placing" : "See placement"}
                 </button>
             {:else}
-                <button class="btn primary" on:click={next} disabled={!batchComplete}>Next</button>
+                <button class="btn primary" on:click={next} disabled={!batchComplete}>
+                    Next
+                </button>
             {/if}
             <span class="muted small">Pick an answer for each check to continue.</span>
         </div>
     {:else if screen === "results" && placeData}
         <div class="card summary">
-            <p class="lead">{strongCount} of {placeData.topics.length} topics placed strong.</p>
-            <p class="muted small">Saved. Reviews keep refining this, and you can run it again.</p>
+            <p class="lead">
+                {strongCount} of {placeData.topics.length} topics placed strong.
+            </p>
+            <p class="muted small">
+                Saved. Reviews keep refining this, and you can run it again.
+            </p>
         </div>
 
         <ul class="grid">
             {#each placeData.topics as topic (topic.category)}
-                <li class="chip" class:strong={topic.placement === "strong"} class:rusty={topic.placement === "rusty"}>
+                <li
+                    class="chip"
+                    class:strong={topic.placement === "strong"}
+                    class:rusty={topic.placement === "rusty"}
+                >
                     <span class="chip-name">{label(topic.category)}</span>
                     <span class="pill">{topic.placement}</span>
                 </li>
@@ -307,8 +337,14 @@ there is no cold bucket. No AI, no confidence or self-rating.
         </ul>
 
         <div class="legend muted small" aria-hidden="true">
-            <span class="key"><span class="swatch strong"></span> strong</span>
-            <span class="key"><span class="swatch rusty"></span> rusty, needs work</span>
+            <span class="key">
+                <span class="swatch strong"></span>
+                 strong
+            </span>
+            <span class="key">
+                <span class="swatch rusty"></span>
+                 rusty, needs work
+            </span>
         </div>
 
         <div class="actions">

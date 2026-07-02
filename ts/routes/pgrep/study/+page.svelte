@@ -256,13 +256,25 @@ ladder that only shows the final answer at the reveal rung. No AI, no confidence
         </header>
 
         <div class="doors">
-            <button class="door cards" on:click={() => startDoor("cards")} disabled={loading}>
+            <button
+                class="door cards"
+                on:click={() => startDoor("cards")}
+                disabled={loading}
+            >
                 <span class="door-name">Cards</span>
-                <span class="door-desc">Retrieval that primes the problems. Real reviews.</span>
+                <span class="door-desc">
+                    Retrieval that primes the problems. Real reviews.
+                </span>
             </button>
-            <button class="door problems" on:click={() => startDoor("problems")} disabled={loading}>
+            <button
+                class="door problems"
+                on:click={() => startDoor("problems")}
+                disabled={loading}
+            >
                 <span class="door-name">Problems</span>
-                <span class="door-desc">Commit first, then work the ladder on a miss.</span>
+                <span class="door-desc">
+                    Commit first, then work the ladder on a miss.
+                </span>
             </button>
         </div>
 
@@ -283,11 +295,16 @@ ladder that only shows the final answer at the reveal rung. No AI, no confidence
     {:else}
         <header class="head row">
             <div>
-                <h1 class:cards-accent={screen === "cards"} class:problems-accent={screen === "problems"}>
+                <h1
+                    class:cards-accent={screen === "cards"}
+                    class:problems-accent={screen === "problems"}
+                >
                     {screen === "cards" ? "Cards" : "Problems"}
                 </h1>
                 <p class="sub">
-                    {drillTopic ? `Focus on ${CATEGORY_LABELS[drillTopic] ?? drillTopic}.` : "Topics mixed."}
+                    {drillTopic
+                        ? `Focus on ${CATEGORY_LABELS[drillTopic] ?? drillTopic}.`
+                        : "Topics mixed."}
                 </p>
             </div>
             <button class="btn ghost" on:click={toLauncher}>Back</button>
@@ -312,7 +329,9 @@ ladder that only shows the final answer at the reveal rung. No AI, no confidence
                     </button>
                 {:else}
                     <p class="lead">This door is clear for now.</p>
-                    <p class="muted">Come back when more is due, or try the other door.</p>
+                    <p class="muted">
+                        Come back when more is due, or try the other door.
+                    </p>
                     <button class="btn" on:click={toLauncher}>Back to doors</button>
                 {/if}
             </div>
@@ -325,14 +344,21 @@ ladder that only shows the final answer at the reveal rung. No AI, no confidence
                     <div class="prompt answer">{@html card.answer_html}</div>
                     <div class="grades">
                         {#each RATINGS as r}
-                            <button class="btn grade" on:click={() => grade(r.rating)} disabled={busy}>
+                            <button
+                                class="btn grade"
+                                on:click={() => grade(r.rating)}
+                                disabled={busy}
+                            >
                                 {r.label}
                             </button>
                         {/each}
                     </div>
                 {:else}
                     <div class="actions">
-                        <button class="btn primary" on:click={() => (answerShown = true)}>
+                        <button
+                            class="btn primary"
+                            on:click={() => (answerShown = true)}
+                        >
                             Show answer
                         </button>
                     </div>
@@ -351,8 +377,10 @@ ladder that only shows the final answer at the reveal rung. No AI, no confidence
                                 class="choice"
                                 class:picked={selected === letterOf(i)}
                                 class:locked={committed !== null}
-                                class:correct-choice={committed && letterOf(i) === committed.correct_choice}
-                                on:click={() => (committed ? null : (selected = letterOf(i)))}
+                                class:correct-choice={committed &&
+                                    letterOf(i) === committed.correct_choice}
+                                on:click={() =>
+                                    committed ? null : (selected = letterOf(i))}
                                 disabled={committed !== null}
                             >
                                 <span class="letter">{letterOf(i)}</span>
@@ -364,20 +392,32 @@ ladder that only shows the final answer at the reveal rung. No AI, no confidence
 
                 {#if !committed}
                     <div class="actions">
-                        <button class="btn primary" on:click={commit} disabled={!selected || busy}>
+                        <button
+                            class="btn primary"
+                            on:click={commit}
+                            disabled={!selected || busy}
+                        >
                             Commit
                         </button>
-                        <span class="muted small">Help stays locked until you commit.</span>
+                        <span class="muted small">
+                            Help stays locked until you commit.
+                        </span>
                     </div>
                 {:else}
-                    <div class="verdict" class:hit={committed.correct} class:miss={!committed.correct}>
+                    <div
+                        class="verdict"
+                        class:hit={committed.correct}
+                        class:miss={!committed.correct}
+                    >
                         {committed.correct ? "Correct." : "Not correct."}
                     </div>
                     <div class="rationale">{@html committed.rationale_html}</div>
 
                     {#if committed.correct}
                         {#if revealedRungs === 0}
-                            <button class="btn ghost" on:click={openSolution}>Show the worked solution</button>
+                            <button class="btn ghost" on:click={openSolution}>
+                                Show the worked solution
+                            </button>
                         {/if}
                     {/if}
 
@@ -385,15 +425,24 @@ ladder that only shows the final answer at the reveal rung. No AI, no confidence
                         <ol class="ladder">
                             {#each committed.ladder.slice(0, revealedRungs) as rung, i}
                                 <li class="rung">
-                                    <div class="rung-title">{RUNG_TITLES[rung.rung] ?? rung.rung}</div>
+                                    <div class="rung-title">
+                                        {RUNG_TITLES[rung.rung] ?? rung.rung}
+                                    </div>
                                     {#if rung.prompt_html}
-                                        <div class="rung-prompt">{@html rung.prompt_html}</div>
+                                        <div class="rung-prompt">
+                                            {@html rung.prompt_html}
+                                        </div>
                                     {/if}
                                     {#if rung.reveal_html}
                                         {#if shownSteps[i]}
-                                            <div class="rung-reveal">{@html rung.reveal_html}</div>
+                                            <div class="rung-reveal">
+                                                {@html rung.reveal_html}
+                                            </div>
                                         {:else}
-                                            <button class="btn ghost" on:click={() => showStep(i)}>
+                                            <button
+                                                class="btn ghost"
+                                                on:click={() => showStep(i)}
+                                            >
                                                 Show the step
                                             </button>
                                         {/if}
@@ -403,13 +452,19 @@ ladder that only shows the final answer at the reveal rung. No AI, no confidence
                         </ol>
 
                         {#if revealedRungs < committed.ladder.length}
-                            <button class="btn ghost" on:click={nextRung}>Next step</button>
+                            <button class="btn ghost" on:click={nextRung}>
+                                Next step
+                            </button>
                         {/if}
                     {/if}
 
                     <div class="actions">
-                        <button class="btn primary" on:click={loadNext} disabled={busy}>Next</button>
-                        <span class="muted small">{problem.remaining} left in this door.</span>
+                        <button class="btn primary" on:click={loadNext} disabled={busy}>
+                            Next
+                        </button>
+                        <span class="muted small">
+                            {problem.remaining} left in this door.
+                        </span>
                     </div>
                 {/if}
             </article>

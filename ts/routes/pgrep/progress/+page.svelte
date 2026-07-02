@@ -120,7 +120,8 @@ Memory point. Pure math over FSRS state and tags, no AI, no D3.
             </div>
 
             <div class="num">
-                {pct(data.overall_pct)}<span class="pctsign">%</span>
+                {pct(data.overall_pct)}
+                <span class="pctsign">%</span>
             </div>
             <p class="readout">
                 Coverage {pct(data.overall_pct)}%. Readiness needs {pct(data.gate)}%.
@@ -128,8 +129,14 @@ Memory point. Pure math over FSRS state and tags, no AI, no D3.
             <p class="muted small">{data.abstain_note}</p>
 
             <div class="legend muted small" aria-hidden="true">
-                <span class="key"><span class="swatch covered"></span> covered</span>
-                <span class="key"><span class="swatch"></span> not yet</span>
+                <span class="key">
+                    <span class="swatch covered"></span>
+                     covered
+                </span>
+                <span class="key">
+                    <span class="swatch"></span>
+                     not yet
+                </span>
                 <span>{coveredCount} of {topics.length} categories started.</span>
             </div>
 
@@ -162,7 +169,9 @@ Memory point. Pure math over FSRS state and tags, no AI, no D3.
             <button class="btn" on:click={seed} disabled={seeding}>
                 {seeding ? "Seeding sample content" : "Seed sample content"}
             </button>
-            <span class="muted small">A category counts once it has one reviewed card.</span>
+            <span class="muted small">
+                A category counts once it has one reviewed card.
+            </span>
         </div>
     {/if}
 </section>

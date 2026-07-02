@@ -205,9 +205,7 @@ def test_empty_collection_abstains_everywhere():
 def test_higher_stability_and_recency_yield_higher_memory():
     col = getEmptyCol()
     # Strong: high stability, reviewed yesterday -> R near 1.
-    _add_topic(
-        col, "topic::mechanics::kinematics", K_MEM_DEFAULT, base_stability=300.0
-    )
+    _add_topic(col, "topic::mechanics::kinematics", K_MEM_DEFAULT, base_stability=300.0)
     for _ in range(K_MEM_DEFAULT):
         _add_reviewed_card(
             col, "topic::mechanics::kinematics", stability=300.0, days_ago=1
@@ -228,9 +226,7 @@ def test_deck_scope_restricts_the_cards():
     col = getEmptyCol()
     other = col.decks.id("Scoped")
     _add_topic(col, "topic::mechanics::kinematics", K_MEM_DEFAULT)
-    _add_topic(
-        col, "topic::electromagnetism::circuits", K_MEM_DEFAULT, deck_id=other
-    )
+    _add_topic(col, "topic::electromagnetism::circuits", K_MEM_DEFAULT, deck_id=other)
 
     scoped = memory_score(col, deck_id=other)
 

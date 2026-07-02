@@ -128,7 +128,10 @@ data is thin. Memory is amber. Pure math over FSRS state and tags, no AI.
             {#if o.point !== null}
                 {@const low = o.low ?? 0}
                 {@const high = o.high ?? 0}
-                <div class="num">{pct(o.point)}<span class="pctsign">%</span></div>
+                <div class="num">
+                    {pct(o.point)}
+                    <span class="pctsign">%</span>
+                </div>
                 <p class="range">likely {pct(low)} to {pct(high)}.</p>
                 <div class="rangebar" aria-hidden="true">
                     <div
@@ -139,15 +142,17 @@ data is thin. Memory is amber. Pure math over FSRS state and tags, no AI.
                 </div>
                 <p class="reads">
                     <span>{howSure(low, high)}</span>
-                    <span class="muted"
-                        >Scored over {scoredCount} of {topics.length} topics.</span
-                    >
+                    <span class="muted">
+                        Scored over {scoredCount} of {topics.length} topics.
+                    </span>
                     {#if data.last_updated !== null}
                         <span class="muted">Updated just now.</span>
                     {/if}
                 </p>
             {:else}
-                <p class="abstain">{anyCards ? "Not enough cards yet." : "No cards yet."}</p>
+                <p class="abstain">
+                    {anyCards ? "Not enough cards yet." : "No cards yet."}
+                </p>
                 <p class="muted">
                     {anyCards
                         ? "Review a few more cards to see your Memory."
@@ -179,7 +184,9 @@ data is thin. Memory is amber. Pure math over FSRS state and tags, no AI.
                     <div class="rowsub muted small">
                         <span>{cardCount(topic.n_cards)}</span>
                         {#if topic.point !== null}
-                            <span>likely {pct(topic.low ?? 0)} to {pct(topic.high ?? 0)}</span>
+                            <span>
+                                likely {pct(topic.low ?? 0)} to {pct(topic.high ?? 0)}
+                            </span>
                         {/if}
                     </div>
                 </li>

@@ -106,7 +106,8 @@ flowchart LR
 All request/response payloads are JSON. Fields marked (later) are declared now for
 forward-compat but not computed in L2.
 
-### L2.2 Home / Readiness  (owner of `anki.pgrep.memory`, Home page)
+### L2.2 Home / Readiness (owner of `anki.pgrep.memory`, Home page)
+
 - `POST /_anki/pgrepMemoryScore` -> Memory only.
   - req: `{}` (whole collection) or `{ "deck_id": <int> }`.
   - res:
@@ -126,7 +127,8 @@ forward-compat but not computed in L2.
     `Sum R_i(1-R_i)`); a topic with `< k_mem` (default 5) reviewed cards abstains
     (`point=null`, `reason="Not enough cards yet"`). No Performance / Readiness.
 
-### L2.1 Study  (owner of `anki.pgrep.study`, `anki.pgrep.problem`, Study pages)
+### L2.1 Study (owner of `anki.pgrep.study`, `anki.pgrep.problem`, Study pages)
+
 - `POST /_anki/pgrepStudyStart` -> begin/scope a session.
   - req: `{ "door": "cards" | "problems", "topic": "topic::..."|null }`.
   - res: `{ "session_id": "<uuid>", "remaining": <int> }`. Applies the
@@ -157,7 +159,8 @@ forward-compat but not computed in L2.
   `difficulty`, `source_ref`, `topic` mirror on tags. Generates one schedulable
   card. No confidence field.
 
-### L2.3 Diagnostic v0  (owner of `anki.pgrep.diagnostic`, Diagnostic flow)
+### L2.3 Diagnostic v0 (owner of `anki.pgrep.diagnostic`, Diagnostic flow)
+
 - `POST /_anki/pgrepDiagnosticTopics` -> topics to place.
   - res: `{ "topics": [ { "category":"mechanics", "blueprint":0.20,
     "placement":"strong"|"rusty"|null, "n_cards":N } ] }`.
@@ -170,7 +173,8 @@ forward-compat but not computed in L2.
     FSRS R (and the quick check). Placement snapshot is stored in `col`'s config
     (small rolled-up state), re-runnable.
 
-### L2.4 Progress / Coverage  (owner of `anki.pgrep.coverage`, Progress page)
+### L2.4 Progress / Coverage (owner of `anki.pgrep.coverage`, Progress page)
+
 - `POST /_anki/pgrepCoverage` -> coverage ledger.
   - res:
     ```json
@@ -189,6 +193,7 @@ forward-compat but not computed in L2.
 ## 4. File ownership (so the four surfaces never touch the same file)
 
 **Scaffolding owns (written once, before the surfaces):**
+
 - `qt/aqt/pgrep.py` (bridge handlers + `pgrep_post_handlers` list, lazy imports).
 - `qt/aqt/mediasrv.py` (register the pgrep handlers into `post_handler_list`; add
   the pgrep page(s) to `is_sveltekit_page()`).

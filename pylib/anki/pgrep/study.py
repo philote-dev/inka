@@ -77,8 +77,7 @@ _SIBLING_PROMPT = (
     "reasoning, and see whether your method still holds."
 )
 _REVEAL_PROMPT = (
-    "Compare your work with the full solution, then say in one line where the "
-    "trap was."
+    "Compare your work with the full solution, then say in one line where the trap was."
 )
 
 
@@ -295,9 +294,7 @@ def commit_problem(
     return {
         "correct": is_correct,
         "correct_choice": correct_letter,
-        "rationale_html": _rationale_html(
-            is_correct, selected_letter, rationales
-        ),
+        "rationale_html": _rationale_html(is_correct, selected_letter, rationales),
         "ladder": _build_ladder(decomposition, correct_letter, choices),
     }
 
@@ -348,9 +345,9 @@ def _decomposition_html(decomposition: list[dict[str, str]]) -> str:
 
 def _reveal_html(steps_html: str, correct_letter: str, correct_text: str) -> str:
     if correct_text:
-        answer_line = f"<p class=\"answer\">Answer {correct_letter}, {correct_text}.</p>"
+        answer_line = f'<p class="answer">Answer {correct_letter}, {correct_text}.</p>'
     else:
-        answer_line = f"<p class=\"answer\">Answer {correct_letter}.</p>"
+        answer_line = f'<p class="answer">Answer {correct_letter}.</p>'
     return f"{steps_html}\n{answer_line}"
 
 
@@ -412,9 +409,7 @@ def _problem_order(col: Collection, topic: str | None) -> list[int]:
     return order
 
 
-def _first_card_in_category(
-    col: Collection, cards: Any, category: str | None
-) -> Any:
+def _first_card_in_category(col: Collection, cards: Any, category: str | None) -> Any:
     if category is None:
         return cards[0] if cards else None
     from anki.notes import NoteId

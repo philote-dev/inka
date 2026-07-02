@@ -247,8 +247,7 @@ _SAMPLE_PROBLEMS: tuple[
             "A": "Treated sin \u03b8 as proportional to 1/\u03bb, which is "
             "backwards for the maxima condition.",
             "B": "Assumed the angle does not depend on wavelength, but it does.",
-            "D": "Used a \u03bb\u00b2 dependence; the relation is linear in "
-            "\u03bb.",
+            "D": "Used a \u03bb\u00b2 dependence; the relation is linear in \u03bb.",
             "E": "Confused the bright-fringe condition with a dark-fringe one.",
         },
         (
@@ -320,7 +319,10 @@ def seed_sample_problems(col: Collection) -> int:
             rationales, ensure_ascii=False, sort_keys=True
         )
         note[FIELD_SOLUTION_DECOMPOSITION] = json.dumps(
-            [{"subgoal": subgoal, "rubric": rubric} for subgoal, rubric in decomposition],
+            [
+                {"subgoal": subgoal, "rubric": rubric}
+                for subgoal, rubric in decomposition
+            ],
             ensure_ascii=False,
         )
         note[FIELD_DIFFICULTY] = "medium"
