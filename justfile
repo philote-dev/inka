@@ -71,6 +71,19 @@ test-e2e ui='': _install-playwright-browsers
     {{ ninja }} pyenv ts:generated pylib qt
     {{ playwright_env }} {{ yarn }} test:e2e {{ ui }}
 
+# Fast desktop sanity check: import smoke (libs importable) + Rust tests
+smoke:
+    {{ if os() == "windows" { "$env:SKIP_RUN='1'; " + run_script } else { "SKIP_RUN=1 " + run_script } }}
+    just test-rust
+
+# Build the iOS FFI xcframework (out/ios/AnkiFfi.xcframework); macOS-only
+ios-xcframework:
+    ./tools/build-xcframework.sh
+
+# Build xcframework, regenerate the Xcode project, and run the iOS Simulator XCTest; macOS-only
+ios-smoke:
+    ./tools/ios-smoke.sh
+
 [private]
 _test:
     {{ ninja }} check:rust_test check:pytest check:vitest
