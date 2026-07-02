@@ -339,11 +339,11 @@ there is no cold bucket. No AI, no confidence or self-rating.
         <div class="legend muted small" aria-hidden="true">
             <span class="key">
                 <span class="swatch strong"></span>
-                 strong
+                strong
             </span>
             <span class="key">
                 <span class="swatch rusty"></span>
-                 rusty, needs work
+                rusty, needs work
             </span>
         </div>
 

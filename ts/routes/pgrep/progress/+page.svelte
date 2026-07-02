@@ -131,11 +131,11 @@ Memory point. Pure math over FSRS state and tags, no AI, no D3.
             <div class="legend muted small" aria-hidden="true">
                 <span class="key">
                     <span class="swatch covered"></span>
-                     covered
+                    covered
                 </span>
                 <span class="key">
                     <span class="swatch"></span>
-                     not yet
+                    not yet
                 </span>
                 <span>{coveredCount} of {topics.length} categories started.</span>
             </div>
