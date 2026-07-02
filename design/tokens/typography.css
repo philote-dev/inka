@@ -1,0 +1,21 @@
+/* pgrep typography tokens.
+   Inter for UI. JetBrains Mono for timers, scores, and dense data.
+   Every number renders in tabular lining figures so values do not jitter.
+   Math is MathJax 3, a first-class citizen, not a font token. */
+
+:root {
+  --font-ui: "Inter", -apple-system, "SF Pro", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* scale */
+  --text-caption: 11px;   /* uppercase labels, tracking 0.06-0.08em */
+  --text-small: 12px;     /* meta, updated lines */
+  --text-body: 14px;      /* default UI */
+  --text-emphasis: 16px;  /* card titles, prompts */
+  --text-content: 17px;   /* problem statements */
+  --text-title: 24px;     /* page headings, tracking -0.02em */
+  --text-greeting: 26px;
+  --text-score: 40px;     /* big score numbers, mono, weight 500 */
+
+  --tabular: "tnum" 1, "lnum" 1;
+}

@@ -1,0 +1,42 @@
+<!-- @dsCard group="Components" viewport="700x400" subtitle="ChoiceList states, GradeBar, HintRung" name="Study" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"></head>
+<body class="night-mode" style="margin:0;background:var(--canvas);font-family:var(--font-ui);color:var(--text);padding:20px;display:flex;gap:20px;">
+<div style="flex:1;display:flex;flex-direction:column;gap:10px;">
+  <div style="display:flex;align-items:center;gap:14px;border:1px solid var(--border);border-radius:12px;padding:12px 16px;">
+    <span style="width:24px;height:24px;border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:12px;color:var(--muted);">A</span>
+    <span style="font-size:15px;">Default choice</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px;border:1.5px solid var(--performance);border-radius:12px;padding:12px 16px;background:rgba(129,161,193,0.06);">
+    <span style="width:24px;height:24px;border:1px solid var(--performance);border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:12px;color:var(--performance-text);">B</span>
+    <span style="font-size:15px;">Selected choice</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px;border:1px solid var(--border);border-radius:12px;padding:12px 16px;opacity:0.62;">
+    <span style="width:24px;height:24px;border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:12px;color:var(--muted);">B</span>
+    <span style="font-size:15px;">Committed wrong</span>
+    <span style="margin-left:auto;font-size:10px;color:var(--performance-text);border:1px solid rgba(129,161,193,0.45);border-radius:999px;padding:3px 8px;white-space:nowrap;">Your answer, not correct</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px;">
+    <button style="background:none;border:1px solid var(--border);border-radius:10px;padding:10px 0 8px;color:var(--text);font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:2px;"><span style="font-size:13px;font-weight:500;">Again</span><span style="font-family:var(--font-mono);font-size:10px;color:var(--muted);">10m</span></button>
+    <button style="background:none;border:1px solid var(--border);border-radius:10px;padding:10px 0 8px;color:var(--text);font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:2px;"><span style="font-size:13px;font-weight:500;">Hard</span><span style="font-family:var(--font-mono);font-size:10px;color:var(--muted);">2d</span></button>
+    <button style="background:none;border:1px solid var(--border);border-radius:10px;padding:10px 0 8px;color:var(--text);font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:2px;"><span style="font-size:13px;font-weight:500;">Good</span><span style="font-family:var(--font-mono);font-size:10px;color:var(--muted);">4d</span></button>
+    <button style="background:none;border:1px solid var(--border);border-radius:10px;padding:10px 0 8px;color:var(--text);font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:2px;"><span style="font-size:13px;font-weight:500;">Easy</span><span style="font-family:var(--font-mono);font-size:10px;color:var(--muted);">8d</span></button>
+  </div>
+</div>
+<section style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;box-shadow:var(--shadow-card);align-self:flex-start;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+    <span style="font-size:15px;font-weight:600;">Break it down</span>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="width:7px;height:7px;border-radius:999px;background:var(--performance);"></span>
+      <span style="width:7px;height:7px;border-radius:999px;border:1px solid var(--muted);box-sizing:border-box;"></span>
+      <span style="width:7px;height:7px;border-radius:999px;border:1px solid var(--muted);box-sizing:border-box;"></span>
+      <span style="font-size:11px;color:var(--muted);">1 of 3 hints</span>
+    </div>
+  </div>
+  <div style="font-size:10px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">Step 1 of 3</div>
+  <p style="margin:0 0 12px;font-size:14px;line-height:1.5;">Which conservation law applies here, and why.</p>
+  <div style="background:var(--canvas);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--muted);">Write your answer and a short reason</div>
+  <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+    <button style="background:none;color:var(--text);border:1px solid var(--muted);border-radius:10px;padding:9px 16px;font-family:inherit;font-size:13px;font-weight:500;">Show the step</button>
+  </div>
+</section>
+</body></html>
