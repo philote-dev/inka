@@ -653,6 +653,116 @@ mod test {
         Ok(())
     }
 
+    /// pgrep HC3 regression: a note whose first-gathered review sibling is in a
+    /// deck already at its review limit must still contribute its eligible
+    /// sibling in another deck. Sibling burying is deferred to the
+    /// worth-ordered selection pass, so an over-limit sibling can't
+    /// pre-bury (and thereby drop) the whole note.
+    #[test]
+    fn points_at_stake_keeps_eligible_cross_deck_sibling() -> Result<()> {
+        let mut col = Collection::new();
+
+        // Root uses PointsAtStake + bury_reviews, with a generous review limit.
+        let parent = DeckAdder::new("parent")
+            .with_config(|c| {
+                c.inner.review_order = ReviewCardOrder::PointsAtStake as i32;
+                c.inner.bury_reviews = true;
+                c.inner.reviews_per_day = 200;
+            })
+            .add(&mut col);
+        // Child deck whose review limit is 0 (its cards can never be shown).
+        let blocked = DeckAdder::new("parent::blocked")
+            .with_config(|c| {
+                c.inner.bury_reviews = true;
+                c.inner.reviews_per_day = 0;
+            })
+            .add(&mut col);
+
+        // One note with two review cards (Basic + reversed).
+        let nt = col
+            .get_notetype_by_name("Basic (and reversed card)")?
+            .unwrap();
+        let mut note = nt.new_note();
+        note.set_field(0, "front")?;
+        note.set_field(1, "back")?;
+        note.id.0 = 0;
+        col.add_note(&mut note, parent.id)?;
+
+        // C1 -> blocked deck, gathered first (smaller due); C2 -> parent, eligible.
+        let mut c1 = col.storage.get_card_by_ordinal(note.id, 0)?.unwrap();
+        let mut c2 = col.storage.get_card_by_ordinal(note.id, 1)?.unwrap();
+        c1.deck_id = blocked.id;
+        c1.ctype = CardType::Review;
+        c1.queue = CardQueue::Review;
+        c1.due = -10;
+        c1.interval = 10;
+        c2.deck_id = parent.id;
+        c2.ctype = CardType::Review;
+        c2.queue = CardQueue::Review;
+        c2.due = 0;
+        c2.interval = 10;
+        let (c1_id, c2_id) = (c1.id, c2.id);
+        col.update_cards_maybe_undoable(vec![c1, c2], false)?;
+
+        let queue: Vec<CardId> = col
+            .build_queues(parent.id)?
+            .iter()
+            .map(|entry| entry.card_id())
+            .collect();
+
+        // The eligible sibling C2 is shown; the over-limit sibling C1 is not.
+        assert_eq!(queue, vec![c2_id]);
+        assert!(!queue.contains(&c1_id));
+
+        Ok(())
+    }
+
+    /// pgrep regression: with bury_reviews on, two review siblings of one note
+    /// in the *same* deck still collapse to a single shown card under
+    /// PointsAtStake (deferred burying still buries same-note siblings).
+    #[test]
+    fn points_at_stake_still_buries_same_note_siblings() -> Result<()> {
+        let mut col = Collection::new();
+        let parent = DeckAdder::new("parent")
+            .with_config(|c| {
+                c.inner.review_order = ReviewCardOrder::PointsAtStake as i32;
+                c.inner.bury_reviews = true;
+                c.inner.reviews_per_day = 200;
+            })
+            .add(&mut col);
+
+        let nt = col
+            .get_notetype_by_name("Basic (and reversed card)")?
+            .unwrap();
+        let mut note = nt.new_note();
+        note.set_field(0, "front")?;
+        note.set_field(1, "back")?;
+        note.id.0 = 0;
+        col.add_note(&mut note, parent.id)?;
+
+        let mut cards = vec![];
+        for ord in 0..2 {
+            let mut card = col.storage.get_card_by_ordinal(note.id, ord)?.unwrap();
+            card.ctype = CardType::Review;
+            card.queue = CardQueue::Review;
+            card.due = 0;
+            card.interval = 10;
+            cards.push(card);
+        }
+        col.update_cards_maybe_undoable(cards, false)?;
+
+        let queue: Vec<CardId> = col
+            .build_queues(parent.id)?
+            .iter()
+            .map(|entry| entry.card_id())
+            .collect();
+
+        // Exactly one sibling survives; the other is buried.
+        assert_eq!(queue.len(), 1);
+
+        Ok(())
+    }
+
     impl Collection {
         fn card_queue_len(&mut self) -> usize {
             self.get_queued_cards(5, false).unwrap().cards.len()

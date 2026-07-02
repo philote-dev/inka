@@ -31,6 +31,7 @@ use fsrs::FSRS;
 use fsrs::FSRS5_DEFAULT_DECAY;
 
 use super::DueCard;
+use super::DueCardKind;
 use super::QueueBuilder;
 use crate::decks::limits::LimitKind;
 use crate::prelude::*;
@@ -249,8 +250,12 @@ impl QueueBuilder {
         }
         let timing = self.context.timing;
 
-        // Batch-load note tags for the gathered reviews (read-only).
-        let note_ids: Vec<NoteId> = self.review.iter().map(|c| c.note_id).collect();
+        // Batch-load note tags for the gathered reviews (read-only). Sibling
+        // cards share a note id, so dedupe first: the search_nids temp table
+        // backing get_note_tags_by_id_list requires unique ids.
+        let mut note_ids: Vec<NoteId> = self.review.iter().map(|c| c.note_id).collect();
+        note_ids.sort_unstable();
+        note_ids.dedup();
         let tags_by_note: HashMap<NoteId, String> = col
             .storage
             .get_note_tags_by_id_list(&note_ids)?
@@ -282,12 +287,13 @@ impl QueueBuilder {
 
         let ordered = greedy_order(score_inputs(&inputs));
 
-        // Apply the daily limits in worth order, exactly as stock Anki would
-        // during gather: honour the root + per-deck review limits (including the
-        // way review decrements cap the shared new-card limit), but keep the
-        // highest-worth cards first. This yields the same review/new counts as
-        // stock while reordering the due set. `by_id` maps back to the untouched
-        // DueCard values; the DueCards themselves are never modified.
+        // Apply the daily limits and sibling burying in worth order, exactly as
+        // stock Anki would during gather: honour the root + per-deck review
+        // limits (including the way review decrements cap the shared new-card
+        // limit) and bury same-note siblings, but keep the highest-worth cards
+        // first. This yields the same review/new counts as stock while reordering
+        // the due set. `by_id` maps back to the untouched DueCard values; the
+        // DueCards themselves are never modified.
         let by_id: HashMap<CardId, DueCard> = self.review.iter().map(|c| (c.id, *c)).collect();
         let mut selected = Vec::with_capacity(ordered.len());
         for scored in ordered {
@@ -295,14 +301,35 @@ impl QueueBuilder {
                 break;
             }
             let card = by_id[&scored.id];
-            if !self
+            // Per-deck limit gate FIRST, mirroring stock's short-circuit: an
+            // over-limit card must not take part in sibling-bury tracking, or it
+            // could bury an eligible sibling in another deck and drop the note.
+            if self
                 .limits
                 .limit_reached(card.current_deck_id, LimitKind::Review)?
             {
-                self.limits
-                    .decrement_deck_and_parent_limits(card.current_deck_id, LimitKind::Review)?;
-                selected.push(card);
+                continue;
             }
+            // Sibling burying, deferred from gather to here so it runs in worth
+            // order over limit-eligible cards only. `get_and_update_bury_mode_for_note`
+            // marks the note "seen" as a side effect, so a note's later (lower-worth)
+            // siblings get buried, while the highest-worth eligible sibling survives.
+            // Reusing the shared `seen_note_ids` map preserves stock's cross-kind
+            // burying (e.g. a review buried by an earlier interday-learning sibling)
+            // and the accumulated flags that later gate new-card burying.
+            let buried = self
+                .get_and_update_bury_mode_for_note(card.into())
+                .map(|mode| match card.kind {
+                    DueCardKind::Review => mode.bury_reviews,
+                    DueCardKind::Learning => mode.bury_interday_learning,
+                })
+                .unwrap_or_default();
+            if buried {
+                continue;
+            }
+            self.limits
+                .decrement_deck_and_parent_limits(card.current_deck_id, LimitKind::Review)?;
+            selected.push(card);
         }
         self.review = selected;
 

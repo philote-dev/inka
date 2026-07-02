@@ -51,7 +51,12 @@ impl QueueBuilder {
                 kind,
                 self.context.fsrs,
                 |card| {
-                    self.add_due_card(card);
+                    // Gather the raw due set WITHOUT sibling-bury tracking: unlike
+                    // `add_due_card`, this never marks a note "seen". Burying is
+                    // deferred to the worth-ordered selection pass so an over-limit
+                    // sibling can't pre-bury (and thereby drop) the whole note.
+                    // Review-only path, so cards always belong in `self.review`.
+                    self.review.push(card);
                     Ok(true)
                 },
             )?;
