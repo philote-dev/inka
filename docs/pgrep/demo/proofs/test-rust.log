@@ -1,0 +1,9 @@
+just _test-rust
+./ninja check:rust_test
+[1m[92m    Finished[0m `release` profile [optimized] target(s) in 0.39s
+cargo-nextest
+check:rust_test
+n2: ran 2 tasks, now up to date
+[0m[1m[32m
+Build succeeded in 104.74s.
+[0m
