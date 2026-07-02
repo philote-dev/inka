@@ -5,6 +5,7 @@ use super::DueCard;
 use super::NewCard;
 use super::QueueBuilder;
 use crate::deckconfig::NewCardGatherPriority;
+use crate::deckconfig::ReviewCardOrder;
 use crate::decks::limits::LimitKind;
 use crate::prelude::*;
 use crate::scheduler::queue::DueCardKind;
@@ -35,6 +36,26 @@ impl QueueBuilder {
     fn gather_due_cards(&mut self, col: &mut Collection, kind: DueCardKind) -> Result<()> {
         if self.limits.root_limit_reached(LimitKind::Review) {
             return Ok(());
+        }
+        // pgrep points-at-stake needs the *whole* due set to compute per-topic
+        // weakness and pick the best cards, so for the review pass we gather all
+        // non-buried due reviews (ignoring the limit checks/decrements) and defer
+        // the daily limit to a scoring+truncation second pass below. Interday
+        // learning and every other review order keep stock behaviour.
+        if matches!(kind, DueCardKind::Review)
+            && self.context.sort_options.review_order == ReviewCardOrder::PointsAtStake
+        {
+            col.storage.for_each_due_card_in_active_decks(
+                self.context.timing,
+                self.context.sort_options.review_order,
+                kind,
+                self.context.fsrs,
+                |card| {
+                    self.add_due_card(card);
+                    Ok(true)
+                },
+            )?;
+            return self.sort_reviews_points_at_stake(col);
         }
         col.storage.for_each_due_card_in_active_decks(
             self.context.timing,
