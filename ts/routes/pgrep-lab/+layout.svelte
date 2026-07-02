@@ -2,12 +2,11 @@
 Copyright: Ankitects Pty Ltd and contributors
 License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
-<!-- pgrep surface shell. Loads the fonts and the scoped design tokens, then
-     wraps every pgrep page in the .pgrep scope so the tokens resolve. -->
+<!-- pgrep-lab shell. Same fonts and scoped tokens as the pgrep surface. -->
 <script lang="ts">
     import "@fontsource-variable/inter/index.css";
     import "@fontsource-variable/jetbrains-mono/index.css";
-    import "./pgrep.scss";
+    import "../pgrep/pgrep.scss";
 </script>
 
 <div class="pgrep">

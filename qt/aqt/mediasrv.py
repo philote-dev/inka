@@ -424,6 +424,13 @@ def is_sveltekit_page(path: str) -> bool:
         "import-page",
         "image-occlusion",
         "pgrep",
+        "pgrep-lab",
+        "pgrep-study",
+        "pgrep-progress",
+        "pgrep-library",
+        "pgrep-exam",
+        "pgrep-settings",
+        "pgrep-diagnostic",
     ]
 
 

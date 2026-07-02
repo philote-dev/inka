@@ -1,0 +1,110 @@
+/* Copyright: pgrep, built on Anki (Ankitects Pty Ltd and contributors)
+ * License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+ *
+ * pgrep design tokens, ported from the Claude Design export (design/tokens/*).
+ * Scoped under .pgrep so they never affect Anki's other pages while both
+ * coexist. Dark follows the fork's .night-mode class. Promote to :root once
+ * pgrep fully replaces the host screens.
+ *
+ * Reserved data language: amber = Memory, blue = Performance, lilac = Readiness.
+ * Interactive elements (buttons, links, focus rings) stay monochrome. */
+
+.pgrep {
+    /* neutrals, warm (light) */
+    --canvas: #fbfaf8;
+    --surface: #ffffff;
+    --elevated: #f5f2ec;
+    --border: #e8e4da;
+    --text: #262624;
+    --muted: #6e6b64;
+
+    /* reserved score language */
+    --memory: #ebcb8b;
+    --memory-text: #a9752a;
+    --performance: #81a1c1;
+    --performance-text: #5e81ac;
+    --readiness: #c4a7d6;
+    --readiness-text: #7e6593;
+
+    /* monochrome action */
+    --action-bg: #262624;
+    --action-fg: #fbfaf8;
+    --action-bg-hover: #000000;
+    --focus-ring: #262624;
+
+    /* states, kept separate from the score hues */
+    --success: #a3be8c;
+    --caution: #d08770;
+    --error: #bf616a;
+
+    /* derived */
+    --hover-wash: #f5f2ec;
+    --shadow-card: 0 1px 2px rgba(38, 38, 36, 0.06), 0 4px 16px rgba(38, 38, 36, 0.04);
+
+    /* type */
+    --font-ui: "Inter", -apple-system, "SF Pro", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, monospace;
+    --text-caption: 11px;
+    --text-small: 12px;
+    --text-body: 14px;
+    --text-emphasis: 16px;
+    --text-content: 17px;
+    --text-title: 24px;
+    --text-greeting: 26px;
+    --text-score: 40px;
+
+    /* spacing, 8pt grid */
+    --space-0: 4px;
+    --space-1: 8px;
+    --space-2: 16px;
+    --space-3: 24px;
+    --space-4: 32px;
+    --space-5: 40px;
+    --space-6: 48px;
+
+    /* squircle radii */
+    --radius-control: 10px;
+    --radius-row: 12px;
+    --radius-card: 16px;
+    --radius-frame: 20px;
+    --radius-pill: 999px;
+    --hairline: 1px solid var(--border);
+
+    /* motion */
+    --duration-calm: 240ms;
+    --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+    --transition-calm: background 240ms cubic-bezier(0.32, 0.72, 0, 1),
+        border-color 240ms cubic-bezier(0.32, 0.72, 0, 1),
+        color 240ms cubic-bezier(0.32, 0.72, 0, 1);
+
+    /* pgrep surface baseline */
+    font-family: var(--font-ui);
+    color: var(--text);
+    background: var(--canvas);
+    font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* dark: the fork toggles .night-mode on an ancestor (html/body) */
+.night-mode .pgrep,
+.pgrep.night-mode,
+[data-theme="dark"] .pgrep {
+    --canvas: #262624;
+    --surface: #302f2c;
+    --elevated: #3a3835;
+    --border: #45433e;
+    --text: #eceae3;
+    --muted: #a5a199;
+
+    /* on dark the fills read as text, no separate text tone */
+    --memory-text: #ebcb8b;
+    --performance-text: #81a1c1;
+    --readiness-text: #c4a7d6;
+
+    --action-bg: #eceae3;
+    --action-fg: #262624;
+    --action-bg-hover: #ffffff;
+    --focus-ring: #eceae3;
+
+    --hover-wash: #2b2a27;
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25), 0 12px 40px rgba(0, 0, 0, 0.2);
+}
