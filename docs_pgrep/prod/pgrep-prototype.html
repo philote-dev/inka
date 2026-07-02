@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>pgrep prototype (clickable, not the submission)</title>
+<style>
+  /* ---- Design tokens (from ux-foundation.md / claude-design-prompts.md) ---- */
+  :root {
+    --canvas:#262624; --surface:#302F2C; --elevated:#3A3835; --border:#45433E;
+    --text:#ECEAE3; --muted:#A5A199;
+    --memory:#EBCB8B; --memory-t:#EBCB8B;
+    --performance:#81A1C1; --performance-t:#81A1C1;
+    --readiness:#C4A7D6; --readiness-t:#C4A7D6;
+    --primary-bg:#ECEAE3; --primary-fg:#262624;
+    --success:#A3BE8C; --caution:#D08770; --error:#BF616A;
+    --radius:16px; --radius-sm:10px; --shadow:0 1px 2px rgba(0,0,0,.28),0 8px 24px rgba(0,0,0,.22);
+    --font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;
+    --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  body.light {
+    --canvas:#FBFAF8; --surface:#FFFFFF; --elevated:#F5F2EC; --border:#E8E4DA;
+    --text:#262624; --muted:#6E6B64;
+    --memory-t:#A9752A; --performance-t:#5E81AC; --readiness-t:#7E6593;
+    --primary-bg:#262624; --primary-fg:#FBFAF8;
+    --shadow:0 1px 2px rgba(40,38,36,.06),0 10px 30px rgba(40,38,36,.08);
+  }
+  * { box-sizing:border-box; }
+  html,body { height:100%; }
+  body {
+    margin:0; background:var(--canvas); color:var(--text);
+    font-family:var(--font-ui); -webkit-font-smoothing:antialiased;
+    font-size:15px; line-height:1.5;
+    transition:background .3s ease,color .3s ease;
+  }
+  .num { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+
+  /* ---- Top bar ---- */
+  .topbar {
+    height:52px; display:flex; align-items:center; gap:12px; padding:0 18px;
+    border-bottom:1px solid var(--border); background:var(--surface);
+    position:sticky; top:0; z-index:20;
+  }
+  .brand { display:flex; align-items:center; gap:9px; font-weight:600; letter-spacing:-.01em; }
+  .brand svg { display:block; }
+  .spacer { flex:1; }
+  .chip {
+    font-size:12.5px; padding:5px 11px; border-radius:999px; border:1px solid var(--border);
+    color:var(--muted); background:var(--canvas); cursor:pointer; user-select:none;
+    display:inline-flex; align-items:center; gap:6px; transition:all .2s ease;
+  }
+  .chip:hover { color:var(--text); }
+  .chip .dot { width:7px; height:7px; border-radius:50%; background:var(--muted); }
+  body:not(.ai-off) #aiChip .dot { background:var(--success); }
+  body:not(.ai-off) #aiChip { color:var(--text); }
+  .banner {
+    background:var(--elevated); border-bottom:1px solid var(--border); color:var(--muted);
+    font-size:12.5px; text-align:center; padding:6px 12px;
+  }
+  .banner b { color:var(--text); font-weight:600; }
+
+  /* ---- Layout ---- */
+  .app { display:grid; grid-template-columns:212px 1fr; min-height:calc(100vh - 52px); }
+  .rail { border-right:1px solid var(--border); background:var(--surface); padding:16px 12px; display:flex; flex-direction:column; gap:4px; }
+  .nav { display:flex; align-items:center; gap:11px; padding:9px 12px; border-radius:var(--radius-sm); color:var(--muted); cursor:pointer; font-weight:500; transition:all .15s ease; }
+  .nav:hover { background:var(--elevated); color:var(--text); }
+  .nav.active { background:var(--elevated); color:var(--text); }
+  .nav .ico { width:17px; text-align:center; opacity:.9; }
+  .rail .streak { margin-top:auto; font-size:12.5px; color:var(--muted); padding:10px 12px; border-top:1px solid var(--border); }
+  .rail .streak b { color:var(--memory-t); }
+
+  main { padding:30px 40px; max-width:1100px; }
+  .screen { display:none; animation:fade .25s ease; }
+  .screen.active { display:block; }
+  @keyframes fade { from { opacity:0; transform:translateY(4px);} to { opacity:1; transform:none; } }
+  h1.title { font-size:24px; font-weight:650; letter-spacing:-.02em; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 24px; }
+
+  /* ---- Cards / surfaces ---- */
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); padding:20px; }
+  .grid-home { display:grid; grid-template-columns:1.6fr 1fr; gap:20px; align-items:start; }
+  .scorecol { display:flex; flex-direction:column; gap:14px; }
+
+  /* score card */
+  .score { padding:18px; }
+  .score .head { display:flex; align-items:center; justify-content:space-between; }
+  .score .label { font-weight:600; font-size:14px; display:flex; align-items:center; gap:8px; }
+  .swatch { width:10px; height:10px; border-radius:3px; }
+  .score .big { font-size:40px; font-weight:650; letter-spacing:-.02em; margin:6px 0 2px; }
+  .score .rng { color:var(--muted); font-size:13px; }
+  .score .meta { color:var(--muted); font-size:12px; margin-top:10px; display:flex; gap:14px; }
+  .m .big,.m .swatch{ } .m .swatch{background:var(--memory);} .m .big{color:var(--memory-t);}
+  .p .swatch{background:var(--performance);} .p .big{color:var(--performance-t);}
+  .r .swatch{background:var(--readiness);} .r .big{color:var(--readiness-t);}
+  .abstain { color:var(--muted); }
+  .abstain .big2 { font-size:19px; font-weight:600; color:var(--text); margin:8px 0 2px; }
+  .link { color:var(--muted); text-decoration:underline; text-underline-offset:3px; cursor:pointer; font-size:12.5px; }
+
+  /* manifold hero */
+  .hero { padding:0; overflow:hidden; position:relative; min-height:320px; display:flex; flex-direction:column; }
+  .hero canvas { width:100%; height:320px; display:block; }
+  .hero .legend { position:absolute; left:16px; bottom:14px; font-size:12px; color:var(--muted); display:flex; gap:16px; }
+  .hero .legend b{ color:var(--text); font-weight:600; }
+  .today { margin-top:20px; display:flex; align-items:center; gap:16px; }
+  .today .txt { flex:1; }
+  .today .k { font-size:12.5px; color:var(--muted); }
+  .today .v { font-weight:600; }
+
+  /* buttons */
+  .btn { font-family:var(--font-ui); font-size:14px; font-weight:600; padding:10px 18px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--canvas); color:var(--text); cursor:pointer; transition:all .15s ease; }
+  .btn:hover { border-color:var(--muted); }
+  .btn.primary { background:var(--primary-bg); color:var(--primary-fg); border-color:var(--primary-bg); }
+  .btn.primary:hover { opacity:.9; }
+  .btn.wide { width:100%; }
+  .btnrow { display:flex; gap:10px; flex-wrap:wrap; }
+
+  /* topic chip */
+  .topic { font-size:12px; font-weight:600; padding:4px 10px; border-radius:999px; background:var(--elevated); color:var(--muted); border:1px solid var(--border); }
+
+  /* study launcher */
+  .launch { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  .launch .card { cursor:pointer; transition:transform .15s ease,border-color .15s ease; }
+  .launch .card:hover { transform:translateY(-2px); border-color:var(--muted); }
+  .launch h3 { margin:2px 0 6px; font-size:16px; }
+  .launch p { margin:0; color:var(--muted); font-size:13px; }
+  .rec { font-size:11px; font-weight:700; color:var(--memory-t); letter-spacing:.04em; text-transform:uppercase; }
+
+  /* study card frame */
+  .frame { max-width:640px; margin:0 auto; }
+  .frametop { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; color:var(--muted); font-size:13px; }
+  .progress { height:4px; background:var(--elevated); border-radius:2px; overflow:hidden; margin-bottom:18px; }
+  .progress > div { height:100%; background:var(--memory); width:35%; transition:width .3s ease; }
+  .studycard { min-height:260px; display:flex; flex-direction:column; justify-content:center; text-align:center; padding:34px; }
+  .studycard .q { font-size:21px; font-weight:550; letter-spacing:-.01em; }
+  .studycard .eq { font-family:var(--font-mono); font-size:20px; margin-top:6px; color:var(--text); }
+  .divider { height:1px; background:var(--border); margin:22px 0; }
+  .answer { color:var(--text); }
+  .answer .a { font-size:22px; font-family:var(--font-mono); color:var(--memory-t); }
+  .answer .note { color:var(--muted); font-size:13px; margin-top:8px; }
+  .grades { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:20px; }
+  .grade { text-align:center; padding:12px 0; border-radius:var(--radius-sm); border:1px solid var(--border); cursor:pointer; font-weight:600; background:var(--canvas); transition:all .15s ease; }
+  .grade small { display:block; color:var(--muted); font-weight:500; font-size:11px; margin-top:2px; }
+  .grade:hover { border-color:var(--muted); }
+  .hidden { display:none !important; }
+
+  /* problems */
+  .choices { display:flex; flex-direction:column; gap:10px; margin:18px 0; }
+  .choice { display:flex; align-items:center; gap:12px; padding:13px 15px; border:1px solid var(--border); border-radius:var(--radius-sm); cursor:pointer; transition:all .15s ease; }
+  .choice:hover { border-color:var(--muted); }
+  .choice.sel { border-color:var(--performance); box-shadow:0 0 0 1px var(--performance) inset; }
+  .choice .key { font-family:var(--font-mono); color:var(--muted); width:18px; }
+  .rung { margin-top:16px; border-left:3px solid var(--performance); }
+  .rung .budget { display:inline-flex; gap:5px; margin-left:8px; }
+  .rung .budget i { width:7px; height:7px; border-radius:50%; background:var(--border); display:inline-block; }
+  .rung .budget i.on { background:var(--performance); }
+  textarea { width:100%; background:var(--canvas); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); padding:10px 12px; font-family:var(--font-ui); font-size:14px; resize:vertical; min-height:64px; }
+  .tag { font-size:11px; font-weight:700; padding:3px 8px; border-radius:6px; background:var(--elevated); color:var(--muted); }
+
+  /* coverage + calibration */
+  .cov { display:flex; height:26px; border-radius:8px; overflow:hidden; border:1px solid var(--border); margin:12px 0; }
+  .cov > span { display:block; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .calib { text-align:center; }
+  .note-warn { color:var(--caution); font-size:13px; }
+
+  /* settings/library rows */
+  .row { display:flex; align-items:center; justify-content:space-between; padding:14px 4px; border-bottom:1px solid var(--border); }
+  .row:last-child { border-bottom:0; }
+  .group { margin-bottom:22px; }
+  .group h4 { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.05em; margin:0 0 6px; }
+  .field label { font-size:12.5px; color:var(--muted); display:block; margin:12px 0 5px; }
+  .field input[type=text] { width:100%; background:var(--canvas); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); padding:10px 12px; font-family:var(--font-ui); }
+  .sibling { padding:12px; border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:10px; }
+  .sibling .src { font-size:12px; color:var(--muted); }
+  .ok { color:var(--success); font-weight:600; } .warnc { color:var(--caution); font-weight:600; }
+
+  .aip { }  /* AI-only elements */
+  body.ai-off .aip { display:none !important; }
+  .aioffstate { display:none; }
+  body.ai-off .aioffstate { display:block; }
+</style>
+</head>
+<body class="dark ai-off">
+
+<div class="banner">Clickable prototype for rehearsal and the L2 visual spec. <b>Not the Wednesday submission</b> (that needs the real forked build). See <b>docs_pgrep/plan/demo-runbook.md</b>.</div>
+
+<div class="topbar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+      <path d="M11 2c4 0 7 3 7 7 0 3-2 5-5 6-2 .7-3 2-5 2-3 0-5-2-5-5 0-4 4-4 5-7 1-2 1-3 3-3z" stroke="currentColor" stroke-width="1.3" fill="none" opacity=".55"/>
+      <path d="M11 6c2.4 0 4 1.6 4 4 0 1.8-1.2 2.8-2.8 3.4-1.2.4-1.8 1-2.8 1-1.8 0-3-1.2-3-3 0-2.4 2.2-2.4 2.8-4C9.6 6.4 9.8 6 11 6z" stroke="currentColor" stroke-width="1.3" fill="none"/>
+    </svg>
+    pgrep
+  </div>
+  <div class="spacer"></div>
+  <div class="chip" id="aiChip" onclick="toggleAI()"><span class="dot"></span><span id="aiLabel">AI off</span></div>
+  <div class="chip" id="themeChip" onclick="toggleTheme()">Dark</div>
+</div>
+
+<div class="app">
+  <nav class="rail">
+    <div class="nav active" data-s="home" onclick="go('home')"><span class="ico">◎</span> Home</div>
+    <div class="nav" data-s="study" onclick="go('study')"><span class="ico">▷</span> Study</div>
+    <div class="nav" data-s="progress" onclick="go('progress')"><span class="ico">▤</span> Progress</div>
+    <div class="nav" data-s="library" onclick="go('library')"><span class="ico">✎</span> Library</div>
+    <div class="nav" data-s="settings" onclick="go('settings')"><span class="ico">⚙</span> Settings</div>
+    <div class="streak">Streak <b>6 days</b><br/>Physics GRE</div>
+  </nav>
+
+  <main>
+    <!-- HOME -->
+    <section class="screen active" id="home">
+      <h1 class="title">Readiness</h1>
+      <p class="sub">One honest view. What you can recall, apply, and score today.</p>
+      <div class="grid-home">
+        <div>
+          <div class="card hero">
+            <canvas id="manifold"></canvas>
+            <div class="legend"><span><b>Height</b> performance</span><span><b>Glow</b> memory</span><span><b>Holes</b> gaps</span></div>
+          </div>
+          <div class="card today">
+            <div class="txt">
+              <div class="k">Today, your best next step</div>
+              <div class="v">Review 20 Mechanics and Quantum cards, then 6 problems</div>
+            </div>
+            <button class="btn primary" onclick="go('study')">Start session</button>
+          </div>
+        </div>
+        <div class="scorecol">
+          <div class="card score m">
+            <div class="head"><div class="label"><span class="swatch"></span>Memory</div><div class="topic">on</div></div>
+            <div class="big num">72</div>
+            <div class="rng num">likely 66 to 78</div>
+            <div class="meta"><span>how sure, moderate</span><span>updated 2h ago</span></div>
+          </div>
+          <div class="card score p abstain">
+            <div class="head"><div class="label"><span class="swatch"></span>Performance</div></div>
+            <div class="big2">Not enough evidence yet</div>
+            <div>Answer some problems and this wakes up.</div>
+            <div style="margin-top:8px"><span class="link" onclick="go('study')">See what is missing</span></div>
+          </div>
+          <div class="card score r abstain">
+            <div class="head"><div class="label"><span class="swatch"></span>Readiness</div></div>
+            <div class="big2">Not enough of the exam covered</div>
+            <div>Coverage is under the line, so this abstains.</div>
+            <div style="margin-top:8px"><span class="link" onclick="go('progress')">See coverage</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- STUDY launcher -->
+    <section class="screen" id="study">
+      <h1 class="title">Study</h1>
+      <p class="sub">Two doors. Cards for memory, problems for performance. Topics mix inside each.</p>
+      <div class="launch">
+        <div class="card" onclick="startCards()">
+          <div class="rec">Recommended</div>
+          <h3>Today's session</h3>
+          <p>Interleaved. Cards then problems, topics mixed.</p>
+        </div>
+        <div class="card" onclick="startProblem()">
+          <h3>Focus drill</h3>
+          <p>One topic. Cards and problems for it.</p>
+        </div>
+        <div class="card" onclick="alert('Exam mode: timed mock, real proportions, no help. (Prototype stub.)')">
+          <h3>Exam mode</h3>
+          <p>Timed mock. Real proportions. No help.</p>
+        </div>
+      </div>
+      <div style="margin-top:18px" class="btnrow">
+        <button class="btn" onclick="startCards()">Open Cards door (memory)</button>
+        <button class="btn" onclick="startProblem()">Open Problems door (performance)</button>
+      </div>
+    </section>
+
+    <!-- CARDS review loop -->
+    <section class="screen" id="cards">
+      <div class="frame">
+        <div class="frametop">
+          <span class="topic" id="cardTopic">Mechanics</span>
+          <span class="num" id="cardProg">1 of 6</span>
+          <span class="link" onclick="go('study')">Close</span>
+        </div>
+        <div class="progress"><div id="cardBar"></div></div>
+        <div class="card studycard">
+          <div class="q" id="cardQ">A mass on a spring. What is the angular frequency?</div>
+          <div id="cardAnswerWrap" class="hidden">
+            <div class="divider"></div>
+            <div class="answer"><div class="a" id="cardA">ω = √(k / m)</div><div class="note" id="cardNote">k is the spring constant, m the mass.</div></div>
+          </div>
+        </div>
+        <div id="showRow" class="btnrow" style="margin-top:18px; justify-content:center">
+          <button class="btn primary" onclick="showAnswer()">Show answer</button>
+        </div>
+        <div id="gradeRow" class="grades hidden">
+          <div class="grade" onclick="grade()">Again<small>&lt; 1 min</small></div>
+          <div class="grade" onclick="grade()">Hard<small>soon</small></div>
+          <div class="grade" onclick="grade()">Good<small>on track</small></div>
+          <div class="grade" onclick="grade()">Easy<small>later</small></div>
+        </div>
+        <div id="cardsDone" class="card hidden" style="text-align:center; margin-top:16px">
+          <h3 style="margin:0 0 6px">Session complete</h3>
+          <p style="color:var(--muted); margin:0 0 14px">6 cards reviewed. Memory score updated.</p>
+          <button class="btn primary" onclick="go('home')">Back to Home</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PROBLEMS door -->
+    <section class="screen" id="problem">
+      <div class="frame">
+        <div class="frametop">
+          <span class="topic" style="color:var(--performance-t)">Quantum</span>
+          <span class="num">1 of 6</span>
+          <span class="link" onclick="go('study')">Close</span>
+        </div>
+        <div class="card">
+          <div class="q" style="font-size:18px; font-weight:550">A particle is in the ground state of an infinite square well of width L. Its energy is proportional to?</div>
+          <div class="choices" id="choices">
+            <div class="choice" onclick="pick(this)"><span class="key">A</span> L</div>
+            <div class="choice" onclick="pick(this)"><span class="key">B</span> 1 / L</div>
+            <div class="choice" onclick="pick(this)"><span class="key">C</span> 1 / L²</div>
+            <div class="choice" onclick="pick(this)"><span class="key">D</span> L²</div>
+            <div class="choice" onclick="pick(this)"><span class="key">E</span> independent of L</div>
+          </div>
+          <div class="btnrow">
+            <button class="btn primary" id="commitBtn" onclick="commit()">Commit</button>
+            <span style="color:var(--muted); font-size:13px; align-self:center">Help unlocks after you commit. No confidence rating.</span>
+          </div>
+        </div>
+
+        <!-- ladder rung, appears after a wrong commit -->
+        <div class="card rung hidden" id="rung">
+          <div style="display:flex; align-items:center; justify-content:space-between">
+            <b>Break it down <span class="tag">Step 1 of 3</span></b>
+            <span class="budget">Hints <i class="on"></i><i></i><i></i></span>
+          </div>
+          <p style="color:var(--muted); margin:10px 0 8px">What is the form of the energy levels of an infinite square well? Relate E to n and L, do not solve it yet.</p>
+          <textarea placeholder="Write the relationship in your own words"></textarea>
+          <div class="btnrow" style="margin-top:12px">
+            <button class="btn" onclick="document.getElementById('step').classList.remove('hidden')">Show the step</button>
+            <span class="aip tag" style="color:var(--performance-t)">AI on, your answer would be graded here</span>
+            <span class="aioffstate tag">AI off, reveal and self compare</span>
+          </div>
+          <div id="step" class="hidden" style="margin-top:12px; color:var(--muted)">
+            Stored sub goal. E<sub>n</sub> = n²π²ℏ² / (2mL²). The final answer is never shown here, only the step.
+          </div>
+          <p style="color:var(--muted); font-size:12.5px; margin-top:12px">Working it out yourself is the point.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- PROGRESS -->
+    <section class="screen" id="progress">
+      <h1 class="title">Progress</h1>
+      <p class="sub">Where honesty lives. Coverage gates readiness. Calibration shows if the numbers can be trusted.</p>
+      <div class="card group" style="margin-bottom:18px">
+        <b>Coverage</b> <span class="num" style="float:right">58%</span>
+        <div class="cov">
+          <span style="width:20%; background:var(--memory)"></span>
+          <span style="width:18%; background:var(--performance)"></span>
+          <span style="width:13%; background:var(--readiness)"></span>
+          <span style="width:7%; background:var(--success)"></span>
+          <span style="flex:1; background:var(--elevated)"></span>
+        </div>
+        <div class="note-warn">Coverage is below 70%, so readiness abstains for now.</div>
+      </div>
+      <div class="two">
+        <div class="card calib">
+          <b style="color:var(--memory-t)">Memory calibration</b>
+          <canvas class="reliability" data-hue="memory" width="300" height="180" style="width:100%;height:180px"></canvas>
+          <div style="color:var(--muted); font-size:13px">Brier 0.11. Well calibrated.</div>
+        </div>
+        <div class="card calib">
+          <b style="color:var(--performance-t)">Performance calibration</b>
+          <div style="height:180px; display:flex; align-items:center; justify-content:center; color:var(--muted); text-align:center">Not enough graded problems yet.<br/>This wakes up after the Problems door.</div>
+          <div style="color:var(--muted); font-size:13px">Abstains until data is sufficient.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- LIBRARY -->
+    <section class="screen" id="library">
+      <h1 class="title">Library</h1>
+      <p class="sub">Author a seed. Write one card in your own words. We scale the rest in your style.</p>
+      <div class="two">
+        <div class="card field">
+          <span class="topic" style="color:var(--memory-t)">Quantum Mechanics</span>
+          <label>Front</label>
+          <input type="text" value="What does the commutator [x, p] equal?" />
+          <label>Back</label>
+          <input type="text" value="iℏ" />
+          <div class="btnrow" style="margin-top:16px"><button class="btn primary aip">Generate siblings</button><button class="btn">Save seed</button></div>
+        </div>
+        <div class="card">
+          <div class="aip">
+            <b>AI conformed siblings</b>
+            <div style="margin-top:12px">
+              <div class="sibling"><div>What is [x, p²] equal to?</div><div class="src">Griffiths QM ch.2 · <span class="ok">Verified</span></div></div>
+              <div class="sibling"><div>State the generalized uncertainty relation for A and B.</div><div class="src">Sakurai ch.1 · <span class="ok">Verified</span></div></div>
+              <div class="sibling"><div>Compute [L_x, L_y].</div><div class="src">Griffiths QM ch.4 · <span class="warnc">Needs review</span></div></div>
+            </div>
+            <div class="tag" style="margin-top:8px; color:var(--success)">Gold set gate passed</div>
+          </div>
+          <div class="aioffstate">
+            <b>AI is off</b>
+            <p style="color:var(--muted)">Generation is disabled. You can still author seeds by hand, and every seed you write counts. Turn AI on to conform siblings in your style, each traced to a named source and checked against the gold set.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="screen" id="settings">
+      <h1 class="title">Settings</h1>
+      <p class="sub">The app always works and still scores with AI off.</p>
+      <div class="card">
+        <div class="group"><h4>Study</h4>
+          <div class="row"><span>Target retention</span><span class="num">90%</span></div>
+          <div class="row"><span>Test date</span><span class="num">2026-10-17</span></div>
+        </div>
+        <div class="group"><h4>AI</h4>
+          <div class="row"><span>AI features <span style="color:var(--muted)">(the app still scores with AI off)</span></span>
+            <button class="btn" onclick="toggleAI()" id="aiSettingBtn">Turn AI on</button></div>
+        </div>
+        <div class="group"><h4>Sync</h4>
+          <div class="row"><span>Sync now</span><span class="topic">self hosted</span></div>
+          <div class="row"><span>Account</span><span class="num">frank</span></div>
+        </div>
+        <div class="group"><h4>Appearance</h4>
+          <div class="row"><span>Theme</span><button class="btn" onclick="toggleTheme()">Toggle light and dark</button></div>
+        </div>
+        <div class="group" style="margin-bottom:0"><h4>Data</h4>
+          <div class="row"><span>Export collection</span><span class="link">export</span></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+  // ---- navigation ----
+  function go(id){
+    document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active', s.id===id));
+    const railId = (id==='cards'||id==='problem') ? 'study' : id;
+    document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active', n.dataset.s===railId));
+    if(id==='home') drawManifold();
+    if(id==='progress') drawReliability();
+    window.scrollTo(0,0);
+  }
+  function toggleTheme(){
+    document.body.classList.toggle('light');
+    const light=document.body.classList.contains('light');
+    document.getElementById('themeChip').textContent = light? 'Light':'Dark';
+    drawManifold(); drawReliability();
+  }
+  function toggleAI(){
+    document.body.classList.toggle('ai-off');
+    const off=document.body.classList.contains('ai-off');
+    document.getElementById('aiLabel').textContent = off? 'AI off':'AI on';
+    const b=document.getElementById('aiSettingBtn'); if(b) b.textContent = off? 'Turn AI on':'Turn AI off';
+  }
+
+  // ---- Cards review loop ----
+  const deck=[
+    {t:'Mechanics', q:'A mass on a spring. What is the angular frequency?', a:'ω = √(k / m)', n:'k is the spring constant, m the mass.'},
+    {t:'Electromagnetism', q:'Energy density stored in an electric field?', a:'u = ½ ε₀ E²', n:'Per unit volume, in vacuum.'},
+    {t:'Quantum', q:'Time independent Schrodinger equation in 1D?', a:'−(ℏ²/2m) ψ″ + V ψ = E ψ', n:'Stationary states of energy E.'},
+    {t:'Thermodynamics', q:'Efficiency of a Carnot engine?', a:'η = 1 − T_c / T_h', n:'Temperatures in kelvin.'},
+    {t:'Optics', q:'Bragg condition for diffraction maxima?', a:'n λ = 2 d sinθ', n:'d is the plane spacing.'},
+    {t:'Special Relativity', q:'Total relativistic energy of a particle?', a:'E = γ m c²', n:'γ = 1/√(1 − v²/c²).'},
+  ];
+  let ci=0;
+  function renderCard(){
+    const c=deck[ci];
+    document.getElementById('cardTopic').textContent=c.t;
+    document.getElementById('cardQ').textContent=c.q;
+    document.getElementById('cardA').textContent=c.a;
+    document.getElementById('cardNote').textContent=c.n;
+    document.getElementById('cardProg').textContent=(ci+1)+' of '+deck.length;
+    document.getElementById('cardBar').style.width=((ci)/deck.length*100)+'%';
+    document.getElementById('cardAnswerWrap').classList.add('hidden');
+    document.getElementById('gradeRow').classList.add('hidden');
+    document.getElementById('showRow').classList.remove('hidden');
+    document.getElementById('cardsDone').classList.add('hidden');
+    document.querySelector('#cards .studycard').classList.remove('hidden');
+  }
+  function startCards(){ ci=0; renderCard(); go('cards'); }
+  function showAnswer(){
+    document.getElementById('cardAnswerWrap').classList.remove('hidden');
+    document.getElementById('showRow').classList.add('hidden');
+    document.getElementById('gradeRow').classList.remove('hidden');
+  }
+  function grade(){
+    ci++;
+    if(ci>=deck.length){
+      document.getElementById('cardBar').style.width='100%';
+      document.getElementById('gradeRow').classList.add('hidden');
+      document.getElementById('showRow').classList.add('hidden');
+      document.getElementById('cardAnswerWrap').classList.add('hidden');
+      document.querySelector('#cards .studycard').classList.add('hidden');
+      document.getElementById('cardsDone').classList.remove('hidden');
+    } else { renderCard(); }
+  }
+
+  // ---- Problems door ----
+  function startProblem(){ resetProblem(); go('problem'); }
+  function resetProblem(){
+    document.querySelectorAll('#choices .choice').forEach(c=>c.classList.remove('sel'));
+    document.getElementById('rung').classList.add('hidden');
+    document.getElementById('step').classList.add('hidden');
+    window._sel=null;
+  }
+  function pick(el){
+    document.querySelectorAll('#choices .choice').forEach(c=>c.classList.remove('sel'));
+    el.classList.add('sel'); window._sel=el.querySelector('.key').textContent;
+  }
+  function commit(){
+    if(!window._sel){ alert('Select an answer first.'); return; }
+    // correct is C; anything else opens the ladder
+    if(window._sel==='C'){ alert('Correct. Quick consolidation: name the principle. Energy levels scale as 1/L².'); }
+    else { document.getElementById('rung').classList.remove('hidden'); }
+  }
+
+  // ---- manifold (wireframe surface on canvas) ----
+  function css(v){ return getComputedStyle(document.body).getPropertyValue(v).trim(); }
+  function drawManifold(){
+    const cv=document.getElementById('manifold'); if(!cv) return;
+    const dpr=window.devicePixelRatio||1; const w=cv.clientWidth||640, h=320;
+    cv.width=w*dpr; cv.height=h*dpr; const g=cv.getContext('2d'); g.scale(dpr,dpr);
+    g.clearRect(0,0,w,h);
+    const cols=26, rows=16, cx=w/2, cy=h*0.30, sx=w/34, sy=6.2, sz=42;
+    function hfn(i,j){
+      const x=(i-cols/2)/2.2, y=(j-rows/2)/2.2;
+      let z=Math.exp(-(x*x+y*y)/9)*1.0 + 0.5*Math.exp(-((x-3)*(x-3)+(y-2)*(y-2))/3);
+      // holes (gaps): carve a dip
+      z -= 0.9*Math.exp(-((x+3)*(x+3)+(y+1.5)*(y+1.5))/2.0);
+      return z;
+    }
+    function proj(i,j){
+      const z=hfn(i,j);
+      const px=cx+(i-cols/2)*sx+(j-rows/2)*(sx*0.24);
+      const py=cy+(j-rows/2)*sy - z*sz + (i-cols/2)*0.0;
+      return [px,py,z];
+    }
+    const line=css('--border'), glow=css('--memory');
+    for(let j=0;j<rows;j++){ for(let i=0;i<cols;i++){
+      const p=proj(i,j);
+      if(i<cols-1){ const q=proj(i+1,j); stroke(g,p,q,line,glow); }
+      if(j<rows-1){ const q=proj(i,j+1); stroke(g,p,q,line,glow); }
+    }}
+    function stroke(g,p,q,line,glow){
+      const z=Math.max(p[2],q[2]);
+      const t=Math.max(0,Math.min(1,(z+0.4)/1.4));
+      g.strokeStyle = t>0.55 ? glow : line;
+      g.globalAlpha = z < -0.2 ? 0.18 : (0.35+0.6*t);
+      g.lineWidth = t>0.55?1.2:0.8;
+      g.beginPath(); g.moveTo(p[0],p[1]); g.lineTo(q[0],q[1]); g.stroke();
+    }
+    g.globalAlpha=1;
+  }
+
+  // ---- reliability diagram ----
+  function drawReliability(){
+    document.querySelectorAll('.reliability').forEach(cv=>{
+      const dpr=window.devicePixelRatio||1, w=cv.clientWidth||300, h=180;
+      cv.width=w*dpr; cv.height=h*dpr; const g=cv.getContext('2d'); g.scale(dpr,dpr);
+      g.clearRect(0,0,w,h);
+      const pad=26, L=pad, R=w-10, T=10, B=h-pad;
+      g.strokeStyle=css('--border'); g.lineWidth=1;
+      g.strokeRect(L,T,R-L,B-T);
+      // diagonal
+      g.setLineDash([4,4]); g.strokeStyle=css('--muted'); g.beginPath(); g.moveTo(L,B); g.lineTo(R,T); g.stroke(); g.setLineDash([]);
+      // data curve (slightly under diagonal)
+      const hue=css('--memory'); g.strokeStyle=hue; g.lineWidth=2; g.beginPath();
+      const pts=[[0,.03],[.2,.19],[.4,.37],[.6,.58],[.8,.79],[1,.97]];
+      pts.forEach((pt,k)=>{ const x=L+pt[0]*(R-L), y=B-pt[1]*(B-T); k?g.lineTo(x,y):g.moveTo(x,y); });
+      g.stroke();
+      pts.forEach(pt=>{ const x=L+pt[0]*(R-L), y=B-pt[1]*(B-T); g.fillStyle=hue; g.beginPath(); g.arc(x,y,2.5,0,7); g.fill(); });
+    });
+  }
+
+  // init
+  drawManifold();
+  window.addEventListener('resize', ()=>{ drawManifold(); if(document.getElementById('progress').classList.contains('active')) drawReliability(); });
+</script>
+</body>
+</html>

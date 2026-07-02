@@ -1,0 +1,85 @@
+/* pgrep color tokens.
+   Light is the :root default. Dark is the .night-mode scope, matching the
+   Anki fork's theming convention (ts/lib/sass). Mockups default to dark.
+   The three score hues are a reserved data language. Never decorate with them.
+   Interactive elements (buttons, links, focus rings) stay monochrome. */
+
+:root {
+  /* neutrals, warm */
+  --canvas: #FBFAF8;
+  --surface: #FFFFFF;
+  --elevated: #F5F2EC;
+  --border: #E8E4DA;
+  --text: #262624;
+  --muted: #6E6B64;
+
+  /* reserved score language */
+  --memory: #EBCB8B;        /* amber fill */
+  --memory-text: #A9752A;   /* amber text on light */
+  --performance: #81A1C1;   /* blue fill */
+  --performance-text: #5E81AC;
+  --readiness: #C4A7D6;     /* lilac fill */
+  --readiness-text: #7E6593;
+
+  /* monochrome action */
+  --action-bg: #262624;
+  --action-fg: #FBFAF8;
+  --action-bg-hover: #000000;
+  --focus-ring: #262624;
+
+  /* states, never collide with score hues */
+  --success: #A3BE8C;
+  --caution: #D08770;
+  --error: #BF616A;
+
+  /* derived */
+  --hover-wash: #F5F2EC;
+  --shadow-card: 0 1px 2px rgba(38, 38, 36, 0.06), 0 4px 16px rgba(38, 38, 36, 0.04);
+}
+
+/* Explicit light scope. Pins light tokens even when a host theme
+   sets [data-theme="dark"] on an ancestor. */
+.day-mode,
+[data-theme="light"] {
+  --canvas: #FBFAF8;
+  --surface: #FFFFFF;
+  --elevated: #F5F2EC;
+  --border: #E8E4DA;
+  --text: #262624;
+  --muted: #6E6B64;
+
+  --memory-text: #A9752A;
+  --performance-text: #5E81AC;
+  --readiness-text: #7E6593;
+
+  --action-bg: #262624;
+  --action-fg: #FBFAF8;
+  --action-bg-hover: #000000;
+  --focus-ring: #262624;
+
+  --hover-wash: #F5F2EC;
+  --shadow-card: 0 1px 2px rgba(38, 38, 36, 0.06), 0 4px 16px rgba(38, 38, 36, 0.04);
+}
+
+.night-mode,
+[data-theme="dark"] {
+  --canvas: #262624;
+  --surface: #302F2C;
+  --elevated: #3A3835;
+  --border: #45433E;
+  --text: #ECEAE3;
+  --muted: #A5A199;
+
+  /* fills read as text on dark, no separate text tone needed */
+  --memory-text: #EBCB8B;
+  --performance-text: #81A1C1;
+  --readiness-text: #C4A7D6;
+
+  --action-bg: #ECEAE3;
+  --action-fg: #262624;
+  --action-bg-hover: #FFFFFF;
+  --focus-ring: #ECEAE3;
+
+  --hover-wash: #2B2A27;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25), 0 12px 40px rgba(0, 0, 0, 0.2);
+}
