@@ -42,12 +42,25 @@ This regenerates the runbook after a repo resync. It reflects the current, real 
 
 `three`, `lucide-static`, `@fontsource-variable/inter`, `@fontsource-variable/jetbrains-mono`, `@types/three` (dev). All conflict-checked, all AGPL-compatible.
 
+## Manifold lab (3D upgrade, done)
+
+The lab is now the interactive proving ground for the manifold, not just static tiles.
+
+- `ts/lib/pgrep/manifold3d.ts` - the production Three.js renderer. Consumes the exact same `Surface` as the 2D `manifold.ts` and reuses its math (`height` -> vertex Y, `boundaryR`+`inHole` -> which grid cells/edges exist so holes are real mesh gaps, `colorAt` -> per-vertex score hue, `glows` -> soft floor discs). Three layers, all `depthWrite:false` and painter-ordered like the 2D canvas: (1) a translucent color-shell `Mesh` with itemSize-4 RGBA vertex colors (per-vertex alpha fades in the valleys and rim, the "loose color fitting"; `USE_COLOR_ALPHA` confirmed at three build line 7682), (2) the vertex-colored `LineSegments` wireframe, (3) rim `LineLoop`s. `OrbitControls` (drag to orbit, scroll to zoom, optional calm auto-rotate). Topic labels: `computeLabels()` projects each anchor to pixels every frame the camera/surface moves and clamps the box into the viewport, delivered via an `onLabels` callback. Handle API: `update(surface, theme)`, `setShape({grid, heightScale, glow})`, `setAutoRotate`, `resize`, `resetView`, `dispose`. Colors go through `Color.setRGB(..., SRGBColorSpace)` so the default sRGB output matches the 2D canvas exactly.
+- `ts/lib/components/Manifold3D.svelte` - wrapper. Client-only (`onMount`), disposes on destroy, MutationObserver on `.night-mode` re-themes, reactive to `surface`/`grid`/`heightScale`/`autoRotate`. Renders the HTML label + leader-line overlay from `onLabels` (a `.stage` div holds the canvas; the overlay sits above it, `pointer-events:none`). Props include `showLabels` (default true). Exposes `resetView()`.
+- `ts/routes/pgrep-lab/+page.svelte` - interactive playground: 2D/3D toggle, live sliders for grid + height, auto-rotate, reset view, a live gap counter, and an editable panel for all nine units (Performance + Coverage sliders, leading-score M/P/R picker). One reactive `surface = buildSurface(units)` drives both renderers. The four isolation tiles remain below as documentation.
+- `ts/routes/pgrep-lab/+layout.ts` - added `ssr = false` / `prerender = false` (WebGL is client-only).
+- Verified live (Vite dev, light + dark): 3D renders with score hues + floor glow, filling a unit's coverage closes its hole and drops the gap count, height/grid reshape live, 2D fallback shows the same surface with labels, auto-rotate orbits.
+- Three.js resolves `three/addons/controls/OrbitControls.js` via its `exports` map (checked in node_modules). `three` is MIT.
+- Dev note: Chromium restores `<input type=range>` values across Vite HMR reloads and fires spurious `input` events; harmless dev-only noise, does not happen in the Anki webview.
+
 ## Progress
 
 - [x] Design system in the repo (tokens + fonts + deps)
 - [x] Core components (ScoreCard, Manifold) + renderer + `buildSurface`
 - [x] Home surface, verified live (light + dark)
 - [x] Manifold lab, proves data-driven
+- [x] Manifold 3D (Three.js) renderer + component + interactive lab, verified live
 - [ ] Reconcile Home + layout with your committed shell (bridge, `+layout.ts`)
 - [ ] Wire Home to real data via `pgrepCall`
 - [ ] Remaining components (StudyFrame, ChoiceList, HintRung, GradeBar, CoverageBar, ReliabilityDiagram)

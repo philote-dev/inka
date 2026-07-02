@@ -6,9 +6,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
      Today card, on mock data. Ported from the Claude Design export
      (design/Home.dc.html). Real data wires in at build layer L2. -->
 <script lang="ts">
+    import { onMount } from "svelte";
+
     import Manifold from "$lib/components/Manifold.svelte";
+    import Manifold3D from "$lib/components/Manifold3D.svelte";
     import ScoreCard from "$lib/components/ScoreCard.svelte";
     import { FULL_SURFACE } from "$lib/pgrep/manifold";
+    import { supportsWebGL } from "$lib/pgrep/manifold3d";
+
+    // The 3D hero on capable devices, the Canvas 2D fallback otherwise or when
+    // the learner prefers reduced motion. Both draw the same FULL_SURFACE.
+    let use3d = false;
+    onMount(() => {
+        const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+        use3d = supportsWebGL() && !reduce;
+    });
 
     const nav = [
         { name: "Home", active: true },
@@ -75,7 +87,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         </header>
 
         <div class="hero">
-            <Manifold width={720} height={360} scale={156} grid={90} surface={FULL_SURFACE} />
+            {#if use3d}
+                <Manifold3D width={720} height={380} grid={84} heightScale={1.2} surface={FULL_SURFACE} />
+            {:else}
+                <Manifold width={720} height={360} scale={156} grid={90} surface={FULL_SURFACE} />
+            {/if}
         </div>
 
         <section class="cards">
