@@ -89,8 +89,9 @@ fn parse_topic(tags: &str) -> (Option<String>, String) {
 /// FSRS retrievability *now* for a card, or `None` when the card has no FSRS
 /// memory state. Mirrors `stats::card` / the `extract_fsrs_retrievability` SQL
 /// UDF exactly, but performs no writes (unlike `card_stats`, which may persist
-/// a backfilled `last_review_time`).
-fn card_retrievability(card: &Card, timing: SchedTimingToday) -> Option<f64> {
+/// a backfilled `last_review_time`). `fsrs` is passed in so it can be built
+/// once and reused across the whole due set rather than per card.
+fn card_retrievability(fsrs: &FSRS, card: &Card, timing: SchedTimingToday) -> Option<f64> {
     let state = card.memory_state?;
     let now = timing.now.0;
     let due = if card.original_due != 0 {
@@ -113,11 +114,7 @@ fn card_retrievability(card: &Card, timing: SchedTimingToday) -> Option<f64> {
         timing.days_elapsed.saturating_sub(review_day) * 86_400
     };
     let decay = card.decay.unwrap_or(FSRS5_DEFAULT_DECAY);
-    let r = FSRS::new(None).unwrap().current_retrievability_seconds(
-        state.into(),
-        seconds_elapsed,
-        decay,
-    );
+    let r = fsrs.current_retrievability_seconds(state.into(), seconds_elapsed, decay);
     Some(r as f64)
 }
 
@@ -216,11 +213,10 @@ fn would_block(ordered: &[Scored], category: &str) -> bool {
             .all(|s| s.category == category)
 }
 
-/// Greedy final ordering: repeatedly take the highest-scoring remaining card
-/// whose append wouldn't exceed the anti-blocking run; if the best candidate
-/// would, take the next best that wouldn't; if none avoids it, allow the best.
-/// Ties break by gather order then card id (stable, deterministic).
-fn greedy_order(mut scored: Vec<Scored>) -> Vec<Scored> {
+/// Deterministic worth ordering: score descending, ties broken by gather order
+/// then card id. This is the selection order — walking it under the daily
+/// limits yields the top-N cards by worth.
+fn sort_by_worth(mut scored: Vec<Scored>) -> Vec<Scored> {
     scored.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)
@@ -228,8 +224,20 @@ fn greedy_order(mut scored: Vec<Scored>) -> Vec<Scored> {
             .then(a.gather_index.cmp(&b.gather_index))
             .then(a.id.cmp(&b.id))
     });
-    let mut ordered: Vec<Scored> = Vec::with_capacity(scored.len());
-    let mut remaining = scored;
+    scored
+}
+
+/// Greedy anti-blocking ordering: repeatedly take the highest-worth remaining
+/// card whose append wouldn't exceed the anti-blocking run; if the best
+/// candidate would, take the next best that wouldn't; if none avoids it, allow
+/// the best. Ties break by gather order then card id (stable, deterministic).
+///
+/// This only *reorders* the cards it is given, so it is run on the
+/// already-selected (top-N by worth) set: anti-blocking controls the emit
+/// sequence but never changes which cards are shown.
+fn anti_block_order(scored: Vec<Scored>) -> Vec<Scored> {
+    let mut remaining = sort_by_worth(scored);
+    let mut ordered: Vec<Scored> = Vec::with_capacity(remaining.len());
     while !remaining.is_empty() {
         let pick = remaining
             .iter()
@@ -264,7 +272,14 @@ impl QueueBuilder {
             .collect();
 
         // Build scoring inputs. Retrievability is read straight from each card's
-        // FSRS state; nothing is written back.
+        // FSRS state; nothing is written back. FSRS holds no per-card state, so
+        // it is constructed once here and reused for the whole due set.
+        //
+        // Accepted L1 performance tradeoff: this loads each due card individually
+        // (`get_card`), and the anti-block pass below is O(n^2). Both are fine for
+        // realistic PGRE deck sizes; batch-loading and a smarter anti-block are
+        // deferred (YAGNI) and would only matter for very large overdue backlogs.
+        let fsrs = FSRS::new(None).unwrap();
         let mut inputs = Vec::with_capacity(self.review.len());
         for (gather_index, due) in self.review.iter().enumerate() {
             let tags = tags_by_note
@@ -274,7 +289,7 @@ impl QueueBuilder {
             let (topic, category) = parse_topic(tags);
             let blueprint = blueprint_for_category(&category);
             let card = col.storage.get_card(due.id)?.or_not_found(due.id)?;
-            let r = card_retrievability(&card, timing);
+            let r = card_retrievability(&fsrs, &card, timing);
             inputs.push(ScoringInput {
                 id: due.id,
                 gather_index,
@@ -285,18 +300,18 @@ impl QueueBuilder {
             });
         }
 
-        let ordered = greedy_order(score_inputs(&inputs));
+        let all_scored = score_inputs(&inputs);
 
-        // Apply the daily limits and sibling burying in worth order, exactly as
-        // stock Anki would during gather: honour the root + per-deck review
+        // Phase 1 -- selection (which cards): walk in worth order, applying the
+        // stock limit accounting and sibling burying, to collect the retained
+        // set. This is the top-N by worth, honouring the root + per-deck review
         // limits (including the way review decrements cap the shared new-card
-        // limit) and bury same-note siblings, but keep the highest-worth cards
-        // first. This yields the same review/new counts as stock while reordering
-        // the due set. `by_id` maps back to the untouched DueCard values; the
-        // DueCards themselves are never modified.
+        // limit) and sibling burying -- with NO anti-blocking, so the cards shown
+        // are always the highest-worth eligible ones. `by_id` maps back to the
+        // untouched DueCard values; the DueCards themselves are never modified.
         let by_id: HashMap<CardId, DueCard> = self.review.iter().map(|c| (c.id, *c)).collect();
-        let mut selected = Vec::with_capacity(ordered.len());
-        for scored in ordered {
+        let mut retained: Vec<Scored> = Vec::with_capacity(all_scored.len());
+        for scored in sort_by_worth(all_scored) {
             if self.limits.root_limit_reached(LimitKind::Review) {
                 break;
             }
@@ -329,9 +344,16 @@ impl QueueBuilder {
             }
             self.limits
                 .decrement_deck_and_parent_limits(card.current_deck_id, LimitKind::Review)?;
-            selected.push(card);
+            retained.push(scored);
         }
-        self.review = selected;
+
+        // Phase 2 -- ordering (what order): apply K=3 category anti-blocking
+        // WITHIN the retained set only, so anti-blocking shapes the emit sequence
+        // without ever dropping a higher-worth card at the limit boundary.
+        self.review = anti_block_order(retained)
+            .into_iter()
+            .map(|s| by_id[&s.id])
+            .collect();
 
         Ok(())
     }
@@ -487,7 +509,7 @@ mod test {
             scored(5, 4, "electromagnetism", 6.0),
             scored(6, 5, "electromagnetism", 5.0),
         ];
-        let ordered = greedy_order(cards);
+        let ordered = anti_block_order(cards);
         assert!(max_consecutive_same_category(&ordered) <= MAX_CONSECUTIVE_SAME_CATEGORY);
         // a lower-scored different-category card is pulled up to break the run
         assert_eq!(ordered[3].category, "electromagnetism");
@@ -525,16 +547,16 @@ mod test {
         assert!(get(1) > get(2));
 
         // so the in-band card is ordered first
-        let ordered = greedy_order(scored);
+        let ordered = anti_block_order(scored);
         assert_eq!(ordered[0].id, CardId(1));
     }
 
-    /// Rust test 3c — truncation keeps the top-N by score, not the first-N in
-    /// SQL gather order.
+    /// Rust test 3c — selection (the worth ordering that truncation walks)
+    /// keeps the top-N by score, not the first-N in SQL gather order.
     #[test]
     fn truncation_keeps_top_scores_not_gather_order() {
-        // Distinct categories so anti-blocking never reorders; score rises with
-        // gather index, i.e. gather order is the reverse of score order.
+        // Score rises with gather index, i.e. gather order is the reverse of
+        // worth order; distinct categories keep it independent of anti-blocking.
         let cards = vec![
             scored(1, 0, "mechanics", 1.0),
             scored(2, 1, "electromagnetism", 2.0),
@@ -543,7 +565,9 @@ mod test {
             scored(5, 4, "atomic", 5.0),
             scored(6, 5, "lab", 6.0),
         ];
-        let ordered = greedy_order(cards);
+        // Truncation walks the worth order (sort_by_worth), so the retained top-N
+        // are strictly the highest-worth cards.
+        let ordered = sort_by_worth(cards);
         let retained: Vec<i64> = ordered.iter().take(3).map(|s| s.id.0).collect();
         // top-3 by score are ids 6,5,4 — NOT the first-3 gathered (1,2,3)
         assert_eq!(retained, vec![6, 5, 4]);
