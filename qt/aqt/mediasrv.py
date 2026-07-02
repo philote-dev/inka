@@ -27,6 +27,7 @@ from waitress.server import create_server
 import aqt
 import aqt.main
 import aqt.operations
+import aqt.pgrep
 from anki import hooks
 from anki.collection import OpChangesOnly, Progress, SearchNode
 from anki.decks import UpdateDeckConfigs, UpdateDeckConfigsMode
@@ -422,6 +423,7 @@ def is_sveltekit_page(path: str) -> bool:
         "import-csv",
         "import-page",
         "image-occlusion",
+        "pgrep",
     ]
 
 
@@ -720,6 +722,8 @@ post_handler_list = [
     deck_options_require_close,
     deck_options_ready,
     save_custom_colours,
+    # pgrep JSON bridge (Channel B); handlers live in aqt/pgrep.py.
+    *aqt.pgrep.pgrep_post_handlers,
 ]
 
 

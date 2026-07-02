@@ -1,0 +1,11 @@
+// Copyright: Ankitects Pty Ltd and contributors
+// License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+//
+// Clang module map so the AnkiFfi.xcframework's C ABI can be imported from
+// Swift as `import CAnkiFfi` (see mobile/ios/PgrepStudy/AnkiBackend.swift).
+// tools/build-xcframework.sh copies this whole include dir into each slice's
+// Headers/ via xcodebuild -headers.
+module CAnkiFfi {
+    header "anki_ffi.h"
+    export *
+}

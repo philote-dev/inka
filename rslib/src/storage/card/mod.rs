@@ -893,6 +893,11 @@ fn review_order_sql(order: ReviewCardOrder, timing: SchedTimingToday, fsrs: bool
         ReviewCardOrder::Random => vec![],
         ReviewCardOrder::Added => vec![ReviewOrderSubclause::Added],
         ReviewCardOrder::ReverseAdded => vec![ReviewOrderSubclause::ReverseAdded],
+        // pgrep: the actual "points at stake" reordering happens in a second
+        // pass over the gathered due set (see
+        // scheduler::queue::builder::points_at_stake). Gather in a neutral
+        // order (same as Day) so the SQL pass never biases scoring.
+        ReviewCardOrder::PointsAtStake => vec![ReviewOrderSubclause::Day],
     };
     subclauses.push(ReviewOrderSubclause::Random);
 

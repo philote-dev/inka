@@ -187,6 +187,9 @@ class Collection(DeprecatedNamesMixin):
     ) -> str:
         return self._backend.format_timespan(seconds=seconds, context=context)
 
+    def pgrep_seam_check(self) -> str:
+        return self._backend.pgrep_seam_check()
+
     # Progress
     ##########################################################################
 

@@ -1,0 +1,12 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+#
+# The Xcode project is generated from project.yml via XcodeGen; don't commit it
+# or any build output.
+
+*.xcodeproj
+build/
+DerivedData/
+.build-artifacts/
+# Simulator screenshots / launch artifacts (see tools + BUILD notes).
+.artifacts/

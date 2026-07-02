@@ -73,4 +73,22 @@ impl crate::services::CollectionService for Collection {
             .unwrap_or_default();
         Ok(GetCustomColoursResponse { colours })
     }
+
+    fn pgrep_seam_check(&mut self) -> error::Result<generic::String> {
+        Ok(generic::String {
+            val: "pgrep seam OK (Rust)".into(),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::collection::Collection;
+    use crate::services::CollectionService;
+
+    #[test]
+    fn pgrep_seam_check_returns_marker() {
+        let mut col = Collection::new();
+        assert_eq!(col.pgrep_seam_check().unwrap().val, "pgrep seam OK (Rust)");
+    }
 }

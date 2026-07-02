@@ -1,0 +1,10 @@
+pgrep L2 submission commit info
+
+code commit (last code/format change): 4e15a6f76eb93b114541d19a270ac45efa7ce141
+4e15a6f76eb93b114541d19a270ac45efa7ce141 L2: apply formatter (dprint/prettier/ruff-format) across pgrep surfaces + docs
+
+note: the proof logs in this folder are committed on top of the code commit;
+the branch tip after that commit is the submission commit (see final report).
+
+branch: l2-core
+generated: Thu Jul  2 01:03:15 CDT 2026

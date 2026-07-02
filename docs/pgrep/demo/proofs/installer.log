@@ -1,0 +1,223 @@
+=== installer build ===
+Thu Jul  2 01:00:51 CDT 2026
+
+[anki] Generating application template...
+Using app template: /Users/philote/projects/inka/.worktrees/l2-core/qt/installer/mac-template, branch v0.4.2
+
+[anki] Installing support package...
+Using support package https://briefcase-support.s3.amazonaws.com/python/3.13/macOS/Python-3.13-macOS-support.b13.tar.gz
+Python-3.13-macOS-support.b13.tar.gz already downloaded
+Unpacking support package... started
+Unpacking support package... done
+Copying standard library into app bundle... started
+Copying standard library into app bundle... done
+
+[anki] Installing stub binary...
+Using stub binary https://briefcase-support.s3.amazonaws.com/python/3.13/macOS/GUI-Stub-3.13-b13.zip
+GUI-Stub-3.13-b13.zip already downloaded
+Installing stub binary... started
+Installing stub binary... done
+
+[anki] Installing application code...
+Installing src/anki... started
+Installing src/anki... done
+
+[anki] Installing requirements...
+Installing app requirements... started
+Processing /Users/philote/projects/inka/.worktrees/l2-core/out/wheels/aqt-26.5-py3-none-any.whl (from aqt==26.5)
+Processing /Users/philote/projects/inka/.worktrees/l2-core/out/wheels/anki-26.5-cp310-abi3-macosx_12_0_arm64.whl
+Collecting anki-mac-helper>=0.1.1 (from aqt==26.5->aqt==26.5)
+  Downloading anki_mac_helper-0.1.1-py3-none-any.whl.metadata (232 bytes)
+Collecting beautifulsoup4 (from aqt==26.5->aqt==26.5)
+  Downloading beautifulsoup4-4.15.0-py3-none-any.whl.metadata (3.8 kB)
+Collecting flask (from aqt==26.5->aqt==26.5)
+  Downloading flask-3.1.3-py3-none-any.whl.metadata (3.2 kB)
+Collecting jsonschema (from aqt==26.5->aqt==26.5)
+  Downloading jsonschema-4.26.0-py3-none-any.whl.metadata (7.6 kB)
+Collecting packaging (from aqt==26.5->aqt==26.5)
+  Downloading packaging-26.2-py3-none-any.whl.metadata (3.5 kB)
+Collecting pyqt6-webengine>=6.2 (from aqt==26.5->aqt==26.5)
+  Downloading pyqt6_webengine-6.11.0-cp310-abi3-macosx_10_14_universal2.whl.metadata (1.9 kB)
+Collecting pyqt6>=6.2 (from aqt==26.5->aqt==26.5)
+  Downloading pyqt6-6.11.0-cp310-abi3-macosx_10_14_universal2.whl.metadata (2.1 kB)
+Collecting requests (from aqt==26.5->aqt==26.5)
+  Downloading requests-2.34.2-py3-none-any.whl.metadata (4.8 kB)
+Collecting send2trash (from aqt==26.5->aqt==26.5)
+  Downloading send2trash-2.1.0-py3-none-any.whl.metadata (4.1 kB)
+Collecting truststore>=0.10.4 (from aqt==26.5->aqt==26.5)
+  Downloading truststore-0.10.4-py3-none-any.whl.metadata (4.4 kB)
+Collecting waitress>=2.0.0 (from aqt==26.5->aqt==26.5)
+  Downloading waitress-3.0.2-py3-none-any.whl.metadata (5.8 kB)
+Collecting decorator (from anki==26.5)
+  Using cached decorator-5.3.1-py3-none-any.whl.metadata (3.9 kB)
+Collecting markdown (from anki==26.5)
+  Downloading markdown-3.10.2-py3-none-any.whl.metadata (5.1 kB)
+Collecting orjson (from anki==26.5)
+  Downloading orjson-3.11.9-cp313-cp313-macosx_10_15_x86_64.macosx_11_0_arm64.macosx_10_15_universal2.whl.metadata (41 kB)
+Collecting protobuf<8.0,>=6.0 (from anki==26.5)
+  Downloading protobuf-7.35.1-cp310-abi3-macosx_10_9_universal2.whl.metadata (595 bytes)
+Collecting typing-extensions (from anki==26.5)
+  Using cached typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting anki-audio==0.2.2 (from aqt==26.5->aqt==26.5)
+  Downloading anki_audio-0.2.2-cp310-abi3-macosx_12_0_arm64.whl.metadata (224 bytes)
+Collecting pyqt6-qt6==6.11.0 (from aqt==26.5->aqt==26.5)
+  Downloading pyqt6_qt6-6.11.0-py3-none-macosx_11_0_arm64.whl.metadata (535 bytes)
+Collecting pyqt6-sip==13.11.1 (from aqt==26.5->aqt==26.5)
+  Downloading pyqt6_sip-13.11.1-cp313-cp313-macosx_10_13_universal2.whl.metadata (495 bytes)
+Collecting pyqt6-webengine-qt6==6.11.0 (from aqt==26.5->aqt==26.5)
+  Downloading pyqt6_webengine_qt6-6.11.0-py3-none-macosx_11_0_arm64.whl.metadata (575 bytes)
+Collecting soupsieve>=1.6.1 (from beautifulsoup4->aqt==26.5->aqt==26.5)
+  Downloading soupsieve-2.8.4-py3-none-any.whl.metadata (4.6 kB)
+Collecting blinker>=1.9.0 (from flask->aqt==26.5->aqt==26.5)
+  Downloading blinker-1.9.0-py3-none-any.whl.metadata (1.6 kB)
+Collecting click>=8.1.3 (from flask->aqt==26.5->aqt==26.5)
+  Downloading click-8.4.2-py3-none-any.whl.metadata (2.6 kB)
+Collecting itsdangerous>=2.2.0 (from flask->aqt==26.5->aqt==26.5)
+  Downloading itsdangerous-2.2.0-py3-none-any.whl.metadata (1.9 kB)
+Collecting jinja2>=3.1.2 (from flask->aqt==26.5->aqt==26.5)
+  Downloading jinja2-3.1.6-py3-none-any.whl.metadata (2.9 kB)
+Collecting markupsafe>=2.1.1 (from flask->aqt==26.5->aqt==26.5)
+  Downloading markupsafe-3.0.3-cp313-cp313-macosx_11_0_arm64.whl.metadata (2.7 kB)
+Collecting werkzeug>=3.1.0 (from flask->aqt==26.5->aqt==26.5)
+  Downloading werkzeug-3.1.8-py3-none-any.whl.metadata (4.0 kB)
+Collecting attrs>=22.2.0 (from jsonschema->aqt==26.5->aqt==26.5)
+  Downloading attrs-26.1.0-py3-none-any.whl.metadata (8.8 kB)
+Collecting jsonschema-specifications>=2023.03.6 (from jsonschema->aqt==26.5->aqt==26.5)
+  Downloading jsonschema_specifications-2025.9.1-py3-none-any.whl.metadata (2.9 kB)
+Collecting referencing>=0.28.4 (from jsonschema->aqt==26.5->aqt==26.5)
+  Downloading referencing-0.37.0-py3-none-any.whl.metadata (2.8 kB)
+Collecting rpds-py>=0.25.0 (from jsonschema->aqt==26.5->aqt==26.5)
+  Downloading rpds_py-2026.6.3-cp313-cp313-macosx_11_0_arm64.whl.metadata (4.1 kB)
+Collecting charset_normalizer<4,>=2 (from requests->aqt==26.5->aqt==26.5)
+  Downloading charset_normalizer-3.4.7-cp313-cp313-macosx_10_13_universal2.whl.metadata (40 kB)
+Collecting idna<4,>=2.5 (from requests->aqt==26.5->aqt==26.5)
+  Downloading idna-3.18-py3-none-any.whl.metadata (6.1 kB)
+Collecting urllib3<3,>=1.26 (from requests->aqt==26.5->aqt==26.5)
+  Downloading urllib3-2.7.0-py3-none-any.whl.metadata (6.9 kB)
+Collecting certifi>=2023.5.7 (from requests->aqt==26.5->aqt==26.5)
+  Downloading certifi-2026.6.17-py3-none-any.whl.metadata (2.5 kB)
+Collecting PySocks!=1.5.7,>=1.5.6 (from requests[socks]->anki==26.5)
+  Downloading PySocks-1.7.1-py3-none-any.whl.metadata (13 kB)
+Downloading anki_audio-0.2.2-cp310-abi3-macosx_12_0_arm64.whl (26.3 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 26.3/26.3 MB 41.5 MB/s  0:00:00
+
+Downloading pyqt6-6.11.0-cp310-abi3-macosx_10_14_universal2.whl (12.4 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 12.4/12.4 MB 44.4 MB/s  0:00:00
+
+Downloading pyqt6_qt6-6.11.0-py3-none-macosx_11_0_arm64.whl (64.0 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 64.0/64.0 MB 54.5 MB/s  0:00:01
+
+Downloading pyqt6_sip-13.11.1-cp313-cp313-macosx_10_13_universal2.whl (112 kB)
+Downloading pyqt6_webengine-6.11.0-cp310-abi3-macosx_10_14_universal2.whl (465 kB)
+Downloading pyqt6_webengine_qt6-6.11.0-py3-none-macosx_11_0_arm64.whl (112.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 112.2/112.2 MB 44.0 MB/s  0:00:02
+
+Downloading protobuf-7.35.1-cp310-abi3-macosx_10_9_universal2.whl (433 kB)
+Downloading anki_mac_helper-0.1.1-py3-none-any.whl (41 kB)
+Downloading truststore-0.10.4-py3-none-any.whl (18 kB)
+Downloading waitress-3.0.2-py3-none-any.whl (56 kB)
+Downloading beautifulsoup4-4.15.0-py3-none-any.whl (109 kB)
+Downloading soupsieve-2.8.4-py3-none-any.whl (37 kB)
+Using cached typing_extensions-4.15.0-py3-none-any.whl (44 kB)
+Using cached decorator-5.3.1-py3-none-any.whl (10 kB)
+Downloading flask-3.1.3-py3-none-any.whl (103 kB)
+Downloading blinker-1.9.0-py3-none-any.whl (8.5 kB)
+Downloading click-8.4.2-py3-none-any.whl (119 kB)
+Downloading itsdangerous-2.2.0-py3-none-any.whl (16 kB)
+Downloading jinja2-3.1.6-py3-none-any.whl (134 kB)
+Downloading markupsafe-3.0.3-cp313-cp313-macosx_11_0_arm64.whl (12 kB)
+Downloading werkzeug-3.1.8-py3-none-any.whl (226 kB)
+Downloading jsonschema-4.26.0-py3-none-any.whl (90 kB)
+Downloading attrs-26.1.0-py3-none-any.whl (67 kB)
+Downloading jsonschema_specifications-2025.9.1-py3-none-any.whl (18 kB)
+Downloading referencing-0.37.0-py3-none-any.whl (26 kB)
+Downloading rpds_py-2026.6.3-cp313-cp313-macosx_11_0_arm64.whl (338 kB)
+Downloading markdown-3.10.2-py3-none-any.whl (108 kB)
+Downloading orjson-3.11.9-cp313-cp313-macosx_10_15_x86_64.macosx_11_0_arm64.macosx_10_15_universal2.whl (228 kB)
+Downloading packaging-26.2-py3-none-any.whl (100 kB)
+Downloading requests-2.34.2-py3-none-any.whl (73 kB)
+Downloading charset_normalizer-3.4.7-cp313-cp313-macosx_10_13_universal2.whl (309 kB)
+Downloading idna-3.18-py3-none-any.whl (65 kB)
+Downloading urllib3-2.7.0-py3-none-any.whl (131 kB)
+Downloading certifi-2026.6.17-py3-none-any.whl (133 kB)
+Downloading PySocks-1.7.1-py3-none-any.whl (16 kB)
+Downloading send2trash-2.1.0-py3-none-any.whl (17 kB)
+Installing collected packages: pyqt6-webengine-qt6, pyqt6-qt6, waitress, urllib3, typing-extensions, truststore, soupsieve, send2trash, rpds-py, PySocks, pyqt6-sip, protobuf, packaging, orjson, markupsafe, markdown, itsdangerous, idna, decorator, click, charset_normalizer, certifi, blinker, attrs, anki-mac-helper, anki-audio, werkzeug, requests, referencing, pyqt6, jinja2, beautifulsoup4, pyqt6-webengine, jsonschema-specifications, flask, jsonschema, anki, aqt
+
+
+Successfully installed PySocks-1.7.1 anki-26.5 anki-audio-0.2.2 anki-mac-helper-0.1.1 aqt-26.5 attrs-26.1.0 beautifulsoup4-4.15.0 blinker-1.9.0 certifi-2026.6.17 charset_normalizer-3.4.7 click-8.4.2 decorator-5.3.1 flask-3.1.3 idna-3.18 itsdangerous-2.2.0 jinja2-3.1.6 jsonschema-4.26.0 jsonschema-specifications-2025.9.1 markdown-3.10.2 markupsafe-3.0.3 orjson-3.11.9 packaging-26.2 protobuf-7.35.1 pyqt6-6.11.0 pyqt6-qt6-6.11.0 pyqt6-sip-13.11.1 pyqt6-webengine-6.11.0 pyqt6-webengine-qt6-6.11.0 referencing-0.37.0 requests-2.34.2 rpds-py-2026.6.3 send2trash-2.1.0 soupsieve-2.8.4 truststore-0.10.4 typing-extensions-4.15.0 urllib3-2.7.0 waitress-3.0.2 werkzeug-3.1.8
+Installing app requirements... done
+Thinning libraries in app_packages...
+
+[anki] Installing application resources...
+Installing resources/anki.icns as application icon... started
+Installing resources/anki.icns as application icon... done
+
+Installing resources/anki.icns as icon for .apkg documents... started
+Installing resources/anki.icns as icon for .apkg documents... done
+
+Installing resources/anki.icns as icon for .colpkg documents... started
+Installing resources/anki.icns as icon for .colpkg documents... done
+
+Installing resources/anki.icns as icon for .ankiaddon documents... started
+Installing resources/anki.icns as icon for .ankiaddon documents... done
+
+[anki] Removing unneeded app content...
+Removing unneeded app bundle content... started
+Removing unneeded app bundle content... done
+
+[anki] Created build/anki/macos/app
+
+[anki] Building App...
+Renaming stub binary... started
+Renaming stub binary... done
+Ensuring stub binary is thin... started
+Ensuring stub binary is thin... done
+
+[anki] Ad-hoc signing app...
+
+[anki] Built build/anki/macos/app/Anki.app
+Saving log... started
+
+Log saved to /Users/philote/projects/inka/.worktrees/l2-core/out/installer/logs/briefcase.2026_07_02-01_01_43.build.log
+
+Saving log... done
+BUILD_EXIT=0
+=== installer package ===
+
+[anki] Signing app...
+
+*************************************************************************
+** WARNING: Signing with an ad-hoc identity                            **
+*************************************************************************
+
+    This app is being signed with an ad-hoc identity. The resulting
+    app will run on this computer, but will not run on anyone else's
+    computer.
+
+    To generate an app that can be distributed to others, you must
+    obtain an application distribution certificate from Apple, and
+    select the developer identity associated with that certificate
+    when running 'briefcase package'.
+
+*************************************************************************
+
+Signing app with ad-hoc identity...
+
+[anki] Building DMG...
+Building Anki-26.5.dmg... started
+Building Anki-26.5.dmg... done
+
+[anki] Packaged dist/Anki-26.5.dmg
+Saving log... started
+
+Log saved to /Users/philote/projects/inka/.worktrees/l2-core/out/installer/logs/briefcase.2026_07_02-01_02_25.package.log
+
+Saving log... done
+PKG_EXIT=0
+=== dist ===
+total 458760
+drwxr-xr-x@  3 philote  staff         96 Jul  2 01:02 .
+drwxr-xr-x@ 10 philote  staff        320 Jul  2 01:01 ..
+-rw-r--r--@  1 philote  staff  230568565 Jul  2 01:02 anki-26.05-mac-apple.dmg
+Thu Jul  2 01:02:25 CDT 2026
