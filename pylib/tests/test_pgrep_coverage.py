@@ -55,9 +55,7 @@ def _add_reviewed_card(
     card.queue = QUEUE_TYPE_REV
     card.due = 0
     card.ivl = max(1, int(stability))
-    card.memory_state = cards_pb2.FsrsMemoryState(
-        stability=stability, difficulty=5.0
-    )
+    card.memory_state = cards_pb2.FsrsMemoryState(stability=stability, difficulty=5.0)
     card.last_review_time = int(time.time()) - days_ago * 86400
     col.update_card(card)
     return card

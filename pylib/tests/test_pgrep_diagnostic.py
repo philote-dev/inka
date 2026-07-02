@@ -161,9 +161,7 @@ def test_high_memory_point_places_strong_without_a_quick_check():
     col = getEmptyCol()
     _add_strong_topic(col, "topic::mechanics::kinematics")
     # Confirm the Memory prior is genuinely high for this category.
-    assert (
-        _by_category(topics(col))["mechanics"]["n_cards"] > 0
-    )
+    assert _by_category(topics(col))["mechanics"]["n_cards"] > 0
 
     # No quick-check result for mechanics; the FSRS-R prior alone places it.
     result = place(col, [])
