@@ -6,10 +6,13 @@ pgrep Diagnostic v0 (L2.3). A light, re-runnable placement flow. Step through th
 blueprint topics a few at a time and answer one objective quick check each, then
 place every topic strong or rusty. Placement combines the fresh quick check with
 the FSRS-R Memory prior on the backend. The persona is post-undergraduate, so
-there is no cold bucket. No AI, no confidence or self-rating.
+there is no cold bucket. No AI, no confidence or self-rating. Styled with the
+pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
 -->
 <script lang="ts">
     import { onMount } from "svelte";
+
+    import ChoiceList from "$lib/components/ChoiceList.svelte";
 
     import { pgrepCall } from "../lib/bridge";
 
@@ -52,6 +55,8 @@ there is no cold bucket. No AI, no confidence or self-rating.
         lab: "Lab methods",
         specialized: "Specialized",
     };
+
+    const CHOICE_LETTERS = ["A", "B", "C", "D", "E"];
 
     // One objective, single-answer quick check per category. These are checks
     // with a correct answer, never a confidence or self-rating.
@@ -193,6 +198,19 @@ there is no cold bucket. No AI, no confidence or self-rating.
         }
     }
 
+    function letterFor(index: number): string {
+        return CHOICE_LETTERS[index] ?? String(index + 1);
+    }
+
+    function choiceItems(item: CheckItem): Array<{ key: string; html: string }> {
+        return item.choices.map((c, i) => ({ key: letterFor(i), html: c }));
+    }
+
+    function selectedKey(category: string): string {
+        const idx = answers[category];
+        return idx === undefined ? "" : letterFor(idx);
+    }
+
     $: checks = (() => {
         const out: CheckItem[] = [];
         for (const t of topicsData?.topics ?? []) {
@@ -230,16 +248,16 @@ there is no cold bucket. No AI, no confidence or self-rating.
     {#if screen === "loading"}
         <p class="muted">Loading the diagnostic.</p>
     {:else if screen === "error"}
-        <div class="card">
-            <p>Something went wrong.</p>
+        <div class="panel notice">
+            <p class="lead">Something went wrong.</p>
             <button class="btn" on:click={loadTopics}>Try again</button>
         </div>
     {:else if screen === "intro"}
-        <div class="card intro">
+        <div class="panel">
             <p class="lead">Answer one quick check per topic.</p>
             <p class="muted">
-                We combine each answer with what your reviews already show, then place
-                every topic strong or rusty. Run it again whenever you like.
+                We combine each answer with what your reviews already show, then place every topic strong or
+                rusty. Run it again whenever you like.
             </p>
         </div>
 
@@ -248,11 +266,7 @@ there is no cold bucket. No AI, no confidence or self-rating.
                 <p class="muted small">Your last placement</p>
                 <ul class="grid">
                     {#each priorPlaced as topic (topic.category)}
-                        <li
-                            class="chip"
-                            class:strong={topic.placement === "strong"}
-                            class:rusty={topic.placement === "rusty"}
-                        >
+                        <li class="chip" class:strong={topic.placement === "strong"} class:rusty={topic.placement === "rusty"}>
                             <span class="chip-name">{label(topic.category)}</span>
                             <span class="pill">{topic.placement}</span>
                         </li>
@@ -267,8 +281,8 @@ there is no cold bucket. No AI, no confidence or self-rating.
             </button>
         </div>
     {:else if screen === "check"}
-        <div class="progressrow muted small">
-            <span>Step {stepIndex + 1} of {batches.length}</span>
+        <div class="progressrow">
+            <span class="muted small">Step {stepIndex + 1} of {batches.length}</span>
         </div>
 
         <ol class="questions">
@@ -276,22 +290,13 @@ there is no cold bucket. No AI, no confidence or self-rating.
                 <li class="question">
                     <div class="qtopic">{label(item.category)}</div>
                     <div class="qprompt">{item.prompt}</div>
-                    <ul class="choices">
-                        {#each item.choices as choice, i}
-                            <li>
-                                <button
-                                    class="choice"
-                                    class:picked={answers[item.category] === i}
-                                    on:click={() => pick(item.category, i)}
-                                >
-                                    <span class="letter">
-                                        {String.fromCharCode(65 + i)}
-                                    </span>
-                                    <span class="choice-text">{choice}</span>
-                                </button>
-                            </li>
-                        {/each}
-                    </ul>
+                    <ChoiceList
+                        choices={choiceItems(item)}
+                        selected={selectedKey(item.category)}
+                        committed={false}
+                        correctKey={null}
+                        onSelect={(key) => pick(item.category, CHOICE_LETTERS.indexOf(key))}
+                    />
                 </li>
             {/each}
         </ol>
@@ -299,44 +304,30 @@ there is no cold bucket. No AI, no confidence or self-rating.
         <div class="actions">
             <button class="btn ghost" on:click={back} disabled={busy}>Back</button>
             {#if isLastStep}
-                <button
-                    class="btn primary"
-                    on:click={submit}
-                    disabled={!batchComplete || busy}
-                >
+                <button class="btn primary" on:click={submit} disabled={!batchComplete || busy}>
                     {busy ? "Placing" : "See placement"}
                 </button>
             {:else}
-                <button class="btn primary" on:click={next} disabled={!batchComplete}>
-                    Next
-                </button>
+                <button class="btn primary" on:click={next} disabled={!batchComplete}>Next</button>
             {/if}
             <span class="muted small">Pick an answer for each check to continue.</span>
         </div>
     {:else if screen === "results" && placeData}
-        <div class="card summary">
-            <p class="lead">
-                {strongCount} of {placeData.topics.length} topics placed strong.
-            </p>
-            <p class="muted small">
-                Saved. Reviews keep refining this, and you can run it again.
-            </p>
+        <div class="panel">
+            <p class="lead">{strongCount} of {placeData.topics.length} topics placed strong.</p>
+            <p class="muted small">Saved. Reviews keep refining this, and you can run it again.</p>
         </div>
 
         <ul class="grid">
             {#each placeData.topics as topic (topic.category)}
-                <li
-                    class="chip"
-                    class:strong={topic.placement === "strong"}
-                    class:rusty={topic.placement === "rusty"}
-                >
+                <li class="chip" class:strong={topic.placement === "strong"} class:rusty={topic.placement === "rusty"}>
                     <span class="chip-name">{label(topic.category)}</span>
                     <span class="pill">{topic.placement}</span>
                 </li>
             {/each}
         </ul>
 
-        <div class="legend muted small" aria-hidden="true">
+        <div class="legend" aria-hidden="true">
             <span class="key">
                 <span class="swatch strong"></span>
                 strong
@@ -355,61 +346,58 @@ there is no cold bucket. No AI, no confidence or self-rating.
 
 <style lang="scss">
     .diagnostic {
-        // Diagnostic is violet, distinct from Memory amber and Coverage green.
-        --diagnostic-accent: #6b4fa3;
-        --strong-accent: #2f7d57;
-        --rusty-accent: #a9752a;
-
         max-width: 680px;
+        margin: 0 auto;
+        padding: 48px 24px 64px;
         display: flex;
         flex-direction: column;
-        gap: 1rem;
-    }
-
-    :global(.night-mode) .diagnostic {
-        --diagnostic-accent: #b48ead;
-        --strong-accent: #8fce9f;
-        --rusty-accent: #ebcb8b;
+        gap: var(--space-2);
+        font-family: var(--font-ui);
+        color: var(--text);
     }
 
     .head {
+        margin-bottom: var(--space-1);
+
         h1 {
             margin: 0;
-            font-size: 1.25rem;
-            color: var(--diagnostic-accent);
+            font-size: var(--text-title);
+            font-weight: 600;
+            letter-spacing: -0.02em;
         }
 
         .sub {
-            margin: 0.15rem 0 0;
-            color: var(--fg-subtle);
+            margin: 6px 0 0;
+            color: var(--muted);
+            font-size: var(--text-body);
         }
     }
 
-    .card {
-        padding: 1rem 1.1rem;
-        background: var(--canvas-elevated);
-        border: 1px solid var(--border);
-        border-radius: var(--border-radius-medium, 12px);
+    .panel {
+        background: var(--surface);
+        border: var(--hairline);
+        border-radius: var(--radius-card);
+        box-shadow: var(--shadow-card);
+        padding: var(--space-3);
     }
 
-    .intro {
-        border-left: 3px solid var(--diagnostic-accent);
-    }
-
-    .summary {
-        border-left: 3px solid var(--strong-accent);
+    .notice {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-1);
     }
 
     .lead {
-        margin: 0 0 0.25rem;
-        font-size: 1.1rem;
+        margin: 0 0 4px;
+        font-size: var(--text-emphasis);
         font-weight: 600;
     }
 
     .prior {
         display: flex;
         flex-direction: column;
-        gap: 0.4rem;
+        gap: var(--space-1);
     }
 
     .progressrow {
@@ -423,64 +411,28 @@ there is no cold bucket. No AI, no confidence or self-rating.
         padding: 0;
         display: flex;
         flex-direction: column;
-        gap: 0.75rem;
+        gap: var(--space-2);
     }
 
     .question {
-        padding: 0.75rem 0.9rem;
-        background: var(--canvas-elevated);
-        border: 1px solid var(--border);
-        border-radius: var(--border-radius-medium, 12px);
-        border-left: 3px solid var(--diagnostic-accent);
+        padding: var(--space-2);
+        background: var(--surface);
+        border: var(--hairline);
+        border-radius: var(--radius-card);
+        box-shadow: var(--shadow-card);
 
         .qtopic {
-            font-size: 0.8rem;
-            font-weight: 550;
-            color: var(--diagnostic-accent);
+            font-size: var(--text-caption);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--muted);
         }
 
         .qprompt {
-            margin: 0.25rem 0 0.6rem;
-            font-size: 1.05rem;
-            line-height: 1.45;
-        }
-    }
-
-    .choices {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 0.4rem;
-    }
-
-    .choice {
-        display: flex;
-        gap: 0.6rem;
-        align-items: baseline;
-        width: 100%;
-        text-align: left;
-        padding: 0.45rem 0.7rem;
-        color: var(--fg);
-        background: var(--canvas);
-        border: 1px solid var(--border);
-        border-radius: var(--border-radius, 6px);
-        cursor: pointer;
-
-        &:hover {
-            border-color: var(--diagnostic-accent);
-        }
-
-        &.picked {
-            border-color: var(--diagnostic-accent);
-            box-shadow: inset 0 0 0 1px var(--diagnostic-accent);
-        }
-
-        .letter {
-            font-weight: 700;
-            min-width: 1.1rem;
-            color: var(--fg-subtle);
+            margin: 6px 0 var(--space-2);
+            font-size: var(--text-content);
+            line-height: 1.5;
         }
     }
 
@@ -490,74 +442,76 @@ there is no cold bucket. No AI, no confidence or self-rating.
         padding: 0;
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-        gap: 0.5rem;
+        gap: var(--space-1);
     }
 
     .chip {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        gap: 0.5rem;
-        padding: 0.5rem 0.7rem;
-        background: var(--canvas-elevated);
-        border: 1px solid var(--border);
-        border-radius: var(--border-radius, 6px);
+        gap: var(--space-1);
+        padding: 10px 14px;
+        background: var(--surface);
+        border: var(--hairline);
         border-left: 3px solid var(--border);
+        border-radius: var(--radius-row);
 
         &.strong {
-            border-left-color: var(--strong-accent);
+            border-left-color: var(--success);
         }
 
         &.rusty {
-            border-left-color: var(--rusty-accent);
+            border-left-color: var(--caution);
         }
 
         .chip-name {
-            font-weight: 550;
+            font-weight: 500;
+            font-size: var(--text-body);
         }
 
         .pill {
-            font-size: 0.75rem;
+            font-size: var(--text-caption);
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.03em;
-            color: var(--fg-subtle);
+            letter-spacing: 0.04em;
+            color: var(--muted);
         }
 
         &.strong .pill {
-            color: var(--strong-accent);
+            color: var(--success);
         }
 
         &.rusty .pill {
-            color: var(--rusty-accent);
+            color: var(--caution);
         }
     }
 
     .legend {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.35rem 1rem;
+        gap: 6px var(--space-2);
         align-items: center;
+        font-size: var(--text-small);
+        color: var(--muted);
 
         .key {
             display: inline-flex;
             align-items: center;
-            gap: 0.35rem;
+            gap: 6px;
         }
 
         .swatch {
-            display: inline-block;
-            width: 0.8rem;
-            height: 0.8rem;
+            width: 12px;
+            height: 12px;
             border-radius: 3px;
             background: var(--border);
 
             &.strong {
-                background: var(--strong-accent);
+                background: var(--success);
             }
 
             &.rusty {
-                background: var(--rusty-accent);
+                background: var(--caution);
             }
         }
     }
@@ -565,41 +519,57 @@ there is no cold bucket. No AI, no confidence or self-rating.
     .actions {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
+        gap: var(--space-2);
         flex-wrap: wrap;
+        margin-top: var(--space-1);
+    }
+
+    .muted {
+        color: var(--muted);
+    }
+
+    .small {
+        font-size: var(--text-small);
     }
 
     .btn {
-        padding: 0.4rem 0.9rem;
-        color: var(--fg);
-        background: var(--canvas-elevated);
-        border: 1px solid var(--border);
-        border-radius: var(--border-radius, 6px);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 16px;
+        font-family: var(--font-ui);
+        font-size: var(--text-body);
+        font-weight: 500;
+        border-radius: var(--radius-control);
+        border: var(--hairline);
+        background: var(--surface);
+        color: var(--text);
         cursor: pointer;
+        transition: var(--transition-calm);
 
-        &:hover {
-            border-color: var(--diagnostic-accent);
+        &:hover:not(:disabled) {
+            background: var(--hover-wash);
+            border-color: var(--muted);
         }
 
         &:disabled {
             cursor: default;
-            opacity: 0.6;
+            opacity: 0.55;
         }
 
         &.primary {
-            border-color: var(--diagnostic-accent);
+            background: var(--action-bg);
+            color: var(--action-fg);
+            border-color: transparent;
+
+            &:hover:not(:disabled) {
+                background: var(--action-bg-hover);
+            }
         }
 
         &.ghost {
-            background: transparent;
+            background: none;
+            border-color: var(--muted);
         }
-    }
-
-    .muted {
-        color: var(--fg-subtle);
-    }
-
-    .small {
-        font-size: 0.85rem;
     }
 </style>
