@@ -763,6 +763,80 @@ mod test {
         Ok(())
     }
 
+    /// pgrep: selection truncates to top-N by worth BEFORE anti-blocking, so
+    /// anti-blocking pressure never drops a higher-worth card in favour of a
+    /// lower-worth one at the daily-limit boundary. Four equal-high-worth
+    /// mechanics cards + one low-worth lab card, review limit 4: all four
+    /// mechanics survive and the lab card is cut. (Anti-block-before-truncate
+    /// would have pulled the lab card in at position 4 and cut a mechanics
+    /// card.)
+    #[test]
+    fn points_at_stake_truncates_by_worth_before_anti_blocking() -> Result<()> {
+        use crate::card::FsrsMemoryState;
+
+        let mut col = Collection::new();
+        let mut deck = col.get_or_create_normal_deck("Default").unwrap();
+        let nt = col.get_notetype_by_name("Basic")?.unwrap();
+
+        let last_review = col.timing_today()?.now.adding_secs(-30 * 86_400);
+        let memory = FsrsMemoryState {
+            stability: 50.0,
+            difficulty: 5.0,
+        };
+
+        // Uniform FSRS state => worth ranks purely by blueprint. mechanics (0.20)
+        // outranks lab (0.06), and the four mechanics cards share a category so
+        // anti-blocking wants to interleave the lab card among them.
+        let setup = [
+            ("mechanics", "topic::mechanics::core"),
+            ("mechanics", "topic::mechanics::core"),
+            ("mechanics", "topic::mechanics::core"),
+            ("mechanics", "topic::mechanics::core"),
+            ("lab", "topic::lab::methods"),
+        ];
+        let mut cards = vec![];
+        let mut lab_ids = std::collections::HashSet::new();
+        for (category, topic) in setup {
+            let mut note = nt.new_note();
+            note.set_field(0, "foo")?;
+            note.tags = vec![topic.to_string()];
+            note.id.0 = 0;
+            col.add_note(&mut note, deck.id)?;
+            let mut card = col.storage.get_card_by_ordinal(note.id, 0)?.unwrap();
+            card.ctype = CardType::Review;
+            card.queue = CardQueue::Review;
+            card.due = 0;
+            card.interval = 40;
+            card.memory_state = Some(memory);
+            card.last_review_time = Some(last_review);
+            if category == "lab" {
+                lab_ids.insert(card.id);
+            }
+            cards.push(card);
+        }
+        col.update_cards_maybe_undoable(cards, false)?;
+
+        col.set_deck_review_order(&mut deck, ReviewCardOrder::PointsAtStake);
+        col.set_deck_review_limit(deck.id, 4);
+
+        let queue: Vec<CardId> = col
+            .build_queues(deck.id)?
+            .iter()
+            .map(|entry| entry.card_id())
+            .collect();
+
+        // The daily limit's worth of cards is shown, and every one is a
+        // higher-worth mechanics card -- the lower-worth lab card is truncated,
+        // not interleaved in.
+        assert_eq!(queue.len(), 4);
+        assert!(
+            queue.iter().all(|id| !lab_ids.contains(id)),
+            "lower-worth lab card must be truncated, not retained over a mechanics card"
+        );
+
+        Ok(())
+    }
+
     impl Collection {
         fn card_queue_len(&mut self) -> usize {
             self.get_queued_cards(5, false).unwrap().cards.len()
