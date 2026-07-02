@@ -122,21 +122,27 @@ forward-compat but not computed in L2.
     }
     ```
   - Math (`scoring-and-readiness.md` §1): per topic `mean(R)` over that topic's
-    reviewed cards; overall `Sum blueprint% * Memory(topic)` over covered topics;
-    range = 80% central interval of the Poisson-binomial (mean `SumR_i`, var
-    `Sum R_i(1-R_i)`); a topic with `< k_mem` (default 5) reviewed cards abstains
+    reviewed cards; overall = the blueprint-weighted mean over the scored
+    (non-abstaining) topics, normalized by their blueprint weight
+    (`Sum(w * Memory(topic)) / Sum(w)`), so it reads honestly as "of what is
+    scored"; range = 80% central interval of the Poisson-binomial (mean `SumR_i`,
+    var `Sum R_i(1-R_i)`); a topic with `< k_mem` (default 5) reviewed cards abstains
     (`point=null`, `reason="Not enough cards yet"`). No Performance / Readiness.
 
 ### L2.1 Study (owner of `anki.pgrep.study`, `anki.pgrep.problem`, Study pages)
 
 - `POST /_anki/pgrepStudyStart` -> begin/scope a session.
   - req: `{ "door": "cards" | "problems", "topic": "topic::..."|null }`.
-  - res: `{ "session_id": "<uuid>", "remaining": <int> }`. Applies the
-    points-at-stake order (topics interleaved within the door); `topic` scopes a
-    focus drill (cross-topic interleaving off).
+  - res: `{ "session_id": "<uuid>", "door": "cards"|"problems", "remaining": <int> }`.
+    Applies the points-at-stake order (topics interleaved within the door);
+    `topic` scopes a focus drill (cross-topic interleaving off).
 - `POST /_anki/pgrepStudyNext` -> the next item (no help revealed).
   - Cards res: `{ "kind":"card", "card_id":N, "question_html":"...",
-    "topic":"...", "remaining":N }` (answer withheld until reveal).
+    "answer_html":"...", "topic":"...", "remaining":N }`. The `answer_html` is
+    carried with the card (there is no separate card-reveal endpoint), but the UI
+    keeps it hidden until the learner reveals it. The flow is retrieval, then
+    reveal, then grade, which mirrors stock Anki. The commit-before-help gate
+    applies to the Problems door, not Cards.
   - Problems res: `{ "kind":"problem", "note_id":N, "stem_html":"...",
     "choices":["A..","B.."], "topic":"...", "remaining":N }`
     (correct answer + rationales withheld; **commit gate**).
