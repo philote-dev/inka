@@ -40,6 +40,13 @@ def _only_attempt_note(col):
     return col.get_note(ids[0])
 
 
+def _note_by_event_id(col, event_id: str):
+    # event_id mirrors the note guid (K2)
+    nid = col.db.scalar("select id from notes where guid = ?", event_id)
+    assert nid is not None
+    return col.get_note(nid)
+
+
 # Bootstrap
 ##########################################################################
 
@@ -399,6 +406,71 @@ def test_seam_empty_when_no_attempts():
     assert fold.correct == 0
     assert fold.accuracy == 0.0
     assert fold.by_topic == {}
+
+
+def test_attempts_topic_query_is_case_insensitive():
+    col = getEmptyCol()
+    _seed_events(col)
+    # topics are stored canonically lowercase; a mis-cased query must still match
+    got = attempts(col, topic="Topic::Quantum")
+    assert sorted(e.event_id for e in got) == ["q1", "q2"]
+    fold = performance_fold(col, topic="TOPIC::MECHANICS")
+    assert fold.total == 2
+
+
+def test_seam_skips_malformed_event_json():
+    col = getEmptyCol()
+    append_attempt(
+        col,
+        {
+            "event_id": "good1",
+            "topic": "topic::mechanics",
+            "correct": True,
+            "answered_at": 1000,
+        },
+    )
+    append_attempt(
+        col,
+        {
+            "event_id": "good2",
+            "topic": "topic::quantum",
+            "correct": False,
+            "answered_at": 2000,
+        },
+    )
+
+    # simulate corrupted / hand-edited / merge-mangled attempt notes whose
+    # event_json parses to a NON-dict (or isn't JSON at all). A single bad note
+    # must not sink the whole analytics seam.
+    bad_blobs = {
+        "bad_str": '"oops"',
+        "bad_int": "123",
+        "bad_null": "null",
+        "bad_list": "[1, 2, 3]",
+        "bad_notjson": "not json at all",
+    }
+    for bad_id, blob in bad_blobs.items():
+        append_attempt(
+            col,
+            {
+                "event_id": bad_id,
+                "topic": "topic::atomic",
+                "correct": True,
+                "answered_at": 9000,
+            },
+        )
+        note = _note_by_event_id(col, bad_id)
+        note["event_json"] = blob
+        col.update_note(note)
+
+    # both halves of the seam skip the bad notes and still return the valid ones
+    got = attempts(col)
+    assert sorted(e.event_id for e in got) == ["good1", "good2"]
+
+    fold = performance_fold(col)
+    assert fold.total == 2
+    assert fold.correct == 1
+    assert fold.accuracy == 0.5
 
 
 # Undo-safety (nice-to-have): append is a single undoable action

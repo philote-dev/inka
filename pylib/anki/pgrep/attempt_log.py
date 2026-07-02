@@ -89,7 +89,12 @@ class Event:
     payload: dict[str, Any]
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Event:
+    def from_dict(cls, data: Any) -> Event:
+        # event_json is untrusted (may be hand-edited / merge-mangled): a blob
+        # that decodes to a non-object must be a caught, skippable error, not a
+        # fatal AttributeError from the .get() calls below.
+        if not isinstance(data, dict):
+            raise ValueError("event_json must decode to a JSON object")
         topic = data.get("topic")
         topic = str(topic) if topic else None
         category = data.get("category") or category_of(topic)
@@ -323,12 +328,17 @@ def _iter_attempt_events(col: Collection) -> Iterator[Event]:
     notetype = get_attempt_notetype(col)
     if not notetype:
         return
+    # TODO(C): this full-scans + parses every attempt note (the "A" fold). When
+    # the deferred local cache lands, the denormalized pgrep::attempt + topic::
+    # tags and the flat topic/answered_at fields let us pre-filter cheaply via
+    # col.find_notes("tag:pgrep::attempt ...") / answered_at instead of scanning.
     for note_id in col.models.nids(notetype["id"]):
         raw = col.get_note(note_id)[FIELD_EVENT_JSON]
         try:
             yield Event.from_json(raw)
-        except (ValueError, TypeError):
-            # A malformed blob should never sink the whole fold.
+        except (ValueError, TypeError, AttributeError, KeyError):
+            # A malformed / corrupted / non-dict blob should never sink the whole
+            # fold — skip just that note and keep well-formed events flowing.
             continue
 
 
@@ -337,6 +347,9 @@ def _topic_matches(event_topic: str | None, query: str | None) -> bool:
         return True
     if event_topic is None:
         return False
+    # topics are stored canonically lowercase and tag parsing is case-insensitive
+    query = query.lower()
+    event_topic = event_topic.lower()
     return event_topic == query or event_topic.startswith(query + "::")
 
 
