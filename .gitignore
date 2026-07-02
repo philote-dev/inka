@@ -24,3 +24,9 @@ ts/.svelte-kit
 docs/_build/
 docs/autoapi/
 .complexipy_cache
+
+# Understand-Anything knowledge-graph cache (local tool output)
+.understand-anything/
+
+# Stray packaged export artifact
+/pGREp Physics Study App.zip
