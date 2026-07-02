@@ -6,7 +6,7 @@ engine across two front-ends:
 - **Desktop** — the existing Anki Python/Qt + TypeScript app (`pylib/`, `qt/`,
   `ts/`) on top of the core engine (`rslib/`).
 - **iOS (Simulator)** — a native SwiftUI app (`mobile/ios/`) that drives the
-  *same* engine through a small C ABI (`rslib/ffi`), packaged for iOS as an
+  _same_ engine through a small C ABI (`rslib/ffi`), packaged for iOS as an
   `.xcframework`.
 
 This page documents how to build, run, and test both targets with the `just`
@@ -14,14 +14,14 @@ recipes in the repo-root `justfile`. Run `just --list` to see everything.
 
 ## Desktop
 
-| Command | What it does |
-| --- | --- |
-| `just build` | Build the desktop app (pylib + qt). |
-| `just run` | Build and launch Anki in development mode. |
-| `just test-rust` | Run the Rust test suite. |
-| `just test-py` | Run the Python tests (pylib + qt). |
-| `just check` | Format + full build + all lint/tests (run before finishing a task). |
-| `just smoke` | Fast desktop sanity check (see below). |
+| Command          | What it does                                                        |
+| ---------------- | ------------------------------------------------------------------- |
+| `just build`     | Build the desktop app (pylib + qt).                                 |
+| `just run`       | Build and launch Anki in development mode.                          |
+| `just test-rust` | Run the Rust test suite.                                            |
+| `just test-py`   | Run the Python tests (pylib + qt).                                  |
+| `just check`     | Format + full build + all lint/tests (run before finishing a task). |
+| `just smoke`     | Fast desktop sanity check (see below).                              |
 
 ### `just smoke`
 
@@ -59,10 +59,10 @@ plus at least one iOS Simulator (any recent iPhone).
 
 ### Build & test
 
-| Command | What it does |
-| --- | --- |
+| Command                | What it does                                                          |
+| ---------------------- | --------------------------------------------------------------------- |
 | `just ios-xcframework` | Build `out/ios/AnkiFfi.xcframework` via `tools/build-xcframework.sh`. |
-| `just ios-smoke` | End-to-end iOS smoke (see below). macOS-only; takes a few minutes. |
+| `just ios-smoke`       | End-to-end iOS smoke (see below). macOS-only; takes a few minutes.    |
 
 `just ios-smoke` delegates to `tools/ios-smoke.sh`, which:
 
