@@ -6,8 +6,15 @@ pgrep Study (L2.1). Two doors, never one shuffled queue. Cards is retrieval
 (memory, amber) and runs the real FSRS review loop. Problems is practice
 (performance, blue) with a commit gate before any help and a static wrong-answer
 ladder that only shows the final answer at the reveal rung. No AI, no confidence.
+Styled with the pgrep design system (StudyFrame, ChoiceList, HintRung, GradeBar);
+the data flow through pgrepCall is unchanged.
 -->
 <script lang="ts">
+    import ChoiceList from "$lib/components/ChoiceList.svelte";
+    import GradeBar from "$lib/components/GradeBar.svelte";
+    import HintRung from "$lib/components/HintRung.svelte";
+    import StudyFrame from "$lib/components/StudyFrame.svelte";
+
     import { pgrepCall } from "../lib/bridge";
 
     interface StartResult {
@@ -67,10 +74,10 @@ ladder that only shows the final answer at the reveal rung. No AI, no confidence
     const CATEGORY_SLUGS = Object.keys(CATEGORY_LABELS);
     const CHOICE_LETTERS = ["A", "B", "C", "D", "E"];
     const RATINGS = [
-        { label: "Again", rating: 1 },
-        { label: "Hard", rating: 2 },
-        { label: "Good", rating: 3 },
-        { label: "Easy", rating: 4 },
+        { label: "Again", value: 1 },
+        { label: "Hard", value: 2 },
+        { label: "Good", value: 3 },
+        { label: "Easy", value: 4 },
     ];
     const RUNG_TITLES: Record<string, string> = {
         nudge: "Nudge",
@@ -246,35 +253,37 @@ ladder that only shows the final answer at the reveal rung. No AI, no confidence
     function letterOf(index: number): string {
         return CHOICE_LETTERS[index] ?? String(index + 1);
     }
+
+    // View helpers (presentation only, no data changes).
+    let topicTone: "memory" | "performance" = "performance";
+    $: topicTone = screen === "cards" ? "memory" : "performance";
+    $: currentTopic = (card?.topic ?? problem?.topic ?? "").trim();
+    $: remainingCount = card?.remaining ?? problem?.remaining ?? null;
+    $: countLabel = remainingCount === null ? "" : `${remainingCount} left`;
+    $: choiceItems = problem ? problem.choices.map((html, i) => ({ key: letterOf(i), html })) : [];
 </script>
 
-<section class="study">
-    {#if screen === "launcher"}
+{#if screen === "launcher"}
+    <section class="launcher">
         <header class="head">
             <h1>Study</h1>
             <p class="sub">Two doors. Topics mix inside each one.</p>
         </header>
 
         <div class="doors">
-            <button
-                class="door cards"
-                on:click={() => startDoor("cards")}
-                disabled={loading}
-            >
-                <span class="door-name">Cards</span>
-                <span class="door-desc">
-                    Retrieval that primes the problems. Real reviews.
+            <button class="door cards" on:click={() => startDoor("cards")} disabled={loading}>
+                <span class="door-top">
+                    <span class="door-name">Cards</span>
+                    <span class="door-kind">Memory</span>
                 </span>
+                <span class="door-desc">Retrieval that primes the problems. Real reviews.</span>
             </button>
-            <button
-                class="door problems"
-                on:click={() => startDoor("problems")}
-                disabled={loading}
-            >
-                <span class="door-name">Problems</span>
-                <span class="door-desc">
-                    Commit first, then work the ladder on a miss.
+            <button class="door problems" on:click={() => startDoor("problems")} disabled={loading}>
+                <span class="door-top">
+                    <span class="door-name">Problems</span>
+                    <span class="door-kind">Performance</span>
                 </span>
+                <span class="door-desc">Commit first, then work the ladder on a miss.</span>
             </button>
         </div>
 
@@ -282,45 +291,31 @@ ladder that only shows the final answer at the reveal rung. No AI, no confidence
             <label for="drill-topic">Focus drill</label>
             <select id="drill-topic" bind:value={drillTopic}>
                 <option value="">All topics</option>
-                {#each CATEGORY_SLUGS as slug}
+                {#each CATEGORY_SLUGS as slug (slug)}
                     <option value={slug}>{CATEGORY_LABELS[slug]}</option>
                 {/each}
             </select>
             <span class="muted small">Pick one topic to drill it on its own.</span>
         </div>
 
-        {#if errored}
-            <p class="muted">Something went wrong. Try a door again.</p>
+        {#if loading}
+            <p class="muted small">Opening the door.</p>
         {/if}
-    {:else}
-        <header class="head row">
-            <div>
-                <h1
-                    class:cards-accent={screen === "cards"}
-                    class:problems-accent={screen === "problems"}
-                >
-                    {screen === "cards" ? "Cards" : "Problems"}
-                </h1>
-                <p class="sub">
-                    {drillTopic
-                        ? `Focus on ${CATEGORY_LABELS[drillTopic] ?? drillTopic}.`
-                        : "Topics mixed."}
-                </p>
-            </div>
-            <button class="btn ghost" on:click={toLauncher}>Back</button>
-        </header>
-
+        {#if errored}
+            <p class="muted small">Something went wrong. Try a door again.</p>
+        {/if}
+    </section>
+{:else}
+    <StudyFrame count={countLabel} topic={currentTopic} {topicTone} onClose={toLauncher}>
         {#if loading || busy}
-            <p class="muted">Working.</p>
-        {/if}
-
-        {#if errored}
-            <div class="card">
-                <p>Something went wrong.</p>
+            <p class="muted center">Working.</p>
+        {:else if errored}
+            <div class="notice">
+                <p class="lead">Something went wrong.</p>
                 <button class="btn" on:click={loadNext}>Try again</button>
             </div>
         {:else if doorEmpty}
-            <div class="card">
+            <div class="notice">
                 {#if startedEmpty}
                     <p class="lead">No items here yet.</p>
                     <p class="muted">Seed sample content to try this door.</p>
@@ -329,213 +324,136 @@ ladder that only shows the final answer at the reveal rung. No AI, no confidence
                     </button>
                 {:else}
                     <p class="lead">This door is clear for now.</p>
-                    <p class="muted">
-                        Come back when more is due, or try the other door.
-                    </p>
+                    <p class="muted">Come back when more is due, or try the other door.</p>
                     <button class="btn" on:click={toLauncher}>Back to doors</button>
                 {/if}
             </div>
         {:else if screen === "cards" && card}
-            <article class="card item cards-item">
-                <div class="topic-tag">{card.topic ?? "untagged"}</div>
-                <div class="prompt">{@html card.question_html}</div>
-                {#if answerShown}
-                    <hr />
-                    <div class="prompt answer">{@html card.answer_html}</div>
-                    <div class="grades">
-                        {#each RATINGS as r}
-                            <button
-                                class="btn grade"
-                                on:click={() => grade(r.rating)}
-                                disabled={busy}
-                            >
-                                {r.label}
-                            </button>
+            <div class="prompt">{@html card.question_html}</div>
+            {#if answerShown}
+                <div class="answer">{@html card.answer_html}</div>
+                <div class="grade-label">How well did you recall it?</div>
+                <GradeBar
+                    grades={RATINGS}
+                    disabled={busy}
+                    onGrade={grade}
+                />
+            {:else}
+                <div class="actions">
+                    <button class="btn primary" on:click={() => (answerShown = true)}>Show answer</button>
+                </div>
+            {/if}
+        {:else if screen === "problems" && problem}
+            <div class="stem">{@html problem.stem_html}</div>
+
+            <ChoiceList
+                choices={choiceItems}
+                {selected}
+                committed={committed !== null}
+                correctKey={committed ? committed.correct_choice : null}
+                onSelect={(key) => (selected = key)}
+            />
+
+            {#if !committed}
+                <div class="actions">
+                    <button class="btn primary" on:click={commit} disabled={!selected || busy}>Commit</button>
+                    <span class="muted small">Help stays locked until you commit.</span>
+                </div>
+            {:else}
+                <div class="verdict" class:hit={committed.correct} class:miss={!committed.correct}>
+                    {committed.correct ? "Correct." : "Your answer, not correct."}
+                </div>
+                <div class="rationale">{@html committed.rationale_html}</div>
+
+                {#if committed.correct && revealedRungs === 0}
+                    <div class="actions">
+                        <button class="btn ghost" on:click={openSolution}>Show the worked solution</button>
+                    </div>
+                {/if}
+
+                {#if revealedRungs > 0}
+                    <div class="ladder">
+                        {#each committed.ladder.slice(0, revealedRungs) as rung, i (i)}
+                            <HintRung
+                                title={RUNG_TITLES[rung.rung] ?? rung.rung}
+                                index={i + 1}
+                                total={committed.ladder.length}
+                                prompt={rung.prompt_html ?? ""}
+                                revealHtml={rung.reveal_html}
+                                shown={shownSteps[i] ?? false}
+                                onShow={() => showStep(i)}
+                            />
                         {/each}
                     </div>
-                {:else}
-                    <div class="actions">
-                        <button
-                            class="btn primary"
-                            on:click={() => (answerShown = true)}
-                        >
-                            Show answer
-                        </button>
-                    </div>
-                {/if}
-                <p class="muted small">{card.remaining} left in this door.</p>
-            </article>
-        {:else if screen === "problems" && problem}
-            <article class="card item problems-item">
-                <div class="topic-tag">{problem.topic ?? "untagged"}</div>
-                <div class="prompt">{@html problem.stem_html}</div>
 
-                <ul class="choices">
-                    {#each problem.choices as choice, i}
-                        <li>
-                            <button
-                                class="choice"
-                                class:picked={selected === letterOf(i)}
-                                class:locked={committed !== null}
-                                class:correct-choice={committed &&
-                                    letterOf(i) === committed.correct_choice}
-                                on:click={() =>
-                                    committed ? null : (selected = letterOf(i))}
-                                disabled={committed !== null}
-                            >
-                                <span class="letter">{letterOf(i)}</span>
-                                <span class="choice-text">{@html choice}</span>
-                            </button>
-                        </li>
-                    {/each}
-                </ul>
-
-                {#if !committed}
-                    <div class="actions">
-                        <button
-                            class="btn primary"
-                            on:click={commit}
-                            disabled={!selected || busy}
-                        >
-                            Commit
-                        </button>
-                        <span class="muted small">
-                            Help stays locked until you commit.
-                        </span>
-                    </div>
-                {:else}
-                    <div
-                        class="verdict"
-                        class:hit={committed.correct}
-                        class:miss={!committed.correct}
-                    >
-                        {committed.correct ? "Correct." : "Not correct."}
-                    </div>
-                    <div class="rationale">{@html committed.rationale_html}</div>
-
-                    {#if committed.correct}
-                        {#if revealedRungs === 0}
-                            <button class="btn ghost" on:click={openSolution}>
-                                Show the worked solution
-                            </button>
-                        {/if}
+                    {#if revealedRungs < committed.ladder.length}
+                        <div class="actions">
+                            <button class="btn ghost" on:click={nextRung}>Next step</button>
+                        </div>
                     {/if}
 
-                    {#if revealedRungs > 0}
-                        <ol class="ladder">
-                            {#each committed.ladder.slice(0, revealedRungs) as rung, i}
-                                <li class="rung">
-                                    <div class="rung-title">
-                                        {RUNG_TITLES[rung.rung] ?? rung.rung}
-                                    </div>
-                                    {#if rung.prompt_html}
-                                        <div class="rung-prompt">
-                                            {@html rung.prompt_html}
-                                        </div>
-                                    {/if}
-                                    {#if rung.reveal_html}
-                                        {#if shownSteps[i]}
-                                            <div class="rung-reveal">
-                                                {@html rung.reveal_html}
-                                            </div>
-                                        {:else}
-                                            <button
-                                                class="btn ghost"
-                                                on:click={() => showStep(i)}
-                                            >
-                                                Show the step
-                                            </button>
-                                        {/if}
-                                    {/if}
-                                </li>
-                            {/each}
-                        </ol>
-
-                        {#if revealedRungs < committed.ladder.length}
-                            <button class="btn ghost" on:click={nextRung}>
-                                Next step
-                            </button>
-                        {/if}
-                    {/if}
-
-                    <div class="actions">
-                        <button class="btn primary" on:click={loadNext} disabled={busy}>
-                            Next
-                        </button>
-                        <span class="muted small">
-                            {problem.remaining} left in this door.
-                        </span>
-                    </div>
+                    <p class="ladder-footer">Working it out yourself is the point.</p>
                 {/if}
-            </article>
+
+                <div class="actions next">
+                    <button class="btn primary" on:click={loadNext} disabled={busy}>Next</button>
+                    <span class="muted small">{problem.remaining} left in this door.</span>
+                </div>
+            {/if}
         {/if}
-    {/if}
-</section>
+    </StudyFrame>
+{/if}
 
 <style lang="scss">
-    .study {
-        // Cards are memory (amber); Problems are performance (blue).
-        --cards-accent: #a9752a;
-        --problems-accent: #2f6db0;
-
-        max-width: 680px;
+    .launcher {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 64px 24px;
         display: flex;
         flex-direction: column;
-        gap: 1rem;
-    }
-
-    :global(.night-mode) .study {
-        --cards-accent: #ebcb8b;
-        --problems-accent: #81a1c1;
+        gap: var(--space-3);
+        font-family: var(--font-ui);
+        color: var(--text);
     }
 
     .head {
         h1 {
             margin: 0;
-            font-size: 1.25rem;
+            font-size: var(--text-title);
+            font-weight: 600;
+            letter-spacing: -0.02em;
         }
 
         .sub {
-            margin: 0.15rem 0 0;
-            color: var(--fg-subtle);
+            margin: 6px 0 0;
+            color: var(--muted);
+            font-size: var(--text-body);
         }
-
-        &.row {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 1rem;
-        }
-    }
-
-    .cards-accent {
-        color: var(--cards-accent);
-    }
-
-    .problems-accent {
-        color: var(--problems-accent);
     }
 
     .doors {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 0.75rem;
+        gap: var(--space-2);
     }
 
     .door {
         display: flex;
         flex-direction: column;
-        gap: 0.35rem;
-        padding: 1rem 1.1rem;
+        gap: 10px;
         text-align: left;
-        color: var(--fg);
-        background: var(--canvas-elevated);
-        border: 1px solid var(--border);
-        border-radius: var(--border-radius-medium, 12px);
+        padding: 20px;
+        background: var(--surface);
+        border: var(--hairline);
+        border-left-width: 3px;
+        border-radius: var(--radius-card);
+        box-shadow: var(--shadow-card);
         cursor: pointer;
+        transition: var(--transition-calm);
+        color: var(--text);
 
-        &:hover {
-            border-color: var(--fg-subtle);
+        &:hover:not(:disabled) {
+            border-color: var(--muted);
         }
 
         &:disabled {
@@ -544,219 +462,225 @@ ladder that only shows the final answer at the reveal rung. No AI, no confidence
         }
 
         &.cards {
-            border-left: 3px solid var(--cards-accent);
+            border-left-color: var(--memory);
         }
 
         &.problems {
-            border-left: 3px solid var(--problems-accent);
+            border-left-color: var(--performance);
         }
+    }
 
-        .door-name {
-            font-size: 1.1rem;
-            font-weight: 600;
-        }
+    .door-top {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+    }
 
-        .door-desc {
-            color: var(--fg-subtle);
-            font-size: 0.9rem;
-        }
+    .door-name {
+        font-size: var(--text-emphasis);
+        font-weight: 600;
+        letter-spacing: -0.01em;
+    }
+
+    .door-kind {
+        font-size: var(--text-caption);
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+
+    .cards .door-kind {
+        color: var(--memory-text);
+    }
+
+    .problems .door-kind {
+        color: var(--performance-text);
+    }
+
+    .door-desc {
+        color: var(--muted);
+        font-size: var(--text-body);
+        line-height: 1.5;
     }
 
     .drill {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: var(--space-1);
         flex-wrap: wrap;
 
         label {
-            font-weight: 550;
+            font-weight: 500;
+            font-size: var(--text-body);
         }
 
         select {
-            padding: 0.3rem 0.5rem;
-            color: var(--fg);
-            background: var(--canvas-elevated);
-            border: 1px solid var(--border);
-            border-radius: var(--border-radius, 6px);
+            padding: 8px 10px;
+            color: var(--text);
+            background: var(--surface);
+            border: var(--hairline);
+            border-radius: var(--radius-control);
+            font-family: var(--font-ui);
+            font-size: var(--text-body);
         }
     }
 
-    .card {
-        padding: 1rem 1.1rem;
-        background: var(--canvas-elevated);
-        border: 1px solid var(--border);
-        border-radius: var(--border-radius-medium, 12px);
-    }
+    .prompt,
+    .stem {
+        font-size: var(--text-content);
+        line-height: 1.6;
+        margin-bottom: var(--space-3);
 
-    .item {
-        display: flex;
-        flex-direction: column;
-        gap: 0.75rem;
-    }
-
-    .cards-item {
-        border-left: 3px solid var(--cards-accent);
-    }
-
-    .problems-item {
-        border-left: 3px solid var(--problems-accent);
-    }
-
-    .topic-tag {
-        align-self: flex-start;
-        font-size: 0.75rem;
-        color: var(--fg-subtle);
-        font-variant-numeric: tabular-nums;
-    }
-
-    .prompt {
-        font-size: 1.1rem;
-        line-height: 1.5;
-
-        &.answer {
-            font-weight: 550;
+        :global(p) {
+            margin: 0 0 0.6em;
         }
     }
 
-    .choices {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 0.4rem;
+    .answer {
+        margin-top: var(--space-2);
+        padding-top: var(--space-2);
+        border-top: var(--hairline);
+        font-size: var(--text-content);
+        line-height: 1.6;
+
+        :global(p) {
+            margin: 0 0 0.6em;
+        }
     }
 
-    .choice {
-        display: flex;
-        gap: 0.6rem;
-        align-items: baseline;
-        width: 100%;
-        text-align: left;
-        padding: 0.5rem 0.7rem;
-        color: var(--fg);
-        background: var(--canvas);
-        border: 1px solid var(--border);
-        border-radius: var(--border-radius, 6px);
-        cursor: pointer;
+    .grade-label {
+        margin: var(--space-3) 0 var(--space-1);
+        font-size: var(--text-small);
+        color: var(--muted);
+    }
 
-        &:hover:not(.locked) {
-            border-color: var(--problems-accent);
-        }
-
-        &.picked {
-            border-color: var(--problems-accent);
-            box-shadow: inset 0 0 0 1px var(--problems-accent);
-        }
-
-        &.locked {
-            cursor: default;
-        }
-
-        &.correct-choice {
-            border-color: #3a8a4f;
-            box-shadow: inset 0 0 0 1px #3a8a4f;
-        }
-
-        .letter {
-            font-weight: 700;
-            min-width: 1.1rem;
-        }
+    .stem {
+        margin-bottom: var(--space-2);
     }
 
     .verdict {
-        font-weight: 650;
+        margin-top: var(--space-3);
+        font-size: var(--text-emphasis);
+        font-weight: 600;
 
         &.hit {
-            color: #3a8a4f;
+            color: var(--success);
         }
 
         &.miss {
-            color: var(--problems-accent);
+            color: var(--performance-text);
         }
     }
 
     .rationale {
-        color: var(--fg);
+        margin-top: var(--space-1);
+        color: var(--text);
+        font-size: var(--text-body);
+        line-height: 1.6;
+
+        :global(p) {
+            margin: 0 0 0.6em;
+        }
     }
 
     .ladder {
-        margin: 0;
-        padding-left: 1.1rem;
+        margin-top: var(--space-2);
         display: flex;
         flex-direction: column;
-        gap: 0.6rem;
+        gap: var(--space-2);
     }
 
-    .rung {
-        .rung-title {
-            font-weight: 600;
-        }
-
-        .rung-prompt {
-            margin-top: 0.15rem;
-            color: var(--fg-subtle);
-        }
-
-        .rung-reveal {
-            margin-top: 0.35rem;
-        }
-    }
-
-    .grades {
-        display: flex;
-        gap: 0.4rem;
-        flex-wrap: wrap;
+    .ladder-footer {
+        margin: var(--space-2) 0 0;
+        text-align: center;
+        font-size: var(--text-small);
+        color: var(--muted);
+        opacity: 0.8;
     }
 
     .actions {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
+        gap: var(--space-2);
         flex-wrap: wrap;
+        margin-top: var(--space-2);
+
+        &.next {
+            margin-top: var(--space-3);
+            padding-top: var(--space-2);
+            border-top: var(--hairline);
+        }
+    }
+
+    .notice {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-1);
+        background: var(--surface);
+        border: var(--hairline);
+        border-radius: var(--radius-card);
+        padding: var(--space-3);
+        box-shadow: var(--shadow-card);
     }
 
     .lead {
-        margin: 0 0 0.25rem;
-        font-size: 1.1rem;
+        margin: 0;
+        font-size: var(--text-emphasis);
         font-weight: 600;
     }
 
-    .btn {
-        padding: 0.4rem 0.9rem;
-        color: var(--fg);
-        background: var(--canvas-elevated);
-        border: 1px solid var(--border);
-        border-radius: var(--border-radius, 6px);
-        cursor: pointer;
+    .center {
+        text-align: center;
+    }
 
-        &:hover {
-            border-color: var(--fg-subtle);
+    .muted {
+        color: var(--muted);
+    }
+
+    .small {
+        font-size: var(--text-small);
+    }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 11px 18px;
+        font-family: var(--font-ui);
+        font-size: var(--text-body);
+        font-weight: 500;
+        border-radius: var(--radius-control);
+        border: var(--hairline);
+        background: var(--surface);
+        color: var(--text);
+        cursor: pointer;
+        transition: var(--transition-calm);
+
+        &:hover:not(:disabled) {
+            background: var(--hover-wash);
+            border-color: var(--muted);
         }
 
         &:disabled {
             cursor: default;
-            opacity: 0.6;
+            opacity: 0.55;
         }
 
         &.primary {
-            border-color: var(--problems-accent);
-        }
+            background: var(--action-bg);
+            color: var(--action-fg);
+            border-color: transparent;
 
-        &.grade {
-            min-width: 4rem;
+            &:hover:not(:disabled) {
+                background: var(--action-bg-hover);
+            }
         }
 
         &.ghost {
-            background: transparent;
+            background: none;
+            border-color: var(--muted);
         }
-    }
-
-    .muted {
-        color: var(--fg-subtle);
-    }
-
-    .small {
-        font-size: 0.85rem;
     }
 </style>
