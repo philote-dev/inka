@@ -1,0 +1,20 @@
+pgrep L2 desktop installer (macOS, unsigned / ad-hoc)
+
+file: anki-26.05-mac-apple.dmg
+size: 220 MB
+sha256: c4dbc2197856d27f3a4ed5d526f8d1c41bfcebea965c08dab37a60c074f1daf1
+built from: main @ 462764325 (includes the refined points-at-stake selector)
+prior build sha256 (pre-refinement, superseded): 50d6fe1d10f8f0d8f695d0b32e3be92bb46537084aa1868f28de69f73635f324
+built path: out/installer/dist/anki-26.05-mac-apple.dmg
+preserved copy: ~/pgrep-l2-installer/anki-26.05-mac-apple.dmg
+version: 26.05
+arch: apple silicon (arm64)
+signing: ad-hoc (no Apple Developer identity). On a clean machine Gatekeeper
+  needs a right-click then Open the first time, since it is not notarized.
+template: qt/installer/mac-template (Briefcase submodule, checked out)
+build commands (verified):
+  just wheels
+  out/pyenv/bin/python qt/tools/build_installer.py --version 26.05 build \
+    --aqt_wheel out/wheels/aqt-*.whl --anki_wheel out/wheels/anki-*.whl --skip_fcitx
+  out/pyenv/bin/python qt/tools/build_installer.py --version 26.05 package
+build result: BUILD_EXIT=0, PKG_EXIT=0 (see installer.log)

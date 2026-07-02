@@ -1,0 +1,12 @@
+just _test-py
+./ninja check:pytest
+[1m[92m    Finished[0m `release` profile [optimized] target(s) in 0.36s
+check:pytest:tools
+check:pytest:pylib
+check:pytest:aqt
+check:pytest:tools
+check:pytest:pylib
+n2: ran 3 tasks, now up to date
+[0m[1m[32m
+Build succeeded in 24.42s.
+[0m

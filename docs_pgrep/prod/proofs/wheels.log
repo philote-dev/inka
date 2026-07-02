@@ -1,0 +1,9 @@
+./ninja wheels
+[1m[92m    Finished[0m `release` profile [optimized] target(s) in 0.37s
+wheels:anki
+wheels:aqt
+wheels:anki
+n2: ran 2 tasks, now up to date
+[0m[1m[32m
+Build succeeded in 1.98s.
+[0m

@@ -1,0 +1,5 @@
+# Raw Playwright capture and scratch frames are regenerable; keep them out of git.
+raw/
+smoke_frames/
+verify_frames/
+*.webm

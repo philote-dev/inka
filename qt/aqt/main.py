@@ -1448,6 +1448,14 @@ title="{}" {}>{}</button>""".format(
         qconnect(m.action_check_for_updates.triggered, self.on_check_for_updates)
         qconnect(m.actionPreferences.triggered, self.onPrefs)
 
+        # Tools: pgrep (fork feature). Added at runtime since it is not in the
+        # shared main.ui form.
+        m.menuTools.addSeparator()
+        pgrep_action = m.menuTools.addAction("pgrep")
+        qconnect(pgrep_action.triggered, self.on_pgrep)
+        pgrep_seed_action = m.menuTools.addAction("pgrep: seed sample content")
+        qconnect(pgrep_seed_action.triggered, self.on_pgrep_seed_sample)
+
         # View
         qconnect(
             m.actionZoomIn.triggered,
@@ -1731,6 +1739,33 @@ title="{}" {}>{}</button>""".format(
         from aqt.emptycards import show_empty_cards
 
         show_empty_cards(self)
+
+    # pgrep (fork feature)
+    ##########################################################################
+
+    def on_pgrep(self) -> None:
+        import aqt.pgrep_window
+
+        aqt.pgrep_window.open_pgrep_window()
+
+    def on_pgrep_seed_sample(self) -> None:
+        from anki.pgrep import seed
+
+        if not self.col:
+            return
+        summary = seed.seed_sample_content(self.col)
+        self.reset()
+        categories = len(summary["categories"])
+        if summary["already_seeded"]:
+            tooltip(
+                f"pgrep sample already present. {categories} categories.", parent=self
+            )
+        else:
+            tooltip(
+                f"pgrep sample seeded. {summary['cards_created']} cards across "
+                f"{categories} categories.",
+                parent=self,
+            )
 
     # System specific code
     ##########################################################################
