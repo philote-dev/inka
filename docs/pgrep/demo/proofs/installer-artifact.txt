@@ -1,8 +1,10 @@
 pgrep L2 desktop installer (macOS, unsigned / ad-hoc)
 
 file: anki-26.05-mac-apple.dmg
-size: 220 MB (230568565 bytes)
-sha256: 50d6fe1d10f8f0d8f695d0b32e3be92bb46537084aa1868f28de69f73635f324
+size: 220 MB
+sha256: c4dbc2197856d27f3a4ed5d526f8d1c41bfcebea965c08dab37a60c074f1daf1
+built from: main @ 462764325 (includes the refined points-at-stake selector)
+prior build sha256 (pre-refinement, superseded): 50d6fe1d10f8f0d8f695d0b32e3be92bb46537084aa1868f28de69f73635f324
 built path: out/installer/dist/anki-26.05-mac-apple.dmg
 preserved copy: ~/pgrep-l2-installer/anki-26.05-mac-apple.dmg
 version: 26.05
