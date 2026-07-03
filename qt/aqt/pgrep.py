@@ -13,7 +13,7 @@ JSON bytes (``mediasrv`` wraps the bytes into an ``application/binary``
 response).
 
 The handler names and the function each calls are fixed by the L2 API contract
-(``docs/pgrep/planning/l2-api-contract.md`` §3): the four surfaces implement the
+(``docs_pgrep/plan/l2-api-contract.md`` §3): the four surfaces implement the
 ``anki.pgrep.*`` bodies these handlers already call, so no surface edits this
 file after scaffolding.
 """

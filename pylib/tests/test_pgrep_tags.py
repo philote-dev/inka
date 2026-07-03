@@ -3,7 +3,7 @@
 
 """Tests for the two-level topic-tag parsing helpers (L1.2).
 
-Contract: docs/pgrep/planning/l1-coordination-schema.md §1.
+Contract: docs_pgrep/plan/l1-coordination-schema.md §1.
 """
 
 from __future__ import annotations
