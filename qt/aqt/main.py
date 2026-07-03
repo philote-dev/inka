@@ -515,7 +515,7 @@ class AnkiQt(QMainWindow):
         restoreGeom(self, "mainWindow")
         restoreState(self, "mainWindow")
         # titlebar
-        self.setWindowTitle(f"{self.pm.name} - Anki")
+        self.setWindowTitle(f"{self.pm.name} - pgrep")
         # show and raise window for osx
         self.show()
         self.activateWindow()
@@ -975,6 +975,9 @@ title="{}" {}>{}</button>""".format(
         # main window
         self.form = aqt.forms.main.Ui_MainWindow()
         self.form.setupUi(self)
+        # pgrep identity: setupUi applies the form's window icon, so override it
+        # here with the pgrep mark so the dev app carries it.
+        self.setWindowIcon(QIcon(QPixmap("icons:pgrep.png")))
         # toolbar
         tweb = self.toolbarWeb = TopWebView(self)
         self.toolbar = Toolbar(self, tweb)
@@ -1517,7 +1520,7 @@ title="{}" {}>{}</button>""".format(
         m.actionFullScreen.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
 
     def updateTitleBar(self) -> None:
-        self.setWindowTitle("Anki")
+        self.setWindowTitle("pgrep")
 
     # View
     ##########################################################################
