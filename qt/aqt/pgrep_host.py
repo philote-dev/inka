@@ -98,5 +98,8 @@ def sync_central_surface(mw: aqt.main.AnkiQt, state: str) -> None:
     pgrep_active = state == "pgrep"
     web.setVisible(pgrep_active)
     mw.web.setVisible(not pgrep_active)
-    # pgrep brings its own chrome; hide Anki's bottom bar while it leads.
+    # pgrep brings its own left-rail chrome, so hide Anki's top toolbar and
+    # bottom bar while it leads. Both return when Anki's screens do (Option A,
+    # reachable via Tools > Open Anki screens).
+    mw.toolbarWeb.setVisible(not pgrep_active)
     mw.bottomWeb.setVisible(not pgrep_active)
