@@ -2,10 +2,10 @@
 
 **Product:** pgrep (a.k.a. "PGRE Speedrun") — a Physics GRE (PGRE) prep app built by forking Anki.
 **Owner:** Frank Gonzalez
-**Status:** Planning. All four features + UI/UX + technical architecture designed; build layers L0–L6 design-ready. Open design gaps tracked below.
+**Status:** Building. L0 through L2.5 and the full visual system are complete on `main`. The remaining trajectory is L2.7 (closeout), then L3 and L4 in parallel, then L5 and L6. See [`plan/build-plan.md`](plan/build-plan.md).
 **Governing project spec:** [`spec/Speedrun_ A Desktop + Mobile Study App Built on Anki.pdf`](spec/Speedrun_%20A%20Desktop%20+%20Mobile%20Study%20App%20Built%20on%20Anki.pdf)
 **Learning-science basis:** [`spec/Spiky POV Literature Contentions.pdf`](spec/Spiky%20POV%20Literature%20Contentions.pdf) + PGRE BrainLift (Nessie).
-**Last updated:** 2026-07-02
+**Last updated:** 2026-07-03
 
 > Docs are grouped by purpose: **spec** (the assignment), **research** (the durable "why", literature-backed), **plan** (execution roadmap + phase-tagged build contracts), **design** (UI), **assets**, and **prod** (prototype + submission artifacts). Every doc carries its own locked decisions + evidence. Shared context (mission, constraints, exam facts, thesis) lives here.
 
@@ -30,7 +30,7 @@
 - [`research/anki-rooting-and-rust.md`](research/anki-rooting-and-rust.md) — the graded Rust engine change: file-level plan.
 
 ### Plan (execution)
-- [`plan/build-plan.md`](plan/build-plan.md) — execution roadmap: build layers L0–L6, gates, subagent orchestration, example prompt.
+- [`plan/build-plan.md`](plan/build-plan.md) — the unified build plan: current status, the remaining trajectory (L2.7, then L3 and L4, then L5, L6), the per-layer agent split, gates, and controller prompts.
 - [`plan/setup-content-and-dependencies.md`](plan/setup-content-and-dependencies.md) — the "outside the code" plan: your tasks, content sourcing, external tools.
 - [`plan/dev-harness.md`](plan/dev-harness.md) — dev + test harness notes.
 - [`plan/l1-coordination-schema.md`](plan/l1-coordination-schema.md), [`plan/l2-api-contract.md`](plan/l2-api-contract.md), [`plan/l2.5-onscreen-proof.md`](plan/l2.5-onscreen-proof.md) — phase-tagged build contracts.
