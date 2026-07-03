@@ -770,6 +770,11 @@ class AnkiQt(QMainWindow):
 
     def moveToState(self, state: MainWindowState, *args: Any) -> None:
         # print("-> move from", self.state, "to", state)
+        from aqt import pgrep_host
+
+        # pgrep host takeover: in exclusive mode Anki's deck browser is
+        # unreachable, so a request for it returns to the pgrep surface.
+        state = pgrep_host.redirect_state(pgrep_host.surface_mode(self), state)
         oldState = self.state
         cleanup = getattr(self, f"_{oldState}Cleanup", None)
         if cleanup:
@@ -780,8 +785,6 @@ class AnkiQt(QMainWindow):
         getattr(self, f"_{state}State", lambda *_: None)(oldState, *args)
         # pgrep host takeover: show the pgrep surface for the pgrep state and
         # Anki's central webview otherwise (see aqt/pgrep_host.py).
-        from aqt import pgrep_host
-
         pgrep_host.sync_central_surface(self, state)
         if state != "resetRequired":
             self.bottomWeb.adjustHeightToFit()
@@ -1488,8 +1491,13 @@ title="{}" {}>{}</button>""".format(
         qconnect(pgrep_action.triggered, self.on_pgrep)
         pgrep_seed_action = m.menuTools.addAction("pgrep: seed sample content")
         qconnect(pgrep_seed_action.triggered, self.on_pgrep_seed_sample)
-        pgrep_anki_action = m.menuTools.addAction("Open Anki screens")
-        qconnect(pgrep_anki_action.triggered, self.on_open_anki_screens)
+        # Option A only. In exclusive mode (Option C) Anki's screens are hidden,
+        # so the fallback action is not created.
+        from aqt import pgrep_host
+
+        if pgrep_host.anki_fallback_enabled(pgrep_host.surface_mode(self)):
+            pgrep_anki_action = m.menuTools.addAction("Open Anki screens")
+            qconnect(pgrep_anki_action.triggered, self.on_open_anki_screens)
 
         # View
         qconnect(

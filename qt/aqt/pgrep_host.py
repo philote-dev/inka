@@ -64,6 +64,30 @@ def default_state(mw: aqt.main.AnkiQt) -> aqt.main.MainWindowState:
     return "deckBrowser"
 
 
+def anki_fallback_enabled(mode: str) -> bool:
+    """True when Anki's own screens stay reachable (the Option A fallback).
+
+    In ``exclusive`` mode (Option C) Anki's screens are hidden, so the
+    "Open Anki screens" Tools action is not offered. ``off`` is stock Anki,
+    where the fallback is redundant but harmless, so it stays available.
+    """
+    return mode != "exclusive"
+
+
+def redirect_state(
+    mode: str, requested: aqt.main.MainWindowState
+) -> aqt.main.MainWindowState:
+    """Remap a requested main-window state for the current surface mode.
+
+    In ``exclusive`` mode Anki's deck browser is unreachable, so a request for
+    it returns to the pgrep surface instead. Every other mode and state is
+    returned unchanged, so ``hosted`` and ``off`` behave exactly as before.
+    """
+    if mode == "exclusive" and requested == "deckBrowser":
+        return "pgrep"
+    return requested
+
+
 def make_surface_web(mw: aqt.main.AnkiQt) -> AnkiWebView | None:
     """Create the central pgrep webview, or ``None`` in ``off`` mode.
 
