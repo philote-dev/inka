@@ -18,10 +18,12 @@
 - [`research/vision-and-structure.md`](research/vision-and-structure.md) — persona, user stories, app structure/IA, MVP + milestones.
 - [`research/features.md`](research/features.md) — the four features together: how they map to the three scores + the session.
 - [`research/feature-interleaving.md`](research/feature-interleaving.md) — interleaving + Layer-B selector + session structure.
-- [`research/feature-forced-generation.md`](research/feature-forced-generation.md) — author-a-seed then AI-conform generation + verification.
+- [`research/feature-forced-generation.md`](research/feature-forced-generation.md) — author-a-seed then AI-conform generation + verification (cards).
+- [`research/feature-problem-generation.md`](research/feature-problem-generation.md) — AI problem (MCQ) generation: misconception-first distractors + its own gold set/eval.
 - [`research/feature-productive-failure.md`](research/feature-productive-failure.md) — wrong-answer ladder + consolidation.
 - [`research/feature-calibration.md`](research/feature-calibration.md) — honest 3-score calibration dashboard (model calibration).
-- [`research/scoring-and-readiness.md`](research/scoring-and-readiness.md) — how the three numbers are computed: ranges, coverage gate, abstain rules, held-out eval.
+- [`research/three-scores.md`](research/three-scores.md) — the three scores (Memory/Performance/Readiness): definitions, computation, coverage gate, abstain rules.
+- [`research/statistics-and-evaluation.md`](research/statistics-and-evaluation.md) — the range math, the metrics, and the held-out evaluation pipelines behind the three scores.
 - [`research/performance-model.md`](research/performance-model.md) — the Performance "smart formula" (PFA calibrated logistic), every metric diagrammed.
 - [`research/technical-architecture.md`](research/technical-architecture.md) — sync + mobile (FFI) + desktop shell + data model + cross-cutting guarantees.
 - [`research/attempt-log-storage.md`](research/attempt-log-storage.md) — attempt/event log store decision (A now, C-ready).
@@ -49,7 +51,7 @@ Concept renders, the prototype, and submission artifacts live under the repo-roo
 ## Open design gaps
 The four features, UI/UX, technical architecture, and the **three-score model** are designed; build layers are ready.
 
-- **Resolved:** scoring/readiness derivation + held-out eval methodology → [`research/scoring-and-readiness.md`](research/scoring-and-readiness.md) (spec constraints 3 + 4). Performance model **decided** → [`research/performance-model.md`](research/performance-model.md) (the "smart formula": PFA calibrated logistic; batting-average baseline; IRT rejected at n=1).
+- **Resolved:** scoring/readiness derivation + held-out eval methodology → [`research/three-scores.md`](research/three-scores.md) (spec constraints 3 + 4). Performance model **decided** → [`research/performance-model.md`](research/performance-model.md) (the "smart formula": PFA calibrated logistic; batting-average baseline; IRT rejected at n=1).
 - Smaller known open items: diagnostic placement algorithm (v0 scope); manifold interaction details ([`../design/ux-foundation.md`](../design/ux-foundation.md) §13); privacy/security specifics for keys + sync auth (sketched in [`research/technical-architecture.md`](research/technical-architecture.md) (e)).
 
 ## Mission

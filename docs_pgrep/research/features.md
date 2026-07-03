@@ -13,13 +13,41 @@ pgrep stands on the shared **FSRS engine + our Layer-B selector**. Four learning
 
 Said fastest: **F2 makes it · F1 orders it · F3 is how you work it · F4 tells you honestly where you stand.**
 
+## End-to-end architecture & UX
+
+```mermaid
+flowchart TD
+    subgraph setup["SETUP (first run)"]
+        Diag["Diagnostic: strong / rusty map"] --> Build["Set up study set:<br/>bundle + import + author seeds<br/>(AI off = raw; AI on = stylize + gap-fill)"]
+    end
+    Build --> Pool[("ONE topic-tagged, FSRS-scheduled pool")]
+    subgraph study["STUDY"]
+        Pool --> Sel["Layer-B selector (interleaving):<br/>worth × difficulty band × anti-block"]
+        Sel --> Cards["Cards door (retrieval)"]
+        Sel --> Probs["Problems door (+ wrong-answer ladder)"]
+        ExamM["Exam mode (timed, no help)"]
+    end
+    Cards --> Log[("Attempt log, the spine")]
+    Probs --> Log
+    ExamM --> Log
+    subgraph signals["SCORES (each honest: range + give-up rule)"]
+        Log --> Mem["Memory: FSRS R"]
+        Log --> Perf["Performance: P correct on a new Q"]
+        Log --> Read["Readiness: projected score"]
+        Mem --> Dash["Home + Progress:<br/>3 scores + model calibration"]
+        Perf --> Dash
+        Read --> Dash
+    end
+    Log -.->|"weighting feedback (near test)"| Sel
+```
+
 ## Features × the three scores
 
 
 |                             | Cards → Memory                                                        | Problems → Performance            | Exams → Readiness                         |
 | --------------------------- | --------------------------------------------------------------------- | --------------------------------- | ----------------------------------------- |
 | **Interleaving (F1)**       | orders due cards (topic-mixed)                                        | orders due problems (topic-mixed) | exams are inherently mixed                |
-| **Forced generation (F2)**  | author conceptual seed → AI conforms/scales; CAS-checks computational | core: curated; generation later   | —                                         |
+| **Forced generation (F2)**  | author conceptual seed → AI conforms/scales; CAS-checks computational | curated seed + AI-generated (feature-problem-generation.md)   | —                                         |
 | **Productive failure (F3)** | —                                                                     | commit → ladder → consolidation   | exam = no help; ladder → post-exam review |
 | **Calibration (F4)**        | FSRS R vs recall                                                      | predicted vs held-out Q           | score mapping + range                     |
 
@@ -50,15 +78,22 @@ flowchart TD
 ## Reading the flow
 
 - The **review/attempt log is the spine**: every card review, problem attempt, and exam feeds it; it drives the selector (F1), the scores (F4), and the consolidation (F3).
-- **Ablation (Sunday test):** F1 (interleaving) is the single study feature tested full / off / plain-Anki.
+- **Ablation:** F1 (interleaving) is the single study feature tested full / off / plain-Anki.
 - **AI-off (all four degrade gracefully):** F2 → authored/curated + reveal-and-self-compare; F3 → stored decompositions + self-compare; F4 → model calibration (no AI); F1 is pure engine logic.
 
 
 
+## Baselines & AI-off (three distinct comparisons, don't conflate)
+
+- **Ablation baseline (study feature, spec 5):** interleaving *full* vs *off* vs *plain Anki*, equal study time, metric pre-stated. "Off" means the selector is disabled (blocked order), not a reimplementation.
+- **AI-quality baseline (spec 6):** AI generation must beat **keyword / vector search** over the same corpus, both scored on the gold set, side by side. The baseline is a simpler non-AI method doing the same job.
+- **Works-with-AI-off (spec 7):** the whole app runs and produces scores with no AI at runtime, by graceful degradation (verified bundled content, FSRS, stored problem decompositions). It is not a parallel AI-off twin of every feature.
+
 ## Which POV / which doc
 
 - F1 Interleaving (POV1) → `feature-interleaving.md`
-- F2 Forced generation (POV2) → `feature-forced-generation.md`
+- F2 Forced generation (POV2), cards → `feature-forced-generation.md`
+- F2b Problem generation → `feature-problem-generation.md`
 - F3 Productive failure (POV3) → `feature-productive-failure.md`
 - F4 Calibration (POV4) → `feature-calibration.md`
 

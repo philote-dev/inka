@@ -12,6 +12,8 @@ POV3 in the BrainLift is "optimize for productive failure, not answer delivery."
 
 POV3's *spirit* holds throughout: make the learner **produce reasoning before** receiving answers; **refusing to answer immediately is a pedagogical act** (Bastani 2025: unguarded GPT access *reduced* learning).
 
+**Scope (locked):** the ladder and all scaffolded help live on the **Problems door only**. **Cards stay pure retrieval** (show, recall, reveal, FSRS grade). Transferring the ladder or AI grading onto cards was considered and declined, because cards are the lightweight layer that primes problems (Gjerde 2022).
+
 ## Where "instruction" lives (so struggle always resolves into learning)
 
 1. **Cards door** — retrieving principles primes problem-solving (Gjerde 2022, physics, d≈0.4). The lightweight instruction/refresh layer.

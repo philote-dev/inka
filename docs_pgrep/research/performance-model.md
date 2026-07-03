@@ -1,6 +1,6 @@
 # Performance Model — the "smart formula" (metric-by-metric architecture)
 
-**Status: designed, literature-grounded; open architecture decisions for Frank at the end (§9).** This is the detailed spec for the **Performance score** (`P(correct on a new, unseen exam-style problem)`), decided as the **"smart formula"** over the batting-average baseline and over in-house IRT. It expands `scoring-and-readiness.md` §2. Feeds build layer **L5**.
+**Status: designed, literature-grounded; architecture decisions resolved (§9); only empirical tuning left for L5.** This is the detailed spec for the **Performance score** (`P(correct on a new, unseen exam-style problem)`), decided as the **"smart formula"** over the batting-average baseline and over in-house IRT. It expands `three-scores.md` §2. Feeds build layer **L5**.
 
 > **One-line identity.** The smart formula is **Performance Factors Analysis (PFA)** — a calibrated logistic model over interpretable features. This is the *education-data-mining standard* for "will the student get the next item right," not something we invented. We add post-hoc **calibration** (so the probabilities are honest) and **uncertainty intervals** (so we can show a range and abstain).
 
@@ -104,14 +104,16 @@ _(This updates the earlier "logistic + Platt" note: current 2025 small-data benc
 
 The score must ship a **range**, not a bare number (spec honesty rule), and **abstain** when data is thin.
 
-- **Interval:** an **80% central interval** (house convention, `scoring-and-readiness.md` §5). Options to produce it (§9 decision): **Bayesian logistic with partial pooling** across topics (Felipe: "the only principled n=1 framing" — borrows strength, honest wide intervals), **bootstrap** over attempts, or **conformal prediction** (distribution-free coverage, Mondrian per topic).
+- **Interval:** an **80% central interval** (house convention, `statistics-and-evaluation.md`). Options to produce it (§9 decision): **Bayesian logistic with partial pooling** across topics (Felipe: "the only principled n=1 framing" — borrows strength, honest wide intervals), **bootstrap** over attempts, or **conformal prediction** (distribution-free coverage, Mondrian per topic).
 - **Abstain (precision-based):** show "Not enough evidence yet" until the topic's estimate is precise enough (80% interval below a target width; **~8–10 attempts** as the starting proxy), tuned where held-out calibration stabilizes. Not a magic count — tied to precision (§9 #7).
-- **Coverage (M6) widens the interval + gates Readiness:** low topic coverage → a wider range now, and Readiness abstains below the coverage line (`scoring-and-readiness.md` §3). This is M6's whole job — not per-item prediction.
+- **Coverage (M6) widens the interval + gates Readiness:** low topic coverage → a wider range now, and Readiness abstains below the coverage line (`three-scores.md` §3). This is M6's whole job — not per-item prediction.
 - **Honesty about n=1:** with one learner we cannot claim the *coefficients* are the true population coefficients. We say so, and treat real-cohort coefficients as the **bonus Step-4** validation.
 
 ---
 
 ## 6. Evaluation — held-out, reproducible, beats baseline (spec 4/6)
+
+*(The shared eval methodology, meaning splits, the metric list, and reproducibility, lives in `statistics-and-evaluation.md`. This section is the Performance-specific depth: item-level splitting, the paraphrase bridge test, leakage layers, and the synthetic-data pipeline check.)*
 
 ```mermaid
 flowchart TD
@@ -143,7 +145,7 @@ flowchart TD
 flowchart LR
     PM["Performance model (this doc)"] --> PT["P(correct) per topic + interval"]
     PT --> PSCORE["Performance score (blueprint-weighted)"]
-    PT --> READY["Readiness: expected-raw → scaled (scoring-and-readiness.md §3)"]
+    PT --> READY["Readiness: expected-raw → scaled (three-scores.md §3)"]
     PSCORE --> DASH["Home + Progress dashboards"]
     subgraph inputs
       MEM["Memory (FSRS R)"] --> PM
@@ -153,7 +155,7 @@ flowchart LR
 ```
 
 - **AI-off:** the whole model is arithmetic over the attempt log + FSRS. No AI. Both apps score with AI off.
-- **Data model:** reads the Attempt notes (`scoring-and-readiness.md` §7, `attempt-log-storage.md`) + the Problem `difficulty` field + FSRS state. Every metric is already in the planned schema, except confirm **`difficulty`** is authored on every Problem (it is, per `technical-architecture.md` (d)).
+- **Data model:** reads the Attempt notes (`three-scores.md` §7, `attempt-log-storage.md`) + the Problem `difficulty` field + FSRS state. Every metric is already in the planned schema, except confirm **`difficulty`** is authored on every Problem (it is, per `technical-architecture.md` (d)).
 
 ---
 
@@ -179,4 +181,4 @@ Final v1 choices. Only empirical tuning (the exact interval-width target and att
 
 ---
 
-_Sources: cohort (Nessie) — Felipe Caicedo's n=1 model-defensibility report (IRT-not-defensible table; calibrated-classifier verdict; paraphrase/leakage protocols), Isabella Chen's held-out logistic eval (features, pre-registered baseline, seeded synthetic DGP, real beat-baseline numbers), Skye Flowers (baseline+update framing), Adarsh Rajesh (Elo/Rasch-with-tagged-difficulty caution), Ryan Deelstra (Pelánek Elo). Literature — PFA (Pavlik, Cen & Koedinger 2009); AFM (Cen, Koedinger & Junker 2006); R-PFA (Galyardt & Goldin 2014); PFA>BKT (Gong, Beck & Heffernan 2011); IRT floors (Lord 1980; Embretson & Reise 2000); calibration (Platt 1999; Zadrozny & Elkan 2002; Kull et al. 2017 beta; Vovk Venn-Abers; 2025 small-data calibration benchmarks); Brier 1950; DeGroot & Fienberg 1983; McNemar 1947; leakage (Kapoor & Narayanan 2023). Engine — `rslib` FSRS retrievability. Peer docs — `scoring-and-readiness.md`, `attempt-log-storage.md`, `technical-architecture.md`._
+_Sources: cohort (Nessie) — Felipe Caicedo's n=1 model-defensibility report (IRT-not-defensible table; calibrated-classifier verdict; paraphrase/leakage protocols), Isabella Chen's held-out logistic eval (features, pre-registered baseline, seeded synthetic DGP, real beat-baseline numbers), Skye Flowers (baseline+update framing), Adarsh Rajesh (Elo/Rasch-with-tagged-difficulty caution), Ryan Deelstra (Pelánek Elo). Literature — PFA (Pavlik, Cen & Koedinger 2009); AFM (Cen, Koedinger & Junker 2006); R-PFA (Galyardt & Goldin 2014); PFA>BKT (Gong, Beck & Heffernan 2011); IRT floors (Lord 1980; Embretson & Reise 2000); calibration (Platt 1999; Zadrozny & Elkan 2002; Kull et al. 2017 beta; Vovk Venn-Abers; 2025 small-data calibration benchmarks); Brier 1950; DeGroot & Fienberg 1983; McNemar 1947; leakage (Kapoor & Narayanan 2023). Engine — `rslib` FSRS retrievability. Peer docs — `three-scores.md`, `attempt-log-storage.md`, `technical-architecture.md`._

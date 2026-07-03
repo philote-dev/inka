@@ -8,7 +8,7 @@ expected fraction of your reviewed cards you would recall right now,
 blueprint-weighted. It is pure math over FSRS state and topic tags: no AI, no
 attempt log, no schedule mutation (``l2-api-contract.md`` §0).
 
-Math (``scoring-and-readiness.md`` §1):
+Math (``three-scores.md`` §1):
 
 - **Per card** the retrievability ``R in [0, 1]`` is the engine's own FSRS
   retrievability (the same primitive the L1 selector uses, so Memory and the
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from anki.collection import Collection
 
 # Default abstain threshold: a topic needs at least this many reviewed cards to
-# show a Memory number (tunable; ``scoring-and-readiness.md`` §5).
+# show a Memory number (tunable; ``three-scores.md`` §5).
 K_MEM_DEFAULT = 5
 
 # z for the 80% two-sided central interval (the 10th/90th normal percentiles).

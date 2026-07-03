@@ -10,7 +10,7 @@ an abstain when a topic has fewer than ``k_mem`` reviewed cards. It is pure math
 over FSRS state and topic tags: no AI, no attempt log, no schedule mutation.
 
 The response shape is fixed by ``docs_pgrep/plan/l2-api-contract.md`` §3
-(L2.2); the math by ``scoring-and-readiness.md`` §1.
+(L2.2); the math by ``three-scores.md`` §1.
 """
 
 from __future__ import annotations
