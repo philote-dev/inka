@@ -9,7 +9,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     HTML overlay that tracks the surface as the camera moves. Redraws when the
     night-mode theme toggles and rebuilds when the surface changes.
 
-    Fallback: WebGL is not guaranteed (older webviews, disabled GPUs, lost
+    Fallback. WebGL is not guaranteed (older webviews, disabled GPUs, lost
     contexts). When it is unavailable, or the renderer fails to start, this
     component degrades to the Canvas 2D `Manifold`, which draws the same
     `Surface`. So the manifold always renders and never hard-depends on WebGL.

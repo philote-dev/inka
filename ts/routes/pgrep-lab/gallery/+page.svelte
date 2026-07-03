@@ -178,7 +178,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <div class="gallery">
-    <nav class="lab-nav">
+    <nav class="lab-nav" aria-label="Lab pages">
         <a class="lab-nav__link" href="/pgrep-lab">Manifold lab</a>
         <a class="lab-nav__link is-active" href="/pgrep-lab/gallery" aria-current="page">Component gallery</a>
     </nav>
