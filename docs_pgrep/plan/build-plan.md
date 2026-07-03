@@ -68,7 +68,7 @@ Sequential spine: **L0 → L1 → L2 → L2.5**, then **L3 ∥ L4** (run togethe
 
 ### L2 — status: COMPLETE (2026-07-02, merged to `main` @ `c8920769`)
 
-Executed via subagent-driven development in a `.worktrees/l2-core` worktree, then merged to `main` (L0 + L1 + L2). Proof logs in `docs_pgrep/prod/proofs/`.
+Executed via subagent-driven development in a `.worktrees/l2-core` worktree, then merged to `main` (L0 + L1 + L2). Proof logs in `design/prod/proofs/`.
 
 **Done (exit gate met):**
 
@@ -91,8 +91,8 @@ Executed via subagent-driven development in a `.worktrees/l2-core` worktree, the
 - **Surfaces built sequentially**, not in true parallel: one shared worktree can't run concurrent `ninja` safely, and 4 isolated worktree builds exceeded disk headroom. The subagent-per-surface + review structure was kept.
 - **Reviews** were per-surface spec+quality by the controller plus one final-layer reviewer subagent (PASS/APPROVED), rather than two separate reviewer subagents per surface.
 - **Out of L2 scope (correct):** no AI, no sync, no Performance/Readiness scores (those are L3/L4/L5).
-- **Human steps:** the clean-machine install and the demo screen recordings are documented in `docs_pgrep/prod/proofs/RECORDING.md` but must be run/recorded by a person.
-- **`just check` caveat:** currently red only on untracked non-project files (`.understand-anything/*.json`, `docs_pgrep/prod/video/record.mjs`), not on pgrep code.
+- **Human steps:** the clean-machine install and the demo screen recordings are documented in `design/prod/proofs/RECORDING.md` but must be run/recorded by a person.
+- **`just check` caveat:** currently red only on untracked non-project files (`.understand-anything/*.json`, `design/prod/video/record.mjs`), not on pgrep code.
 - **Not pushed:** `main` is local; `origin/main` unchanged.
 
 ## L2.5 — Make pgrep Visible (desktop takeover + iOS on-screen + clean install) — entry: L2 ✅
@@ -102,7 +102,7 @@ Executed via subagent-driven development in a `.worktrees/l2-core` worktree, the
 - **Tasks:**
   - **A ∥ (Desktop takeover — Option A now, C-ready)** `just run` + the dmg open into the pgrep surface, not the deck browser; Anki's screens stay reachable via **Tools → Open Anki screens**. New `qt/aqt/pgrep_host.py` (surface-mode flag in local profile meta, default `hosted`) + a `pgrep` main-window state that hosts the `/pgrep` SPA in a PGREP-kind webview beside `MainWebView` (visibility toggle, not a reparenting stack).
   - **B ∥ (iOS visible)** new `tools/ios-run.sh` + `just ios-run`: build the app scheme, boot a Simulator, install + launch the existing `PgrepStudy` review app (today only the headless `just ios-smoke` XCTest runs it).
-  - **C (Clean install)** rebuild wheels + dmg from this branch so the packaged app inherits the takeover; repeatable fresh-account install verification (`docs_pgrep/prod/proofs/RECORDING.md` Proof C).
+  - **C (Clean install)** rebuild wheels + dmg from this branch so the packaged app inherits the takeover; repeatable fresh-account install verification (`design/prod/proofs/RECORDING.md` Proof C).
 - **Exit gate:** `just run` opens into pgrep (fallback works); `just ios-run` shows the review app running in the Simulator; the rebuilt dmg installs on a clean account and opens into pgrep; `just check` code targets green.
 - **Deferred (bucketed):** the full `ux-foundation.md` visual system (imported later — L2.5 does not restyle surfaces); Option C (remove Anki's screens entirely) is the later one-line flip; no AI / sync / Performance / Readiness.
 
@@ -114,12 +114,12 @@ Implemented on a lightweight `l2.5-onscreen` branch off `main` (not a separate w
 
 - **A — Desktop takeover (Option A, C-ready):** new `qt/aqt/pgrep_host.py` (surface-mode flag in local `pm.meta`, default `hosted`) + `qt/aqt/main.py` wiring — a `pgrep` main-window state that hosts the `/pgrep` SPA in a PGREP-kind webview beside `MainWebView` (visibility toggle), `loadCollection` defaults to it, and a **Tools → Open Anki screens** fallback. `just run` and the dmg now lead with pgrep.
 - **B — iOS visible:** new `tools/ios-run.sh` + `just ios-run`. Built + launched the `PgrepStudy` app on the iPhone 17 Pro Simulator; the review loop is visible with the live `pgrep seam OK (Rust)` footer (screenshot at `out/ios/pgrep-ios.png`).
-- **C — Clean install:** rebuilt wheels + `out/installer/dist/anki-26.05-mac-apple.dmg` from this branch; verified the packaged bundle contains `pgrep_host.pyc` + rebuilt `main.pyc` (the takeover). `docs_pgrep/prod/proofs/RECORDING.md` Proof C updated.
+- **C — Clean install:** rebuilt wheels + `out/installer/dist/anki-26.05-mac-apple.dmg` from this branch; verified the packaged bundle contains `pgrep_host.pyc` + rebuilt `main.pyc` (the takeover). `design/prod/proofs/RECORDING.md` Proof C updated.
 - **Verification:** `just lint` (clippy, mypy, ruff, eslint, svelte, typescript) and `just test-py` green.
 
 **Deviations / not done (intentional):**
 
-- **`just check` caveat (pre-existing, broader than the L2 note):** the full `just check` format step is red on formatting debt that predates L2.5 — `check:format:dprint` on untracked `.understand-anything/*.json` **and** several already-committed planning docs (`feature-forced-generation.md`, `frontend-execution-guide.md`, and `build-plan.md` itself), plus `check:minilints` on `docs_pgrep/prod/video/record.mjs`. All **code** targets pass (`just lint` = clippy/mypy/ruff/eslint/svelte/typescript, and `just test-py`). L2.5's own new files (`pgrep_host.py`, `l2.5-onscreen-proof.md`, `dev-harness.md` additions, `RECORDING.md`) are dprint-clean; the pre-existing doc/artifact debt is left untouched (out of L2.5 scope).
+- **`just check` caveat (pre-existing, broader than the L2 note):** the full `just check` format step is red on formatting debt that predates L2.5 — `check:format:dprint` on untracked `.understand-anything/*.json` **and** several already-committed planning docs (`feature-forced-generation.md`, `frontend-execution-guide.md`, and `build-plan.md` itself), plus `check:minilints` on `design/prod/video/record.mjs`. All **code** targets pass (`just lint` = clippy/mypy/ruff/eslint/svelte/typescript, and `just test-py`). L2.5's own new files (`pgrep_host.py`, `l2.5-onscreen-proof.md`, `dev-harness.md` additions, `RECORDING.md`) are dprint-clean; the pre-existing doc/artifact debt is left untouched (out of L2.5 scope).
 - **Two human/visual steps:** (1) restart `just run` to see the desktop takeover live (the instance running during the build predated the change); (2) the fresh-macOS-account dmg install (creating an account + Gatekeeper approve is manual). The dmg content is verified; the visuals are the recordings.
 - **Implementation detail vs plan:** a visibility toggle instead of a `QStackedWidget` (avoids reparenting `self.web`); a branch instead of a separate worktree (warm builds).
 - **A→C flip** documented in `l2.5-onscreen-proof.md` (not built).

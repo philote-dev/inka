@@ -2,7 +2,7 @@
 
 **Status: Wednesday fully mapped; Fri/Sun stubbed.** Shared context in `README.md`. This is the "how to record everything" guide. It maps each **spec deadline requirement** to the **exact proof artifact**, the **exact command**, and a **recording script**.
 
-> **Read this first — an honest reframe.** Wednesday's submission is **not a polished demo video**. It is **proof that a real build works**: (1) a commit hash + clean-build recording, (2) test results, (3) a clean-machine install recording, (4) a phone review-session recording. The polished **3–5 minute demo video is a _Sunday_ hand-in** (spec §12). **A mock/prototype UI cannot produce Wednesday's proofs** — the graders want the forked engine compiling, real tests passing, a real installer, and the real engine running on a phone. The spec is explicit: *"Each deadline needs proof, not a promise,"* and *"Making up … a measurement … is an automatic fail."* So the prototype in `docs_pgrep/prod/` is for **rehearsal + as the L2 visual spec**, not the deliverable.
+> **Read this first — an honest reframe.** Wednesday's submission is **not a polished demo video**. It is **proof that a real build works**: (1) a commit hash + clean-build recording, (2) test results, (3) a clean-machine install recording, (4) a phone review-session recording. The polished **3–5 minute demo video is a _Sunday_ hand-in** (spec §12). **A mock/prototype UI cannot produce Wednesday's proofs** — the graders want the forked engine compiling, real tests passing, a real installer, and the real engine running on a phone. The spec is explicit: *"Each deadline needs proof, not a promise,"* and *"Making up … a measurement … is an automatic fail."* So the prototype in `design/prod/` is for **rehearsal + as the L2 visual spec**, not the deliverable.
 
 > **Current reality (2026-07-01):** nothing is built yet — the fork has not been compiled (`out/` toolchain absent = L0 not run). The path to a recordable Wednesday is to **execute the build** (L0 → L1 → L2 in `build-plan.md`). This runbook is the target; the build is the work.
 
@@ -86,7 +86,7 @@ Keep it honest and plain (the spec rewards this): *"One exam, two apps on one en
 
 ## 5. Where the prototype fits (and where it doesn't)
 
-`docs_pgrep/prod/pgrep-prototype.html` is a **self-contained, clickable prototype** of the L2 desktop surfaces (Home + honest Memory, the Cards review loop, Study launcher, Problems preview, Progress, Diagnostic), using the real design tokens (`ux-foundation.md`).
+`design/prod/pgrep-prototype.html` is a **self-contained, clickable prototype** of the L2 desktop surfaces (Home + honest Memory, the Cards review loop, Study launcher, Problems preview, Progress, Diagnostic), using the real design tokens (`ux-foundation.md`).
 
 - ✅ **Use it to:** rehearse the demo narrative, validate the UX, and hand it to the L2 builder as the **interaction spec** (it mirrors the Svelte components in `claude-design-prompts.md` Part B/C).
 - ❌ **Do not** submit it as the Wednesday deliverable — it has no engine, no FSRS, no tests, no installer. Wednesday's proofs (§2) must come from the **real forked build**.

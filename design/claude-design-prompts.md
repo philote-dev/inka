@@ -17,7 +17,7 @@ Honest note on the stack: Claude Design and its Claude Code handoff default to R
 
 # Part A. Establish the design system (do this first)
 
-**Step 1, onboarding.** In Claude Design, point it at this repo's `ts/` folder and at `ux-foundation.md`, and attach the reference PNGs in `../assets/ux/`. This lets it read the real SCSS tokens, the icon module, and the intended look.
+**Step 1, onboarding.** In Claude Design, point it at this repo's `ts/` folder and at `ux-foundation.md`, and attach the reference PNGs in `assets/ux/`. This lets it read the real SCSS tokens, the icon module, and the intended look.
 
 **Step 2, define and save the system.** Paste this and ask Claude Design to save it as the reusable design system for the workspace.
 

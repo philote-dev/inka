@@ -1,6 +1,6 @@
 // pgrep concept walkthrough recorder.
 //
-// Drives the clickable prototype (docs_pgrep/prod/pgrep-prototype.html) with an
+// Drives the clickable prototype (design/prod/pgrep-prototype.html) with an
 // injected on-screen cursor, synced lower-third captions, chapter cards, and
 // Ken Burns image stages, and records one continuous video (webm) via Playwright.
 //
@@ -8,8 +8,8 @@
 // Wednesday submission (see docs_pgrep/plan/demo-runbook.md). A persistent
 // watermark and the outro card keep that honest.
 //
-// Run:  node docs_pgrep/prod/video/record.mjs
-// Tune: PACE=1.15 node docs_pgrep/prod/video/record.mjs   (global speed multiplier)
+// Run:  node design/prod/video/record.mjs
+// Tune: PACE=1.15 node design/prod/video/record.mjs   (global speed multiplier)
 
 import { chromium } from "playwright";
 import path from "node:path";
@@ -17,10 +17,10 @@ import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const ROOT = "/Users/philote/projects/inka";
-const PROTO = pathToFileURL(path.join(ROOT, "docs_pgrep/prod/pgrep-prototype.html")).href;
-const EXAM = pathToFileURL(path.join(ROOT, "docs_pgrep/assets/ux/v2-exam-dark.png")).href;
-const MOBILE = pathToFileURL(path.join(ROOT, "docs_pgrep/assets/ux/v2-mobile-dark.png")).href;
-const OUTDIR = path.join(ROOT, "docs_pgrep/prod/video/raw");
+const PROTO = pathToFileURL(path.join(ROOT, "design/prod/pgrep-prototype.html")).href;
+const EXAM = pathToFileURL(path.join(ROOT, "design/assets/ux/v2-exam-dark.png")).href;
+const MOBILE = pathToFileURL(path.join(ROOT, "design/assets/ux/v2-mobile-dark.png")).href;
+const OUTDIR = path.join(ROOT, "design/prod/video/raw");
 const EXE =
   "/Users/philote/Library/Caches/ms-playwright/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
 
