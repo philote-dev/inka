@@ -1,4 +1,4 @@
-# pgrep — The Four Features Together
+# PGREP Features
 
 **Status: all four designed (core).** Per-feature detail in the `feature-*.md` docs; shared context in `README.md`; build sequencing in `build-plan.md`.
 
@@ -15,12 +15,16 @@ Said fastest: **F2 makes it · F1 orders it · F3 is how you work it · F4 tells
 
 ## Features × the three scores
 
-|  | Cards → Memory | Problems → Performance | Exams → Readiness |
-|---|---|---|---|
-| **Interleaving (F1)** | orders due cards (topic-mixed) | orders due problems (topic-mixed) | exams are inherently mixed |
-| **Forced generation (F2)** | author conceptual seed → AI conforms/scales; CAS-checks computational | core: curated; generation later | — |
-| **Productive failure (F3)** | — | commit → ladder → consolidation | exam = no help; ladder → post-exam review |
-| **Calibration (F4)** | FSRS R vs recall | predicted vs held-out Q | score mapping + range |
+
+|                             | Cards → Memory                                                        | Problems → Performance            | Exams → Readiness                         |
+| --------------------------- | --------------------------------------------------------------------- | --------------------------------- | ----------------------------------------- |
+| **Interleaving (F1)**       | orders due cards (topic-mixed)                                        | orders due problems (topic-mixed) | exams are inherently mixed                |
+| **Forced generation (F2)**  | author conceptual seed → AI conforms/scales; CAS-checks computational | core: curated; generation later   | —                                         |
+| **Productive failure (F3)** | —                                                                     | commit → ladder → consolidation   | exam = no help; ladder → post-exam review |
+| **Calibration (F4)**        | FSRS R vs recall                                                      | predicted vs held-out Q           | score mapping + range                     |
+
+
+
 
 ## How they compose
 
@@ -39,11 +43,17 @@ flowchart TD
     Log -.->|"drives next selection"| F1
 ```
 
+
+
+
+
 ## Reading the flow
 
 - The **review/attempt log is the spine**: every card review, problem attempt, and exam feeds it; it drives the selector (F1), the scores (F4), and the consolidation (F3).
 - **Ablation (Sunday test):** F1 (interleaving) is the single study feature tested full / off / plain-Anki.
 - **AI-off (all four degrade gracefully):** F2 → authored/curated + reveal-and-self-compare; F3 → stored decompositions + self-compare; F4 → model calibration (no AI); F1 is pure engine logic.
+
+
 
 ## Which POV / which doc
 
@@ -52,8 +62,10 @@ flowchart TD
 - F3 Productive failure (POV3) → `feature-productive-failure.md`
 - F4 Calibration (POV4) → `feature-calibration.md`
 
+
+
 ## Build mapping (see `build-plan.md`)
 
 - **F1 selector = L1** (the graded Rust change) · **F1/F3/F4 surfaces = L2** · **F2 + F3 tutor = L4** · **F4 models = L5**.
 
-_Sources: the four feature docs; the project spec; the learning-science corpus._
+*Sources: the four feature docs; the project spec; the learning-science corpus.*
