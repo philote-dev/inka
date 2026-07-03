@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Turn the raw Playwright recording into a clean 1080p MP4.
-# Usage: bash design/prod/video/assemble.sh
+# Usage: bash prod/video/assemble.sh
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,7 +8,7 @@ RAW="$DIR/raw/walkthrough.webm"
 OUT="$DIR/pgrep-concept-walkthrough-1080p.mp4"
 
 if [[ ! -f "$RAW" ]]; then
-  echo "Missing $RAW. Run: node design/prod/video/record.mjs" >&2
+  echo "Missing $RAW. Run: node prod/video/record.mjs" >&2
   exit 1
 fi
 

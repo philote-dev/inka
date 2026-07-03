@@ -5,7 +5,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <!--
     pgrep FSRS grade row for the Cards door. Equal monochrome buttons, optional
     next-interval hint under each. Ported from the Claude Design export
-    (design/components/study/GradeBar.jsx).
+    (design/ux-foundation.md).
 -->
 <script lang="ts">
     export let grades: Array<{ label: string; value: number; interval?: string }> = [];

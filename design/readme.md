@@ -8,8 +8,8 @@ pgrep is a Physics GRE study app built on the Anki engine. Its personality is an
 
 - GitHub repo `philote-dev/inka` (the Anki fork). Frontend in `ts/` (Svelte 5 + TypeScript, SCSS variable theming in `ts/lib/sass`, dark via the `.night-mode` class).
 - `ux-foundation.md` (in this folder). The authoritative UX foundation.
-- Concept renders in `assets/ux/` (dark home, wireframe manifold, and more). Copies of the key ones live in `assets/reference/`.
-- Live mockups built in this project. `Home.dc.html`, `Study.dc.html`, `Cards.dc.html`, `Library.dc.html`, `Mobile.dc.html`.
+- The living design system is the shipped Svelte code: tokens in `ts/lib/sass/_pgrep.scss`, components in `ts/lib/components`, surfaces in `ts/routes/pgrep`.
+- Concept renders in `assets/reference/` (dark home, wireframe manifold, and more).
 
 ## Build target
 
@@ -41,7 +41,7 @@ Every score shows a point number in tabular figures, a likely range ("Likely 68 
 - **Shape.** Squircle cards. Radii 10px controls, 12px rows, 16px cards, 20px hero frames, pills for chips. 8pt spacing grid, generous negative space, one primary action per screen.
 - **Type.** Inter for UI (weights 400/500/600, tight tracking on headings). JetBrains Mono for scores, timers, ranges, and dense data. Tabular lining figures on every number (`font-variant-numeric: tabular-nums`). Math is MathJax, set like a good textbook at 16 to 22px.
 - **Backgrounds.** Flat canvas color. No photography, no textures, no decorative gradients. The only glow allowed is the manifold's soft under-light (score hues at ~7% alpha).
-- **The manifold** is the one piece of imagery. A clean 3D wireframe surface (amber to lilac to blue across it, holes for gaps), an instrument readout, never photoreal terrain. Shared renderer in `manifold.js` (root) and `components/viz/manifold-core.js`. It is fully data driven (bumps, dips, holes, glows, labels).
+- **The manifold** is the one piece of imagery. A clean 3D wireframe surface (amber to lilac to blue across it, holes for gaps), an instrument readout, never photoreal terrain. Built as `ts/lib/components/Manifold.svelte` (2D contour) and `Manifold3D.svelte` (Three.js), backed by `ts/lib/pgrep/manifold.ts`. It is fully data driven (bumps, dips, holes, glows, labels).
 - **Motion.** Calm spring, 200 to 300ms, `cubic-bezier(0.32, 0.72, 0, 1)`. Confident, not bouncy. Nothing blocks the screen for more than 100ms. The manifold morphs smoothly as stats change.
 - **Hover.** Borders lighten one step (border to muted), surfaces take a faint wash (`--hover-wash`), primary buttons brighten (`#ECEAE3` to `#FFFFFF` on dark). Press states compress nothing; color only.
 - **Focus.** Monochrome ring (`--focus-ring`), 2px offset. Never a colored glow.
@@ -50,35 +50,29 @@ Every score shows a point number in tabular figures, a likely range ("Likely 68 
 
 ## Iconography
 
-- Outline icons, 1.5px stroke, round caps and joins, drawn on 16 to 20px grids, always `currentColor`. Production imports **Lucide** (`lucide-static`) via the fork's `.svg?component` pattern. Mockups inline equivalent hand-kept SVGs (see any `.dc.html`).
+- Outline icons, 1.5px stroke, round caps and joins, drawn on 16 to 20px grids, always `currentColor`. Production imports **Lucide** (`lucide-static`) via the fork's `.svg?component` pattern. The score glyphs and the logo are inlined SVGs in the components.
 - Score glyphs are fixed. Layers = Memory, target = Performance, gauge = Readiness. They take the score hue; all other icons stay monochrome.
-- The logo is the nested-contour blob mark (`assets/logo-ref.png`), a miniature knowledge map distilled from a manifold, kept as a clean 2D glyph that survives at 16px. An inline SVG version lives in the mockups' nav rails.
+- The logo is the nested-contour blob mark (`assets/reference/logo.png`), a miniature knowledge map distilled from a manifold, kept as a clean 2D glyph that survives at 16px. An inline SVG version lives in the `NavRail` component.
 - No emoji, no unicode-as-icon.
 
 ## Component inventory
 
-From ux-foundation.md section 8, built under `components/`:
+From ux-foundation.md section 8, built as Svelte under `ts/lib/components`:
 
-- `score/ScoreCard` — number, range, how-sure, last-updated, abstain state.
-- `study/StudyFrame` — minimal session chrome (progress, topic chip, close).
-- `study/ChoiceList` — five choices A to E, monochrome default, blue select.
-- `study/HintRung` — Break it down card, hint budget, never leaks the answer.
-- `study/GradeBar` — FSRS grades Again / Hard / Good / Easy with intervals.
-- `progress/CoverageBar` — segmented per-topic coverage, gates Readiness.
-- `progress/ReliabilityDiagram` — predicted vs observed, diagonal, Brier.
-- `viz/Manifold` — the wireframe knowledge manifold (canvas, data driven).
-
-**Intentional additions.** `core/Button` and `core/Chip`, the two primitives every screen above composes; the foundation uses them implicitly.
+- `ScoreCard` — number, range, how-sure, last-updated, abstain state.
+- `StudyFrame` — minimal session chrome (progress, topic chip, close).
+- `ChoiceList` — five choices A to E, monochrome default, blue select.
+- `HintRung` — Break it down card, hint budget, never leaks the answer.
+- `GradeBar` — FSRS grades Again / Hard / Good / Easy with intervals.
+- `CoverageBar` — segmented per-topic coverage, gates Readiness.
+- `ReliabilityDiagram` — predicted vs observed, diagonal, Brier.
+- `Manifold` / `Manifold3D` — the wireframe knowledge manifold (data driven).
+- `NavRail` — the left rail and mobile tab bar, carrying the logo glyph.
 
 ## Index
 
-- `styles.css` — global entry. Imports `tokens/` (fonts, colors, typography, shape, motion).
-- `tokens/` — CSS custom properties, light `:root` + dark `.night-mode`.
-- `components/` — core, score, study, progress, viz (JSX + d.ts + prompt.md + specimen card each).
-- `guidelines/` — foundation specimen cards for the Design System tab.
-- `ui_kits/pgrep/` — index into the live desktop and mobile mockup screens.
-- `assets/` — logo and reference renders.
-- `ux-foundation.md` — the UX foundation.
-- `prod/` — clickable prototype, submission proofs, and the video kit.
-- `manifold.js` — shared data-driven manifold renderer (root copy used by the mockups).
+- `ux-foundation.md` — the authoritative UX foundation.
+- `assets/reference/` — concept renders and the logo mark.
 - `SKILL.md` — agent skill entry point.
+
+The system is implemented in the app, not here: tokens in `ts/lib/sass/_pgrep.scss`, components in `ts/lib/components`, surfaces in `ts/routes/pgrep`. The clickable prototype and the submission video kit live in the repo-root `prod/`.

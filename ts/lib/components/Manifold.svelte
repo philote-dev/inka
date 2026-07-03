@@ -5,7 +5,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <!--
     pgrep knowledge manifold. A data-driven Canvas 2D wireframe surface with
     topic labels on leader lines. Height is Performance, holes are gaps, glow
-    is Memory. Ported from the Claude Design export (design/components/viz).
+    is Memory. Ported from the Claude Design export (design/ux-foundation.md).
     Redraws when the night-mode theme toggles.
 -->
 <script lang="ts">

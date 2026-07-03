@@ -7,7 +7,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     selection. After commit the row locks: the correct choice takes a calm
     success outline, a wrong commit dims and wears a blue "not correct" tag.
     Never red. Ported from the Claude Design export
-    (design/components/study/ChoiceList.jsx), extended with the correct-answer
+    (design/ux-foundation.md), extended with the correct-answer
     reveal the committed backend provides.
 -->
 <script lang="ts">

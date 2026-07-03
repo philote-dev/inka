@@ -7,7 +7,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     observed accuracy, with the perfect-calibration diagonal and a Brier score.
     With no graded predictions it draws the empty frame and abstains rather than
     inventing a curve. Ported from the Claude Design export
-    (design/components/progress/ReliabilityDiagram.jsx).
+    (design/ux-foundation.md).
 -->
 <script lang="ts">
     export let points: Array<{ p: number; o: number }> = [];

@@ -3,7 +3,7 @@ Copyright: Ankitects Pty Ltd and contributors
 License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
 <!-- pgrep Settings. Sectioned preference cards, ported from the Claude Design
-     export (design/Settings.dc.html). State is local for now; the values wire to
+     export (design/ux-foundation.md). State is local for now; the values wire to
      the backend once settings RPCs exist. The theme control flips the theme live.
      Honesty note baked in: the app works and still scores with AI off. -->
 <script lang="ts">

@@ -2,7 +2,7 @@
 // License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
 // pgrep knowledge-manifold renderer, ported verbatim (with types) from the
-// Claude Design export (design/manifold.js). Fully data driven: pass a
+// Claude Design export (design/ux-foundation.md). Fully data driven: pass a
 // `surface` built from live stats and every peak, hole, glow, and label
 // follows. Canvas 2D for now; the production Three.js version consumes the
 // identical `surface` structure (bumps -> vertex displacement, holes -> alpha

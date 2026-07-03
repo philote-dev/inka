@@ -6,7 +6,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     pgrep ScoreCard. The honesty anatomy is baked in: number, likely range,
     how sure, and last updated, or an honest abstain state that names what is
     missing. The reserved score hue appears only on the glyph and sparkline.
-    Ported from the Claude Design export (design/components/score).
+    Ported from the Claude Design export (design/ux-foundation.md).
 -->
 <script lang="ts">
     export let kind: "memory" | "performance" | "readiness" = "memory";

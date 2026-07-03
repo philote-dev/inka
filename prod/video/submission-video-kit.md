@@ -149,5 +149,5 @@ pacing reference for this edit.
 - `submission-video-kit.md` — this file.
 - `raw/` — the raw Playwright recording (git-ignored by size, regenerate anytime).
 
-_Sources: `../../plan/build-plan.md`,
-`../../research/technical-architecture.md`, the project spec, and the `justfile`._
+_Sources: `../../docs_pgrep/plan/build-plan.md`,
+`../../docs_pgrep/research/technical-architecture.md`, the project spec, and the `justfile`._

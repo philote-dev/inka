@@ -1,5 +1,0 @@
-/* pgrep fonts.
-   Production self-hosts via Fontsource variable packages
-   (@fontsource-variable/inter, @fontsource-variable/jetbrains-mono).
-   Mockups load the same families from Google Fonts. */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");

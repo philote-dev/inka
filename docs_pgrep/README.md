@@ -36,15 +36,15 @@
 - [`plan/l1-coordination-schema.md`](plan/l1-coordination-schema.md), [`plan/l2-api-contract.md`](plan/l2-api-contract.md), [`plan/l2.5-onscreen-proof.md`](plan/l2.5-onscreen-proof.md) — phase-tagged build contracts.
 
 ### Design (UI)
-All design material lives in its own folder at the repo root [`design/`](../design/), outside this docs tree and owned by the design workflow. It holds both the design notes and the Claude Design export (components, tokens, guidelines, ui_kits, screens):
+All design material lives in its own folder at the repo root [`design/`](../design/), outside this docs tree. It holds the UX spec and the reference renders; the living design system is the Svelte code in `ts/` (tokens in `ts/lib/sass/_pgrep.scss`, components in `ts/lib/components`, surfaces in `ts/routes/pgrep`):
 - [`../design/ux-foundation.md`](../design/ux-foundation.md) — UI/UX foundation: identity, design language, nav shell, manifold, surfaces, tech-stack.
-- [`../design/claude-design-prompts.md`](../design/claude-design-prompts.md) — Claude Design prompts + repo handoff.
+- [`../design/readme.md`](../design/readme.md) — the brand system (colors, type, voice), pointing at the live components.
+- [`../design/assets/reference/`](../design/assets/reference/) — the concept renders and the logo mark.
 
-### Assets & prod (in the standalone `design/` folder)
-Concept renders, the prototype, and submission artifacts live under the repo-root [`design/`](../design/), alongside the rest of the design material:
-- [`../design/assets/`](../design/assets/) — UX concept renders (`../design/assets/ux/`) + claude-design notes.
-- [`../design/prod/pgrep-prototype.html`](../design/prod/pgrep-prototype.html) — clickable prototype of the L2 desktop surfaces. Rehearsal + L2 visual spec. **Not the submission.**
-- [`../design/prod/proofs/`](../design/prod/proofs/) and [`../design/prod/video/`](../design/prod/video/) — Wednesday proof logs + the video production kit.
+### Proofs & prod
+- [`proofs/`](proofs/) — the build proofs (clean build, tests, installer artifact, phone smoke logs).
+- [`../prod/pgrep-prototype.html`](../prod/pgrep-prototype.html) — clickable prototype of the L2 desktop surfaces. A rehearsal aid, **not the submission**.
+- [`../prod/video/`](../prod/video/) — the submission video kit (`submission-video-kit.md`) plus the concept walkthrough.
 
 ## Open design gaps
 The four features, UI/UX, technical architecture, and the **three-score model** are designed; build layers are ready.

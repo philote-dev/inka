@@ -6,7 +6,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     pgrep hint rung. One calm step of the wrong-answer ladder: a stored sub-goal
     prompt, blue budget dots, and a reveal that shows only this step. The final
     answer never appears before the reveal rung. Never red. Ported from the
-    Claude Design export (design/components/study/HintRung.jsx), adapted to the
+    Claude Design export (design/ux-foundation.md), adapted to the
     committed static ladder (a prompt and an optional revealed step).
 -->
 <script lang="ts">

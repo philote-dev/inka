@@ -7,7 +7,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     by how covered that topic is. Coverage gates Readiness, so the note states
     the rule plainly. Monochrome by design: coverage is not one of the three
     reserved score hues. Ported from the Claude Design export
-    (design/components/progress/CoverageBar.jsx).
+    (design/ux-foundation.md).
 -->
 <script lang="ts">
     export let segments: Array<{ topic: string; weight: number; covered: number }> = [];

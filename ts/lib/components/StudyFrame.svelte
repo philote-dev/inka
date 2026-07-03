@@ -5,7 +5,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <!--
     pgrep study session chrome. Minimal top bar (a mono count, a topic chip
     toned to the door, a close button) over a focused single column. Ported
-    from the Claude Design export (design/components/study/StudyFrame.jsx).
+    from the Claude Design export (design/ux-foundation.md).
 -->
 <script lang="ts">
     export let count = "";
