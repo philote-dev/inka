@@ -3,7 +3,7 @@
 
 """The attempt log as immutable notes ("notes-as-log"), plus the read-model seam.
 
-Decision "A now, C-ready" (see ``docs/pgrep/planning/l1-coordination-schema.md``
+Decision "A now, C-ready" (see ``docs_pgrep/plan/l1-coordination-schema.md``
 §3): one immutable Anki note per problem-attempt event, riding Anki's free note
 sync. There is **no** custom SQL table, **no** Rust, **no** proto, and **no**
 sync code here.

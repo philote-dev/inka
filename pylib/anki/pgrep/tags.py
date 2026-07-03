@@ -9,7 +9,7 @@ Topic tags are hierarchical Anki tags (Anki uses ``::`` for hierarchy)::
     topic::<category>::<subtopic>     # optional finer level
 
 Parsing rules (identical semantics to the Rust selector; see
-``docs/pgrep/planning/l1-coordination-schema.md`` §1):
+``docs_pgrep/plan/l1-coordination-schema.md`` §1):
 
 1. Topic tags are all tags whose ``topic::`` prefix matches (case-insensitive).
 2. Category is the 2nd ``::`` segment of a topic tag.
