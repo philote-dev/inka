@@ -90,11 +90,16 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 **Controller prompt.**
 > You are the controller for **Build Layer L2.7 (Closeout, make it ours)** of pgrep, a Physics GRE prep app forked from Anki. Repo root `/Users/philote/projects/inka`.
-> **Read first, in full:** this file's L2.7 section, `design/ux-foundation.md`, `design/readme.md`, and `docs_pgrep/plan/l2.5-onscreen-proof.md` (the A to C flip). Skim `docs_pgrep/README.md`.
+> **Read first, in full:**
+> - this file's L2.7 section
+> - design/ux-foundation.md
+> - design/readme.md
+> - docs_pgrep/plan/l2.5-onscreen-proof.md (the A to C flip)
+> - docs_pgrep/README.md (skim)
 > **Entry check:** confirm `main` builds, `just lint` and `just test-py` are green, and `just run` opens into pgrep with the top toolbar hidden. If not, stop and tell me.
 > **Deliverable:** the surfaces match the design system in both themes, the gallery covers component states, the exclusive takeover is proven (kept off by default), and the dev app carries the pgrep name and icon.
 > **Your job:** run this layer with subagent-driven development in a `.worktrees/l2.7-closeout` worktree. Dispatch L2.7.1 (surface QA) and L2.7.2 (gallery) as parallel implementers, then L2.7.3 (exclusive proof) and L2.7.4 (identity) sequentially. Spec-compliance reviewer then code-quality reviewer per task.
-> **Constraints (hard):** do not restyle away from `ux-foundation.md`, keep `hosted` the default surface mode, never mutate scheduling state, no AI. Respect the copy rule and the 100ms speed rule.
+> **Constraints (hard):** do not restyle away from the ux-foundation.md spec, keep hosted the default surface mode, never mutate scheduling state, no AI. Respect the copy rule and the 100ms speed rule.
 > **Exit gate:** as above, `just lint` and `just test-py` green. Report what changed, screenshots or the gallery route, and any drift you could not resolve.
 
 ---
@@ -117,11 +122,16 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 **Controller prompt.**
 > You are the controller for **Build Layer L3 (Mobile parity + Sync)** of pgrep. Repo root `/Users/philote/projects/inka`.
-> **Read first, in full:** this file's L3 section, `docs_pgrep/research/technical-architecture.md` (Phase 4), `docs_pgrep/plan/l1-coordination-schema.md` (the Attempt-log conflict rule), and `design/ux-foundation.md` §9. Read `docs_pgrep/plan/dev-harness.md` (iOS recipes).
+> **Read first, in full:**
+> - this file's L3 section
+> - docs_pgrep/research/technical-architecture.md (Phase 4)
+> - docs_pgrep/plan/l1-coordination-schema.md (the Attempt-log conflict rule)
+> - design/ux-foundation.md (section 9)
+> - docs_pgrep/plan/dev-harness.md (iOS recipes)
 > **Entry check:** confirm `just ios-smoke` and `just ios-run` are green on `main` (the shared engine runs on iOS). If not, stop and tell me.
 > **Deliverable:** the mobile Home and Study surfaces on the shared engine, plus two-way sync with a documented conflict rule and working offline-then-sync.
 > **Your job:** run this layer with subagent-driven development in a `.worktrees/l3-mobile-sync` worktree. Dispatch L3.1 (mobile surfaces, Swift) and L3.2 (sync) as parallel implementers. Spec-compliance then code-quality review per task.
-> **Constraints (hard):** reuse Anki's sync server, never modify `rslib/src/sync/**`, the Attempt log rides note sync (union-by-id), never mutate scheduling state, everything works AI off. Mobile is the companion subset, a native translation of the tokens.
+> **Constraints (hard):** reuse Anki's sync server, never modify anything under rslib/src/sync (the sync layer), the Attempt log rides note sync (union-by-id), never mutate scheduling state, everything works AI off. Mobile is the companion subset, a native translation of the tokens.
 > **Exit gate:** phone-to-desktop-and-back with no lost or doubled reviews, offline then syncs. Report the conflict rule you implemented, the sync host setup, and a review of the round trip.
 
 ---
@@ -146,7 +156,13 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 **Controller prompt.**
 > You are the controller for **Build Layer L4 (AI layer)** of pgrep. Repo root `/Users/philote/projects/inka`.
-> **Read first, in full:** this file's L4 section, `docs_pgrep/research/feature-forced-generation.md`, `docs_pgrep/research/feature-problem-generation.md`, `docs_pgrep/research/feature-productive-failure.md`, `design/ux-foundation.md` §7.4, and `docs_pgrep/plan/setup-content-deps.md` (tiers, gold set, leakage rule).
+> **Read first, in full:**
+> - this file's L4 section
+> - docs_pgrep/research/feature-forced-generation.md
+> - docs_pgrep/research/feature-problem-generation.md
+> - docs_pgrep/research/feature-productive-failure.md
+> - design/ux-foundation.md (section 7.4)
+> - docs_pgrep/plan/setup-content-deps.md (tiers, gold set, leakage rule)
 > **Entry check:** confirm the L1 data model (Problem and Attempt notetypes, topic tags) and the L2 Study loop are on `main`, and that Frank has provided the corpus, seeds, curated problems, and gold sets (L4.0 inputs). If the human inputs are missing, stop and tell me exactly what is needed.
 > **Deliverable:** card generation (stylize plus gap-fill), problem generation (misconception-first distractors), and the scaffold-fade tutor, all traced to named sources, gold-set gated, beating a baseline, with AI-off paths intact.
 > **Your job:** run this layer with subagent-driven development in a `.worktrees/l4-ai` worktree. Build **L4.0 (eval harness) first and get it green** before anything else. Then dispatch L4.1, L4.2, L4.3 as parallel implementers. Spec-compliance then code-quality review per task.
@@ -176,7 +192,12 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 **Controller prompt.**
 > You are the controller for **Build Layer L5 (Models + evidence)** of pgrep. Repo root `/Users/philote/projects/inka`.
-> **Read first, in full:** this file's L5 section, `docs_pgrep/research/three-scores.md`, `docs_pgrep/research/statistics-and-evaluation.md`, `docs_pgrep/research/performance-model.md`, and `docs_pgrep/research/feature-calibration.md`.
+> **Read first, in full:**
+> - this file's L5 section
+> - docs_pgrep/research/three-scores.md
+> - docs_pgrep/research/statistics-and-evaluation.md
+> - docs_pgrep/research/performance-model.md
+> - docs_pgrep/research/feature-calibration.md
 > **Entry check:** confirm the Attempt log and revlog are populated and the L4 held-out splits exist with the leakage rule enforced. If not, stop and tell me.
 > **Deliverable:** Memory calibrated, Performance measured on held-out items, Readiness mapped with a range and coverage-gated, the ablation reported, and the Progress dashboard wired to real calibration.
 > **Your job:** run this layer with subagent-driven development in a `.worktrees/l5-models` worktree. Dispatch L5.1, L5.2, L5.4 in parallel, then L5.3 after L5.2, then L5.5. Spec-compliance then code-quality review per task.
@@ -205,7 +226,11 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 **Controller prompt.**
 > You are the controller for **Build Layer L6 (Ship + harden)** of pgrep. Repo root `/Users/philote/projects/inka`.
-> **Read first, in full:** this file's L6 section, `docs_pgrep/plan/setup-content-deps.md` (signing and packaging), `docs_pgrep/plan/l2.5-onscreen-proof.md` (the A to C flip), and `prod/video/submission-video-kit.md`.
+> **Read first, in full:**
+> - this file's L6 section
+> - docs_pgrep/plan/setup-content-deps.md (signing and packaging)
+> - docs_pgrep/plan/l2.5-onscreen-proof.md (the A to C flip)
+> - prod/video/submission-video-kit.md
 > **Entry check:** confirm L3, L4, and L5 exit gates are green on `main`. If not, stop and tell me.
 > **Deliverable:** the exclusive takeover, final identity and packaging, hardening (crash test, benchmark), and the recorded submission.
 > **Your job:** run this layer with subagent-driven development in a `.worktrees/l6-ship` worktree. L6.1 then L6.2, L6.3 in parallel where independent. L6.4 is human-run; prepare the exact steps. Spec-compliance then code-quality review per task.
