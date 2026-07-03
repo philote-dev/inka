@@ -79,12 +79,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     // ScoreCard: the abstain state for each hue. Data is thin, so the card names
     // what is missing rather than showing a bare number.
-    const abstainCards: { kind: Hue; abstain: { missing: string; linkLabel: string } }[] = [
+    const abstainCards: { kind: Hue; abstain: { missing: string; linkLabel: string; linkHref: string } }[] = [
         {
             kind: "memory",
             abstain: {
                 missing: "Only a handful of cards reviewed so far. Review a few more to size Memory.",
                 linkLabel: "See what is missing",
+                linkHref: "/pgrep/study",
             },
         },
         {
@@ -92,6 +93,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             abstain: {
                 missing: "Only two problems attempted so far. Attempt a few more to size Performance.",
                 linkLabel: "See what is missing",
+                linkHref: "/pgrep/progress",
             },
         },
         {
@@ -99,6 +101,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             abstain: {
                 missing: "Coverage sits below the line. Cover Quantum Mechanics and Laboratory Methods to unlock Readiness.",
                 linkLabel: "See coverage",
+                linkHref: "/pgrep/progress",
             },
         },
     ];
@@ -487,7 +490,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                             <div class="stage">
                                 <div class="rail-preview">
                                     <NavRail active="Study" streak={12} />
-                                    <div class="rail-main">Study surface sits here</div>
+                                    <NavRail active="Home" />
+                                    <div class="rail-main">Left carries an opt-in streak. Right is the honest default with none.</div>
                                 </div>
                             </div>
                         </div>
