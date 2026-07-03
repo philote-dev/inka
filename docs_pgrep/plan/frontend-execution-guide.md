@@ -92,7 +92,7 @@ just lint            # check:svelte, check:typescript, check:eslint
 ## Step 3. Establish the design system in Claude Design and export
 
 **You do (this one is yours):**
-1. In Claude Design, point it at this repo's `ts/` folder and `ux-foundation.md`, and attach the PNGs in `../../assets/ux/`.
+1. In Claude Design, point it at this repo's `ts/` folder and `ux-foundation.md`, and attach the PNGs in `../../design/assets/ux/`.
 2. Run Part A (design system), Part B (components), Part C (screens), then C12 (light pass) from `claude-design-prompts.md`.
 3. Export with Send to Claude Code to get the handoff bundle.
 
@@ -106,7 +106,7 @@ just lint            # check:svelte, check:typescript, check:eslint
 **I do or dispatch a subagent with this prompt:**
 
 ```text
-Build the pgrep component primitives as Svelte 5 components in ts/lib (or ts/lib/pgrep). Follow the existing conventions in ts/lib/components (look at Container.svelte, Col.svelte, Button). Style only with the CSS variables added in ts/lib/sass (no hardcoded colors). Components: ScoreCard (with abstain state), StudyFrame, ChoiceList (default, selected, committed), HintRung (with hint budget), CoverageBar, ReliabilityDiagram, Manifold (Three.js surface with a 2D D3 contour fallback). Icons come from ts/lib/components/icons.ts (add Lucide via the .svg?component pattern). Equations use MathJax. Charts use D3, reusing helpers in ts/routes/graphs. Render each with mock props on a scratch page so they can be seen. Match the Claude Design components and the reference PNGs in docs_pgrep/assets/ux. Use Context7 for Three.js, D3, and Svelte 5 APIs. Run just lint until clean.
+Build the pgrep component primitives as Svelte 5 components in ts/lib (or ts/lib/pgrep). Follow the existing conventions in ts/lib/components (look at Container.svelte, Col.svelte, Button). Style only with the CSS variables added in ts/lib/sass (no hardcoded colors). Components: ScoreCard (with abstain state), StudyFrame, ChoiceList (default, selected, committed), HintRung (with hint budget), CoverageBar, ReliabilityDiagram, Manifold (Three.js surface with a 2D D3 contour fallback). Icons come from ts/lib/components/icons.ts (add Lucide via the .svg?component pattern). Equations use MathJax. Charts use D3, reusing helpers in ts/routes/graphs. Render each with mock props on a scratch page so they can be seen. Match the Claude Design components and the reference PNGs in design/assets/ux. Use Context7 for Three.js, D3, and Svelte 5 APIs. Run just lint until clean.
 ```
 
 **Done-check:** the components render with mock data (via `just web-watch`) and `just lint` passes.

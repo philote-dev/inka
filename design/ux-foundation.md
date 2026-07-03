@@ -103,7 +103,7 @@ The hero of the app is a **3D wireframe manifold**, a clean mathematical surface
 ## 7. Surfaces
 
 ### 7.1 Home (Readiness)
-The command center. The manifold hero, the three score cards, a single **Today** card (the one best next action plus `Start session`), and a quiet streak. See `../assets/ux/v2-home-dark.png`.
+The command center. The manifold hero, the three score cards, a single **Today** card (the one best next action plus `Start session`), and a quiet streak. See `assets/ux/v2-home-dark.png`.
 
 ### 7.2 Study
 The training and measuring instrument, and the home of features F1 (interleaving order), F3 (productive failure), and the Cards / Problems doors.
@@ -124,18 +124,18 @@ flowchart TD
     More -->|"no"| Synth["Session synthesis. Patterns plus performance recap."]
 ```
 
-- **Commit gate:** select an answer and `Commit`. Help unlocks only after commit. There is no confidence control. See `../assets/ux/v2-commit-dark.png`.
+- **Commit gate:** select an answer and `Commit`. Help unlocks only after commit. There is no confidence control. See `assets/ux/v2-commit-dark.png`.
 - **Wrong-answer ladder:** `Nudge` (name the kind of problem, never the answer), then **L2 Break it down** (sub-goal decomposition plus self-explanation), then `Sibling worked example` (same principle, different problem), then `Reveal plus explain-back`. A visible hint budget, giveaway-safe, and a static fallback when AI is off.
-- **L2 detail:** the decomposition is pre-computed and stored with the problem (ordered sub-goals plus a small rubric each). At hint time the learner produces each sub-goal plus a one-line reason, then `Show the step` reveals the stored sub-goal for self-comparison (AI off), or the rubric grades and probes the gap (AI on). The final answer never appears until Reveal. See `../assets/ux/v2-ladder-dark.png`.
-- **Cards door (memory, amber accent):** retrieval then reveal then FSRS grade (`Again`, `Hard`, `Good`, `Easy`). Math is set beautifully. See `../assets/ux/v2-cards-light.png`.
-- **Exam mode:** timed, real PGRE proportions, zero help. A large countdown, a question navigator, a flag toggle, and a clear "no hints" line. This is the readiness-measuring instrument. See `../assets/ux/v2-exam-dark.png`.
+- **L2 detail:** the decomposition is pre-computed and stored with the problem (ordered sub-goals plus a small rubric each). At hint time the learner produces each sub-goal plus a one-line reason, then `Show the step` reveals the stored sub-goal for self-comparison (AI off), or the rubric grades and probes the gap (AI on). The final answer never appears until Reveal. See `assets/ux/v2-ladder-dark.png`.
+- **Cards door (memory, amber accent):** retrieval then reveal then FSRS grade (`Again`, `Hard`, `Good`, `Easy`). Math is set beautifully. See `assets/ux/v2-cards-light.png`.
+- **Exam mode:** timed, real PGRE proportions, zero help. A large countdown, a question navigator, a flag toggle, and a clear "no hints" line. This is the readiness-measuring instrument. See `assets/ux/v2-exam-dark.png`.
 - **Session synthesis:** patterns across the session plus a performance recap. Calibration itself lives in Progress, not here.
 
 ### 7.3 Progress (the evidence ledger)
-Where honesty lives. A **Coverage** element (percent of exam covered, per-topic, that gates Readiness and states the abstain rule), and **model calibration** (reliability diagram plus Brier for Memory and Performance, with a plain-language read such as "well calibrated" or "underconfident"), plus per-topic mastery and trends. See `../assets/ux/v2-progress-dark.png`.
+Where honesty lives. A **Coverage** element (percent of exam covered, per-topic, that gates Readiness and states the abstain rule), and **model calibration** (reliability diagram plus Brier for Memory and Performance, with a plain-language read such as "well calibrated" or "underconfident"), plus per-topic mastery and trends. See `assets/ux/v2-progress-dark.png`.
 
 ### 7.4 Library (content, forced generation)
-`Author a seed`. The learner writes one conceptual card in their own words, then the AI conforms siblings to that style. Every generated card cites a **named source**, shows a verification status, and passes a gold-set gate before entering the deck. See `../assets/ux/v2-library-dark.png`.
+`Author a seed`. The learner writes one conceptual card in their own words, then the AI conforms siblings to that style. Every generated card cites a **named source**, shows a verification status, and passes a gold-set gate before entering the deck. See `assets/ux/v2-library-dark.png`.
 
 ### 7.5 Settings
 AI on/off (the AI-off path always works), sync, target retention, test date, appearance (light / dark / system), account.
@@ -155,7 +155,7 @@ First-run and re-runnable adaptive placement that seeds the manifold. Topics are
 
 ## 9. Adaptive and mobile
 
-Both themes are first-class (section 3.2). Mobile is the companion subset: a readiness glance (manifold thumbnail plus the three scores with ranges) and a session that mirrors desktop. Authoring, deep Progress, and Library are desktop-first. See `../assets/ux/v2-mobile-dark.png`.
+Both themes are first-class (section 3.2). Mobile is the companion subset: a readiness glance (manifold thumbnail plus the three scores with ranges) and a session that mirrors desktop. Authoring, deep Progress, and Library are desktop-first. See `assets/ux/v2-mobile-dark.png`.
 
 ## 10. Tech stack alignment (build targets)
 
@@ -193,45 +193,45 @@ These are direction-setting concept renders, not final UI. The real screens are 
 
 **Home (dark, locked palette)**
 
-![Home](../assets/ux/v2-home-dark.png)
+![Home](assets/ux/v2-home-dark.png)
 
 **Study, commit view (no confidence, corrected)**
 
-![Commit](../assets/ux/v2-commit-dark.png)
+![Commit](assets/ux/v2-commit-dark.png)
 
 **Study, hint ladder at L2 (sub-goal decomposition)**
 
-![Ladder](../assets/ux/v2-ladder-dark.png)
+![Ladder](assets/ux/v2-ladder-dark.png)
 
 **Cards door (light mode)**
 
-![Cards](../assets/ux/v2-cards-light.png)
+![Cards](assets/ux/v2-cards-light.png)
 
 **Progress (coverage plus model calibration)**
 
-![Progress](../assets/ux/v2-progress-dark.png)
+![Progress](assets/ux/v2-progress-dark.png)
 
 **Library (author a seed, AI-conformed siblings, sources cited)**
 
-![Library](../assets/ux/v2-library-dark.png)
+![Library](assets/ux/v2-library-dark.png)
 
 **Exam mode (timed, zero help)**
 
-![Exam](../assets/ux/v2-exam-dark.png)
+![Exam](assets/ux/v2-exam-dark.png)
 
 **Mobile companion (readiness glance plus a session)**
 
-![Mobile](../assets/ux/v2-mobile-dark.png)
+![Mobile](assets/ux/v2-mobile-dark.png)
 
 **Manifold hero style (buildable wireframe) and the future Bridge toggle**
 
-![Manifold wireframe](../assets/ux/buildable-2-wireframe-dark.png)
+![Manifold wireframe](assets/ux/buildable-2-wireframe-dark.png)
 
-![Bridge](../assets/ux/manifold-2-bridge.png)
+![Bridge](assets/ux/manifold-2-bridge.png)
 
 **Logo exploration (the chosen mark is the nested-contour blob, top-right)**
 
-![Logo options](../assets/ux/logo-calabi-yau-options.png)
+![Logo options](assets/ux/logo-calabi-yau-options.png)
 
 ## 12. Corrections captured from the updated plans
 
@@ -249,4 +249,4 @@ These are direction-setting concept renders, not final UI. The real screens are 
 - Diagnostic screen flow (v0 scope).
 - Small-screen density for the manifold thumbnail.
 
-_Sources: `README.md`, `vision-and-structure.md`, `features.md`, `feature-interleaving.md`, `feature-productive-failure.md`, `feature-calibration.md`, `feature-forced-generation.md`; the project spec (honesty rule, speed rules, three scores); the brainstorming session that produced the concept renders in `../assets/ux/`._
+_Sources: `README.md`, `vision-and-structure.md`, `features.md`, `feature-interleaving.md`, `feature-productive-failure.md`, `feature-calibration.md`, `feature-forced-generation.md`; the project spec (honesty rule, speed rules, three scores); the brainstorming session that produced the concept renders in `assets/ux/`._

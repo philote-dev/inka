@@ -7,8 +7,8 @@ pgrep is a Physics GRE study app built on the Anki engine. Its personality is an
 ## Sources
 
 - GitHub repo `philote-dev/inka` (the Anki fork). Frontend in `ts/` (Svelte 5 + TypeScript, SCSS variable theming in `ts/lib/sass`, dark via the `.night-mode` class).
-- `docs/pgrep/planning/ux-foundation.md` in that repo (imported into this project at the same path). The authoritative UX foundation.
-- Concept renders in `docs/pgrep/planning/assets/ux/` (dark home, wireframe manifold, and more). Copies of the key ones live in `assets/reference/`.
+- `ux-foundation.md` (in this folder). The authoritative UX foundation.
+- Concept renders in `assets/ux/` (dark home, wireframe manifold, and more). Copies of the key ones live in `assets/reference/`.
 - Live mockups built in this project. `Home.dc.html`, `Study.dc.html`, `Cards.dc.html`, `Library.dc.html`, `Mobile.dc.html`.
 
 ## Build target
@@ -78,6 +78,7 @@ From ux-foundation.md section 8, built under `components/`:
 - `guidelines/` — foundation specimen cards for the Design System tab.
 - `ui_kits/pgrep/` — index into the live desktop and mobile mockup screens.
 - `assets/` — logo and reference renders.
-- `docs/pgrep/planning/ux-foundation.md` — the imported source foundation.
+- `ux-foundation.md` — the UX foundation.
+- `prod/` — clickable prototype, submission proofs, and the video kit.
 - `manifold.js` — shared data-driven manifold renderer (root copy used by the mockups).
 - `SKILL.md` — agent skill entry point.
