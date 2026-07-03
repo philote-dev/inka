@@ -1,0 +1,3 @@
+- To build and check the project, use `just check` in the root folder.
+- This will format files, then run lints and unit tests.
+- Run `just --list` to see all available recipes.
