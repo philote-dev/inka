@@ -17,7 +17,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     export let updated = "Updated 2h ago";
     export let sparkline: number[] | undefined = undefined;
     export let abstain:
-        | { message?: string; missing?: string; linkLabel?: string }
+        | { message?: string; missing?: string; linkLabel?: string; linkHref?: string }
         | undefined = undefined;
 
     $: title = label ?? kind.charAt(0).toUpperCase() + kind.slice(1);
@@ -79,9 +79,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         {#if abstain.missing}
             <p class="abstain-missing">{abstain.missing}</p>
         {/if}
-        <button type="button" class="abstain-link">
-            {abstain.linkLabel ?? "See what is missing"}
-        </button>
+        {#if abstain.linkHref}
+            <a class="abstain-link" href={abstain.linkHref}>
+                {abstain.linkLabel ?? "See what is missing"}
+            </a>
+        {:else if abstain.linkLabel}
+            <button type="button" class="abstain-link">
+                {abstain.linkLabel}
+            </button>
+        {/if}
     {:else}
         <div class="value">{value}</div>
         {#if range}
@@ -126,7 +132,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     .value {
         font-family: var(--font-mono);
-        font-size: 40px;
+        font-size: var(--text-score);
         font-weight: 500;
         line-height: 1;
         font-variant-numeric: tabular-nums;

@@ -97,8 +97,16 @@ math over FSRS state and tags, no AI. Styled with the pgrep design system
 
 <section class="progress">
     <header class="head">
-        <h1>Progress</h1>
-        <p class="sub">Coverage gates Readiness. Calibration shows how honest the model is.</p>
+        <div class="head-text">
+            <h1>Progress</h1>
+            <p class="sub">Coverage gates Readiness. Calibration shows how honest the model is.</p>
+        </div>
+        <a class="diag-link" href="/pgrep/diagnostic">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="2,10 5.5,10 8,4.5 12,15.5 14.5,10 18,10" />
+            </svg>
+            Run the diagnostic
+        </a>
     </header>
 
     {#if loading}
@@ -132,10 +140,10 @@ math over FSRS state and tags, no AI. Styled with the pgrep design system
                             </span>
                         </div>
                         <div class="rowsub">
-                            <span>Blueprint {pct(topic.blueprint)}%</span>
+                            <span>Blueprint {pct(topic.blueprint)} percent</span>
                             <span>{cardCount(topic.n_cards)}</span>
                             {#if topic.memory_point !== null}
-                                <span class="mem">Memory {pct(topic.memory_point)}%</span>
+                                <span class="mem">Memory {pct(topic.memory_point)} percent</span>
                             {/if}
                         </div>
                     </li>
@@ -185,6 +193,10 @@ math over FSRS state and tags, no AI. Styled with the pgrep design system
 
     .head {
         margin-bottom: var(--space-1);
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-2);
 
         h1 {
             margin: 0;
@@ -197,6 +209,30 @@ math over FSRS state and tags, no AI. Styled with the pgrep design system
             margin: 6px 0 0;
             color: var(--muted);
             font-size: var(--text-body);
+        }
+    }
+
+    /* Diagnostic is a re-runnable flow, not a rail tab. Progress hosts a quiet
+       monochrome re-run entry beside the coverage it informs. */
+    .diag-link {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 14px;
+        border: var(--hairline);
+        border-radius: var(--radius-control);
+        color: var(--muted);
+        text-decoration: none;
+        font-size: var(--text-body);
+        font-weight: 500;
+        white-space: nowrap;
+        transition: var(--transition-calm);
+
+        &:hover {
+            color: var(--text);
+            background: var(--hover-wash);
+            border-color: var(--muted);
         }
     }
 

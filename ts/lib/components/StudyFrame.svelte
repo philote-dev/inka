@@ -82,12 +82,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
         &.tone-memory {
             color: var(--memory-text);
-            border-color: rgba(235, 203, 139, 0.35);
+            border-color: var(--memory-tint);
         }
 
         &.tone-performance {
             color: var(--performance-text);
-            border-color: rgba(129, 161, 193, 0.45);
+            border-color: var(--performance-tint);
         }
 
         .dot {

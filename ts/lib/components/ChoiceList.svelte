@@ -87,13 +87,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     .state-selected {
         border-color: var(--performance);
         border-width: 1.5px;
-        background: rgba(129, 161, 193, 0.06);
+        background: var(--performance-wash);
     }
 
     .state-correct {
         border-color: var(--success);
         border-width: 1.5px;
-        background: rgba(163, 190, 140, 0.08);
+        background: var(--success-wash);
     }
 
     .state-wrong {
@@ -153,7 +153,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
         &.wrong {
             color: var(--performance-text);
-            border: 1px solid rgba(129, 161, 193, 0.45);
+            border: 1px solid var(--performance-tint);
         }
     }
 </style>
