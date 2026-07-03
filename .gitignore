@@ -24,3 +24,9 @@ ts/.svelte-kit
 docs/_build/
 docs/autoapi/
 .complexipy_cache
+
+# Understand-Anything knowledge-graph cache (local tool output)
+.understand-anything/
+
+# Git worktrees for feature work
+.worktrees/
