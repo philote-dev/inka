@@ -46,8 +46,16 @@ targets:
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         # Rust std / getrandom (SecRandomCopyBytes) and reqwest need these.
         OTHER_LDFLAGS: ["-lc++", "-liconv"]
-        # Simulator runs are unsigned.
-        CODE_SIGNING_ALLOWED: NO
+        # Signing. Simulator builds stay unsigned so `just ios-smoke` /
+        # `ios-run` need no Apple account and no team. Device builds sign
+        # automatically with the developer's Personal Team. DEVELOPMENT_TEAM is
+        # your 10-char Team ID (Xcode > Settings > Accounts, or
+        # `security find-identity -v -p codesigning` -> the cert's OU); it is
+        # ignored for Simulator builds. Free/Personal Team device profiles
+        # expire after 7 days, so re-run from Xcode weekly to refresh.
+        "CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]": NO
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: S4JPGVH2H5
     scheme:
       testTargets:
         - PgrepStudyTests
