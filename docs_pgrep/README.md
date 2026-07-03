@@ -32,8 +32,6 @@
 ### Plan (execution)
 - [`plan/build-plan.md`](plan/build-plan.md) — execution roadmap: build layers L0–L6, gates, subagent orchestration, example prompt.
 - [`plan/setup-content-and-dependencies.md`](plan/setup-content-and-dependencies.md) — the "outside the code" plan: your tasks, content sourcing, external tools.
-- [`plan/demo-runbook.md`](plan/demo-runbook.md) — how to record every required proof, deadline by deadline.
-- [`plan/frontend-execution-guide.md`](plan/frontend-execution-guide.md) — Claude Design to Svelte repo handoff steps.
 - [`plan/dev-harness.md`](plan/dev-harness.md) — dev + test harness notes.
 - [`plan/l1-coordination-schema.md`](plan/l1-coordination-schema.md), [`plan/l2-api-contract.md`](plan/l2-api-contract.md), [`plan/l2.5-onscreen-proof.md`](plan/l2.5-onscreen-proof.md) — phase-tagged build contracts.
 

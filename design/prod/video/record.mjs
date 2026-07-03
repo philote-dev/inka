@@ -5,7 +5,7 @@
 // Ken Burns image stages, and records one continuous video (webm) via Playwright.
 //
 // This produces a CONCEPT / PITCH video from the prototype. It is NOT the graded
-// Wednesday submission (see docs_pgrep/plan/demo-runbook.md). A persistent
+// Wednesday submission. A persistent
 // watermark and the outro card keep that honest.
 //
 // Run:  node design/prod/video/record.mjs

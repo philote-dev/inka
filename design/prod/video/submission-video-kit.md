@@ -5,7 +5,7 @@ to the concept walkthrough in this folder. Read the honest framing first.
 
 ## Honest framing (read once)
 
-Per `../../plan/demo-runbook.md`:
+In short:
 
 - **Wednesday is not a polished demo video.** It is **proof that a real build
   works**: a clean-build recording with a commit hash, test results, a
@@ -24,9 +24,9 @@ walkthrough's structure once the real surfaces exist.
 
 ## Part A. Wednesday proof reel (from the real build)
 
-Record these four clips (spec section 6, mapped in `demo-runbook.md` section 2).
-Stitch order and narration in `demo-runbook.md` section 3. Target 3 to 4 minutes
-total. Everything must run **AI off**.
+Record these four clips (spec section 6). Target 3 to 4 minutes total.
+Everything must run **AI off**. (Stitch order is in the "Stitch the Wednesday
+reel" section below.)
 
 ### Setup (do this first)
 
@@ -94,8 +94,7 @@ xcrun simctl io booted recordVideo --codec=h264 phone-review.mp4
 
 ### Stitch the Wednesday reel (optional)
 
-Keep the four clips in the order A, B, C, D (or the six-beat order in
-`demo-runbook.md` section 3). Normalize and concatenate:
+Keep the four clips in the order A, B, C, D. Normalize and concatenate:
 
 ```bash
 # normalize each clip to 1080p30, then concat (edit the file list to your clips)
@@ -150,5 +149,5 @@ pacing reference for this edit.
 - `submission-video-kit.md` — this file.
 - `raw/` — the raw Playwright recording (git-ignored by size, regenerate anytime).
 
-_Sources: `../../plan/demo-runbook.md`, `../../plan/build-plan.md`,
+_Sources: `../../plan/build-plan.md`,
 `../../research/technical-architecture.md`, the project spec, and the `justfile`._

@@ -20,7 +20,7 @@ Grab as much of this as Claude Design lets you, most useful first:
 Tell the agent. It will:
 - inventory what arrived,
 - reconcile tokens and components with `ux-foundation.md` (flag any drift),
-- then proceed with the build steps in `frontend-execution-guide.md`.
+- then proceed with the build against `ux-foundation.md` (tokens, components, surfaces).
 
 Notes:
 - The React or Tailwind code from a handoff bundle is not used directly (pgrep is Svelte plus SCSS). The tokens, the component spec, and the assets are what we use.
