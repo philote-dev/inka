@@ -10,7 +10,7 @@
 
 **Legend.** 🔒 sequential gate (nothing after it starts until it is green). ∥ parallelizable (independent files or domains). ✅ done and on `main`.
 
-**Governing docs.** Product context and the nine spec constraints live in [`../README.md`](../README.md). The durable "why" is in [`../research/`](../research/). The human, content, and dependency track is [`setup-content-and-dependencies.md`](setup-content-and-dependencies.md). The dev and test harness is [`dev-harness.md`](dev-harness.md). Phase contracts are the appendices in section 7.
+**Governing docs.** Product context and the nine spec constraints live in [`../README.md`](../README.md). The durable "why" is in [`../research/`](../research/). The human, content, and dependency track is [`setup-content-deps.md`](setup-content-deps.md). The dev and test harness is [`dev-harness.md`](dev-harness.md). Phase contracts are the appendices in section 7.
 
 **Copy rule (this doc and all pgrep text).** No em-dashes, no colon-heavy phrasing, short labels.
 
@@ -130,7 +130,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 **Why.** The AI features and their evidence (spec constraints 6 and 7). This is the largest layer and where most grading weight sits. It has an internal 🔒 gate: the eval harness lands first, because everything else is graded against it.
 
-**Design refs.** [`../research/feature-forced-generation.md`](../research/feature-forced-generation.md) (cards: stylize vs gap-fill, the verification stack, the gen→FSRS bridge), [`../research/feature-problem-generation.md`](../research/feature-problem-generation.md) (MCQ with misconception-first distractors, the MCQ gold set), [`../research/feature-productive-failure.md`](../research/feature-productive-failure.md) (the wrong-answer ladder, stored decomposition, AI-off vs AI-on grading), `design/ux-foundation.md` §7.4 (the Library authoring surface). Content and provenance rules in [`setup-content-and-dependencies.md`](setup-content-and-dependencies.md).
+**Design refs.** [`../research/feature-forced-generation.md`](../research/feature-forced-generation.md) (cards: stylize vs gap-fill, the verification stack, the gen→FSRS bridge), [`../research/feature-problem-generation.md`](../research/feature-problem-generation.md) (MCQ with misconception-first distractors, the MCQ gold set), [`../research/feature-productive-failure.md`](../research/feature-productive-failure.md) (the wrong-answer ladder, stored decomposition, AI-off vs AI-on grading), `design/ux-foundation.md` §7.4 (the Library authoring surface). Content and provenance rules in [`setup-content-deps.md`](setup-content-deps.md).
 
 **Tasks.**
 - **L4.0 🔒 Eval harness.** The ruler everything else is graded on. Build the 50-item card gold set and the MCQ-shaped problem gold set, the held-out splits with the leakage rule (held-out items never enter the corpus, the RAG index, or any prompt), the keyword and vector baselines to beat, and the SymPy (CAS) path for computational items. Time-based splits only, never random. Nothing in L4.1 to L4.3 ships until this is green.
@@ -146,7 +146,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 **Controller prompt.**
 > You are the controller for **Build Layer L4 (AI layer)** of pgrep. Repo root `/Users/philote/projects/inka`.
-> **Read first, in full:** this file's L4 section, `docs_pgrep/research/feature-forced-generation.md`, `docs_pgrep/research/feature-problem-generation.md`, `docs_pgrep/research/feature-productive-failure.md`, `design/ux-foundation.md` §7.4, and `docs_pgrep/plan/setup-content-and-dependencies.md` (tiers, gold set, leakage rule).
+> **Read first, in full:** this file's L4 section, `docs_pgrep/research/feature-forced-generation.md`, `docs_pgrep/research/feature-problem-generation.md`, `docs_pgrep/research/feature-productive-failure.md`, `design/ux-foundation.md` §7.4, and `docs_pgrep/plan/setup-content-deps.md` (tiers, gold set, leakage rule).
 > **Entry check:** confirm the L1 data model (Problem and Attempt notetypes, topic tags) and the L2 Study loop are on `main`, and that Frank has provided the corpus, seeds, curated problems, and gold sets (L4.0 inputs). If the human inputs are missing, stop and tell me exactly what is needed.
 > **Deliverable:** card generation (stylize plus gap-fill), problem generation (misconception-first distractors), and the scaffold-fade tutor, all traced to named sources, gold-set gated, beating a baseline, with AI-off paths intact.
 > **Your job:** run this layer with subagent-driven development in a `.worktrees/l4-ai` worktree. Build **L4.0 (eval harness) first and get it green** before anything else. Then dispatch L4.1, L4.2, L4.3 as parallel implementers. Spec-compliance then code-quality review per task.
@@ -189,7 +189,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 **Why.** Turn the working system into shippable artifacts and make the takeover final (spec constraint 8).
 
-**Design refs.** [`setup-content-and-dependencies.md`](setup-content-and-dependencies.md) (signing, packaging), [`l2.5-onscreen-proof.md`](l2.5-onscreen-proof.md) (the A to C flip), [`../../prod/video/submission-video-kit.md`](../../prod/video/submission-video-kit.md) (the recordings).
+**Design refs.** [`setup-content-deps.md`](setup-content-deps.md) (signing, packaging), [`l2.5-onscreen-proof.md`](l2.5-onscreen-proof.md) (the A to C flip), [`../../prod/video/submission-video-kit.md`](../../prod/video/submission-video-kit.md) (the recordings).
 
 **Tasks.**
 - **L6.1 Exclusive takeover.** Flip `_DEFAULT_MODE = "exclusive"` in `pgrep_host.py`, drop the "Open Anki screens" action, and short-circuit `deckBrowser` back to `pgrep`. This is the one-place change proven in L2.7.3.
@@ -205,7 +205,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 **Controller prompt.**
 > You are the controller for **Build Layer L6 (Ship + harden)** of pgrep. Repo root `/Users/philote/projects/inka`.
-> **Read first, in full:** this file's L6 section, `docs_pgrep/plan/setup-content-and-dependencies.md` (signing and packaging), `docs_pgrep/plan/l2.5-onscreen-proof.md` (the A to C flip), and `prod/video/submission-video-kit.md`.
+> **Read first, in full:** this file's L6 section, `docs_pgrep/plan/setup-content-deps.md` (signing and packaging), `docs_pgrep/plan/l2.5-onscreen-proof.md` (the A to C flip), and `prod/video/submission-video-kit.md`.
 > **Entry check:** confirm L3, L4, and L5 exit gates are green on `main`. If not, stop and tell me.
 > **Deliverable:** the exclusive takeover, final identity and packaging, hardening (crash test, benchmark), and the recorded submission.
 > **Your job:** run this layer with subagent-driven development in a `.worktrees/l6-ship` worktree. L6.1 then L6.2, L6.3 in parallel where independent. L6.4 is human-run; prepare the exact steps. Spec-compliance then code-quality review per task.
@@ -216,7 +216,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 ## 5. The human track (Frank)
 
-The engine, UI, sync, and AI plumbing are agent-buildable. These are the tasks only Frank can do, mapped to the layer that needs them. Full detail in [`setup-content-and-dependencies.md`](setup-content-and-dependencies.md).
+The engine, UI, sync, and AI plumbing are agent-buildable. These are the tasks only Frank can do, mapped to the layer that needs them. Full detail in [`setup-content-deps.md`](setup-content-deps.md).
 
 | Task | What | Needed by |
 |---|---|---|
@@ -268,7 +268,7 @@ The engine, UI, sync, and AI plumbing are agent-buildable. These are the tasks o
 - [`l1-coordination-schema.md`](l1-coordination-schema.md) · topic tags, blueprint weights, the Attempt-log schema and invariants (K1 to K5).
 - [`l2-api-contract.md`](l2-api-contract.md) · the frontend-to-backend channels, the `anki.pgrep.*` bridge, per-surface endpoints, file ownership.
 - [`l2.5-onscreen-proof.md`](l2.5-onscreen-proof.md) · the desktop takeover and the documented A to C flip.
-- [`setup-content-and-dependencies.md`](setup-content-and-dependencies.md) · the human, content, sourcing, and external-tooling track.
+- [`setup-content-deps.md`](setup-content-deps.md) · the human, content, sourcing, and external-tooling track.
 - [`dev-harness.md`](dev-harness.md) · the build, run, and test recipes for desktop and iOS.
 - [`../research/`](../research/) · the durable "why" behind every feature and model.
 

@@ -69,4 +69,4 @@ Curated problems (plan task C4) stay as the trusted seed bank and the first veri
 - CAS feasibility for physics problems (units, multiple valid forms), the same caveat as cards.
 - How many gold problems make the distractor-quality gate stable.
 
-_Sources: `feature-forced-generation.md` (shared generation + verification stack); `feature-productive-failure.md` (decomposition + ladder); `setup-content-and-dependencies.md` (tier system, gold set, leakage rule); cohort distractor research (misconception-first, student-selection-data frontier)._
+_Sources: `feature-forced-generation.md` (shared generation + verification stack); `feature-productive-failure.md` (decomposition + ladder); `setup-content-deps.md` (tier system, gold set, leakage rule); cohort distractor research (misconception-first, student-selection-data frontier)._

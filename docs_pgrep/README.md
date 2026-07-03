@@ -31,8 +31,8 @@
 
 ### Plan (execution)
 - [`plan/build-plan.md`](plan/build-plan.md) — the unified build plan: current status, the remaining trajectory (L2.7, then L3 and L4, then L5, L6), the per-layer agent split, gates, and controller prompts.
-- [`plan/setup-content-and-dependencies.md`](plan/setup-content-and-dependencies.md) — the "outside the code" plan: your tasks, content sourcing, external tools.
-- [`plan/your-parallel-track.md`](plan/your-parallel-track.md) — your prep sequenced against the build layers (the "when" for the setup-content tasks, plus the UI-tuning timing).
+- [`plan/setup-content-deps.md`](plan/setup-content-deps.md) — the "outside the code" plan: your tasks, content sourcing, external tools.
+- [`plan/parallel-track.md`](plan/parallel-track.md) — your prep sequenced against the build layers (the "when" for the setup-content tasks, plus the UI-tuning timing).
 - [`plan/dev-harness.md`](plan/dev-harness.md) — dev + test harness notes.
 - [`plan/l1-coordination-schema.md`](plan/l1-coordination-schema.md), [`plan/l2-api-contract.md`](plan/l2-api-contract.md), [`plan/l2.5-onscreen-proof.md`](plan/l2.5-onscreen-proof.md) — phase-tagged build contracts.
 
