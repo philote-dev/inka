@@ -89,7 +89,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 **Agents.** Two parallel implementers (surfaces vs gallery) for the visual work, then one implementer for the takeover proof, then one for identity. Reviews per the model in section 3.
 
 **Controller prompt.**
-> You are the controller for **Build Layer L2.7 (Closeout, make it ours)** of pgrep, a Physics GRE prep app forked from Anki. Repo root `/Users/philote/projects/inka`.
+> You are the controller for **Build Layer L2.7 (Closeout, make it ours)** of pgrep.
 > **Read first, in full:**
 > - this file's L2.7 section
 > - design/ux-foundation.md
@@ -121,7 +121,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 **Agents.** Two parallel implementers (mobile UI in Swift vs sync integration). Different domains, safe to parallelize.
 
 **Controller prompt.**
-> You are the controller for **Build Layer L3 (Mobile parity + Sync)** of pgrep. Repo root `/Users/philote/projects/inka`.
+> You are the controller for **Build Layer L3 (Mobile parity + Sync)** of pgrep.
 > **Read first, in full:**
 > - this file's L3 section
 > - docs_pgrep/research/technical-architecture.md (Phase 4)
@@ -155,7 +155,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 **Agents.** L4.0 first (sequential, it is the gate). Then L4.1, L4.2, L4.3 as parallel implementers (different modules and surfaces).
 
 **Controller prompt.**
-> You are the controller for **Build Layer L4 (AI layer)** of pgrep. Repo root `/Users/philote/projects/inka`.
+> You are the controller for **Build Layer L4 (AI layer)** of pgrep.
 > **Read first, in full:**
 > - this file's L4 section
 > - docs_pgrep/research/feature-forced-generation.md
@@ -191,7 +191,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 **Agents.** L5.1, L5.2, L5.4 in parallel (independent analyses). L5.3 after L5.2. L5.5 after L5.1 and L5.2.
 
 **Controller prompt.**
-> You are the controller for **Build Layer L5 (Models + evidence)** of pgrep. Repo root `/Users/philote/projects/inka`.
+> You are the controller for **Build Layer L5 (Models + evidence)** of pgrep.
 > **Read first, in full:**
 > - this file's L5 section
 > - docs_pgrep/research/three-scores.md
@@ -225,7 +225,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 **Agents.** L6.1 and L6.2 (one implementer each, then review). L6.3 (one implementer, benchmark and crash harness). L6.4 is human-run recording.
 
 **Controller prompt.**
-> You are the controller for **Build Layer L6 (Ship + harden)** of pgrep. Repo root `/Users/philote/projects/inka`.
+> You are the controller for **Build Layer L6 (Ship + harden)** of pgrep.
 > **Read first, in full:**
 > - this file's L6 section
 > - docs_pgrep/plan/setup-content-deps.md (signing and packaging)
