@@ -67,7 +67,7 @@ flowchart TD
 
 ## Decisions (approved)
 
-1. **Scope (locked):** the graded Rust change = the **points-at-stake selector** — new `ReviewCardOrder::PointsAtStake` variant + a Rust **gather-then-limit** second pass. (Not topic-aware scheduling or the mastery-query — those stay optional/later.)
+1. **Scope (locked):** the graded Rust change = the **points-at-stake selector** — new `ReviewCardOrder::PointsAtStake` variant + a Rust **gather-then-limit** second pass. (Not topic-aware scheduling or the mastery-query — those stay optional/later.) The readiness- and time-aware value-vs-band weighting (`feature-interleaving.md`) is a later extension of the scorer: core ships a **fixed** weighting, and the annealing is not part of the graded minimum.
 2. **Weakness + perf (locked):** weakness = `1 − mean topic R` (FSRS-native, no attempt-log needed). Compute the per-topic **weakness map once per session** (cached), not per build — keeps queue build sub-second, under the spec's targets.
 3. **Config plumbing (locked = proto RPC):** K / band edges / blueprint weights pass via a new proto RPC (the simulation-tuned knobs). Exact field layout settled at build time.
 

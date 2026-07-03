@@ -1,6 +1,6 @@
-# Decision — Attempt / Event Log Storage
+# Attempt / Event Log Storage
 
-**Status: DECIDED (Frank) — "A now, C-ready."** Ship **A (notes-as-log)** as the synced source of truth; engineer it so **C (a local recomputable cache)** can be added later at zero sync/undo cost. **B rejected** (jeopardizes the graded sync requirement). Feeds `technical-architecture.md` (d) data model. This is the store for the **append-only problem-attempt / event log** that powers the Performance model + calibration.
+**Status: LOCKED — "A now, C-ready."** Ship **A (notes-as-log)** as the synced source of truth; engineer it so **C (a local recomputable cache)** can be added later at zero sync/undo cost. **B rejected** (jeopardizes the graded sync requirement). Feeds `technical-architecture.md` (d) data model. This is the store for the **append-only problem-attempt / event log** that powers the Performance model + calibration.
 
 ## Scope clarification (narrows the problem)
 
@@ -56,13 +56,7 @@ This is the whole ballgame, because sync is the spec's central, heavily-graded r
 
 **C — Hybrid.** ➕ A's free sync **and** B's fast analytics (rebuild the indexed cache from the notes on demand); cache is recomputable so it carries no sync/undo risk. ➖ still has A's suspended-card overhead; a bit more code than pure A (the fold/materialization).
 
-## Recommendation (yours to override)
-
-**Lean A now, evolve to C if analytics get slow.** Rationale: R2 (sync) dominates — it's the graded, hard part, and A/C get it free while B jeopardizes it. Start with pure **A** (simplest, ships fastest); if the Performance/calibration fold becomes slow at volume, add the **C** materialized cache (a pure local optimization, no sync/undo cost). **Avoid B** unless you deliberately choose to write custom sync — a large, risky detour on the very requirement the spec weights most.
-
-One honest note: the only real cost A/C carry is the suspended-card overhead (Anki forces ≥1 card per note). It's a known, contained hack (dedicated suspended deck, excluded from search/stats), and volume is bounded because it's *problem* attempts, not every review.
-
-## Decision (Frank) — **"A now, C-ready"**
+## Locked decision — **"A now, C-ready"**
 
 - [x] **A · notes-as-log** — ship now (the synced source of truth).
 - [ ] **B · custom table** — **rejected**: jeopardizes R2, the spec's most heavily-graded requirement (would force risky custom sync in `rslib/src/sync/**`).
