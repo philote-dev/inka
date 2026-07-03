@@ -15,7 +15,7 @@ disagree and no retrievability is recomputed here. No AI, no attempt log, no
 schedule mutation (``l2-api-contract.md`` §0).
 
 The ``gate`` (0.70) is the Readiness coverage gate from
-``scoring-and-readiness.md`` §3/§5: Readiness abstains until coverage reaches
+``three-scores.md`` §3/§5: Readiness abstains until coverage reaches
 it. L2 shows the gate but does not compute Readiness (that lands in L5), so the
 gate is informational here — ``abstain_note`` says as much.
 
@@ -32,7 +32,7 @@ from anki.pgrep.memory import memory_score
 if TYPE_CHECKING:
     from anki.collection import Collection
 
-# The Readiness coverage gate (``scoring-and-readiness.md`` §3/§5): Readiness
+# The Readiness coverage gate (``three-scores.md`` §3/§5): Readiness
 # abstains until this fraction of blueprint weight is covered. Shown but not
 # enforced in L2 (Readiness itself is not computed until L5).
 COVERAGE_GATE = 0.70

@@ -1,6 +1,6 @@
 # Technical Architecture — Sync, Mobile, Desktop (Phase 4)
 
-**Status: Phase 4 COMPLETE.** (a) mobile + (b) sync mapped (mobile = iOS-via-FFI, provisional, revisit at L3); (c) desktop shell + (d) data model + (e) cross-cutting designed. (d) attempt log = notes-as-log, **"A now, C-ready"**.
+**Status: Phase 4 COMPLETE.** (a) mobile + (b) sync mapped (mobile = iOS-via-FFI, now implemented: SwiftUI app + `AnkiFfi.xcframework`, proven on simulator and a signed device install); (c) desktop shell + (d) data model + (e) cross-cutting designed. (d) attempt log = notes-as-log, **"A now, C-ready"**.
 Shared context in `README.md`. Design/stack/dependency detail for the UI lives in `ux-foundation.md`. Unblocks build layer **L3** in `build-plan.md`.
 
 _Grounding: exploration of the real code ([sync/mobile map](c406326e-1ffa-4583-80cd-74afb2b8f047)) + `.understand-anything/knowledge-graph.json` + cohort research (felipe's shared-engine sync report, ryan's `charged_up` iOS/FFI work, aadi's sync exploration). Cohort claims tagged _[cohort — verify]_._
@@ -30,7 +30,7 @@ Anki is **not** global last-writer-wins. Per object type (`changes.rs`, `chunks.
 
 ## (a) Shared engine on mobile — one FFI crate, custom UI
 
-**Finding: there is NO mobile FFI in the repo today.** `rslib` is an rlib; `pylib/rsbridge` is a PyO3 cdylib for Python only. The engine is driven entirely by protobuf: **`Backend::run_service_method(service_id, method_id, bytes) → bytes`**. AnkiDroid drives the *same* engine this way via `rsdroid`/JNI (`proto/anki/ankidroid.proto`, `rslib/src/ankidroid/`).
+**Finding (updated 2026-07-03): the mobile FFI now exists.** `mobile/ios/PgrepStudy` is a **SwiftUI app driving the shared Anki Rust engine over a C ABI** (protobuf-generated Swift), built as **`AnkiFfi.xcframework`** with both `ios-arm64` (device) and `ios-arm64-simulator` slices, plus a Simulator-first `just` harness (`just ios-smoke` / `ios-run`). At design time there was none: `rslib` is an rlib; `pylib/rsbridge` is a PyO3 cdylib for Python only. The engine is driven entirely by protobuf: **`Backend::run_service_method(service_id, method_id, bytes) → bytes`**. AnkiDroid drives the *same* engine this way via `rsdroid`/JNI (`proto/anki/ankidroid.proto`, `rslib/src/ankidroid/`).
 
 So to run the shared engine under a **custom pgrep mobile UI** (which we want — not Anki's UI):
 
@@ -53,7 +53,7 @@ So to run the shared engine under a **custom pgrep mobile UI** (which we want �
 
 ```mermaid
 flowchart TB
-    subgraph mobile ["Custom pgrep mobile UI (SwiftUI / Compose — NEW)"]
+    subgraph mobile ["Custom mobile UI (SwiftUI/Comp)"]
         UI[Study + Readiness]
         PB[protobuf encode/decode]
     end
@@ -79,9 +79,13 @@ flowchart TB
 - **7b sync:** 10 cards offline on phone + 10 different on desktop → reconnect → all 20 land (revlog union). Then same card on both → reconnect → newer-mtime scheduling state wins (documented). 
 - **7g crash/offline:** kill mid-review ×20 → zero corruption (SQLite transactions/WAL protect this); pull network → AI off cleanly, both apps still score.
 
-## Decision (provisional default)
+## Decision — iOS via FFI + SwiftUI (implemented)
 
-**Mobile platform = iOS via a new FFI crate + custom SwiftUI companion** — custom pgrep UI, Mac-native (Xcode), and a cohort FFI + `build_xcframework.sh` + SwiftUI scaffold to reference. **Provisional** — revisit at L3 build time. Because the FFI crate (`rslib` → staticlib/cdylib exposing `run_service_method`) is shared work regardless of platform, this defers cleanly; Android via the same FFI + Compose stays a later option, and forking AnkiDroid remains the fallback if the FFI path stalls.
+**Mobile platform = iOS via `AnkiFfi.xcframework` + a custom SwiftUI companion (`mobile/ios/PgrepStudy`).** Custom pgrep UI, Mac-native (Xcode). This is no longer provisional. The FFI is built (device + simulator slices), the Simulator `just` harness runs, and a **signed build has been installed and launched on a physical iPhone**.
+
+**Signing model (verified 2026-07-03):** Simulator builds are unsigned, so the `just ios-smoke` / `ios-run` harness needs no Apple account. Device builds use **free provisioning** (a Personal Team plus a 7-day profile you Trust on the device), configured in `project.yml` so the Simulator stays unsigned and the device build is automatic-signed. The $99/yr Apple Developer Program is only needed for TestFlight and long-lived profiles, not for on-device development.
+
+Because the FFI is shared work, **Android via the same FFI + Compose** stays a later option, and forking AnkiDroid remains the fallback.
 
 ## (d) Data model — extend Anki, ride its sync
 
@@ -158,7 +162,7 @@ flowchart LR
 | **AI-off, still scores (spec 7)** | Every feature degrades gracefully: F2 → authored/curated items + reveal-and-self-compare; F3 → stored `solution_decomposition` + self-compare; F4 → model calibration (no AI); F1 selector is pure engine logic. Both hosts run fully offline + AI-off and still produce all three scores. (`features.md`, `ux-foundation.md` §6.) |
 | **Performance budgets (spec §10)** | No UI action freezes the screen > ~100 ms (`ux-foundation.md` §3.4); the L1 selector's Rust second pass is bounded to the due set; the manifold falls back to the D3 2D contour on weak/no-WebGL contexts; L6 ships a one-command benchmark on ~50k cards (p50/p95/worst). |
 | **Crash + offline safety (spec 7g)** | SQLite transactions/WAL protect the collection; kill-mid-review ×20 → zero corruption; offline-first (local `collection.anki2`, engine fully offline), sync is opportunistic. The attempt log is append-only + undo-safe (notes undo; the future C cache is recomputable). |
-| **Reproducible eval (spec 4/6)** | Held-out splits + fixed seeds + a gold-set gate + a named-baseline comparison, run by one command. Owned by the eval harness (`build-plan.md` L4.0/L5). **Methodology not yet its own doc — flagged as a gap (`scoring-and-readiness.md` + an eval doc recommended).** |
+| **Reproducible eval (spec 4/6)** | Held-out splits + fixed seeds + a gold-set gate + a named-baseline comparison, run by one command. Owned by the eval harness (`build-plan.md` L4.0/L5). Methodology now has its own doc, `statistics-and-evaluation.md`. |
 | **Secrets + privacy** | LLM API keys live in Settings / OS secure storage — **never synced, never committed, never in notes**. Self-hosted sync auth via `SYNC_USER1=user:pass`. User data stays local-first; the sync server is ours (no AnkiWeb). |
 | **Licensing / attribution (spec 9)** | The fork stays **AGPL-3.0-or-later**, credits Anki. Added deps are AGPL-compatible (Three.js MIT, Inter/JetBrains Mono OFL, Lucide ISC — `ux-foundation.md` §10). |
 | **Packaging / installers (spec 8)** | Desktop installer (Briefcase templates in `qt/installer/`) + phone build (iOS TestFlight/sideload). Owned by **L6**; external accounts/signing in `setup-content-and-dependencies.md`. |

@@ -11,6 +11,8 @@
 - **Problems → Performance** (with reasoning-first help)
 - **Timed mocks → Readiness**
 
+*Clarification (locked):* the scores stay co-equal for honesty. The thesis bias toward problem-solving is not a manual UI tilt or a hand-tuned weighting. It falls out of the engine and the mix (the interleaving selector orders what is due, and the daily session offers both doors). No special-casing.
+
 **Core user stories:**
 - **Get oriented** — a short adaptive diagnostic across the PGRE blueprint places each topic as *strong / rusty / cold*.
 - **Fill true gaps** *(DEFERRED — teaching fallback, post-core)* — curated (bundled) learning content for genuinely cold topics. Deferred because the persona is post-undergrad (already oriented), so interleaving needs no cold-start on-ramp. Revisit after the three pillars work; when built, it will also supply a traceable "named source" for AI items.
@@ -22,7 +24,7 @@
 - **Learn from mistakes** — misses resurface, and optionally become new items.
 - **Study anywhere** — desk (deep work) + phone (quick reviews + readiness glance), synced.
 
-**Out of scope:** cohort, instructors. **Future door only:** uploading your own materials.
+**In core:** importing your own deck (breadth/coverage; auto-tagged). **Out of scope:** cohort, instructors. **Future door only:** uploading your own *source materials* for AI grounding (distinct from deck import).
 
 ## 2. App structure / Information Architecture
 
@@ -39,7 +41,7 @@ Anki's stack, and where pgrep reaches:
 Mandatory depth = layers 1–3. Layers 4–6 = product surface / design freedom.
 
 **Surfaces (custom pgrep UI):**
-- **0. Diagnostic** (first run + re-runnable): adaptive placement → strong/rusty map (no cold bucket in core; persona is post-undergrad). Drives topic *weighting*, not eligibility.
+- **0. Diagnostic** (first run + re-runnable): adaptive placement → strong/rusty map (no cold bucket in core; persona is post-undergrad). Drives topic *weighting*, not eligibility. **Followed by a "set up your study set" step:** the pool is assembled here, not generated live. Start on the **bundled baseline deck** (AI-off path), **import** your own deck (breadth/coverage only, auto-tagged to the blueprint), and/or **author conceptual seeds** (required to unlock AI generation — import never substitutes for authoring). All contributions land in one topic-tagged, FSRS-scheduled pool. See `feature-forced-generation.md`.
 - **1. Home (Readiness):** the three scores with ranges, confidence, % coverage, last-updated, give-up state; plus **Today** — the single best next thing + "Start today's session."
 - **2. Study:** two doors after orientation — **Cards** (memory, retrieval) and **Problems** (performance, with the wrong-answer ladder) — **topics interleaved within each door**; commit-before-reveal on problems (no confidence capture); **Focus drill** reuses both doors scoped to one topic; **Exam** mode = full timed mock.
 - **3. Progress:** Coverage/Topic map (per-topic mastery + coverage, gating Readiness) + **model calibration** (reliability diagram + Brier for Memory & Performance). No user-confidence capture.

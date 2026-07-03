@@ -13,4 +13,9 @@ struct PgrepStudyApp: App {
             ContentView()
         }
     }
+    
+    init() {
+        // Require full screen mode if limiting orientations
+        // This should be set in Info.plist as well
+    }
 }

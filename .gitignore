@@ -30,3 +30,6 @@ docs/autoapi/
 
 # Stray packaged export artifact
 /pGREp Physics Study App.zip
+
+# Git worktrees for feature work
+.worktrees/

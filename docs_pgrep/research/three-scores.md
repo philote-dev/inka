@@ -1,8 +1,36 @@
-# Scoring & Readiness — how the three numbers are computed
+# Scoring & Readiness — the three scores (Memory, Performance, Readiness)
 
-**Status: designed (core); one open decision (the Performance model).** Shared context in `README.md`. This is the **product's core thesis made concrete** — the memory → performance → readiness bridge stock Anki lacks (spec constraint 3). `feature-calibration.md` covers *how honest* the numbers are (validation); **this doc covers how they are *derived*, their ranges, their coverage gates, and their abstain rules.** It also folds in the **held-out evaluation methodology** (spec constraint 4).
+**Status: designed (core); one open decision (the Performance model).** Shared context in `README.md`. This is the **product's core thesis made concrete** — the memory → performance → readiness bridge stock Anki lacks (spec constraint 3). **This doc covers how the three scores are *derived*, their ranges, their coverage gates, and their abstain rules.** The statistical methods and the **held-out evaluation** (spec constraint 4) live in the companion **`statistics-and-evaluation.md`**. `feature-calibration.md` covers the honest dashboard that displays them.
 
 > **The through-line (Soderstrom & Bjork 2015, learning ≠ performance):** three different questions need three different instruments. **Memory** = can you recall it now. **Performance** = can you apply it to a *new* question. **Readiness** = what would you score. You can have high Memory and low Performance (recall ≠ transfer), so we never collapse them.
+
+---
+
+## Where this sits: models vs scoring vs calibration (no overlap)
+
+Three things use probabilities and honesty, so they blur together. They are different layers with different owners.
+
+```mermaid
+flowchart TD
+    subgraph L1["MODELS — produce the raw predictions"]
+        FSRS["Memory: FSRS gives P(recall now)"]
+        PFA["Performance: PFA smart formula gives P(correct on a new Q)<br/>(performance-model.md, includes its own beta-calibration)"]
+        MAP["Readiness: expected-raw to scaled map"]
+    end
+    subgraph L2["SCORING & READINESS — the honesty rules (this doc)"]
+        Rules["derive the 3 numbers; 80% ranges;<br/>coverage gate; abstain rules"]
+    end
+    subgraph L3["F4 CALIBRATION — the feature / surface (feature-calibration.md)"]
+        Dash["honest 3-score dashboard on Progress:<br/>shows scores + reliability diagram + Brier;<br/>NO user-confidence capture"]
+    end
+    L1 --> L2 --> L3
+```
+
+- **The models** (`performance-model.md` for Performance, FSRS for Memory, the table map for Readiness) answer "what is the number."
+- **This doc** answers "how is the number derived, bounded, and gated." Evaluation lives in `statistics-and-evaluation.md`.
+- **F4** (`feature-calibration.md`) answers "how do we show it honestly and prove it is trustworthy," plus the decision not to capture user confidence.
+
+The word "calibration" is overloaded, which is the usual source of confusion. It is a *step inside* the Performance model (beta-calibration, to make its probabilities honest), and it is also the *F4 feature* (the dashboard plus the held-out reliability and Brier that verify all three). The companion `statistics-and-evaluation.md` owns the eval *methodology*; F4 owns the *surface* that displays it.
 
 ---
 
@@ -11,7 +39,7 @@
 1. **Every number carries its own honesty** — a point, a **likely range**, a "how sure," last-updated, and an **abstain** when data is thin (spec + `ux-foundation.md` §6).
 2. **AI-off by construction** — all three scores are **pure math over FSRS state + the attempt log**. No LLM is involved in scoring, so both apps score with AI off (spec 7).
 3. **Reuse the engine's primitives** — Memory reuses the exact retrievability the selector already uses (`1 − mean R`), so Memory and the interleaving selector never disagree.
-4. **Uncertainty is first-class, and standardized** — every range is an **80% central interval**, computed the same way everywhere (§5).
+4. **Uncertainty is first-class, and standardized** — every range is an **80% central interval**, computed the same way everywhere (see `statistics-and-evaluation.md`).
 5. **Abstain beats bluffing** — below a data threshold, a score refuses to render and names what is missing. This is the manifold's "holes" made literal.
 
 ---
@@ -25,7 +53,7 @@
 - **Per topic:** `Memory(topic) = mean(R over that topic's cards)`. (Exactly `1 − weakness(topic)` from `anki-rooting-and-rust.md` — same primitive, so the score and the selector are consistent by construction.)
 - **Overall:** `Memory = Σ_topic blueprint%(topic) · Memory(topic)` over covered topics.
 
-**Range (§5).** Treat each card as `Bernoulli(R_i)`. The number recalled is a **Poisson-binomial**; its mean is `Σ R_i` and variance `Σ R_i(1−R_i)`. Report the point as mean R and the 80% central interval of the fraction-recallable.
+**Range** (see `statistics-and-evaluation.md`). Treat each card as `Bernoulli(R_i)`. The number recalled is a **Poisson-binomial**; its mean is `Σ R_i` and variance `Σ R_i(1−R_i)`. Report the point as mean R and the 80% central interval of the fraction-recallable.
 
 **Abstain.** A topic with fewer than `k_mem` reviewed cards (default **5**) shows "Not enough cards yet," not a number.
 
@@ -61,7 +89,7 @@
 1. **Per-topic:** `p_t` from the Performance model (§2); `n_t` = the number of exam questions that topic contributes (blueprint % × the exam's question count — see `README.md`).
 2. **Expected raw:** each of the `n_t` questions is `Bernoulli(p_t)`; total correct is a **Poisson-binomial** across all topics → mean `Σ n_t·p_t`, variance `Σ n_t·p_t(1−p_t)`.
 3. **Raw → scaled:** map the raw point and the raw interval endpoints through the **official raw→scaled conversion table** from a real practice test. **This table is an external data dependency** (Tier-3, private — see §7 and `setup-content-and-dependencies.md`). Absent it, Readiness shows a **raw/percentage** projection and says the scaled mapping is unavailable.
-4. **Range (§5):** propagate the per-topic credible intervals through the sum and the table → an 80% scaled-score interval. Thin coverage widens it.
+4. **Range** (see `statistics-and-evaluation.md`): propagate the per-topic credible intervals through the sum and the table → an 80% scaled-score interval. Thin coverage widens it.
 
 **Coverage gate + abstain (the honesty-by-construction).** `coverage = fraction of blueprint weight whose topics have ≥ k_perf scored attempts`. If `coverage < gate` (default **70%**), **Readiness abstains** — "Not enough of the exam is covered yet" — and points at the uncovered topics (the manifold's holes; `ux-foundation.md` §5–6). You cannot fake readiness over a hole.
 
@@ -104,32 +132,9 @@ flowchart LR
 
 ---
 
-## 5. Uncertainty & abstain — the shared conventions
+## 5–6. Statistics & evaluation (moved to a companion doc)
 
-- **Interval:** always the **80% central interval**, labeled "likely range." One convention everywhere.
-- **Aggregating heterogeneous probabilities:** **Poisson-binomial** (sum of independent, non-identical Bernoullis) for Memory (fraction recallable) and Readiness (raw score). Cheap analytic mean/variance; exact PMF if we want the full distribution.
-- **Proportions from counts:** **Beta-Binomial** posterior (conjugate) for the per-topic **base-rate baseline** and any raw hit-rate → mean + credible interval, small-n abstains. (The Performance *model* itself is PFA logistic with beta-calibration + partial-pooling/conformal intervals — `performance-model.md`.)
-- **Give-up / abstain rules (spec constraint 3 wants one per score):**
-
-| Score | Abstains when | Default |
-|---|---|---|
-| Memory (topic) | fewer than `k_mem` reviewed cards | 5 |
-| Performance (topic) | fewer than `k_perf` scored attempts | 8 |
-| Readiness (overall) | `coverage < gate` | 70% |
-
-All three thresholds are **tunable config** (not hard-coded), so they can be set from evidence during L5.
-
----
-
-## 6. Held-out evaluation methodology (spec constraint 4)
-
-The same discipline for every model, reproducibly:
-
-- **Splits:** **time-based** (`TimeSeriesSplit`), never random — no leakage across a card/item trajectory (`feature-calibration.md`). Held-out items are excluded from the corpus, RAG index, and all prompts.
-- **Metrics:** Brier (primary, binning-free), log-loss, ECE (equal-mass bins + per-bin CIs), reliability diagram; AUC/accuracy for Performance; scaled-point MAE for Readiness.
-- **Baselines to beat (honesty):** Memory vs a fixed-interval/SM-2-style predictor; Performance vs topic base-rate (and vs a memory-only predictor, to prove Performance adds signal); Readiness vs "raw % = scaled guess."
-- **Reproducibility:** fixed seeds, pinned splits, **one command** produces every number + a report. Bootstrap CIs on the metrics.
-- **(AI generation eval is separate)** — the gold-set gate + beats-a-baseline for generated content lives in `feature-forced-generation.md` + `build-plan.md` L4.0 (spec constraint 6).
+To keep this doc focused on the three scores, the statistical methods (which range math and which metric is used for what), the uncertainty and abstain conventions, and the held-out evaluation pipelines now live in **`statistics-and-evaluation.md`**.
 
 ---
 

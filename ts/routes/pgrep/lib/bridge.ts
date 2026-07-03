@@ -7,7 +7,7 @@
  * POSTs a JSON body to a mediasrv pgrep handler and returns the parsed JSON.
  * Pages loaded in an AnkiWebView have the Authorization bearer token injected
  * automatically, and the "application/binary" content type is required to pass
- * mediasrv's permission check. See docs/pgrep/planning/l2-api-contract.md §1.
+ * mediasrv's permission check. See docs_pgrep/plan/l2-api-contract.md §1.
  */
 export async function pgrepCall<T = any>(fn: string, args: unknown = {}): Promise<T> {
     const res = await fetch(`/_anki/${fn}`, {

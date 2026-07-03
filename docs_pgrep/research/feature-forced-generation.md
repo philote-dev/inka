@@ -9,6 +9,68 @@ Shared context in `README.md`. The scheduler it feeds is in `feature-interleavin
 
 Not "user-made" vs "AI-made." **Forced user generation first** (pay the cognitive cost at novel-concept formation) → **AI-conformed scaling** (amortize the learner's style across the deck) → **verification gate** (no bad card enters).
 
+## Deck assembly vs. studying (the "where do cards come from" model, locked)
+
+The studyable pool is **assembled in a setup phase**, never generated live mid-session, so interleaving is never starved. Everything lands in **one topic-tagged, FSRS-scheduled pool**, and the selector does not care where a card came from.
+
+**The key distinction is prep-time vs runtime.** If AI touches the shipped deck at all, it runs once during content prep and is human-verified before ship. At runtime no AI runs unless the user turns AI on. So "works with AI off" is a runtime promise, and it holds no matter how the bundled deck was drafted.
+
+```mermaid
+flowchart TD
+    subgraph prep["PREP TIME (before ship, AI optional, human-verified)"]
+        Src["Tier-1 open sources (OpenStax, etc.)<br/>+ Frank's curation (± optional AI drafting)"] --> Ver["Human-verified<br/>(gold-set gate if AI-drafted)"]
+        Ver --> Bundled["BUNDLED DECK + curated problems<br/>(ships in the app, covers the blueprint)"]
+    end
+    subgraph run["RUNTIME (user's machine, no AI unless AI is ON)"]
+        Bundled --> Pool[("ONE topic-tagged,<br/>FSRS-scheduled pool")]
+        Import["User import<br/>(auto-tagged to blueprint, CORE)"] --> Pool
+        Seeds["User-authored cards<br/>(forced: 1 per subtopic)"] --> Pool
+        Pool --> Study["Study: interleaving selector<br/>orders due items"]
+    end
+```
+
+Three contributors to the runtime pool:
+
+- **Bundled deck.** Verified, openly-licensed content that ships with the app, plus curated problems, covering the full blueprint. It gives interleaving day-one breadth and it is the **AI-off** experience. How it is drafted (hand-curation and/or AI drafting at prep) is a content-prep task, not an architectural choice. Either way a human verifies it before ship, and no AI runs at runtime.
+- **Import.** The user imports their own deck (Anki's importer). Import is a **breadth/coverage contribution only**, and **never a substitute for authoring** (importing someone else's cards yields **zero generation effect**). **Auto-tagging is CORE for the user-import path.** Imported cards are auto-tagged to the blueprint taxonomy (human-auditable) so the selector can use them. Tagging our own bundled/curated content is Frank's manual taxonomy work (plan task C2), as already planned.
+- **Authoring.** The user's own conceptual seeds (one per finest topic unit). The only path to the generation effect, and the style signal AI conforms to.
+
+**AI-on splits by whether the bundle already covers what you authored:**
+
+```mermaid
+flowchart TD
+    Q{"AI on?"}
+    Q -->|"OFF"| Off["Study bundle + import + your authored cards<br/>(raw, pure retrieval; no generation)"]
+    Q -->|"ON"| Auth["You author a card"]
+    Auth --> Cover{"Bundle already covers this subtopic?"}
+    Cover -->|"yes"| Styl["STYLIZE: AI rewrites the bundle's cards for that<br/>subtopic into your voice (facts locked, 1:1, no dup)"]
+    Cover -->|"no, a technique the bundle lacks"| Gap["GAP-FILL: your card seeds net-new generation<br/>from the corpus (gold-set gated, deduped)"]
+    Off --> Pool2[("One pool, interleaving")]
+    Styl --> Pool2
+    Gap --> Pool2
+    Auth --> Pool2
+```
+
+**User-authored cards, two cases (the only place net-new generation is allowed):**
+- **Bundle covers it.** Your card is the style signal; AI **stylizes** the existing bundle cards into your voice. Your card also stays. No net-new generation, no duplication.
+- **Bundle does not cover it.** Your card enters the pool as your own and **triggers gap-fill generation**: AI produces siblings for that technique, grounded in the corpus and gold-set gated. User-initiated, so it is wanted, and it cannot duplicate the bundle (which had no coverage there).
+
+Everywhere the bundle already covers, AI only stylizes (1:1). Net-new generation happens only where you venture past the bundle. Duplication is impossible by construction, and the gap-fill path still gives the spec's "generation beats a baseline" claim.
+
+**Stylize sub-pipeline (facts stay verified):**
+
+```mermaid
+flowchart LR
+    In["Verified bundle card (the fact)<br/>+ your seed (style few-shot)"] --> Re["AI rewrites phrasing to your voice;<br/>facts locked"]
+    Re --> Chk{"Answer unchanged and giveaway-safe?"}
+    Chk -->|"yes"| PoolS["Into pool (provenance = bundle source)"]
+    Chk -->|"no"| Orig["Keep the original bundle card"]
+```
+
+The **gap-fill sub-pipeline** is the full generation + verification pipeline below; it runs **only** for the user-introduced-technique case.
+
+**Consequence (intended):** AI-on is "pay to play." To unlock either stylization or gap-fill you author first. The generation effect requires your own authoring, so import (breadth) and authoring (the personal generative act) coexist and never compete.
+
 ## Why force generation — the effect
 
 - **Slamecka & Graf 1978 — generation effect:** self-generated material is remembered better than read, even when semantically identical; holds across item types/methods/ages. Meta **d ≈ 0.40** (Bertsch et al.). _[primary]_
@@ -20,7 +82,7 @@ Not "user-made" vs "AI-made." **Forced user generation first** (pay the cognitiv
 flowchart TD
     New["New concept / topic cluster"] --> Seed["Learner authors ≥1 card (FORCED generation)"]
     Seed --> Sig["Seed becomes STYLE SIGNAL<br/>(phrasing, abstraction, format, depth)"]
-    Sig --> Gen["AI generates related cards, conformed to the signal"]
+    Sig --> Gen["AI stylizes bundle cards to the signal<br/>(or gap-fills where the bundle is empty)"]
     Gen --> Verify["Verification gate (see below)"]
     Verify -->|"pass"| Deck["Into the deck (FSRS-scheduled)"]
     Verify -->|"fail"| Rev["Reject / human review"]
@@ -28,6 +90,8 @@ flowchart TD
 ```
 
 ## The AI generation + verification pipeline
+
+*(This is the **gap-fill** path from the assembly model above. It runs only when the user authors a technique the bundle does not cover. Where the bundle already covers a subtopic, the AI **stylizes** instead of generating.)*
 
 ```mermaid
 flowchart TD
@@ -77,10 +141,9 @@ flowchart TD
 
 Metrics: **fact precision**, **useful-yield rate**; inter-rater process on the scoring. _[spec + cohort]_
 
-## Problems (MCQ) generation — distractors
+## Problems (MCQ) generation
 
-- Naive "ask the model for wrong answers" → **weak distractors**. _[cohort]_
-- Validated: **misconception-first** — articulate the specific error/rule, *then derive* the trap. Frontier (2025): train on **real student selection data** (pairwise ranker for which wrong answers students pick). _[cohort — verify frontier claim]_ Directly relevant to PGRE's 5-choice traps.
+Problem generation is now its own core feature: see **`feature-problem-generation.md`** (misconception-first distractors, MCQ-shaped gold set, and its own eval). This card doc covers card generation only.
 
 ## Style conformance (the novel bit)
 
@@ -116,7 +179,7 @@ Lets generation feed the scheduler directly, no separate rating pass. _[cohort �
    - Rule: `human effort ∝ (generation benefit × AI untrustworthiness)`.
 3. **Style conformance scoped to conceptual** — few-shot the AI on the conceptual seed so conceptual siblings read like the learner's; computational cards use a clean **standard format** (formulaic; style matters little). _[our bet — validate ourselves, don't cite]_
 4. **Verification (core-minimum):** provenance/RAG grounding + the 50-item **gold-set gate** + route `confidence < 0.6` to human review. CAS / self-consistency / critic layers **deferred** (only if core works). _[rooting in core, per Frank]_
-5. **Problems curated for core** (ETS / Conquering the PGRE); AI problem generation + misconception-first distractors are a **later** bank-scaling feature (train-on-selection-data frontier needs users/synthetic).
+5. **Problems: curated seed bank + AI generation.** Curated problems (plan C4) are the trusted seed bank and the first verified decompositions. AI problem generation (MCQ + misconception-first distractors) is now its own core feature, see `feature-problem-generation.md`. Only the student-data-trained distractor ranker is deferred.
 6. **gen→FSRS:** keep the AI difficulty rating (feeds our selector's 60–85% band + computational/conceptual routing); do **not** seed FSRS `D0` for core (marginal; FSRS cold-starts fine).
 
 ## Still open (deferred)

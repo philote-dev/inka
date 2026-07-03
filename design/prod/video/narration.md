@@ -10,7 +10,7 @@ file).
 compiled build. The video carries a persistent "concept prototype" watermark and
 an honest outro. It is a pitch and rehearsal aid, and a "just in case" backup. It
 is **not** the graded Wednesday proof (those come from the real forked build, see
-`submission-video-kit.md` and `../../plan/demo-runbook.md`).
+`submission-video-kit.md`).
 
 Times are approximate for the ~3:00 render at `PACE=1.3`. Verify against the
 final file and nudge if you re-time it.

@@ -56,7 +56,7 @@ Sequential spine: **L0 → L1 → L2 → L2.5**, then **L3 ∥ L4** (run togethe
 ## L2 — Core surfaces, no AI (= Wednesday MVP) ✅ COMPLETE — entry: L1 ✅
 
 - **Deliverable: the pgrep _desktop app_.** These are the custom **desktop `ts/` pages** (Svelte 5, in the `aqt` thin host — `technical-architecture.md` (c)). **L2 ends with an installable desktop app; zero mobile dependency.**
-- **Design ref:** `ux-foundation.md` (the UI: surfaces, nav, components, tokens, deps), `technical-architecture.md` (c) (desktop shell: `ts/` pages in the `aqt` host), `vision-and-structure.md`, `feature-interleaving.md` (selector + two-door session), `feature-productive-failure.md` (Problems door + ladder), `feature-calibration.md` (hook only), `scoring-and-readiness.md` (§1 Memory score).
+- **Design ref:** `ux-foundation.md` (the UI: surfaces, nav, components, tokens, deps), `technical-architecture.md` (c) (desktop shell: `ts/` pages in the `aqt` host), `vision-and-structure.md`, `feature-interleaving.md` (selector + two-door session), `feature-productive-failure.md` (Problems door + ladder), `feature-calibration.md` (hook only), `three-scores.md` (§1 Memory score).
 - **Coordination first:** define the frontend↔backend API (which proto/RPCs each surface calls). Then dispatch ∥.
 - **Tasks (∥ — independent desktop surfaces):**
   - **L2.1 ∥** Study surface (custom reviewer; two doors Cards/Problems, topics interleaved within each; commit-before-reveal gate; no confidence capture).
@@ -91,7 +91,7 @@ Executed via subagent-driven development in a `.worktrees/l2-core` worktree, the
 - **Surfaces built sequentially**, not in true parallel: one shared worktree can't run concurrent `ninja` safely, and 4 isolated worktree builds exceeded disk headroom. The subagent-per-surface + review structure was kept.
 - **Reviews** were per-surface spec+quality by the controller plus one final-layer reviewer subagent (PASS/APPROVED), rather than two separate reviewer subagents per surface.
 - **Out of L2 scope (correct):** no AI, no sync, no Performance/Readiness scores (those are L3/L4/L5).
-- **Human steps:** the clean-machine install and the demo screen recordings are documented in `design/prod/proofs/RECORDING.md` but must be run/recorded by a person.
+- **Human steps:** the clean-machine install and the demo screen recordings must be run/recorded by a person.
 - **`just check` caveat:** currently red only on untracked non-project files (`.understand-anything/*.json`, `design/prod/video/record.mjs`), not on pgrep code.
 - **Not pushed:** `main` is local; `origin/main` unchanged.
 
@@ -102,7 +102,7 @@ Executed via subagent-driven development in a `.worktrees/l2-core` worktree, the
 - **Tasks:**
   - **A ∥ (Desktop takeover — Option A now, C-ready)** `just run` + the dmg open into the pgrep surface, not the deck browser; Anki's screens stay reachable via **Tools → Open Anki screens**. New `qt/aqt/pgrep_host.py` (surface-mode flag in local profile meta, default `hosted`) + a `pgrep` main-window state that hosts the `/pgrep` SPA in a PGREP-kind webview beside `MainWebView` (visibility toggle, not a reparenting stack).
   - **B ∥ (iOS visible)** new `tools/ios-run.sh` + `just ios-run`: build the app scheme, boot a Simulator, install + launch the existing `PgrepStudy` review app (today only the headless `just ios-smoke` XCTest runs it).
-  - **C (Clean install)** rebuild wheels + dmg from this branch so the packaged app inherits the takeover; repeatable fresh-account install verification (`design/prod/proofs/RECORDING.md` Proof C).
+  - **C (Clean install)** rebuild wheels + dmg from this branch so the packaged app inherits the takeover; repeatable fresh-account install verification.
 - **Exit gate:** `just run` opens into pgrep (fallback works); `just ios-run` shows the review app running in the Simulator; the rebuilt dmg installs on a clean account and opens into pgrep; `just check` code targets green.
 - **Deferred (bucketed):** the full `ux-foundation.md` visual system (imported later — L2.5 does not restyle surfaces); Option C (remove Anki's screens entirely) is the later one-line flip; no AI / sync / Performance / Readiness.
 
@@ -114,12 +114,12 @@ Implemented on a lightweight `l2.5-onscreen` branch off `main` (not a separate w
 
 - **A — Desktop takeover (Option A, C-ready):** new `qt/aqt/pgrep_host.py` (surface-mode flag in local `pm.meta`, default `hosted`) + `qt/aqt/main.py` wiring — a `pgrep` main-window state that hosts the `/pgrep` SPA in a PGREP-kind webview beside `MainWebView` (visibility toggle), `loadCollection` defaults to it, and a **Tools → Open Anki screens** fallback. `just run` and the dmg now lead with pgrep.
 - **B — iOS visible:** new `tools/ios-run.sh` + `just ios-run`. Built + launched the `PgrepStudy` app on the iPhone 17 Pro Simulator; the review loop is visible with the live `pgrep seam OK (Rust)` footer (screenshot at `out/ios/pgrep-ios.png`).
-- **C — Clean install:** rebuilt wheels + `out/installer/dist/anki-26.05-mac-apple.dmg` from this branch; verified the packaged bundle contains `pgrep_host.pyc` + rebuilt `main.pyc` (the takeover). `design/prod/proofs/RECORDING.md` Proof C updated.
+- **C — Clean install:** rebuilt wheels + `out/installer/dist/anki-26.05-mac-apple.dmg` from this branch; verified the packaged bundle contains `pgrep_host.pyc` + rebuilt `main.pyc` (the takeover).
 - **Verification:** `just lint` (clippy, mypy, ruff, eslint, svelte, typescript) and `just test-py` green.
 
 **Deviations / not done (intentional):**
 
-- **`just check` caveat (pre-existing, broader than the L2 note):** the full `just check` format step is red on formatting debt that predates L2.5 — `check:format:dprint` on untracked `.understand-anything/*.json` **and** several already-committed planning docs (`feature-forced-generation.md`, `frontend-execution-guide.md`, and `build-plan.md` itself), plus `check:minilints` on `design/prod/video/record.mjs`. All **code** targets pass (`just lint` = clippy/mypy/ruff/eslint/svelte/typescript, and `just test-py`). L2.5's own new files (`pgrep_host.py`, `l2.5-onscreen-proof.md`, `dev-harness.md` additions, `RECORDING.md`) are dprint-clean; the pre-existing doc/artifact debt is left untouched (out of L2.5 scope).
+- **`just check` caveat (pre-existing, broader than the L2 note):** the full `just check` format step is red on formatting debt that predates L2.5 — `check:format:dprint` on untracked `.understand-anything/*.json` **and** several already-committed planning docs (`feature-forced-generation.md` and `build-plan.md` itself), plus `check:minilints` on `design/prod/video/record.mjs`. All **code** targets pass (`just lint` = clippy/mypy/ruff/eslint/svelte/typescript, and `just test-py`). L2.5's own new files (`pgrep_host.py`, `l2.5-onscreen-proof.md`, `dev-harness.md` additions) are dprint-clean; the pre-existing doc/artifact debt is left untouched (out of L2.5 scope).
 - **Two human/visual steps:** (1) restart `just run` to see the desktop takeover live (the instance running during the build predated the change); (2) the fresh-macOS-account dmg install (creating an account + Gatekeeper approve is manual). The dmg content is verified; the visuals are the recordings.
 - **Implementation detail vs plan:** a visibility toggle instead of a `QStackedWidget` (avoids reparenting `self.web`); a branch instead of a separate worktree (warm builds).
 - **A→C flip** documented in `l2.5-onscreen-proof.md` (not built).
@@ -192,7 +192,7 @@ Follows `subagent-driven-development` + `dispatching-parallel-agents`:
 
 > You are the **controller for Build Layer L2 (Core surfaces, no AI — the Wednesday _desktop_ MVP)** of the pgrep project (a PGRE prep app forked from Anki). Repo root: `/Users/philote/projects/inka`.
 >
-> **Read first, in full:** `docs_pgrep/plan/build-plan.md` (find Layer L2 + the "Platform ordering" note), `design/ux-foundation.md` (the UI you are building), and `docs_pgrep/research/technical-architecture.md` section (c) (desktop shell). Also read `docs_pgrep/research/feature-interleaving.md` (selector + two-door session), `docs_pgrep/research/feature-productive-failure.md` (Problems door + ladder), and `docs_pgrep/research/scoring-and-readiness.md` §1 (Memory score). Skim `docs_pgrep/README.md` for constraints.
+> **Read first, in full:** `docs_pgrep/plan/build-plan.md` (find Layer L2 + the "Platform ordering" note), `design/ux-foundation.md` (the UI you are building), and `docs_pgrep/research/technical-architecture.md` section (c) (desktop shell). Also read `docs_pgrep/research/feature-interleaving.md` (selector + two-door session), `docs_pgrep/research/feature-productive-failure.md` (Problems door + ladder), and `docs_pgrep/research/three-scores.md` §1 (Memory score). Skim `docs_pgrep/README.md` for constraints.
 >
 > **Entry check:** confirm **L1's exit gate** is green (points-at-stake selector reorders within the due set; undo intact; no corruption; Rust + Python tests pass) and L0 still holds (desktop builds from source; engine seam works). If not, stop and tell me.
 >
@@ -200,7 +200,7 @@ Follows `subagent-driven-development` + `dispatching-parallel-agents`:
 >
 > **Your job:** execute Layer L2 using **subagent-driven development**. First do the **coordination task**: define the frontend↔backend API (which proto/RPCs each surface calls, including the L1 selector RPC and note reads/writes). Then dispatch the **four ∥ tasks as separate implementer subagents in parallel** (independent surfaces): **L2.1** Study (two doors Cards/Problems, topics interleaved within each, commit-before-reveal, no confidence capture); **L2.2** Home/Readiness showing the **Memory score** honestly (point + range + give-up; no performance/readiness yet); **L2.3** Diagnostic v0 (place topics strong/rusty); **L2.4** Coverage/Topic map (Progress). For each: implementer (TDD where sensible, commit, self-review) → spec-compliance reviewer (✅ before quality) → code-quality reviewer → fix/re-review until approved. Use a git worktree; do not work on `main` without asking.
 >
-> **Constraints (hard):** build the **desktop UI per `ux-foundation.md`** — nav shell, surfaces, components, the locked stack (Svelte 5, MathJax 3, D3; Three.js for the manifold with the **2D D3 contour fallback**; Inter/JetBrains Mono; Lucide) and the **copy rule** (no em-dashes, no colon-heavy UI text). Reuse the **L1 selector RPC** for ordering; **never mutate scheduling state** (`due`/`interval`/`memory_state`). **No AI, no confidence capture, no predict-before-answer.** Memory-score math per `scoring-and-readiness.md` §1. Respect the spec speed rule (no UI freeze > 100 ms).
+> **Constraints (hard):** build the **desktop UI per `ux-foundation.md`** — nav shell, surfaces, components, the locked stack (Svelte 5, MathJax 3, D3; Three.js for the manifold with the **2D D3 contour fallback**; Inter/JetBrains Mono; Lucide) and the **copy rule** (no em-dashes, no colon-heavy UI text). Reuse the **L1 selector RPC** for ordering; **never mutate scheduling state** (`due`/`interval`/`memory_state`). **No AI, no confidence capture, no predict-before-answer.** Memory-score math per `three-scores.md` §1. Respect the spec speed rule (no UI freeze > 100 ms).
 >
 > **Exit gate:** Wednesday MVP — the no-AI core runs **on desktop**; a real review loop on the PGRE deck; an **honest Memory score** (range + give-up rule); a **desktop installer on a clean machine**; phone still loads the deck (smoke test from L0.3). Report back what runs, the diff summary, test results, and any deviations from the design docs.
 

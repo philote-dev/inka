@@ -1,0 +1,13 @@
+---
+description: Writing style for prose the agent produces
+alwaysApply: true
+---
+
+# Writing style
+
+Aim for clear, sophisticated communication.
+
+- Do not use em dashes. Rewrite the sentence, or use a comma, parentheses, or a period.
+- Use colons and semicolons sparingly. Prefer separate sentences. A colon may introduce a genuine list.
+
+Applies to everything you write, including docs, commit messages, PR text, code comments, and chat replies.

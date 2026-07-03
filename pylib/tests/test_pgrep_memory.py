@@ -9,8 +9,8 @@ blueprint-weighted overall, an 80% likely range from the Poisson-binomial, and
 an abstain when a topic has fewer than ``k_mem`` reviewed cards. It is pure math
 over FSRS state and topic tags: no AI, no attempt log, no schedule mutation.
 
-The response shape is fixed by ``docs/pgrep/planning/l2-api-contract.md`` §3
-(L2.2); the math by ``scoring-and-readiness.md`` §1.
+The response shape is fixed by ``docs_pgrep/plan/l2-api-contract.md`` §3
+(L2.2); the math by ``three-scores.md`` §1.
 """
 
 from __future__ import annotations

@@ -8,7 +8,7 @@ way. It is grounded in the real fork (`technical-architecture.md` (c), the
 `mediasrv` routing, and the L1 API surface merged into `l2-core`).
 
 Read with: `l1-coordination-schema.md` (topic tags, blueprint, attempt-log seam),
-`scoring-and-readiness.md` §1 (Memory math), `feature-interleaving.md` (two-door
+`three-scores.md` §1 (Memory math), `feature-interleaving.md` (two-door
 session), `feature-productive-failure.md` (ladder), `ux-foundation.md` (surfaces).
 
 > **UI scope note (this layer):** the UI is deliberately light. Plain, functional
@@ -121,7 +121,7 @@ forward-compat but not computed in L2.
       "k_mem": 5, "last_updated": <epoch|null>
     }
     ```
-  - Math (`scoring-and-readiness.md` §1): per topic `mean(R)` over that topic's
+  - Math (`three-scores.md` §1): per topic `mean(R)` over that topic's
     reviewed cards; overall = the blueprint-weighted mean over the scored
     (non-abstaining) topics, normalized by their blueprint weight
     (`Sum(w * Memory(topic)) / Sum(w)`), so it reads honestly as "of what is

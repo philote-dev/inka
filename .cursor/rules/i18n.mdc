@@ -1,3 +1,8 @@
+---
+description: Fluent i18n / translation system usage
+alwaysApply: true
+---
+
 - We use the fluent system+code generation for translation.
 - New strings should be added to rslib/core/. Ask for the appropriate file if you're not sure.
 - Assuming a string addons-you-have-count has been added to addons.ftl, that string is accessible in our different languages as follows:
