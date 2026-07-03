@@ -40,10 +40,11 @@ All design material lives in its own folder at the repo root [`design/`](../desi
 - [`../design/ux-foundation.md`](../design/ux-foundation.md) — UI/UX foundation: identity, design language, nav shell, manifold, surfaces, tech-stack.
 - [`../design/claude-design-prompts.md`](../design/claude-design-prompts.md) — Claude Design prompts + repo handoff.
 
-### Assets & prod
-- [`assets/`](assets/) — UX concept renders (`assets/ux/`) + claude-design notes.
-- [`prod/pgrep-prototype.html`](prod/pgrep-prototype.html) — clickable prototype of the L2 desktop surfaces. Rehearsal + L2 visual spec. **Not the submission.**
-- [`prod/proofs/`](prod/proofs/) and [`prod/video/`](prod/video/) — Wednesday proof logs + the video production kit.
+### Assets & prod (in the standalone `design/` folder)
+Concept renders, the prototype, and submission artifacts live under the repo-root [`design/`](../design/), alongside the rest of the design material:
+- [`../design/assets/`](../design/assets/) — UX concept renders (`../design/assets/ux/`) + claude-design notes.
+- [`../design/prod/pgrep-prototype.html`](../design/prod/pgrep-prototype.html) — clickable prototype of the L2 desktop surfaces. Rehearsal + L2 visual spec. **Not the submission.**
+- [`../design/prod/proofs/`](../design/prod/proofs/) and [`../design/prod/video/`](../design/prod/video/) — Wednesday proof logs + the video production kit.
 
 ## Open design gaps
 The four features, UI/UX, technical architecture, and the **three-score model** are designed; build layers are ready.
