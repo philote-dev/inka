@@ -120,6 +120,76 @@ def pgrep_study_commit() -> bytes:
     )
 
 
+# L4 AI (upgrade only; AI off by default). Handlers lazily import the AI modules,
+# so an AI-off app never loads the heavy deps.
+
+
+def pgrep_ai_status() -> bytes:
+    from anki.pgrep import ai_config
+
+    return _json(ai_config.ai_status(aqt.mw.col))
+
+
+def pgrep_ai_set_enabled() -> bytes:
+    from anki.pgrep import ai_config
+
+    enabled = bool(_args().get("enabled", False))
+    ai_config.set_ai_enabled(aqt.mw.col, enabled)
+    return _json(ai_config.ai_status(aqt.mw.col))
+
+
+# L4.1 Library -> anki.pgrep.generation.generate (author seed, then stylize/gap-fill)
+def pgrep_library_generate() -> bytes:
+    from anki.pgrep import generation
+
+    a = _args()
+    return _json(
+        generation.generate(
+            aqt.mw.col,
+            mode=a.get("mode", "gap_fill"),
+            topic=a.get("topic", ""),
+            seed_front=a.get("seed_front", ""),
+            seed_back=a.get("seed_back", ""),
+            n=int(a.get("n", generation.DEFAULT_GAPFILL_N)),
+        )
+    )
+
+
+# L4.2 Problem generation -> anki.pgrep.problem_gen.generate (misconception-first)
+def pgrep_problem_generate() -> bytes:
+    from anki.pgrep import problem_gen
+
+    a = _args()
+    return _json(
+        problem_gen.generate(
+            aqt.mw.col, topic=a.get("topic", ""), n=int(a.get("n", problem_gen.DEFAULT_N))
+        )
+    )
+
+
+# L4.3 Tutor -> anki.pgrep.tutor.grade_subgoal (AI-on rubric grading, giveaway-safe)
+def pgrep_tutor_grade() -> bytes:
+    from anki.pgrep import tutor
+
+    a = _args()
+    return _json(
+        tutor.grade_subgoal(
+            aqt.mw.col,
+            a.get("note_id"),
+            int(a.get("subgoal_index", 0)),
+            a.get("learner_text", ""),
+            a.get("learner_why", ""),
+        )
+    )
+
+
+# L4.3 Tutor -> anki.pgrep.tutor.session_synthesis (end-of-session recap)
+def pgrep_tutor_synthesis() -> bytes:
+    from anki.pgrep import tutor
+
+    return _json(tutor.session_synthesis(aqt.mw.col, _args().get("session_id", "")))
+
+
 # Registered once into mediasrv's post_handler_list (see qt/aqt/mediasrv.py).
 pgrep_post_handlers = [
     pgrep_seed,
@@ -131,4 +201,10 @@ pgrep_post_handlers = [
     pgrep_study_next,
     pgrep_study_answer_card,
     pgrep_study_commit,
+    pgrep_ai_status,
+    pgrep_ai_set_enabled,
+    pgrep_library_generate,
+    pgrep_problem_generate,
+    pgrep_tutor_grade,
+    pgrep_tutor_synthesis,
 ]

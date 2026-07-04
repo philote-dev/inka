@@ -27,6 +27,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         if (current.startsWith("/pgrep/progress")) {
             return "Progress";
         }
+        if (current.startsWith("/pgrep/library")) {
+            return "Library";
+        }
         if (current.startsWith("/pgrep/settings")) {
             return "Settings";
         }

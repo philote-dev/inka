@@ -10,6 +10,8 @@ Styled with the pgrep design system (StudyFrame, ChoiceList, HintRung, GradeBar)
 the data flow through pgrepCall is unchanged.
 -->
 <script lang="ts">
+    import { onMount } from "svelte";
+
     import ChoiceList from "$lib/components/ChoiceList.svelte";
     import GradeBar from "$lib/components/GradeBar.svelte";
     import HintRung from "$lib/components/HintRung.svelte";
@@ -58,6 +60,22 @@ the data flow through pgrepCall is unchanged.
         correct_choice: string;
         rationale_html: string;
         ladder: LadderRung[];
+    }
+
+    interface TutorGrade {
+        ai: string;
+        mode: string;
+        coverage?: string;
+        probe?: string;
+        giveaway_blocked?: boolean;
+    }
+
+    interface Synthesis {
+        ai: string;
+        recap: { attempted: number; correct: number; accuracy: number };
+        patterns: string[];
+        principles: string[];
+        calibration: string;
     }
 
     const CATEGORY_LABELS: Record<string, string> = {
@@ -109,6 +127,24 @@ the data flow through pgrepCall is unchanged.
     let revealedRungs = 0;
     let shownSteps: Record<number, boolean> = {};
 
+    // AI upgrade state (L4). AI is off by default, so the ladder stays the static
+    // reveal-and-self-compare unless the learner turns AI on in Settings.
+    let aiOn = false;
+    let learnerStep = "";
+    let learnerWhy = "";
+    let gradeResult: TutorGrade | null = null;
+    let grading = false;
+    let synthesis: Synthesis | null = null;
+
+    onMount(async () => {
+        try {
+            const status = await pgrepCall<{ enabled: boolean }>("pgrepAiStatus", {});
+            aiOn = status.enabled;
+        } catch {
+            aiOn = false;
+        }
+    });
+
     function topicArg(): string | null {
         return drillTopic ? `topic::${drillTopic}` : null;
     }
@@ -122,6 +158,9 @@ the data flow through pgrepCall is unchanged.
         revealedRungs = 0;
         shownSteps = {};
         doorEmpty = false;
+        learnerStep = "";
+        learnerWhy = "";
+        gradeResult = null;
     }
 
     async function startDoor(door: Screen): Promise<void> {
@@ -163,6 +202,9 @@ the data flow through pgrepCall is unchanged.
                 problem = item;
             } else {
                 doorEmpty = true;
+                if (screen === "problems" && !startedEmpty) {
+                    await fetchSynthesis();
+                }
             }
         } catch {
             errored = true;
@@ -209,6 +251,35 @@ the data flow through pgrepCall is unchanged.
             errored = true;
         } finally {
             busy = false;
+        }
+    }
+
+    async function gradeStep(): Promise<void> {
+        if (!problem || !learnerStep.trim() || grading) {
+            return;
+        }
+        grading = true;
+        try {
+            gradeResult = await pgrepCall<TutorGrade>("pgrepTutorGrade", {
+                note_id: problem.note_id,
+                subgoal_index: 0,
+                learner_text: learnerStep,
+                learner_why: learnerWhy,
+            });
+        } catch {
+            gradeResult = null;
+        } finally {
+            grading = false;
+        }
+    }
+
+    async function fetchSynthesis(): Promise<void> {
+        try {
+            synthesis = await pgrepCall<Synthesis>("pgrepTutorSynthesis", {
+                session_id: sessionId,
+            });
+        } catch {
+            synthesis = null;
         }
     }
 
@@ -260,7 +331,9 @@ the data flow through pgrepCall is unchanged.
     $: currentTopic = (card?.topic ?? problem?.topic ?? "").trim();
     $: remainingCount = card?.remaining ?? problem?.remaining ?? null;
     $: countLabel = remainingCount === null ? "" : `${remainingCount} left`;
-    $: choiceItems = problem ? problem.choices.map((html, i) => ({ key: letterOf(i), html })) : [];
+    $: choiceItems = problem
+        ? problem.choices.map((html, i) => ({ key: letterOf(i), html }))
+        : [];
 </script>
 
 {#if screen === "launcher"}
@@ -271,19 +344,31 @@ the data flow through pgrepCall is unchanged.
         </header>
 
         <div class="doors">
-            <button class="door cards" on:click={() => startDoor("cards")} disabled={loading}>
+            <button
+                class="door cards"
+                on:click={() => startDoor("cards")}
+                disabled={loading}
+            >
                 <span class="door-top">
                     <span class="door-name">Cards</span>
                     <span class="door-kind">Memory</span>
                 </span>
-                <span class="door-desc">Retrieval that primes the problems. Real reviews.</span>
+                <span class="door-desc">
+                    Retrieval that primes the problems. Real reviews.
+                </span>
             </button>
-            <button class="door problems" on:click={() => startDoor("problems")} disabled={loading}>
+            <button
+                class="door problems"
+                on:click={() => startDoor("problems")}
+                disabled={loading}
+            >
                 <span class="door-top">
                     <span class="door-name">Problems</span>
                     <span class="door-kind">Performance</span>
                 </span>
-                <span class="door-desc">Commit first, then work the ladder on a miss.</span>
+                <span class="door-desc">
+                    Commit first, then work the ladder on a miss.
+                </span>
             </button>
         </div>
 
@@ -306,7 +391,12 @@ the data flow through pgrepCall is unchanged.
         {/if}
     </section>
 {:else}
-    <StudyFrame count={countLabel} topic={currentTopic} {topicTone} onClose={toLauncher}>
+    <StudyFrame
+        count={countLabel}
+        topic={currentTopic}
+        {topicTone}
+        onClose={toLauncher}
+    >
         {#if loading || busy}
             <p class="muted center">Working.</p>
         {:else if errored}
@@ -324,7 +414,32 @@ the data flow through pgrepCall is unchanged.
                     </button>
                 {:else}
                     <p class="lead">This door is clear for now.</p>
-                    <p class="muted">Come back when more is due, or try the other door.</p>
+                    <p class="muted">
+                        Come back when more is due, or try the other door.
+                    </p>
+                    {#if synthesis && synthesis.recap.attempted > 0}
+                        <div class="synthesis">
+                            <p class="synth-recap">
+                                Session: {synthesis.recap.correct}/{synthesis.recap
+                                    .attempted} first-try correct.
+                            </p>
+                            {#if synthesis.patterns.length}
+                                <p class="synth-h">Patterns</p>
+                                <ul>
+                                    {#each synthesis.patterns as p}<li>{p}</li>{/each}
+                                </ul>
+                            {/if}
+                            {#if synthesis.principles.length}
+                                <p class="synth-h">Principles to remember</p>
+                                <ul>
+                                    {#each synthesis.principles as p}<li>{p}</li>{/each}
+                                </ul>
+                            {/if}
+                            {#if synthesis.calibration}
+                                <p class="muted small">{synthesis.calibration}</p>
+                            {/if}
+                        </div>
+                    {/if}
                     <button class="btn" on:click={toLauncher}>Back to doors</button>
                 {/if}
             </div>
@@ -333,14 +448,12 @@ the data flow through pgrepCall is unchanged.
             {#if answerShown}
                 <div class="answer">{@html card.answer_html}</div>
                 <div class="grade-label">How well did you recall it?</div>
-                <GradeBar
-                    grades={RATINGS}
-                    disabled={busy}
-                    onGrade={grade}
-                />
+                <GradeBar grades={RATINGS} disabled={busy} onGrade={grade} />
             {:else}
                 <div class="actions">
-                    <button class="btn primary" on:click={() => (answerShown = true)}>Show answer</button>
+                    <button class="btn primary" on:click={() => (answerShown = true)}>
+                        Show answer
+                    </button>
                 </div>
             {/if}
         {:else if screen === "problems" && problem}
@@ -356,18 +469,30 @@ the data flow through pgrepCall is unchanged.
 
             {#if !committed}
                 <div class="actions">
-                    <button class="btn primary" on:click={commit} disabled={!selected || busy}>Commit</button>
+                    <button
+                        class="btn primary"
+                        on:click={commit}
+                        disabled={!selected || busy}
+                    >
+                        Commit
+                    </button>
                     <span class="muted small">Help stays locked until you commit.</span>
                 </div>
             {:else}
-                <div class="verdict" class:hit={committed.correct} class:miss={!committed.correct}>
+                <div
+                    class="verdict"
+                    class:hit={committed.correct}
+                    class:miss={!committed.correct}
+                >
                     {committed.correct ? "Correct." : "Your answer, not correct."}
                 </div>
                 <div class="rationale">{@html committed.rationale_html}</div>
 
                 {#if committed.correct && revealedRungs === 0}
                     <div class="actions">
-                        <button class="btn ghost" on:click={openSolution}>Show the worked solution</button>
+                        <button class="btn ghost" on:click={openSolution}>
+                            Show the worked solution
+                        </button>
                     </div>
                 {/if}
 
@@ -383,12 +508,53 @@ the data flow through pgrepCall is unchanged.
                                 shown={shownSteps[i] ?? false}
                                 onShow={() => showStep(i)}
                             />
+                            {#if aiOn && rung.rung === "decompose"}
+                                <div class="grade-step">
+                                    <label for="learner-step">
+                                        Produce this sub-goal in your own words, plus a
+                                        one-line why.
+                                    </label>
+                                    <textarea
+                                        id="learner-step"
+                                        bind:value={learnerStep}
+                                        rows="2"
+                                        placeholder="Your sub-goal"
+                                    ></textarea>
+                                    <input
+                                        bind:value={learnerWhy}
+                                        placeholder="Why (one line)"
+                                    />
+                                    <button
+                                        class="btn"
+                                        on:click={gradeStep}
+                                        disabled={grading || !learnerStep.trim()}
+                                    >
+                                        {grading ? "Grading" : "Grade my step"}
+                                    </button>
+                                    {#if gradeResult}
+                                        <div class="grade-result">
+                                            <span class="cov {gradeResult.coverage}">
+                                                {gradeResult.coverage}
+                                            </span>
+                                            <p class="probe">{gradeResult.probe}</p>
+                                            {#if gradeResult.giveaway_blocked}
+                                                <p class="muted small">
+                                                    A leaking hint was blocked; here is
+                                                    a safe nudge instead.
+                                                </p>
+                                            {/if}
+                                        </div>
+                                    {/if}
+                                </div>
+                            {/if}
                         {/each}
                     </div>
 
                     {#if revealedRungs < committed.ladder.length}
                         <div class="actions">
-                            <button class="btn ghost" on:click={nextRung}>Next step</button>
+                            <button class="btn ghost" on:click={nextRung}>
+                                Next step
+                            </button>
                         </div>
                     {/if}
 
@@ -396,8 +562,12 @@ the data flow through pgrepCall is unchanged.
                 {/if}
 
                 <div class="actions next">
-                    <button class="btn primary" on:click={loadNext} disabled={busy}>Next</button>
-                    <span class="muted small">{problem.remaining} left in this door.</span>
+                    <button class="btn primary" on:click={loadNext} disabled={busy}>
+                        Next
+                    </button>
+                    <span class="muted small">
+                        {problem.remaining} left in this door.
+                    </span>
                 </div>
             {/if}
         {/if}
@@ -597,6 +767,90 @@ the data flow through pgrepCall is unchanged.
         font-size: var(--text-small);
         color: var(--muted);
         opacity: 0.8;
+    }
+
+    .grade-step {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin: var(--space-1) 0 var(--space-2);
+        padding: var(--space-2);
+        border: var(--hairline);
+        border-radius: var(--radius-control);
+
+        label {
+            font-size: var(--text-small);
+            color: var(--muted);
+        }
+
+        textarea,
+        input {
+            font-family: var(--font-ui);
+            font-size: var(--text-body);
+            color: var(--text);
+            background: var(--canvas);
+            border: var(--hairline);
+            border-radius: var(--radius-control);
+            padding: 8px 10px;
+            resize: vertical;
+        }
+
+        button {
+            align-self: flex-start;
+        }
+    }
+
+    .grade-result {
+        margin-top: 6px;
+
+        .cov {
+            display: inline-block;
+            font-size: var(--text-caption);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            padding: 2px 8px;
+            border-radius: 999px;
+            border: var(--hairline);
+            color: var(--muted);
+        }
+
+        .cov.covered {
+            color: var(--success);
+            border-color: var(--success);
+        }
+
+        .probe {
+            margin: 8px 0 0;
+            font-size: var(--text-body);
+            line-height: 1.5;
+        }
+    }
+
+    .synthesis {
+        align-self: stretch;
+        margin-top: var(--space-2);
+        padding-top: var(--space-2);
+        border-top: var(--hairline);
+
+        .synth-recap {
+            font-weight: 600;
+            margin: 0 0 8px;
+        }
+
+        .synth-h {
+            margin: 10px 0 4px;
+            font-size: var(--text-caption);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--muted);
+        }
+
+        ul {
+            margin: 0;
+            padding-left: 18px;
+            font-size: var(--text-body);
+            line-height: 1.5;
+        }
     }
 
     .actions {
