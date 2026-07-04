@@ -18,7 +18,7 @@
 
 ## 1. Where we are (the verified starting line)
 
-Everything through the desktop takeover and the full visual system is complete and on `main` (HEAD `681cd8757`). A `just build && just lint && just test-py` pass is green. The remaining work starts from this base.
+Everything through the desktop takeover, the full visual system, and the closeout is complete and on `main` (HEAD `2e61e5ec9`). A `just lint && just test-py` pass is green. The remaining work starts from this base.
 
 | Layer | Status | What it gave us |
 |---|---|---|
@@ -27,8 +27,9 @@ Everything through the desktop takeover and the full visual system is complete a
 | **L2 Core surfaces (no AI)** | ✅ | The four desktop surfaces in `ts/routes/pgrep/` (Study, Home, Progress, Diagnostic) on the real FSRS loop, the honest Memory score, the two-door session with commit-before-reveal and the static ladder, and a real macOS installer. Bridge and API: [`l2-api-contract.md`](l2-api-contract.md). |
 | **L2.5 Desktop takeover** | ✅ | `qt/aqt/pgrep_host.py` makes the pgrep SPA the primary surface (`hosted` default), Anki's screens reachable via `Tools > Open Anki screens`. `tools/ios-run.sh` launches the iOS app visibly. Installer rebuilt from the takeover. Plan: [`l2.5-onscreen-proof.md`](l2.5-onscreen-proof.md). |
 | **Visual system** | ✅ | Design tokens (`ts/lib/sass/_pgrep.scss`), the Svelte primitives (`ts/lib/components/`: `ScoreCard`, `ChoiceList`, `CoverageBar`, `GradeBar`, `HintRung`, `StudyFrame`, `NavRail`, `ReliabilityDiagram`, `Manifold`, `Manifold3D`), the 2D and 3D manifold (`ts/lib/pgrep/manifold.ts`, `manifold3d.ts`), the restyled surfaces plus a Settings surface, and the `ts/routes/pgrep-lab/` gallery. Deps: `three`, `@fontsource-variable/inter` + `jetbrains-mono`, `lucide-static`. The top toolbar now hides while pgrep leads. Spec: [`../../design/ux-foundation.md`](../../design/ux-foundation.md). |
+| **L2.7 Closeout (make it ours)** | ✅ | Surface QA across all five surfaces in both themes (single shared `NavRail`, `Manifold3D` degrades to the 2D fallback, tokenized accents, copy-rule fixes, evidence-linked abstain states). The `ts/routes/pgrep-lab/gallery` covers every primitive's states. The exclusive takeover is proven with pure helpers in `pgrep_host.py` (`hosted` stays default), tested in `qt/tests/test_pgrep_host.py`. The dev app carries the pgrep name and icon (desktop titles + window icon, iOS `CFBundleDisplayName` + `AppIcon`). |
 
-**What is deliberately not done yet.** No AI (L4), no sync or mobile UI (L3), no Performance or Readiness scores or model evidence (L5), no final packaging or the exclusive takeover flip (L6), and no end-to-end visual QA pass (L2.7).
+**What is deliberately not done yet.** No AI (L4), no sync or mobile UI (L3), no Performance or Readiness scores or model evidence (L5), and no final packaging or the exclusive takeover flip (L6).
 
 ---
 
@@ -72,7 +73,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 ## 4. The layers ahead
 
-### L2.7 · Closeout (make it ours) · entry: `main` (L2.5 + visual) ✅
+### L2.7 · Closeout (make it ours) · entry: `main` (L2.5 + visual) ✅ · done ✅
 
 **Why.** The visual system and the shell takeover are built, but nobody has audited the surfaces end to end, the exclusive takeover is documented but unproven, and the app still carries Anki's name and icon. This layer closes the "make it ours" thread so the base is demo-clean before the heavy layers.
 
