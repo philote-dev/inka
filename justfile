@@ -18,6 +18,12 @@ run *args:
 run-optimized *args:
     {{ if os() == "windows" { "$env:RELEASE='1'; .\\run.bat" } else { "RELEASE=1 ./run" } }} {{ args }}
 
+# Run a self-hosted Anki sync server for pgrep (reuses Anki's sync unmodified). macOS/Linux.
+# Auth via the user arg (SYNC_USER1); SYNC_HOST/SYNC_PORT/SYNC_BASE via env. See docs_pgrep/plan/dev-harness.md.
+sync-server user="pgrep:pgrep":
+    {{ ninja }} pylib
+    SYNC_USER1={{ user }} out/pyenv/bin/python tools/sync-server.py
+
 # Watch web sources and rebuild/reload Anki's web stack on change (macOS/Linux)
 web-watch:
     ./tools/web-watch
@@ -87,6 +93,10 @@ ios-smoke:
 # Build + launch the pgrep iOS app in the Simulator (visible review UI); macOS-only
 ios-run:
     ./tools/ios-run.sh
+
+# Prove the iOS FFI sync path end to end (phone -> server -> desktop); macOS-only
+ios-sync-proof:
+    ./tools/ios-sync-proof.sh
 
 [private]
 _test:

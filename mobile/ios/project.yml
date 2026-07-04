@@ -73,6 +73,7 @@ targets:
     sources:
       - path: PgrepStudyTests
       - path: PgrepStudy/AnkiBackend.swift
+      - path: PgrepStudy/SyncRpc.swift
       - path: PgrepStudy/StudySandbox.swift
       - path: PgrepStudy/Generated
       - path: ../sample-deck/collection.anki2

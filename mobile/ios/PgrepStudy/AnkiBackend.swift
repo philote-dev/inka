@@ -33,6 +33,10 @@ public struct RpcId: Sendable {
     // SchedulerService (service 13)
     public static let getQueuedCards = RpcId(13, 3)
     public static let answerCard = RpcId(13, 4)
+    // SearchService (service 29)
+    public static let searchCards = RpcId(29, 1)
+    // StatsService (service 43)
+    public static let cardStats = RpcId(43, 0)
     // NotesService (service 25)
     public static let getNote = RpcId(25, 6)
 }
@@ -203,5 +207,23 @@ public final class AnkiBackend {
     @discardableResult
     public func answerCard(_ answer: Anki_Scheduler_CardAnswer) throws -> Anki_Collection_OpChanges {
         return try call(.answerCard, answer)
+    }
+
+    /// Find card ids matching an Anki search string (for example "tag:topic::*").
+    /// Order is left at the engine default; the Memory fold does not depend on it.
+    public func searchCards(matching search: String) throws -> [Int64] {
+        var req = Anki_Search_SearchRequest()
+        req.search = search
+        let res: Anki_Search_SearchResponse = try call(.searchCards, req)
+        return res.ids
+    }
+
+    /// Per-card stats, including the engine's own FSRS retrievability
+    /// (`fsrsRetrievability`, unset for cards with no memory state). Using the
+    /// engine value keeps mobile Memory identical to desktop by construction.
+    public func cardStats(cardId: Int64) throws -> Anki_Stats_CardStatsResponse {
+        var req = Anki_Cards_CardId()
+        req.cid = cardId
+        return try call(.cardStats, req)
     }
 }

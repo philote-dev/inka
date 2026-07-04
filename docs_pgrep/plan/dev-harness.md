@@ -132,6 +132,40 @@ simulator and inspect it with `xcrun simctl` (e.g.
 The Swift message types under `mobile/ios/PgrepStudy/Generated` are checked in.
 Re-run `tools/gen-swift-protos.sh` after changing any `proto/anki/*.proto`.
 
+## Sync server (self-hosted)
+
+pgrep syncs desktop and iOS through a self-hosted copy of Anki's own sync server
+(`rslib/src/sync/**`, unmodified). There is no AnkiWeb dependency and no custom
+sync code. The conflict rule it enforces is documented in
+[`l3-sync-conflict-rule.md`](l3-sync-conflict-rule.md).
+
+| Command | What it does |
+| ---------------------------- | ----------------------------------------------------------------- |
+| `just sync-server` | Build pylib, then run the server on `0.0.0.0:8080` as `pgrep:pgrep`. |
+| `just sync-server user="me:secret"` | Same, with a custom account. |
+
+The recipe runs `tools/sync-server.py`, which mirrors `tools/run.py`'s path
+setup and calls `anki.syncserver.run_sync_server()` (the same `SimpleServer` the
+packaged `anki --syncserver` uses). macOS/Linux.
+
+Environment (read by the server):
+
+- `SYNC_USER1=user:pass` is set from the recipe's `user` arg. Add more accounts
+  with `SYNC_USER2=...` in the environment.
+- `SYNC_HOST` (default `0.0.0.0`), `SYNC_PORT` (default `8080`), and `SYNC_BASE`
+  (default `~/.syncserver`, one folder per user).
+
+Point clients at it with a custom sync URL:
+
+- **Desktop:** Preferences, then set a self-hosted sync server URL of
+  `http://<mac-ip>:8080/` (the trailing slash matters). Log in with the
+  `SYNC_USER1` credentials, then Sync.
+- **iOS:** the Settings tab in the app. Set the same URL, log in, then Sync.
+
+The iOS Simulator shares the Mac's network, so `http://127.0.0.1:8080/` works
+from the Simulator. A physical device needs the Mac's LAN IP. Health check:
+`curl http://127.0.0.1:8080/health` returns `200`.
+
 ## CI (follow-up)
 
 A macOS GitHub Actions job could run `just ios-smoke` on every PR to guard the

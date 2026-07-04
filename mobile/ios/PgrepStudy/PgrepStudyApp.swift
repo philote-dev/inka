@@ -1,8 +1,9 @@
 // Copyright: Ankitects Pty Ltd and contributors
 // License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 //
-// SwiftUI entry point for the PGRE study app. The whole app is a thin UI over
-// AnkiBackend, which drives the same shared Rust engine that desktop uses.
+// SwiftUI entry point for the pgrep companion. The whole app is a thin UI over
+// the shared Rust engine (via AnkiBackend / Engine): a Home glance, a Study
+// Cards door, and Settings with two-way sync. It works fully offline and AI off.
 
 import SwiftUI
 
@@ -10,12 +11,7 @@ import SwiftUI
 struct PgrepStudyApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
         }
-    }
-    
-    init() {
-        // Require full screen mode if limiting orientations
-        // This should be set in Info.plist as well
     }
 }
