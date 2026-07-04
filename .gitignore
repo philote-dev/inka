@@ -33,3 +33,7 @@ docs/autoapi/
 
 # Git worktrees for feature work
 .worktrees/
+
+# Private content + eval workspace (corpus, seeds, gold sets, held-out, ETS constants).
+# Never committed: keeps copyrighted material out of git and keeps held-out data hidden.
+/content/
