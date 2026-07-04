@@ -3,19 +3,28 @@ Copyright: Ankitects Pty Ltd and contributors
 License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
 <!--
-    pgrep left navigation rail. Logo, the five calm destinations, and a streak
-    footer. Monochrome; the active item takes a surface chip. Shared across the
-    full-bleed pgrep surfaces (Home, Settings, Library, ...).
+    pgrep left navigation rail. Logo, the calm destinations, and an optional
+    streak footer. Monochrome; the active item takes a surface chip. Shared
+    across the full-bleed pgrep surfaces, so it is the single source of truth
+    for the rail (the surface shell renders exactly one of these).
+
+    Destinations follow ux-foundation.md section 4: Home, Study, Progress,
+    Library, Settings. Library returns at L4, so it is omitted until its route
+    exists rather than linking to a dead page. Diagnostic is a first-run and
+    re-runnable flow, not a permanent tab, so it is reached from a surface
+    (Home, Progress) rather than the rail.
+
+    The streak is only shown when a real value is passed. We never fabricate a
+    streak, so the rail stays honest on every surface.
 -->
 <script lang="ts">
     export let active = "Home";
-    export let streak = 12;
+    export let streak: number | undefined = undefined;
 
     const items = [
         { name: "Home", href: "/pgrep" },
         { name: "Study", href: "/pgrep/study" },
         { name: "Progress", href: "/pgrep/progress" },
-        { name: "Library", href: "/pgrep/library" },
         { name: "Settings", href: "/pgrep/settings" },
     ];
 </script>
@@ -42,10 +51,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     {:else if item.name === "Progress"}
                         <polyline points="2.5,14.5 7,10 10,13 17.5,5" />
                         <polyline points="12.5,5 17.5,5 17.5,10" />
-                    {:else if item.name === "Library"}
-                        <path d="M3 3.5 h3 v13 h-3 z" />
-                        <path d="M8 3.5 h3 v13 h-3 z" />
-                        <path d="M13.2 4.2 l2.9 -0.8 3.4 12.6 -2.9 0.8 z" />
                     {:else}
                         <line x1="3" y1="5.5" x2="17" y2="5.5" />
                         <line x1="3" y1="10" x2="17" y2="10" />
@@ -57,12 +62,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         {/each}
     </div>
 
-    <div class="streak">
-        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M10 2.5 C10 6 6 7 6 11 a4 4 0 0 0 8 0 C14 8.5 11.5 7.5 11.5 5 C11 5.8 10 6.2 10 2.5 Z" />
-        </svg>
-        <span>{streak} day streak</span>
-    </div>
+    {#if streak != null}
+        <div class="streak">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10 2.5 C10 6 6 7 6 11 a4 4 0 0 0 8 0 C14 8.5 11.5 7.5 11.5 5 C11 5.8 10 6.2 10 2.5 Z" />
+            </svg>
+            <span>{streak} day streak</span>
+        </div>
+    {/if}
 </nav>
 
 <style lang="scss">

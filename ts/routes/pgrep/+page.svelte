@@ -71,6 +71,33 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         return "Not very sure";
     }
 
+    interface AbstainProps {
+        message?: string;
+        missing?: string;
+        linkHref?: string;
+        linkLabel?: string;
+    }
+
+    // The honest abstain for Memory. While loading we only say so (no link). On a
+    // real thin-data abstain we name what is missing and link to where the learner
+    // acts on it (Study), per the honesty rule.
+    function memoryAbstain(loading: boolean, errored: boolean, data: MemoryData | null): AbstainProps {
+        if (loading) {
+            return { message: "Loading Memory" };
+        }
+        if (errored) {
+            return { message: "Could not load Memory", missing: "Try reopening the app." };
+        }
+        return {
+            message: "Not enough reviews yet",
+            missing:
+                data?.overall.reason ??
+                "Review a few cards per topic to see your Memory. Seed sample content from the Study tab to start.",
+            linkHref: "/pgrep/study",
+            linkLabel: "Go to Study",
+        };
+    }
+
     $: memAbstain = !mem || mem.overall.abstain || mem.overall.point === null;
     $: memValue = mem && mem.overall.point !== null ? pct(mem.overall.point) : undefined;
     $: memRange =
@@ -82,16 +109,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             ? howSure(mem.overall.low, mem.overall.high)
             : "";
     $: memUpdated = mem && mem.last_updated ? "Updated just now" : "";
-    $: memMissing = memError
-        ? "Could not load Memory. Try reopening the app."
-        : (mem?.overall.reason ??
-          "Review a few cards per topic to see your Memory. Seed sample content from the Study tab to start.");
+    $: memAbstainProps = memoryAbstain(memLoading, memError, mem);
 </script>
 
 <div class="main">
     <header class="head">
-        <h1>Your knowledge map</h1>
-        <p>Memory, performance, and readiness, shown honestly.</p>
+        <div class="head-text">
+            <h1>Your knowledge map</h1>
+            <p>Memory, performance, and readiness, shown honestly.</p>
+        </div>
+        <a class="diag-link" href="/pgrep/diagnostic">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="2,10 5.5,10 8,4.5 12,15.5 14.5,10 18,10" />
+            </svg>
+            Run the diagnostic
+        </a>
     </header>
 
     <div class="hero">
@@ -124,13 +156,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         </section>
 
         {#if memAbstain}
-            <ScoreCard
-                kind="memory"
-                abstain={{
-                    message: memLoading ? "Loading Memory" : "Not enough reviews yet",
-                    missing: memMissing,
-                }}
-            />
+            <ScoreCard kind="memory" abstain={memAbstainProps} />
         {:else}
             <ScoreCard
                 kind="memory"
@@ -147,6 +173,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 message: "No performance model yet",
                 missing:
                     "Performance comes online with the AI problem set. It stays quiet until then.",
+                linkHref: "/pgrep/progress",
+                linkLabel: "See the evidence",
             }}
         />
         <ScoreCard
@@ -154,6 +182,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             abstain={{
                 missing:
                     "Readiness needs performance data and 70 percent topic coverage first. It stays quiet until then.",
+                linkHref: "/pgrep/progress",
+                linkLabel: "See coverage",
             }}
         />
     </section>
@@ -168,6 +198,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     .head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-2);
+
         h1 {
             margin: 0;
             font-size: var(--text-greeting);
@@ -177,8 +212,32 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
         p {
             margin: 6px 0 0;
-            font-size: 14px;
+            font-size: var(--text-body);
             color: var(--muted);
+        }
+    }
+
+    /* Diagnostic is a re-runnable flow, not a rail tab, so Home offers a quiet
+       monochrome entry into it. It seeds the manifold above. */
+    .diag-link {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 14px;
+        border: var(--hairline);
+        border-radius: var(--radius-control);
+        color: var(--muted);
+        text-decoration: none;
+        font-size: var(--text-body);
+        font-weight: 500;
+        white-space: nowrap;
+        transition: var(--transition-calm);
+
+        &:hover {
+            color: var(--text);
+            background: var(--hover-wash);
+            border-color: var(--muted);
         }
     }
 

@@ -5,11 +5,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <!-- pgrep Settings. Sectioned preference cards, ported from the Claude Design
      export (design/ux-foundation.md). State is local for now; the values wire to
      the backend once settings RPCs exist. The theme control flips the theme live.
-     Honesty note baked in: the app works and still scores with AI off. -->
+     Honesty note baked in: the app works and still scores with AI off. The shared
+     rail comes from +layout.svelte, so this surface renders content only. -->
 <script lang="ts">
     import { onMount } from "svelte";
-
-    import NavRail from "$lib/components/NavRail.svelte";
 
     type Theme = "Light" | "Dark" | "System";
 
@@ -48,145 +47,131 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     });
 </script>
 
-<div class="settings-page">
-    <NavRail active="Settings" />
+<div class="main">
+    <div class="column">
+        <header class="head">
+            <h1>Settings</h1>
+        </header>
 
-    <main class="main">
-        <div class="column">
-            <header class="head">
-                <h1>Settings</h1>
-            </header>
-
-            <section class="group">
-                <div class="group-label">Study</div>
-                <div class="card">
-                    <div class="row">
-                        <div class="row-text">
-                            <div class="row-title">Target retention</div>
-                            <div class="row-sub">How much you keep before a card comes back</div>
-                        </div>
-                        <div class="row-control slider">
-                            <input type="range" min="0.7" max="0.97" step="0.01" bind:value={targetRetention} aria-label="Target retention" />
-                            <span class="val">{retentionLabel}</span>
-                        </div>
+        <section class="group">
+            <div class="group-label">Study</div>
+            <div class="card">
+                <div class="row">
+                    <div class="row-text">
+                        <div class="row-title">Target retention</div>
+                        <div class="row-sub">How much you keep before a card comes back</div>
                     </div>
-                    <div class="row">
-                        <div class="row-text">
-                            <div class="row-title">Test date</div>
-                            <div class="row-sub">Pacing works back from this day</div>
-                        </div>
-                        <button class="pill-btn" type="button">
-                            <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-                                <rect x="3" y="4.5" width="14" height="12.5" rx="2" />
-                                <line x1="3" y1="8.5" x2="17" y2="8.5" />
-                                <line x1="7" y1="2.5" x2="7" y2="6" />
-                                <line x1="13" y1="2.5" x2="13" y2="6" />
-                            </svg>
-                            <span class="mono">{testDate}</span>
-                        </button>
+                    <div class="row-control slider">
+                        <input type="range" min="0.7" max="0.97" step="0.01" bind:value={targetRetention} aria-label="Target retention" />
+                        <span class="val">{retentionLabel}</span>
                     </div>
                 </div>
-            </section>
+                <div class="row">
+                    <div class="row-text">
+                        <div class="row-title">Test date</div>
+                        <div class="row-sub">Pacing works back from this day</div>
+                    </div>
+                    <button class="pill-btn" type="button">
+                        <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                            <rect x="3" y="4.5" width="14" height="12.5" rx="2" />
+                            <line x1="3" y1="8.5" x2="17" y2="8.5" />
+                            <line x1="7" y1="2.5" x2="7" y2="6" />
+                            <line x1="13" y1="2.5" x2="13" y2="6" />
+                        </svg>
+                        <span class="mono">{testDate}</span>
+                    </button>
+                </div>
+            </div>
+        </section>
 
-            <section class="group">
-                <div class="group-label">AI</div>
-                <div class="card">
-                    <div class="row">
-                        <div class="row-text">
-                            <div class="row-title">AI assistance</div>
-                            <div class="row-sub">The app always works and still scores with AI off.</div>
-                        </div>
-                        <button
-                            class="toggle"
-                            class:on={aiOn}
-                            role="switch"
-                            aria-checked={aiOn}
-                            aria-label="AI assistance"
-                            on:click={() => (aiOn = !aiOn)}
-                        >
-                            <span class="knob"></span>
-                        </button>
+        <section class="group">
+            <div class="group-label">AI</div>
+            <div class="card">
+                <div class="row">
+                    <div class="row-text">
+                        <div class="row-title">AI assistance</div>
+                        <div class="row-sub">The app always works and still scores with AI off.</div>
+                    </div>
+                    <button
+                        class="toggle"
+                        class:on={aiOn}
+                        role="switch"
+                        aria-checked={aiOn}
+                        aria-label="AI assistance"
+                        on:click={() => (aiOn = !aiOn)}
+                    >
+                        <span class="knob"></span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <section class="group">
+            <div class="group-label">Sync</div>
+            <div class="card">
+                <div class="row">
+                    <div class="row-text">
+                        <div class="row-title">Sync</div>
+                        <div class="row-sub mono">Last synced {lastSynced}</div>
+                    </div>
+                    <button class="pill-btn strong" type="button">Sync now</button>
+                </div>
+                <div class="row">
+                    <div class="row-text">
+                        <div class="row-title">Account</div>
+                        <div class="row-sub">{account}</div>
+                    </div>
+                    <button class="link-btn" type="button">
+                        Manage
+                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6,3.5 11,8 6,12.5" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <section class="group">
+            <div class="group-label">Appearance</div>
+            <div class="card">
+                <div class="row">
+                    <div class="row-text">
+                        <div class="row-title">Theme</div>
+                        <div class="row-sub">Light and dark are both first class</div>
+                    </div>
+                    <div class="segmented" role="group" aria-label="Theme">
+                        {#each THEMES as opt (opt)}
+                            <button class="seg" class:on={theme === opt} on:click={() => applyTheme(opt)}>{opt}</button>
+                        {/each}
                     </div>
                 </div>
-            </section>
+            </div>
+        </section>
 
-            <section class="group">
-                <div class="group-label">Sync</div>
-                <div class="card">
-                    <div class="row">
-                        <div class="row-text">
-                            <div class="row-title">Sync</div>
-                            <div class="row-sub mono">Last synced {lastSynced}</div>
-                        </div>
-                        <button class="pill-btn strong" type="button">Sync now</button>
+        <section class="group">
+            <div class="group-label">Data</div>
+            <div class="card">
+                <div class="row">
+                    <div class="row-text">
+                        <div class="row-title">Export</div>
+                        <div class="row-sub">Your cards, attempts, and history as a file</div>
                     </div>
-                    <div class="row">
-                        <div class="row-text">
-                            <div class="row-title">Account</div>
-                            <div class="row-sub">{account}</div>
-                        </div>
-                        <button class="link-btn" type="button">
-                            Manage
-                            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                                <polyline points="6,3.5 11,8 6,12.5" />
-                            </svg>
-                        </button>
-                    </div>
+                    <button class="pill-btn strong" type="button">Export</button>
                 </div>
-            </section>
-
-            <section class="group">
-                <div class="group-label">Appearance</div>
-                <div class="card">
-                    <div class="row">
-                        <div class="row-text">
-                            <div class="row-title">Theme</div>
-                            <div class="row-sub">Light and dark are both first class</div>
-                        </div>
-                        <div class="segmented" role="group" aria-label="Theme">
-                            {#each THEMES as opt (opt)}
-                                <button class="seg" class:on={theme === opt} on:click={() => applyTheme(opt)}>{opt}</button>
-                            {/each}
-                        </div>
+                <div class="row">
+                    <div class="row-text">
+                        <div class="row-title">Reset</div>
+                        <div class="row-sub">Start over. This cannot be undone.</div>
                     </div>
+                    <button class="pill-btn danger" type="button">Reset</button>
                 </div>
-            </section>
-
-            <section class="group">
-                <div class="group-label">Data</div>
-                <div class="card">
-                    <div class="row">
-                        <div class="row-text">
-                            <div class="row-title">Export</div>
-                            <div class="row-sub">Your cards, attempts, and history as a file</div>
-                        </div>
-                        <button class="pill-btn strong" type="button">Export</button>
-                    </div>
-                    <div class="row">
-                        <div class="row-text">
-                            <div class="row-title">Reset</div>
-                            <div class="row-sub">Start over. This cannot be undone.</div>
-                        </div>
-                        <button class="pill-btn danger" type="button">Reset</button>
-                    </div>
-                </div>
-            </section>
-        </div>
-    </main>
+            </div>
+        </section>
+    </div>
 </div>
 
 <style lang="scss">
-    .settings-page {
-        display: flex;
-        min-height: 100vh;
-        background: var(--canvas);
-        color: var(--text);
-        font-family: var(--font-ui);
-    }
-
     .main {
-        flex: 1 1 auto;
-        min-width: 0;
         padding: 40px 24px 64px;
         display: flex;
         justify-content: center;
@@ -310,11 +295,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
         &.danger {
             color: var(--error);
-            border-color: rgba(191, 97, 106, 0.5);
+            border-color: var(--error-tint);
 
             &:hover {
-                border-color: rgba(191, 97, 106, 0.9);
-                background: rgba(191, 97, 106, 0.06);
+                border-color: var(--error-tint-strong);
+                background: var(--error-wash);
             }
         }
     }

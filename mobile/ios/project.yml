@@ -42,6 +42,9 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: YES
+        # Shown app name under the icon (bundle id and target name stay put).
+        INFOPLIST_KEY_CFBundleDisplayName: pgrep
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         # Rust std / getrandom (SecRandomCopyBytes) and reqwest need these.

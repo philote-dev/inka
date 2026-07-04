@@ -41,6 +41,19 @@
     --hover-wash: #f5f2ec;
     --shadow-card: 0 1px 2px rgba(38, 38, 36, 0.06), 0 4px 16px rgba(38, 38, 36, 0.04);
 
+    /* accent washes and tints. Alpha variants of the fills above, so the hue
+       lives in one place. The fills are identical in light and dark, so these
+       do not need a night-mode override. Score hues stay a data language: these
+       only carry score/state meaning (a Problems selection, a correct answer, a
+       destructive action), never decoration. */
+    --memory-tint: rgba(235, 203, 139, 0.35);
+    --performance-wash: rgba(129, 161, 193, 0.06);
+    --performance-tint: rgba(129, 161, 193, 0.45);
+    --success-wash: rgba(163, 190, 140, 0.08);
+    --error-tint: rgba(191, 97, 106, 0.5);
+    --error-tint-strong: rgba(191, 97, 106, 0.9);
+    --error-wash: rgba(191, 97, 106, 0.06);
+
     /* type */
     --font-ui: "Inter", -apple-system, "SF Pro", system-ui, sans-serif;
     --font-mono: "JetBrains Mono", ui-monospace, monospace;

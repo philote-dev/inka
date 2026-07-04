@@ -24,7 +24,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <div class="coverbar">
     <div class="head">
         <span class="pct">{covered} percent of the exam covered</span>
-        <span class="gate">Readiness needs {threshold}</span>
+        <span class="gate">Readiness needs {threshold} percent</span>
     </div>
     <div class="bar" role="img" aria-label="{covered} percent of the exam covered">
         {#each segments as s (s.topic)}
