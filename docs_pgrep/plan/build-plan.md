@@ -18,7 +18,7 @@
 
 ## 1. Where we are (the verified starting line)
 
-Everything through the desktop takeover, the full visual system, and the closeout is complete and on `main` (HEAD `2e61e5ec9`). A `just lint && just test-py` pass is green. The remaining work starts from this base.
+Everything through the desktop takeover, the visual system, the closeout, and the mobile companion with two-way sync is complete and on `main` (HEAD `3682a3e1e`). `just lint` is green and the L3 sync round-trip proof passes. The remaining work starts from this base.
 
 | Layer | Status | What it gave us |
 |---|---|---|
@@ -28,8 +28,9 @@ Everything through the desktop takeover, the full visual system, and the closeou
 | **L2.5 Desktop takeover** | ✅ | `qt/aqt/pgrep_host.py` makes the pgrep SPA the primary surface (`hosted` default), Anki's screens reachable via `Tools > Open Anki screens`. `tools/ios-run.sh` launches the iOS app visibly. Installer rebuilt from the takeover. Plan: [`l2.5-onscreen-proof.md`](l2.5-onscreen-proof.md). |
 | **Visual system** | ✅ | Design tokens (`ts/lib/sass/_pgrep.scss`), the Svelte primitives (`ts/lib/components/`: `ScoreCard`, `ChoiceList`, `CoverageBar`, `GradeBar`, `HintRung`, `StudyFrame`, `NavRail`, `ReliabilityDiagram`, `Manifold`, `Manifold3D`), the 2D and 3D manifold (`ts/lib/pgrep/manifold.ts`, `manifold3d.ts`), the restyled surfaces plus a Settings surface, and the `ts/routes/pgrep-lab/` gallery. Deps: `three`, `@fontsource-variable/inter` + `jetbrains-mono`, `lucide-static`. The top toolbar now hides while pgrep leads. Spec: [`../../design/ux-foundation.md`](../../design/ux-foundation.md). |
 | **L2.7 Closeout (make it ours)** | ✅ | Surface QA across all five surfaces in both themes (single shared `NavRail`, `Manifold3D` degrades to the 2D fallback, tokenized accents, copy-rule fixes, evidence-linked abstain states). The `ts/routes/pgrep-lab/gallery` covers every primitive's states. The exclusive takeover is proven with pure helpers in `pgrep_host.py` (`hosted` stays default), tested in `qt/tests/test_pgrep_host.py`. The dev app carries the pgrep name and icon (desktop titles + window icon, iOS `CFBundleDisplayName` + `AppIcon`). |
+| **L3 Mobile parity + Sync** | ✅ | The native SwiftUI companion (`mobile/ios/PgrepStudy/`): a Home glance (2D wireframe manifold, native Memory that matches desktop by construction, honest Performance and Readiness abstains), a Study Cards door with full FSRS grading, and Settings sync. Two-way sync reuses Anki's self-hosted server unmodified (`just sync-server`) with the conflict rule in [`l3-sync-conflict-rule.md`](l3-sync-conflict-rule.md), proven by `pylib/tests/test_pgrep_sync_roundtrip.py` (revlog and Attempt union, newer-mtime, offline-then-sync) and `just ios-sync-proof` (the iOS FFI upload downloaded by a desktop engine). No changes under `rslib/src/sync`. |
 
-**What is deliberately not done yet.** No AI (L4), no sync or mobile UI (L3), no Performance or Readiness scores or model evidence (L5), and no final packaging or the exclusive takeover flip (L6).
+**What is deliberately not done yet.** No AI (L4), no Performance or Readiness scores or model evidence (L5), and no final packaging or the exclusive takeover flip (L6).
 
 ---
 
@@ -37,15 +38,15 @@ Everything through the desktop takeover, the full visual system, and the closeou
 
 ```mermaid
 flowchart TD
-    NOW["main @ 681cd8757<br/>L0-L2.5 + visual system ✅"] --> L27["L2.7 · Closeout (make it ours)<br/>visual QA · A→C readiness · identity groundwork"]
-    L27 --> L3["L3 · Mobile parity + Sync"]
+    NOW["main @ 3682a3e1e<br/>L0-L2.7 + L3 (mobile + sync) ✅"] --> L27["L2.7 · Closeout (make it ours) ✅<br/>visual QA · A→C readiness · identity groundwork"]
+    L27 --> L3["L3 · Mobile parity + Sync ✅"]
     L27 --> L4["L4 · AI layer<br/>generation + problems + tutor + evals"]
     L3 --> L5["L5 · Models + evidence"]
     L4 --> L5
     L5 --> L6["L6 · Ship + harden"]
 ```
 
-**Sequential spine:** L2.7, then **L3 ∥ L4** (run together, different stacks), then L5, then L6. Parallelism inside each layer is marked ∥.
+**Sequential spine:** L2.7 ✅, then **L3 ✅ ∥ L4** (run together, different stacks), then L5, then L6. Parallelism inside each layer is marked ∥.
 
 **What each exit gate proves.**
 - **L2.7:** the app looks and behaves like pgrep in both themes, the exclusive takeover is proven, and it carries its own name and icon in development.
@@ -105,7 +106,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 ---
 
-### L3 · Mobile parity + Sync · entry: L2 core ✅ · runs ∥ with L4
+### L3 · Mobile parity + Sync · entry: L2 core ✅ · runs ∥ with L4 · done ✅
 
 **Why.** The spec requires two apps sharing one engine with two-way sync (constraint 2). The shared engine already runs on iOS (L0.3, `just ios-smoke` and `just ios-run`). This layer builds the mobile surfaces and wires sync.
 
@@ -268,12 +269,12 @@ The engine, UI, sync, and AI plumbing are agent-buildable. These are the tasks o
 | # | Constraint | Satisfied by |
 |---|---|---|
 | 1 | A real change inside Anki's Rust engine | L1 selector ✅ (`points_at_stake.rs`) |
-| 2 | Two apps sharing one engine, two-way sync | L3 |
+| 2 | Two apps sharing one engine, two-way sync | L3 ✅ |
 | 3 | Three separate scores, each with a range and a give-up rule | Memory L2 ✅; Performance and Readiness L5 |
 | 4 | Held-out evaluation for every model, reproducibly | L4.0 harness, L5 evidence |
 | 5 | One study feature built on learning science, ablation-tested | L1 interleaving ✅; ablation L5.4 |
 | 6 | Every AI output traces to a named source, gold-set checked, beats a baseline | L4 |
-| 7 | Both apps run with AI off and still score | L2 ✅ (desktop), L3 (mobile), guarded in L4 |
+| 7 | Both apps run with AI off and still score | L2 ✅ (desktop), L3 ✅ (mobile), guarded in L4 |
 | 8 | Ship a desktop installer plus a phone build | Installer L2 and L2.5 ✅; final L6 |
 | 9 | License AGPL-3.0-or-later, crediting Anki | Headers kept throughout; verified at L6 |
 
