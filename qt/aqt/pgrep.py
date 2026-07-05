@@ -12,10 +12,13 @@ startup), calls the mapped pure-Python function on ``aqt.mw.col``, and returns
 JSON bytes (``mediasrv`` wraps the bytes into an ``application/binary``
 response).
 
-The handler names and the function each calls are fixed by the L2 API contract
-(``docs_pgrep/contracts/L2-api-contract.md`` §3): the four surfaces implement the
-``anki.pgrep.*`` bodies these handlers already call, so no surface edits this
-file after scaffolding.
+The L2 core handlers were scaffolded from the L2 API contract
+(``docs_pgrep/contracts/L2-api-contract.md`` §3), whose four surfaces call the
+``anki.pgrep.*`` bodies mapped here. Later L5.9 features append their own
+handlers to this file as they land, including Exam mode, Settings (with export
+and reset), the dev-only demo profile, and the Diagnostic completion gate. Each
+new handler follows the same register-once pattern and is added to
+``pgrep_post_handlers`` below.
 """
 
 from __future__ import annotations
@@ -279,7 +282,7 @@ def pgrep_sync() -> bytes:
 
     mw = aqt.mw
     a = _args()
-    url = (a.get("url") or "http://127.0.0.1:8090/").strip()
+    url = (a.get("url") or "http://127.0.0.1:8080/").strip()
     username = a.get("username") or "pgrep"
     password = a.get("password") or "pgrep"
 

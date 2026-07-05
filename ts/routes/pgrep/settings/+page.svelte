@@ -43,7 +43,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     // An ISO YYYY-MM-DD string, or empty when the learner has set no test date.
     let testDate = "";
 
-    let serverURL = "http://127.0.0.1:8090/";
+    let serverURL = "http://127.0.0.1:8080/";
     let syncing = false;
     let syncMsg = "";
 
@@ -139,7 +139,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             await pgrepCall("pgrepSync", { url: serverURL.trim() });
             syncMsg = "Sync running. Watch the desktop for progress and completion.";
         } catch (e) {
-            syncMsg = `Sync failed: ${e}`;
+            syncMsg = `Sync failed. ${e}`;
         } finally {
             syncing = false;
         }
@@ -158,7 +158,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             );
             exportMsg = `Export running. Saving to ${res.path}`;
         } catch (e) {
-            exportMsg = `Export failed: ${e}`;
+            exportMsg = `Export failed. ${e}`;
         } finally {
             exporting = false;
         }
@@ -186,7 +186,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 `Progress reset. Cleared ${res.attempts_deleted} attempts and ` +
                 `reset ${res.cards_reset} sample cards.`;
         } catch (e) {
-            resetMsg = `Reset failed: ${e}`;
+            resetMsg = `Reset failed. ${e}`;
         } finally {
             resetting = false;
         }
