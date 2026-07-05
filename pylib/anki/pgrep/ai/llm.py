@@ -42,7 +42,8 @@ class LLMClient:
 
         if _is_floating_alias(model):
             raise ValueError(
-                f"refusing a floating alias '{model}'; pin an exact dated snapshot")
+                f"refusing a floating alias '{model}'; pin an exact dated snapshot"
+            )
         self.model = model
         self.temperature = temperature
         self.seed = seed
@@ -62,12 +63,18 @@ class LLMClient:
         base: dict = {
             "model": self.model,
             "response_format": {"type": "json_object"},
-            "messages": [{"role": "system", "content": system},
-                         {"role": "user", "content": user}],
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
         }
         # Try richest options first, then progressively drop unsupported ones.
-        option_sets = [{"temperature": self.temperature, "seed": self.seed},
-                       {"temperature": self.temperature}, {"seed": self.seed}, {}]
+        option_sets: list[dict[str, float | int | None]] = [
+            {"temperature": self.temperature, "seed": self.seed},
+            {"temperature": self.temperature},
+            {"seed": self.seed},
+            {},
+        ]
         last_exc: Exception | None = None
         for options in option_sets:
             kwargs = dict(base)
@@ -81,8 +88,12 @@ class LLMClient:
                     if name in ("BadRequestError", "UnprocessableEntityError"):
                         last_exc = exc
                         break  # option unsupported; try the next option set
-                    if name in ("RateLimitError", "APITimeoutError", "APIConnectionError",
-                                "InternalServerError"):
+                    if name in (
+                        "RateLimitError",
+                        "APITimeoutError",
+                        "APIConnectionError",
+                        "InternalServerError",
+                    ):
                         last_exc = exc
                         time.sleep(2 * (attempt + 1))
                         continue
@@ -115,7 +126,11 @@ def _rank(model_id: str) -> tuple:
 def pick_generator_snapshot(available: list[str] | None = None) -> str:
     """The strongest dated chat snapshot on the account, for the generator."""
     models = available if available is not None else list_models()
-    dated = [m for m in models if _SNAPSHOT_RE.search(m) and any(f in m for f in _FAMILY_RANK)]
+    dated = [
+        m
+        for m in models
+        if _SNAPSHOT_RE.search(m) and any(f in m for f in _FAMILY_RANK)
+    ]
     pool = dated or [m for m in models if any(f in m for f in _FAMILY_RANK)]
     if not pool:
         raise RuntimeError("no suitable chat model found on the account")
@@ -125,8 +140,11 @@ def pick_generator_snapshot(available: list[str] | None = None) -> str:
 def pick_judge_snapshot(exclude: str, available: list[str] | None = None) -> str:
     """A dated chat snapshot different from ``exclude``, for the judge."""
     models = available if available is not None else list_models()
-    pool = [m for m in models
-            if m != exclude and _SNAPSHOT_RE.search(m) and any(f in m for f in _FAMILY_RANK)]
+    pool = [
+        m
+        for m in models
+        if m != exclude and _SNAPSHOT_RE.search(m) and any(f in m for f in _FAMILY_RANK)
+    ]
     if not pool:
         # Fall back to any model that is not the generator.
         pool = [m for m in models if m != exclude]
