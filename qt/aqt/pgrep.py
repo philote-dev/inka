@@ -13,7 +13,7 @@ JSON bytes (``mediasrv`` wraps the bytes into an ``application/binary``
 response).
 
 The handler names and the function each calls are fixed by the L2 API contract
-(``docs_pgrep/plan/l2-api-contract.md`` §3): the four surfaces implement the
+(``docs_pgrep/contracts/L2-api-contract.md`` §3): the four surfaces implement the
 ``anki.pgrep.*`` bodies these handlers already call, so no surface edits this
 file after scaffolding.
 """
@@ -190,6 +190,50 @@ def pgrep_tutor_synthesis() -> bytes:
     return _json(tutor.session_synthesis(aqt.mw.col, _args().get("session_id", "")))
 
 
+# Desktop sync. Reuses Anki's own main-thread sync flow (aqt.sync) against the
+# self-hosted server, so progress and the full-sync direction dialog are handled
+# for us and nothing on the mediasrv thread touches the open collection unsafely.
+# Points the profile at the given custom URL, logs in if there is no stored key,
+# then runs the standard sync. Returns immediately; the visible completion is
+# Anki's own progress dialog and "sync complete" tooltip.
+def pgrep_sync() -> bytes:
+    import aqt.sync
+
+    mw = aqt.mw
+    a = _args()
+    url = (a.get("url") or "http://127.0.0.1:8090/").strip()
+    username = a.get("username") or "pgrep"
+    password = a.get("password") or "pgrep"
+
+    def start() -> None:
+        mw.pm.set_custom_sync_url(url)
+        if mw.pm.sync_auth() is None:
+
+            def do_login() -> Any:
+                return mw.col.sync_login(
+                    username=username, password=password, endpoint=url
+                )
+
+            def logged_in(fut: Any) -> None:
+                try:
+                    auth = fut.result()
+                except Exception as err:  # noqa: BLE001
+                    aqt.sync.handle_sync_error(mw, err)
+                    return
+                mw.pm.set_sync_key(auth.hkey)
+                mw.pm.set_sync_username(username)
+                aqt.sync.sync_collection(mw, lambda: None)
+
+            mw.taskman.with_progress(
+                do_login, logged_in, parent=mw, label="Logging in to sync server"
+            )
+        else:
+            aqt.sync.sync_collection(mw, lambda: None)
+
+    mw.taskman.run_on_main(start)
+    return _json({"status": "started", "url": url})
+
+
 # Registered once into mediasrv's post_handler_list (see qt/aqt/mediasrv.py).
 pgrep_post_handlers = [
     pgrep_seed,
@@ -207,4 +251,5 @@ pgrep_post_handlers = [
     pgrep_problem_generate,
     pgrep_tutor_grade,
     pgrep_tutor_synthesis,
+    pgrep_sync,
 ]

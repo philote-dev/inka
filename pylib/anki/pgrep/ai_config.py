@@ -11,7 +11,7 @@ import the heavy AI modules only when it returns true.
 
 The model snapshot is resolved once and cached in config, so a graded or live run
 records exactly which dated snapshot produced it. The API key is read from the
-environment (never synced, never committed), matching ``setup-content-deps.md``.
+environment (never synced, never committed), matching ``content-and-dependencies.md``.
 """
 
 from __future__ import annotations

@@ -29,7 +29,7 @@ tie-break on equal timestamps. This is Anki's real behavior, made explicit.
 ## Why the Attempt log unions cleanly by id
 
 The Attempt log is stored as immutable notes, one note per graded event, with
-the note GUID used as the event id (`docs_pgrep/plan/l1-coordination-schema.md`
+the note GUID used as the event id (`docs_pgrep/contracts/L1-coordination-schema.md`
 K2). Two independent properties combine to give union-by-id:
 
 1. **Different events on different devices** get different GUIDs, so they are
@@ -99,6 +99,6 @@ back to a one-way full sync (upload or download), which is safe by construction.
   server, then syncs. The changes land. Proven by the same test.
 
 The host that these tests and the apps sync against is the self-hosted
-`anki-sync-server` described in `docs_pgrep/plan/dev-harness.md` (the
+`anki-sync-server` described in `docs_pgrep/reference/dev-harness.md` (the
 `just sync-server` recipe). Point clients at it with a custom sync URL; auth is
 `SYNC_USER1=user:pass`. No AnkiWeb dependency.

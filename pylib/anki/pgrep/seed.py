@@ -19,7 +19,7 @@ worth-ordered cards for free without touching the user's default review order.
 Idempotency: a marker tag (:data:`SEEDED_TAG`) on every seeded note means a
 second call creates nothing (no duplicate cards). Note adds and card-state
 updates are each done in a single batch, merged into one undoable action. See
-``docs_pgrep/plan/l2-api-contract.md`` §2.
+``docs_pgrep/contracts/L2-api-contract.md`` §2.
 """
 
 from __future__ import annotations

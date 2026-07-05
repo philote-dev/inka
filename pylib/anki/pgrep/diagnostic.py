@@ -36,7 +36,7 @@ category) is persisted as small rolled-up state in the collection config under
 :data:`DIAGNOSTIC_CONFIG_KEY`, so the Diagnostic is re-runnable (a later pass
 overwrites) and survives reopen. It is pure, deterministic, and fast: one Memory
 SQL pass plus a dict fold, no AI, no confidence capture, no schedule mutation
-(``l2-api-contract.md`` §0).
+(``L2-api-contract.md`` §0).
 
 The scaffolding bridge handlers ``pgrep_diagnostic_topics`` and
 ``pgrep_diagnostic_place`` in ``qt/aqt/pgrep.py`` call :func:`topics` and
@@ -103,7 +103,7 @@ def _placement_for(memory_point: float | None, outcome: str | None) -> str:
 def topics(col: Collection) -> dict:
     """Return the topics to place, with any existing placement.
 
-    Matches the ``pgrepDiagnosticTopics`` response (``l2-api-contract.md`` §3,
+    Matches the ``pgrepDiagnosticTopics`` response (``L2-api-contract.md`` §3,
     L2.3): every blueprint category, in blueprint order, with its blueprint
     weight, the placement stored by a previous :func:`place` run
     (``strong``/``rusty``) or ``None`` if never placed, and the reviewed-card
@@ -136,7 +136,7 @@ def place(col: Collection, results: list) -> dict:
     categories in ``results`` are ignored. The full snapshot is persisted to the
     collection config (re-runnable; a later pass overwrites).
 
-    Matches the ``pgrepDiagnosticPlace`` response (``l2-api-contract.md`` §3,
+    Matches the ``pgrepDiagnosticPlace`` response (``L2-api-contract.md`` §3,
     L2.3): every blueprint category, in blueprint order, labelled ``strong`` or
     ``rusty``.
     """

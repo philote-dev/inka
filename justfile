@@ -19,7 +19,7 @@ run-optimized *args:
     {{ if os() == "windows" { "$env:RELEASE='1'; .\\run.bat" } else { "RELEASE=1 ./run" } }} {{ args }}
 
 # Run a self-hosted Anki sync server for pgrep (reuses Anki's sync unmodified). macOS/Linux.
-# Auth via the user arg (SYNC_USER1); SYNC_HOST/SYNC_PORT/SYNC_BASE via env. See docs_pgrep/plan/dev-harness.md.
+# Auth via the user arg (SYNC_USER1); SYNC_HOST/SYNC_PORT/SYNC_BASE via env. See docs_pgrep/reference/dev-harness.md.
 sync-server user="pgrep:pgrep":
     {{ ninja }} pylib
     SYNC_USER1={{ user }} out/pyenv/bin/python tools/sync-server.py

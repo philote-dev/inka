@@ -8,7 +8,7 @@ The blueprint % is the Physics GRE's official per-topic weighting (stable for
 their category's %.
 
 This table is intentionally duplicated per language (see
-``docs_pgrep/plan/l1-coordination-schema.md`` §1) — it is a normal
+``docs_pgrep/contracts/L1-coordination-schema.md`` §1) — it is a normal
 cross-language boundary duplication. Do **not** factor it into a shared file or
 import it across the Rust/Python boundary.
 """

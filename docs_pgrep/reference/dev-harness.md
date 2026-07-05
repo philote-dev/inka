@@ -27,7 +27,7 @@ recipes in the repo-root `justfile`. Run `just --list` to see everything.
 > (Home / Study / Progress / Diagnostic), not Anki's deck browser. Anki's own
 > screens stay reachable via **Tools → Open Anki screens**. The surface mode
 > lives in local profile meta (`pgrep_surface_mode`, default `hosted`; set it to
-> `off` for stock Anki). See `docs_pgrep/plan/l2.5-onscreen-proof.md`.
+> `off` for stock Anki). See `docs_pgrep/contracts/L2-api-contract.md`.
 
 ### `just smoke`
 
@@ -137,7 +137,7 @@ Re-run `tools/gen-swift-protos.sh` after changing any `proto/anki/*.proto`.
 pgrep syncs desktop and iOS through a self-hosted copy of Anki's own sync server
 (`rslib/src/sync/**`, unmodified). There is no AnkiWeb dependency and no custom
 sync code. The conflict rule it enforces is documented in
-[`l3-sync-conflict-rule.md`](l3-sync-conflict-rule.md).
+[`L3-sync-conflict-rule.md`](L3-sync-conflict-rule.md).
 
 | Command | What it does |
 | ---------------------------- | ----------------------------------------------------------------- |

@@ -7,7 +7,7 @@ parallel implementers never collide and every surface calls the engine the same
 way. It is grounded in the real fork (`technical-architecture.md` (c), the
 `mediasrv` routing, and the L1 API surface merged into `l2-core`).
 
-Read with: `l1-coordination-schema.md` (topic tags, blueprint, attempt-log seam),
+Read with: `L1-coordination-schema.md` (topic tags, blueprint, attempt-log seam),
 `three-scores.md` §1 (Memory math), `feature-interleaving.md` (two-door
 session), `feature-productive-failure.md` (ladder), `ux-foundation.md` (surfaces).
 
@@ -235,3 +235,21 @@ Builds run in the single shared `l2-core` worktree, so run tests **sequentially*
 via the controller. Python pgrep modules are pure and fast to test with
 `just test-py` (incremental). TS uses `just lint` (`check:svelte`,
 `check:typescript`). Do not run `just run`/full `just check` concurrently.
+
+---
+
+## 6. Desktop takeover (the thin-host architecture)
+
+pgrep is the primary desktop surface, with `aqt` kept as a thin host. A second,
+`PGREP`-kind `AnkiWebView` is created next to Anki's central `MainWebView`, and a
+`pgrep` main-window state shows it, loading the same `/pgrep` SvelteKit SPA the
+Tools menu window uses. A single local surface-mode flag makes pgrep the default
+surface (`hosted`), keeps Anki's screens reachable via `Tools > Open Anki
+screens` (Option A), and lets a one-line change hide them entirely (Option C).
+The implementation lives in `qt/aqt/pgrep_host.py`; the installer is rebuilt from
+the takeover so the packaged app inherits it. iOS reuses the existing
+`PgrepStudy` SwiftUI app and the `build-xcframework.sh` toolchain, launched
+visibly via `tools/ios-run.sh`.
+
+This closes the earlier thin-host deviation, so `just run` and the installed dmg
+open directly into the pgrep UI rather than Anki's deck browser.

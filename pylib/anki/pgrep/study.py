@@ -25,7 +25,7 @@ interleaved **within** a door, never card<->problem whiplash.
 Session state lives in a module-level dict keyed by ``session_id`` (acceptable
 for this single-user desktop MVP). The bridge handlers in ``qt/aqt/pgrep.py``
 call the four functions below; their signatures are fixed by the contract
-(``docs_pgrep/plan/l2-api-contract.md`` §3).
+(``docs_pgrep/contracts/L2-api-contract.md`` §3).
 """
 
 from __future__ import annotations

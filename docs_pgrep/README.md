@@ -2,10 +2,10 @@
 
 **Product:** pgrep (a.k.a. "PGRE Speedrun") — a Physics GRE (PGRE) prep app built by forking Anki.
 **Owner:** Frank Gonzalez
-**Status:** Building. L0 through L2.5 and the full visual system are complete on `main`. The remaining trajectory is L2.7 (closeout), then L3 and L4 in parallel, then L5 and L6. See [`plan/build-plan.md`](plan/build-plan.md).
+**Status:** Building. L0 through L4 are on `main`: desktop, mobile + two-way sync, and the AI layer (off by default). The current focus is L4's eval gate, where the gold sets are built and awaiting a short human audit. Then L5, L6. See [`plan/build-plan.md`](plan/build-plan.md).
 **Governing project spec:** [`spec/Speedrun_ A Desktop + Mobile Study App Built on Anki.pdf`](spec/Speedrun_%20A%20Desktop%20+%20Mobile%20Study%20App%20Built%20on%20Anki.pdf)
 **Learning-science basis:** [`spec/Spiky POV Literature Contentions.pdf`](spec/Spiky%20POV%20Literature%20Contentions.pdf) + PGRE BrainLift (Nessie).
-**Last updated:** 2026-07-03
+**Last updated:** 2026-07-04
 
 > Docs are grouped by purpose: **spec** (the assignment), **research** (the durable "why", literature-backed), **plan** (execution roadmap + phase-tagged build contracts), **design** (UI), **assets**, and **prod** (prototype + submission artifacts). Every doc carries its own locked decisions + evidence. Shared context (mission, constraints, exam facts, thesis) lives here.
 
@@ -31,10 +31,27 @@
 
 ### Plan (execution)
 - [`plan/build-plan.md`](plan/build-plan.md) — the unified build plan: current status, the remaining trajectory (L2.7, then L3 and L4, then L5, L6), the per-layer agent split, gates, and controller prompts.
-- [`plan/setup-content-deps.md`](plan/setup-content-deps.md) — the "outside the code" plan: your tasks, content sourcing, external tools.
-- [`plan/parallel-track.md`](plan/parallel-track.md) — your prep sequenced against the build layers (the "when" for the setup-content tasks, plus the UI-tuning timing).
-- [`plan/dev-harness.md`](plan/dev-harness.md) — dev + test harness notes.
-- [`plan/l1-coordination-schema.md`](plan/l1-coordination-schema.md), [`plan/l2-api-contract.md`](plan/l2-api-contract.md), [`plan/l2.5-onscreen-proof.md`](plan/l2.5-onscreen-proof.md) — phase-tagged build contracts.
+- [`plan/dataset-pipeline.md`](plan/dataset-pipeline.md) — the status board for every dataset the AI layer needs (corpus, gold, held-out, examples): role, source, status, owner.
+
+### Contracts (durable technical contracts the code depends on)
+- [`contracts/L1-coordination-schema.md`](contracts/L1-coordination-schema.md) — the two-level topic tags, the Attempt-log schema, and the K1-K5 invariants.
+- [`contracts/L2-api-contract.md`](contracts/L2-api-contract.md) — the frontend-to-backend API contract, plus the desktop-takeover architecture (§6).
+- [`contracts/L3-sync-conflict-rule.md`](contracts/L3-sync-conflict-rule.md) — the sync conflict rule (union-by-id on the Attempt log).
+
+### Reference (operational how-to)
+- [`reference/content-and-dependencies.md`](reference/content-and-dependencies.md) — content sourcing, provenance, the leakage firewall, the data assets, and the external toolchain.
+- [`reference/dev-harness.md`](reference/dev-harness.md) — dev + test harness notes.
+
+### AI layer (methodology + evaluation)
+- [`ai/ai-layer.md`](ai/ai-layer.md) — the AI layer's data, locked decisions, leakage firewall, and evaluation. Start here for L4.
+- [`ai/gold-set-spec.md`](ai/gold-set-spec.md) — what qualifies a gold item, and the scoring rubric.
+- [`ai/cutoffs-and-baselines.md`](ai/cutoffs-and-baselines.md) — the frozen pass bars and the beat-baseline rule (the pre-registration).
+- [`ai/heldout-and-leakage.md`](ai/heldout-and-leakage.md) — the held-out splits and the leakage firewall.
+- [`ai/blueprint.md`](ai/blueprint.md), [`ai/slugs.md`](ai/slugs.md) — the PGRE topic taxonomy.
+
+### Private data workspace (`content/`, git-ignored)
+The private data the AI layer operates on lives in `content/`, which is never committed (the corpus, the gold items, the held-out ETS forms, the index, and the harness). It carries its own map:
+- [`../content/README.md`](../content/README.md) — the workspace map: every folder and its data.
 
 ### Design (UI)
 All design material lives in its own folder at the repo root [`design/`](../design/), outside this docs tree. It holds the UX spec and the reference renders; the living design system is the Svelte code in `ts/` (tokens in `ts/lib/sass/_pgrep.scss`, components in `ts/lib/components`, surfaces in `ts/routes/pgrep`):

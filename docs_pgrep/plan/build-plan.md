@@ -11,7 +11,7 @@
 
 **Legend.** 🔒 sequential gate (nothing after it starts until it is green). ∥ parallelizable (independent files or domains). ✅ done and on `main`.
 
-**Governing docs.** Product context and the nine spec constraints live in `[../README.md](../README.md)`. The durable "why" is in `[../research/](../research/)`. The human, content, and dependency track is `[setup-content-deps.md](setup-content-deps.md)`. The dev and test harness is `[dev-harness.md](dev-harness.md)`. Phase contracts are the appendices in section 7.
+**Governing docs.** Product context and the nine spec constraints live in `[../README.md](../README.md)`. The durable "why" is in `[../research/](../research/)`. The human, content, and dependency track is `[content-and-dependencies.md](../reference/content-and-dependencies.md)`. The dev and test harness is `[dev-harness.md](../reference/dev-harness.md)`. Phase contracts are the appendices in section 7.
 
 **Copy rule (this doc and all pgrep text).** No em-dashes, no colon-heavy phrasing, short labels.
 
@@ -27,12 +27,12 @@ Everything through the desktop takeover, the visual system, the closeout, and th
 | Layer                            | Status | What it gave us                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | -------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **L0 Build foundation**          | ✅      | The Anki fork builds from source (`just run`), a trivial Rust change shows up end to end, the shared engine cross-compiles and loads a deck on iOS (`just ios-smoke`), and the dev harness runs (`just smoke`).                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| **L1 Engine seam + data model**  | ✅      | The graded Rust change: `ReviewCardOrder::PointsAtStake` (`rslib/src/scheduler/queue/builder/points_at_stake.rs`), a read-only reorder inside gather-then-limit (never mutates `due`/`interval`/`memory_state`). Two-level topic tags, the Attempt log as immutable notes ("A now, C-ready"), the `pgrep::Problem` and `pgrep::Attempt` notetypes, with Rust and Python tests. Contracts: `[l1-coordination-schema.md](l1-coordination-schema.md)`.                                                                                                                                                                                                            |
-| **L2 Core surfaces (no AI)**     | ✅      | The four desktop surfaces in `ts/routes/pgrep/` (Study, Home, Progress, Diagnostic) on the real FSRS loop, the honest Memory score, the two-door session with commit-before-reveal and the static ladder, and a real macOS installer. Bridge and API: `[l2-api-contract.md](l2-api-contract.md)`.                                                                                                                                                                                                                                                                                                                                                              |
-| **L2.5 Desktop takeover**        | ✅      | `qt/aqt/pgrep_host.py` makes the pgrep SPA the primary surface (`hosted` default), Anki's screens reachable via `Tools > Open Anki screens`. `tools/ios-run.sh` launches the iOS app visibly. Installer rebuilt from the takeover. Plan: `[l2.5-onscreen-proof.md](l2.5-onscreen-proof.md)`.                                                                                                                                                                                                                                                                                                                                                                   |
+| **L1 Engine seam + data model**  | ✅      | The graded Rust change: `ReviewCardOrder::PointsAtStake` (`rslib/src/scheduler/queue/builder/points_at_stake.rs`), a read-only reorder inside gather-then-limit (never mutates `due`/`interval`/`memory_state`). Two-level topic tags, the Attempt log as immutable notes ("A now, C-ready"), the `pgrep::Problem` and `pgrep::Attempt` notetypes, with Rust and Python tests. Contracts: `[L1-coordination-schema.md](L1-coordination-schema.md)`.                                                                                                                                                                                                            |
+| **L2 Core surfaces (no AI)**     | ✅      | The four desktop surfaces in `ts/routes/pgrep/` (Study, Home, Progress, Diagnostic) on the real FSRS loop, the honest Memory score, the two-door session with commit-before-reveal and the static ladder, and a real macOS installer. Bridge and API: `[L2-api-contract.md](L2-api-contract.md)`.                                                                                                                                                                                                                                                                                                                                                              |
+| **L2.5 Desktop takeover**        | ✅      | `qt/aqt/pgrep_host.py` makes the pgrep SPA the primary surface (`hosted` default), Anki's screens reachable via `Tools > Open Anki screens`. `tools/ios-run.sh` launches the iOS app visibly. Installer rebuilt from the takeover. Plan: `[L2-api-contract.md §6](../contracts/L2-api-contract.md)`.                                                                                                                                                                                                                                                                                                                                                                   |
 | **Visual system**                | ✅      | Design tokens (`ts/lib/sass/_pgrep.scss`), the Svelte primitives (`ts/lib/components/`: `ScoreCard`, `ChoiceList`, `CoverageBar`, `GradeBar`, `HintRung`, `StudyFrame`, `NavRail`, `ReliabilityDiagram`, `Manifold`, `Manifold3D`), the 2D and 3D manifold (`ts/lib/pgrep/manifold.ts`, `manifold3d.ts`), the restyled surfaces plus a Settings surface, and the `ts/routes/pgrep-lab/` gallery. Deps: `three`, `@fontsource-variable/inter` + `jetbrains-mono`, `lucide-static`. The top toolbar now hides while pgrep leads. Spec: `[../../design/ux-foundation.md](../../design/ux-foundation.md)`.                                                         |
 | **L2.7 Closeout (make it ours)** | ✅      | Surface QA across all five surfaces in both themes (single shared `NavRail`, `Manifold3D` degrades to the 2D fallback, tokenized accents, copy-rule fixes, evidence-linked abstain states). The `ts/routes/pgrep-lab/gallery` covers every primitive's states. The exclusive takeover is proven with pure helpers in `pgrep_host.py` (`hosted` stays default), tested in `qt/tests/test_pgrep_host.py`. The dev app carries the pgrep name and icon (desktop titles + window icon, iOS `CFBundleDisplayName` + `AppIcon`).                                                                                                                                     |
-| **L3 Mobile parity + Sync**      | ✅      | The native SwiftUI companion (`mobile/ios/PgrepStudy/`): a Home glance (2D wireframe manifold, native Memory that matches desktop by construction, honest Performance and Readiness abstains), a Study Cards door with full FSRS grading, and Settings sync. Two-way sync reuses Anki's self-hosted server unmodified (`just sync-server`) with the conflict rule in `[l3-sync-conflict-rule.md](l3-sync-conflict-rule.md)`, proven by `pylib/tests/test_pgrep_sync_roundtrip.py` (revlog and Attempt union, newer-mtime, offline-then-sync) and `just ios-sync-proof` (the iOS FFI upload downloaded by a desktop engine). No changes under `rslib/src/sync`. |
+| **L3 Mobile parity + Sync**      | ✅      | The native SwiftUI companion (`mobile/ios/PgrepStudy/`): a Home glance (2D wireframe manifold, native Memory that matches desktop by construction, honest Performance and Readiness abstains), a Study Cards door with full FSRS grading, and Settings sync. Two-way sync reuses Anki's self-hosted server unmodified (`just sync-server`) with the conflict rule in `[L3-sync-conflict-rule.md](L3-sync-conflict-rule.md)`, proven by `pylib/tests/test_pgrep_sync_roundtrip.py` (revlog and Attempt union, newer-mtime, offline-then-sync) and `just ios-sync-proof` (the iOS FFI upload downloaded by a desktop engine). No changes under `rslib/src/sync`. |
 
 
 **What is deliberately not done yet.** L4 (AI) is merged to `main` and off by default, with its provisional gate green on beat-baseline but the absolute cutoffs and the human E4 rating still pending (see the L4 status block in section 4). No Performance or Readiness scores or model evidence (L5), and no final packaging or the exclusive takeover flip (L6).
@@ -94,7 +94,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 **Why.** The visual system and the shell takeover are built, but nobody has audited the surfaces end to end, the exclusive takeover is documented but unproven, and the app still carries Anki's name and icon. This layer closes the "make it ours" thread so the base is demo-clean before the heavy layers.
 
-**Design refs.** `[../../design/ux-foundation.md](../../design/ux-foundation.md)` (the visual contract), `[../../design/readme.md](../../design/readme.md)` (the brand rules), `[l2.5-onscreen-proof.md](l2.5-onscreen-proof.md)` (the A to C flip, already documented), the `ts/routes/pgrep-lab/` gallery.
+**Design refs.** `[../../design/ux-foundation.md](../../design/ux-foundation.md)` (the visual contract), `[../../design/readme.md](../../design/readme.md)` (the brand rules), `[L2-api-contract.md §6](../contracts/L2-api-contract.md)` (the A to C flip, already documented), the `ts/routes/pgrep-lab/` gallery.
 
 **Tasks.**
 
@@ -115,7 +115,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 > - this file's L2.7 section
 > - design/ux-foundation.md
 > - design/readme.md
-> - docs_pgrep/plan/l2.5-onscreen-proof.md (the A to C flip)
+> - docs_pgrep/contracts/L2-api-contract.md §6 (the A to C flip)
 > - docs_pgrep/README.md (skim)
 > **Entry check:** confirm `main` builds, `just lint` and `just test-py` are green, and `just run` opens into pgrep with the top toolbar hidden. If not, stop and tell me.
 > **Deliverable:** the surfaces match the design system in both themes, the gallery covers component states, the exclusive takeover is proven (kept off by default), and the dev app carries the pgrep name and icon.
@@ -136,7 +136,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 **Tasks.**
 
 - **L3.1 ∥ Mobile surfaces.** Home (readiness glance: manifold thumbnail plus the three score rows with ranges) and Study (a session that mirrors desktop) in the existing SwiftUI app (`mobile/ios/`), driving the shared engine through `rslib/ffi`. The manifold uses native 3D (SceneKit or Metal) or the 2D fallback. Owns: `mobile/ios/`**, `rslib/ffi/**` (only if new FFI entry points are needed), Swift protobuf regen via `tools/gen-swift-protos.sh`.
-- **L3.2 ∥ Sync.** Two-way incremental sync by reusing Anki's Rust sync server, self-hosted (local Mac for the demo, a small VPS optionally). Document the conflict rule (union-by-id on the Attempt log, per K2 in `l1-coordination-schema.md`). Prove offline-then-sync. Owns: sync host config, `docs/syncserver/` usage, no changes under `rslib/src/sync/`**.
+- **L3.2 ∥ Sync.** Two-way incremental sync by reusing Anki's Rust sync server, self-hosted (local Mac for the demo, a small VPS optionally). Document the conflict rule (union-by-id on the Attempt log, per K2 in `L1-coordination-schema.md`). Prove offline-then-sync. Owns: sync host config, `docs/syncserver/` usage, no changes under `rslib/src/sync/`**.
 
 **Exit gate.** Review on the phone appears on the desktop and back, with no lost or doubled reviews. Offline works, then syncs. `just ios-run` shows the mobile surfaces on the shared engine.
 
@@ -151,9 +151,9 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 >
 > - this file's L3 section
 > - docs_pgrep/research/technical-architecture.md (Phase 4)
-> - docs_pgrep/plan/l1-coordination-schema.md (the Attempt-log conflict rule)
+> - docs_pgrep/contracts/L1-coordination-schema.md (the Attempt-log conflict rule)
 > - design/ux-foundation.md (section 9)
-> - docs_pgrep/plan/dev-harness.md (iOS recipes)
+> - docs_pgrep/reference/dev-harness.md (iOS recipes)
 > **Entry check:** confirm `just ios-smoke` and `just ios-run` are green on `main` (the shared engine runs on iOS). If not, stop and tell me.
 > **Deliverable:** the mobile Home and Study surfaces on the shared engine, plus two-way sync with a documented conflict rule and working offline-then-sync.
 > **Your job:** run this layer with subagent-driven development in a `.worktrees/l3-mobile-sync` worktree. Dispatch L3.1 (mobile surfaces, Swift) and L3.2 (sync) as parallel implementers. Spec-compliance then code-quality review per task.
@@ -187,7 +187,7 @@ _What remains (for the next agent)._
 
 1. **E4 human rating and adjudication.** Frank rates the batch (rater 1), the judge stands as rater 2, Frank adjudicates and kappa is reported. This is the real gate confirmation. Re-score with `score_batch.py --gold content/run/batch_gold.json --candidates content/run/candidates.json --rater1-csv <frank.csv>` (columns `target_id,system,useful,fact_precision,key_correct`).
 2. **Clear the absolute cutoffs.** Under the mini-judge, card useful-yield (0.58 vs 0.80), problem distractor quality (0.611 vs 0.70), and problem key correctness (0.722 vs 0.95) fall short. Likely levers: human adjudication (the mini-judge is harsh and noisy on physics keys), the deferred verification layers (self-consistency, a critic pass, CAS on more items), and stronger generation prompts. A stronger judge is also worth trying.
-3. **Gold reconciliation.** The provisional problem gold uses GR9677 (per this section's v3) plus community-70. `content/eval/HELDOUT-AND-LEAKAGE.md` still lists GR9677 as held-out and GR0877 as the gold source; reconcile the eval docs to match, or switch the gold source to GR0877 (edit `make_gold.py` and re-run). Using GR9677 as gold leaves only GR0177 for the L5 held-out performance bank.
+3. **Gold reconciliation.** The provisional problem gold uses GR9677 (per this section's v3) plus community-70. `docs_pgrep/ai/heldout-and-leakage.md` still lists GR9677 as held-out and GR0877 as the gold source; reconcile the eval docs to match, or switch the gold source to GR0877 (edit `make_gold.py` and re-run). Using GR9677 as gold leaves only GR0177 for the L5 held-out performance bank.
 4. **Card gold.** No authoritative source exists (CWRU `cards.json` text is failed transcription, "I'm sorry, I can't assist with that"), so card grading currently uses finest-unit anchors plus judge-on-merits. Frank authors about 50 corpus-verified card gold items, or CWRU is re-transcribed, to make the card gate rigorous.
 5. **Runtime enablement (AI-on demo).** The app-env AI deps are an optional extra and are NOT installed in `out/pyenv`, and the `[project.optional-dependencies]` block was NOT added to `pylib/pyproject.toml` (deferred to avoid perturbing the build). To run AI live: add that extra (fastembed, openai, sympy, sqlite-vec, numpy), install into `out/pyenv`, set `OPENAI_API_KEY`, and toggle AI on in Settings. The ONNX sidecar fallback (a localhost service in the `pgrep-ai` env) is the alternative if in-process deps prove heavy.
 6. **C4 curated seed bank** (annotated GR8677 and GR9277 few-shot examples) is not staged. Optional; it feeds generation as examples and does not gate.
@@ -195,18 +195,18 @@ _What remains (for the next agent)._
 
 _Resume commands (repo root, conda `pgrep-ai`)._ `python content/tools/make_gold.py` then `python content/tools/run_batch.py --generator-model <snapshot>` then `python content/tools/score_batch.py --gold content/run/batch_gold.json --candidates content/run/candidates.json --judge openai --judge-model <snapshot> --provisional --workers 6`. The AI-off app path needs none of this.
 
-**Design refs.** `[../../content/L4-HANDOFF.md](../../content/L4-HANDOFF.md)` (read first: the locked decisions, the current state, the file map, the leakage firewall, and the safeguards), `[../research/feature-forced-generation.md](../research/feature-forced-generation.md)` (cards: stylize vs gap-fill, the verification stack, the gen→FSRS bridge), `[../research/feature-problem-generation.md](../research/feature-problem-generation.md)` (MCQ with misconception-first distractors, the MCQ gold set), `[../research/feature-productive-failure.md](../research/feature-productive-failure.md)` (the wrong-answer ladder, stored decomposition, AI-off vs AI-on grading), `design/ux-foundation.md` §7.4 (the Library authoring surface). Content and provenance rules in `[setup-content-deps.md](setup-content-deps.md)`. The locked gate values, gold spec, and leakage rule live in `[../../content/eval/](../../content/eval/)`.
+**Design refs.** `[../ai/ai-layer.md](../ai/ai-layer.md)` (the AI layer: data, decisions, the file map, the leakage firewall, and the safeguards), `[../research/feature-forced-generation.md](../research/feature-forced-generation.md)` (cards: stylize vs gap-fill, the verification stack, the gen→FSRS bridge), `[../research/feature-problem-generation.md](../research/feature-problem-generation.md)` (MCQ with misconception-first distractors, the MCQ gold set), `[../research/feature-productive-failure.md](../research/feature-productive-failure.md)` (the wrong-answer ladder, stored decomposition, AI-off vs AI-on grading), `design/ux-foundation.md` §7.4 (the Library authoring surface). Content and provenance rules in `[content-and-dependencies.md](../reference/content-and-dependencies.md)`. The locked gate values, gold spec, and leakage rule live in `[../ai/](../ai/)`.
 
 **Tasks.**
 
-- **L4.0 🔒 Eval harness.** The ruler everything else is graded on. Build the harness: the corpus index (reads `content/corpus/` only), the leakage guard (`content/tools/leakage_check.py`), the keyword and vector baselines to beat, the scorer (fact precision, useful-yield, distractor quality, with bootstrap CIs and the per-area breakdown), and the SymPy (CAS) path for computational items. The two gold sets are Frank's gate inputs (E1), staged into `content/gold/`: the problem gold is the vision-cleaned GR9677 (real ETS) plus the community 70, and the card gold is about 50 corpus-verified cards. The fed problem examples (all of REA, both exams) are already parsed and do not gate. The held-out splits, the blueprint, the schemas, and the frozen cutoffs are already in place (`content/eval/`, `content/blueprint/`). Time-based splits only, never random. Nothing in L4.1 to L4.3 ships until this gate is green. Full detail in `content/L4-HANDOFF.md`.
+- **L4.0 🔒 Eval harness.** The ruler everything else is graded on. Build the harness: the corpus index (reads `content/corpus/` only), the leakage guard (`content/tools/leakage_check.py`), the keyword and vector baselines to beat, the scorer (fact precision, useful-yield, distractor quality, with bootstrap CIs and the per-area breakdown), and the SymPy (CAS) path for computational items. The two gold sets are Frank's gate inputs (E1), staged into `content/gold/`: the problem gold is the vision-cleaned GR9677 (real ETS) plus the community 70, and the card gold is about 50 corpus-verified cards. The fed problem examples (all of REA, both exams) are already parsed and do not gate. The held-out splits, the blueprint, the schemas, and the frozen cutoffs are already in place (`docs_pgrep/ai/`, `content/blueprint/`, `content/gold/`). Time-based splits only, never random. Nothing in L4.1 to L4.3 ships until this gate is green. Full detail in `docs_pgrep/ai/ai-layer.md`.
 - **L4.1 ∥ Forced generation (cards).** The Library authoring surface ("author a seed", `design/ux-foundation.md` §7.4). AI **stylizes** the bundle's cards into the learner's voice where the bundle already covers a subtopic, and **gap-fills** net-new siblings from the corpus only where the user authors a technique the bundle lacks. Core-minimum verification: RAG grounding plus provenance plus the gold-set gate, routing `confidence < 0.6` to human review. CAS, self-consistency, and critic layers deferred. Owns: `ts/routes/pgrep/library/`**, `pylib/anki/pgrep/generation.py`, its bridge handler and tests.
 - **L4.2 ∥ Problem generation.** MCQ with **misconception-first distractors** (name the likely error, derive the trap from it, store the misconception tag and rationale per distractor), plus a stored solution decomposition verified once at creation. Gate against the MCQ gold set: key correct, distractors plausible and grounded, and it beats naive-distractor generation and problem retrieval side by side. Core is misconception-first plus the gate; the student-data distractor ranker is deferred. Owns: `pylib/anki/pgrep/problem_gen.py`, its bridge handler and tests. Reads the `pgrep::Problem` notetype from L1.
 - **L4.3 ∥ Scaffold-fade tutor.** The wrong-answer ladder: L1 nudge, L2 sub-goal decomposition and self-explanation over the **stored** decomposition, L3 sibling worked example, L4 reveal plus explain-back. AI-off is reveal-and-self-compare (required by spec). AI-on is rubric grading with a giveaway verifier so the final answer never leaks. Session-end synthesis from the Attempt log. Owns: `ts/routes/pgrep/study/`** (the ladder UI beyond the L2 static fallback), `pylib/anki/pgrep/tutor.py`, its bridge handler and tests.
 
 **Exit gate.** Every AI output traces to a named source. The gold-set gate has a cutoff set before results were seen, and generation clears it and beats the baseline side by side. The wrong-answer ladder never leaks the answer (verified). The app still produces a Memory score and runs the static ladder with AI off.
 
-**Human dependencies.** Inputs are largely staged. Done: C1 (corpus, under `content/corpus/`), C4 (all of REA as the fed problem examples, both exams, already parsed), E2 (held-out splits and the leakage rule), E3 (cutoffs and the baseline bar, now frozen), plus the LLM key, local embeddings, and the local vector store (the `pgrep-ai` toolchain). Runtime, not pre-authored: C3 (seeds are per-user at run time, not a batch). No ETS is fed to generation. Still gating L4.0: E1, the two gold sets, Frank's. Problem gold is the vision-cleaned GR9677 (real ETS, about 40 to 50 verified items) plus the community 70 (57 keyed), card gold is about 50 corpus-verified cards (OpenStax, Fitzpatrick), not from CWRU. The infrastructure track (index, baselines, harness, plumbing) needs none of these. See `content/L4-HANDOFF.md` and section 5.
+**Human dependencies.** Inputs are largely staged. Done: C1 (corpus, under `content/corpus/`), C4 (all of REA as the fed problem examples, both exams, already parsed), E2 (held-out splits and the leakage rule), E3 (cutoffs and the baseline bar, now frozen), plus the LLM key, local embeddings, and the local vector store (the `pgrep-ai` toolchain). Runtime, not pre-authored: C3 (seeds are per-user at run time, not a batch). No ETS is fed to generation. Still gating L4.0: E1, the two gold sets, Frank's. Problem gold is the vision-cleaned GR9677 (real ETS, about 40 to 50 verified items) plus the community 70 (57 keyed), card gold is about 50 corpus-verified cards (OpenStax, Fitzpatrick), not from CWRU. The infrastructure track (index, baselines, harness, plumbing) needs none of these. See `docs_pgrep/ai/ai-layer.md` and section 5.
 
 **Agents.** L4.0 first (sequential, it is the gate). Then L4.1, L4.2, L4.3 as parallel implementers (different modules and surfaces).
 
@@ -215,19 +215,19 @@ _Resume commands (repo root, conda `pgrep-ai`)._ `python content/tools/make_gold
 > You are the controller for **Build Layer L4 (AI layer)** of pgrep.
 > **Read first, in full:**
 >
-> - content/L4-HANDOFF.md (read this first: the locked decisions, the current state, the file map, the leakage firewall, the safeguards, and the infra-vs-gate split)
+> - docs_pgrep/ai/ai-layer.md (the AI layer: data, decisions, the file map, the leakage firewall, the safeguards, and the infra-vs-gate split)
 > - this file's L4 section
-> - content/eval/CUTOFFS-AND-BASELINES.md (the frozen gate), content/eval/GOLD-SET-SPEC.md, content/eval/HELDOUT-AND-LEAKAGE.md
+> - docs_pgrep/ai/cutoffs-and-baselines.md (the frozen gate), docs_pgrep/ai/gold-set-spec.md, docs_pgrep/ai/heldout-and-leakage.md
 > - docs_pgrep/research/feature-forced-generation.md
 > - docs_pgrep/research/feature-problem-generation.md
 > - docs_pgrep/research/feature-productive-failure.md
 > - design/ux-foundation.md (section 7.4)
-> - docs_pgrep/plan/setup-content-deps.md (tiers, gold set, leakage rule)
+> - docs_pgrep/reference/content-and-dependencies.md (tiers, gold set, leakage rule)
 >
-> **Entry check:** confirm the L1 data model (Problem and Attempt notetypes, topic tags) and the L2 Study loop are on `main`. Confirm the staged inputs, all in place today: the corpus under content/corpus/tier1-open/ (OpenStax Vol 1 to 3 and the three Fitzpatrick texts), the held-out quarantine under content/tier3-private/, the locked blueprint (content/blueprint/), the gold schemas (content/gold/), and the frozen pre-registration (content/eval/CUTOFFS-AND-BASELINES.md). Because these are staged, the infrastructure track can start now. The fed problem examples (all of REA, both exams) are already parsed, so the L4.0 gate closes only when the two gold sets (E1) land; the cutoffs are already locked. Under v3 the problem gold is the vision-cleaned GR9677 plus the community 70, and the card gold is about 50 corpus-verified cards. If a gate input is missing when you reach the gate, stop and tell me exactly what is needed.
+> **Entry check:** confirm the L1 data model (Problem and Attempt notetypes, topic tags) and the L2 Study loop are on `main`. Confirm the staged inputs, all in place today: the corpus under content/corpus/tier1-open/ (OpenStax Vol 1 to 3 and the three Fitzpatrick texts), the held-out quarantine under content/tier3-private/, the locked blueprint (content/blueprint/), the gold schemas (content/gold/), and the frozen pre-registration (docs_pgrep/ai/cutoffs-and-baselines.md). Because these are staged, the infrastructure track can start now. The fed problem examples (all of REA, both exams) are already parsed, so the L4.0 gate closes only when the two gold sets (E1) land; the cutoffs are already locked. Under v3 the problem gold is the vision-cleaned GR9677 plus the community 70, and the card gold is about 50 corpus-verified cards. If a gate input is missing when you reach the gate, stop and tell me exactly what is needed.
 > **Deliverable:** card generation (gap-fill graded, stylize shown live), problem generation (misconception-first distractors), and the scaffold-fade tutor, all traced to named sources, gold-set gated, beating the baseline by the locked margin, with AI-off paths intact.
 > **Your job:** run this layer with subagent-driven development in a `.worktrees/l4-ai` worktree. Start the infrastructure track now: the corpus index (reads content/corpus/ only), the leakage guard (content/tools/leakage_check.py), the keyword and vector baselines, the eval-harness scaffolding, and the RAG and generation plumbing. Build **L4.0 (the eval harness) and get it green** before any graded generation. Hold the scored batch until the two gold sets are in. Then dispatch L4.1, L4.2, L4.3 as parallel implementers. Spec-compliance then code-quality review per task.
-> **Constraints (hard):** every output cites a named source or is refused. Held-out and gold items never enter the corpus, the index, or a prompt (the index reads content/corpus/ only, leakage_check.py enforces it). The ladder never reveals the final answer before the reveal rung (giveaway-verified). Everything must still work AI off. Never mutate scheduling state. Apply the generation safeguards in content/L4-HANDOFF.md section 6: name the split first, keep gold off the fed path, reject memorized outputs (dedup against all ETS and all fed examples), corpus provenance, report seen versus held.
+> **Constraints (hard):** every output cites a named source or is refused. Held-out and gold items never enter the corpus, the index, or a prompt (the index reads content/corpus/ only, leakage_check.py enforces it). The ladder never reveals the final answer before the reveal rung (giveaway-verified). Everything must still work AI off. Never mutate scheduling state. Apply the generation safeguards in docs_pgrep/ai/ai-layer.md section 5: name the split first, keep gold off the fed path, reject memorized outputs (dedup against all ETS and all fed examples), corpus provenance, report seen versus held.
 > **Exit gate:** as above, with the frozen cutoff, the side-by-side baseline win (>= 0.10 absolute, the advantage CI excludes zero), and the AI-off proof. Report the eval numbers, the cutoff, the baseline comparison, and which forms were seen versus held out.
 
 ---
@@ -278,7 +278,7 @@ _Resume commands (repo root, conda `pgrep-ai`)._ `python content/tools/make_gold
 
 **Why.** Turn the working system into shippable artifacts and make the takeover final (spec constraint 8).
 
-**Design refs.** `[setup-content-deps.md](setup-content-deps.md)` (signing, packaging), `[l2.5-onscreen-proof.md](l2.5-onscreen-proof.md)` (the A to C flip), `[../../prod/video/submission-video-kit.md](../../prod/video/submission-video-kit.md)` (the recordings).
+**Design refs.** `[content-and-dependencies.md](../reference/content-and-dependencies.md)` (signing, packaging), `[L2-api-contract.md §6](../contracts/L2-api-contract.md)` (the A to C flip), `[../../prod/video/submission-video-kit.md](../../prod/video/submission-video-kit.md)` (the recordings).
 
 **Tasks.**
 
@@ -299,8 +299,8 @@ _Resume commands (repo root, conda `pgrep-ai`)._ `python content/tools/make_gold
 > **Read first, in full:**
 >
 > - this file's L6 section
-> - docs_pgrep/plan/setup-content-deps.md (signing and packaging)
-> - docs_pgrep/plan/l2.5-onscreen-proof.md (the A to C flip)
+> - docs_pgrep/reference/content-and-dependencies.md (signing and packaging)
+> - docs_pgrep/contracts/L2-api-contract.md §6 (the A to C flip)
 > - prod/video/submission-video-kit.md
 > **Entry check:** confirm L3, L4, and L5 exit gates are green on `main`. If not, stop and tell me.
 > **Deliverable:** the exclusive takeover, final identity and packaging, hardening (crash test, benchmark), and the recorded submission.
@@ -312,26 +312,23 @@ _Resume commands (repo root, conda `pgrep-ai`)._ `python content/tools/make_gold
 
 
 
-## 5. The human track (Frank)
+## 5. Human dependencies (division of labor)
 
-The engine, UI, sync, and AI plumbing are agent-buildable. These are the tasks only Frank can do, mapped to the layer that needs them. Full detail in `[setup-content-deps.md](setup-content-deps.md)`.
+The engine, UI, sync, and AI plumbing are agent-buildable. A few inputs need a human, recorded here so the division of labor is documented. Sourcing, provenance, and dependency detail is in `[content-and-dependencies.md](../reference/content-and-dependencies.md)`; the AI-layer data and decisions are in `[../ai/ai-layer.md](../ai/ai-layer.md)`.
 
+| Input | What | Needed by | Status |
+|---|---|---|---|
+| Sync server | Self-hosted sync endpoint (local Mac or a small VPS) | L3 | done |
+| Corpus (C1) | The Tier-1 named-source corpus, licensed and bundled | L4 | done |
+| Problem examples (C4) | All of REA as the fed problem examples (no ETS fed to generation) | L4 | done |
+| Gold sets (E1) | Problem gold (GR9677 cleaned + community 70) and card gold (~50 corpus-verified) | L4.0 | built, Frank audit pending |
+| Held-out + leakage (E2) | The held-out splits and the leakage rule | L4.0, L5 | done |
+| Cutoffs (E3) | The gold-set cutoff and the baseline bar, frozen before results | L4, L5 | frozen |
+| Grading + report (E4) | Spot-check AI items, write the results report and model cards | L5, L6 | pending |
+| Readiness constants | The Tier-3 raw-to-scaled conversion table (constants only) | L5.3 | extracted |
+| Packaging (P1) | Sign the desktop installer, produce the phone build, clean-machine test | L6 | pending |
 
-| Task                    | What                                                                                                    | Needed by |
-| ----------------------- | ------------------------------------------------------------------------------------------------------- | --------- |
-| **S2**                  | Stand up the self-hosted sync server (local Mac or a small VPS)                                         | L3        |
-| **C1**                  | Assemble the named-source corpus (Tier-1 open plus Tier-2 own), decide what is legal to bundle          | L4        |
-| **C3**                  | Author the seed cards, one conceptual seed per subtopic (the generation-effect requirement)             | L4        |
-| **C4**                  | All of REA as the fed problem examples (both exams, already parsed, no ETS fed to generation)            | L4        |
-| **E1**                  | Build the two gold sets that gate generation: problem gold (GR9677 cleaned + community 70), card gold (~50 corpus-verified) | L4.0      |
-| **E2**                  | Define the held-out splits and the leakage rule (memory reviews, performance questions, a private mock) | L4.0, L5  |
-| **E3**                  | Set the metrics, the gold-set cutoff, and the baseline bar; make ship or no-ship calls                  | L4, L5    |
-| **E4**                  | Spot-check AI items as grader; write the results report, model cards, and Brainlift                     | L5, L6    |
-| **Readiness constants** | Obtain the Tier-3 raw-to-scaled conversion table (constants only, not shipped as items)                 | L5.3      |
-| **P1**                  | Sign and package the desktop installer, produce the phone build, test on a clean machine                | L6        |
-
-
-**The one thing to internalize.** With unlimited AI tokens, compute is not the bottleneck. The scarce inputs are content (C tasks) and judgment (E tasks). Budget the majority of non-agent hours there.
+Content and judgment are the scarce inputs. Compute is not the bottleneck.
 
 ---
 
@@ -372,10 +369,10 @@ The engine, UI, sync, and AI plumbing are agent-buildable. These are the tasks o
 
 ## 7. Appendix: phase contracts and references
 
-- `[l1-coordination-schema.md](l1-coordination-schema.md)` · topic tags, blueprint weights, the Attempt-log schema and invariants (K1 to K5).
-- `[l2-api-contract.md](l2-api-contract.md)` · the frontend-to-backend channels, the `anki.pgrep.*` bridge, per-surface endpoints, file ownership.
-- `[l2.5-onscreen-proof.md](l2.5-onscreen-proof.md)` · the desktop takeover and the documented A to C flip.
-- `[setup-content-deps.md](setup-content-deps.md)` · the human, content, sourcing, and external-tooling track.
+- `[L1-coordination-schema.md](L1-coordination-schema.md)` · topic tags, blueprint weights, the Attempt-log schema and invariants (K1 to K5).
+- `[L2-api-contract.md](L2-api-contract.md)` · the frontend-to-backend channels, the `anki.pgrep.*` bridge, per-surface endpoints, file ownership.
+- `[L2-api-contract.md §6](../contracts/L2-api-contract.md)` · the desktop takeover and the documented A to C flip.
+- `[content-and-dependencies.md](../reference/content-and-dependencies.md)` · the human, content, sourcing, and external-tooling track.
 - `[dev-harness.md](dev-harness.md)` · the build, run, and test recipes for desktop and iOS.
 - `[../research/](../research/)` · the durable "why" behind every feature and model.
 

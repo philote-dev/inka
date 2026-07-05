@@ -12,7 +12,7 @@ when present; otherwise the Memory prior decides; with neither the category
 defaults to ``rusty`` (needs work). The snapshot is stored in the collection
 config so it is re-runnable and survives reopen.
 
-The response shapes are fixed by ``docs_pgrep/plan/l2-api-contract.md`` §3
+The response shapes are fixed by ``docs_pgrep/contracts/L2-api-contract.md`` §3
 (L2.3). Card data is built exactly as in ``test_pgrep_memory.py``.
 """
 

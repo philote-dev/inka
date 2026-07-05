@@ -11,7 +11,7 @@ the reviewed-card counts and the per-topic Memory point come straight from
 ``memory_score`` (``null`` while a topic still abstains). The ``gate`` (0.70) is
 the Readiness coverage gate, shown here but only enforced from L5.
 
-The response shape is fixed by ``docs_pgrep/plan/l2-api-contract.md`` §3
+The response shape is fixed by ``docs_pgrep/contracts/L2-api-contract.md`` §3
 (L2.4). Data is built like ``test_pgrep_memory.py`` (cards with FSRS memory
 state + ``topic::`` tags).
 """

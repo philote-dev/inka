@@ -1,10 +1,7 @@
-# Dataset Pipeline (status board)
+# Dataset pipeline (status board)
 
-**What this is.** The single tracked view of every dataset the AI layer needs:
-its role, its source, its build status, where it lives, and who owns it. This is
-the "what is happening" board. Update the status column as builds land.
-
-**Copy rule.** No em-dashes, sparing colons and semicolons, short labels.
+The tracked status board for every dataset the AI layer needs: role, source,
+build status, location, and owner. Update the status column as builds land.
 
 ---
 
@@ -16,8 +13,8 @@ the "what is happening" board. Update the status column as builds land.
 - **Private data and its manifests** live in `content/` (git-ignored). That
   folder holds copyrighted and held-out material plus the manifests that list
   those private files by path, so it cannot be committed. The manifests
-  (`SOURCING-PLAN.md`, `INGEST-MANIFEST.md`, `ATTRIBUTION.md`, the `eval/` specs)
-  stay next to the data they describe. This board is the tracked summary of them.
+  (`content/manifests/` and the `docs_pgrep/ai/` specs) stay next to the data they
+  describe. This board is the tracked summary of them.
 
 ---
 
@@ -30,11 +27,13 @@ the "what is happening" board. Update the status column as builds land.
 | Brainscape examples | fed card-generation examples | 10 decks | done, 747 cards | `content/examples/brainscape/` | agent |
 | CWRU examples | fed card-generation examples | Doc Brown set | done, 292 cards | `content/examples/cwru/` | agent |
 | REA reference questions | all fed problem examples (both exams, no split) | REA prep book | done, 200 MCQs | `content/examples/reference-questions/` | agent |
-| Community 70 | problem gold source (with the GR9677 gold) | forum RTF | done, 70 items (57 keyed) | `content/gold/candidates/community-70.json` | agent |
-| GR9677 gold | problem gold source, real ETS vision-cleaned | GR9677 form | in progress, parallel task | `content/gold/candidates/` | agent |
+| Community 70 | problem gold source (with the GR9677 gold) | forum RTF | done, 57 keyed, annotated + key-triangulated | `content/gold/candidates/community-70.json` | agent |
+| GR9677 gold | problem gold source, real ETS vision-cleaned | GR9677 form | done, 61 promoted | `content/gold/candidates/gr9677-problem-gold.json` | agent |
 | Fed problem examples | few-shot for problem gen | REA (all 200 MCQs, both exams) | done, 200 MCQs | `content/examples/reference-questions/` | agent |
-| Problem gold set | ruler for problem generation | GR9677 (cleaned) + community 70 | source in progress, Frank verifies | `content/gold/problems/` | Frank + me |
-| Card gold set (~50) | ruler for card generation | corpus (OpenStax, Fitzpatrick), not CWRU | source ready, Frank verifies | `content/gold/cards/` | Frank + me |
+| Problem gold set | ruler for problem generation | GR9677 (cleaned) + community 70 | done, 118 drafted + validated, Frank audit pending | `content/gold/problems/` | Frank + me |
+| Card gold set (~50) | ruler for card generation | corpus (OpenStax, Fitzpatrick), not CWRU | done, 50 authored + validated, Frank audit pending | `content/gold/cards/` | Frank + me |
+| Generated batch | AI vs baselines, blind scored | corpus + gpt-5.5 generator | done, 294 candidates (86 AI, 18 refused) | `content/run/candidates.json` | agent |
+| Score report | the gate numbers | batch vs gold | pending, runs after gold is frozen | `content/run/score_report.json` | agent |
 | Sealed readiness mock | final readiness validation | GR1777 | sealed | `content/tier3-private/sealed-mock/` | untouched |
 | Readiness constants | raw-to-scaled mapping | GR1777 tables | done, extracted | `content/tier3-private/constants/` | agent |
 | Memory calibration | FSRS Brier and reliability | anki-revlogs-10k slice | verify first | to be placed | eval agent |
@@ -53,11 +52,15 @@ problems, no split). The ETS-dedup scan has run: 0 verbatim ETS reprints among t
 
 ## Frank's homework (the L4 gate)
 
-- Verify the problem gold set: the vision-cleaned GR9677 plus the community 70.
-  GR9677 is a real ETS form with published solutions (the Faucett Omnibus) that seed
-  the distractor rationales. The community 70 needs them authored.
-- Verify about 50 card-gold items from the corpus (OpenStax, Fitzpatrick), not
-  from CWRU.
+The problem gold (118) and card gold (50) are drafted, machine-verified, and
+validated. Community keys were triangulated across three independent solvers, and
+the one genuinely contested key was adjudicated. What remains is a short human
+audit, then the scored re-run.
 
-The fed examples (Brainscape, CWRU, all of REA) are assembled. Everything else on
-this board is agent-built and done.
+- Skim a spot-check sample (the gpt-5.5-dissent problems plus a handful of random
+  problems and cards) and confirm the drafting quality holds.
+- On your OK, the gold is frozen to verified and the scored batch runs on it.
+
+See `../ai/ai-layer.md` for the current state and the exact review steps. The
+fed examples (Brainscape, CWRU, all of REA) are assembled. Everything else on this
+board is agent-built and done.

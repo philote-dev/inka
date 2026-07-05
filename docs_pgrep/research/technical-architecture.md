@@ -165,6 +165,6 @@ flowchart LR
 | **Reproducible eval (spec 4/6)** | Held-out splits + fixed seeds + a gold-set gate + a named-baseline comparison, run by one command. Owned by the eval harness (`build-plan.md` L4.0/L5). Methodology now has its own doc, `statistics-and-evaluation.md`. |
 | **Secrets + privacy** | LLM API keys live in Settings / OS secure storage — **never synced, never committed, never in notes**. Self-hosted sync auth via `SYNC_USER1=user:pass`. User data stays local-first; the sync server is ours (no AnkiWeb). |
 | **Licensing / attribution (spec 9)** | The fork stays **AGPL-3.0-or-later**, credits Anki. Added deps are AGPL-compatible (Three.js MIT, Inter/JetBrains Mono OFL, Lucide ISC — `ux-foundation.md` §10). |
-| **Packaging / installers (spec 8)** | Desktop installer (Briefcase templates in `qt/installer/`) + phone build (iOS TestFlight/sideload). Owned by **L6**; external accounts/signing in `setup-content-deps.md`. |
+| **Packaging / installers (spec 8)** | Desktop installer (Briefcase templates in `qt/installer/`) + phone build (iOS TestFlight/sideload). Owned by **L6**; external accounts/signing in `../reference/content-and-dependencies.md`. |
 
 _Sources: exploration agent c406326e; `.understand-anything/knowledge-graph.json`; `rslib/src/sync/**`, `rslib/src/ankidroid/**`, `proto/anki/{sync,ankidroid}.proto`, `docs/syncserver/`, `docs/architecture.md`; cohort chats (felipe shared-engine-sync; ryan charged_up iOS/FFI; aadi sync exploration). Spec §3, 7b, 7g._

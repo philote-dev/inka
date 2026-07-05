@@ -3,7 +3,7 @@
 
 """Tests for the attempt log (notes-as-log) and its read-model seam (L1.2).
 
-Contract: docs_pgrep/plan/l1-coordination-schema.md §3 (K1-K5 + idempotency).
+Contract: docs_pgrep/contracts/L1-coordination-schema.md §3 (K1-K5 + idempotency).
 These tests use real Anki notes/cards (no mocks).
 """
 
