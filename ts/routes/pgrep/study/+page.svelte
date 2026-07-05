@@ -10,6 +10,7 @@ Styled with the pgrep design system (StudyFrame, ChoiceList, HintRung, GradeBar)
 the data flow through pgrepCall is unchanged.
 -->
 <script lang="ts">
+    import { page } from "$app/state";
     import { onMount } from "svelte";
 
     import ChoiceList from "$lib/components/ChoiceList.svelte";
@@ -137,6 +138,13 @@ the data flow through pgrepCall is unchanged.
     let synthesis: Synthesis | null = null;
 
     onMount(async () => {
+        // A topic preselected from the manifold focus-drill entry arrives as
+        // ?topic=<slug>. Scope the drill to it so the learner lands on the
+        // launcher ready to pick the Cards or Problems door for that topic.
+        const preset = page.url.searchParams.get("topic") ?? "";
+        if (CATEGORY_SLUGS.includes(preset)) {
+            drillTopic = preset;
+        }
         try {
             const status = await pgrepCall<{ enabled: boolean }>("pgrepAiStatus", {});
             aiOn = status.enabled;
