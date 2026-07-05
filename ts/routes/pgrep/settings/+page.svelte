@@ -3,12 +3,12 @@ Copyright: Ankitects Pty Ltd and contributors
 License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
 <!-- pgrep Settings. Sectioned preference cards, ported from the Claude Design
-     export (design/ux-foundation.md). Sync (pgrepSync) and the AI toggle
-     (pgrepAiStatus / pgrepAiSetEnabled) are wired to the backend; the theme
-     control flips the theme live. The remaining rows (target retention, test
-     date, export, reset) are local until their RPCs exist. Honesty note baked in:
-     the app works and still scores with AI off. The shared rail comes from
-     +layout.svelte, so this surface renders content only. -->
+     export (design/ux-foundation.md). Every control is wired to the backend:
+     target retention persists on the sample deck's FSRS config, test date and
+     theme persist in the collection, Export writes a .colpkg, and Sync runs
+     Anki's own sync. The AI toggle reads and writes the AI seam. Honesty note
+     baked in: the app works and still scores with AI off. The shared rail comes
+     from +layout.svelte, so this surface renders content only. -->
 <script lang="ts">
     import { onMount } from "svelte";
     import { pgrepCall } from "../lib/bridge";
@@ -22,19 +22,33 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         ready: boolean;
     }
 
+    interface Settings {
+        target_retention: number;
+        test_date: string | null;
+        theme: Theme | null;
+        retention_min: number;
+        retention_max: number;
+    }
+
     const THEMES: Theme[] = ["Light", "Dark", "System"];
 
     let targetRetention = 0.9;
+    let retentionMin = 0.7;
+    let retentionMax = 0.97;
     // AI is off by default; the real state is read from the backend on mount so
     // the toggle never claims AI is on when it is not.
     let aiOn = false;
     let aiBusy = false;
     let theme: Theme = "Dark";
-    const testDate = "Oct 24, 2026";
+    // An ISO YYYY-MM-DD string, or empty when the learner has set no test date.
+    let testDate = "";
 
     let serverURL = "http://127.0.0.1:8090/";
     let syncing = false;
     let syncMsg = "";
+
+    let exporting = false;
+    let dataMsg = "";
 
     async function loadAiStatus(): Promise<void> {
         try {
@@ -42,6 +56,54 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             aiOn = status.enabled;
         } catch {
             aiOn = false;
+        }
+    }
+
+    async function loadSettings(): Promise<void> {
+        try {
+            const s = await pgrepCall<Settings>("pgrepSettingsGet", {});
+            targetRetention = s.target_retention;
+            retentionMin = s.retention_min;
+            retentionMax = s.retention_max;
+            testDate = s.test_date ?? "";
+            // A stored theme wins; otherwise the app keeps reflecting whatever it
+            // already shows, so a fresh profile never claims a choice unmade.
+            if (s.theme) {
+                applyTheme(s.theme);
+            }
+        } catch {
+            // Leave the honest defaults in place if the read fails.
+        }
+    }
+
+    async function saveRetention(): Promise<void> {
+        try {
+            const s = await pgrepCall<Settings>("pgrepSettingsSet", {
+                target_retention: targetRetention,
+            });
+            targetRetention = s.target_retention;
+        } catch {
+            // Keep the shown value; the next load reconciles it.
+        }
+    }
+
+    async function saveTestDate(): Promise<void> {
+        try {
+            const s = await pgrepCall<Settings>("pgrepSettingsSet", {
+                test_date: testDate,
+            });
+            testDate = s.test_date ?? "";
+        } catch {
+            // Keep the typed value; the next load reconciles it.
+        }
+    }
+
+    async function chooseTheme(next: Theme): Promise<void> {
+        applyTheme(next);
+        try {
+            await pgrepCall("pgrepSettingsSet", { theme: next });
+        } catch {
+            // The live theme still applied; persistence retries on the next pick.
         }
     }
 
@@ -75,6 +137,25 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         }
     }
 
+    async function exportData(): Promise<void> {
+        if (exporting) {
+            return;
+        }
+        exporting = true;
+        dataMsg = "Exporting\u2026";
+        try {
+            const res = await pgrepCall<{ status: string; path: string }>(
+                "pgrepExport",
+                {},
+            );
+            dataMsg = `Export running. Saving to ${res.path}`;
+        } catch (e) {
+            dataMsg = `Export failed: ${e}`;
+        } finally {
+            exporting = false;
+        }
+    }
+
     $: retentionLabel = targetRetention.toFixed(2);
 
     function nightModeOn(): boolean {
@@ -102,6 +183,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         // Reflect the theme the app already shows, so the control starts honest.
         theme = nightModeOn() ? "Dark" : "Light";
         void loadAiStatus();
+        void loadSettings();
     });
 </script>
 
@@ -124,10 +206,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     <div class="row-control slider">
                         <input
                             type="range"
-                            min="0.7"
-                            max="0.97"
+                            min={retentionMin}
+                            max={retentionMax}
                             step="0.01"
                             bind:value={targetRetention}
+                            on:change={saveRetention}
                             aria-label="Target retention"
                         />
                         <span class="val">{retentionLabel}</span>
@@ -138,23 +221,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         <div class="row-title">Test date</div>
                         <div class="row-sub">Pacing works back from this day</div>
                     </div>
-                    <button class="pill-btn" type="button">
-                        <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 20 20"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="1.5"
-                            stroke-linecap="round"
-                        >
-                            <rect x="3" y="4.5" width="14" height="12.5" rx="2" />
-                            <line x1="3" y1="8.5" x2="17" y2="8.5" />
-                            <line x1="7" y1="2.5" x2="7" y2="6" />
-                            <line x1="13" y1="2.5" x2="13" y2="6" />
-                        </svg>
-                        <span class="mono">{testDate}</span>
-                    </button>
+                    <input
+                        class="date-input mono"
+                        type="date"
+                        bind:value={testDate}
+                        on:change={saveTestDate}
+                        aria-label="Test date"
+                    />
                 </div>
             </div>
         </section>
@@ -233,7 +306,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                             <button
                                 class="seg"
                                 class:on={theme === opt}
-                                on:click={() => applyTheme(opt)}
+                                on:click={() => chooseTheme(opt)}
                             >
                                 {opt}
                             </button>
@@ -250,10 +323,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     <div class="row-text">
                         <div class="row-title">Export</div>
                         <div class="row-sub">
-                            Your cards, attempts, and history as a file
+                            {dataMsg || "Your cards, attempts, and history as a file"}
                         </div>
                     </div>
-                    <button class="pill-btn strong" type="button">Export</button>
+                    <button
+                        class="pill-btn strong"
+                        type="button"
+                        on:click={exportData}
+                        disabled={exporting}
+                    >
+                        {exporting ? "Exporting…" : "Export"}
+                    </button>
                 </div>
                 <div class="row">
                     <div class="row-text">
@@ -378,6 +458,35 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             outline: none;
             border-color: var(--muted);
         }
+    }
+
+    .date-input {
+        flex: 0 0 auto;
+        background: var(--elevated);
+        border: var(--hairline);
+        border-radius: var(--radius-control);
+        padding: 8px 12px;
+        color: var(--text);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        cursor: pointer;
+        // Light by default; the night-mode override flips the native calendar
+        // indicator so it stays visible in dark.
+        color-scheme: light;
+        transition: var(--transition-calm);
+
+        &:hover {
+            border-color: var(--muted);
+        }
+
+        &:focus {
+            outline: none;
+            border-color: var(--muted);
+        }
+    }
+
+    :global(.night-mode) .date-input {
+        color-scheme: dark;
     }
 
     .pill-btn {

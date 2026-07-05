@@ -261,6 +261,62 @@ def pgrep_sync() -> bytes:
     return _json({"status": "started", "url": url})
 
 
+# L5.9 Settings. The get/set handlers read and write only the open collection's
+# config and the sample deck's config, so they are safe on the mediasrv thread.
+# Export must close and reopen the collection, so it runs on the main thread via
+# QueryOp, exactly like Anki's own colpkg export.
+
+
+def pgrep_settings_get() -> bytes:
+    from anki.pgrep import settings
+
+    return _json(settings.get_settings(aqt.mw.col))
+
+
+def pgrep_settings_set() -> bytes:
+    from anki.pgrep import settings
+
+    return _json(settings.apply_settings(aqt.mw.col, _args()))
+
+
+# Data / Export. Writes a timestamped .colpkg (cards, media, and the attempt
+# notes) to a user-visible folder and reports the path. Reuses Anki's own
+# collection-package export, run on the main thread with the same close/reopen
+# dance the desktop exporter uses, so nothing on the mediasrv thread touches the
+# collection while it is temporarily closed.
+def pgrep_export() -> bytes:
+    from anki.pgrep import settings
+    from aqt import gui_hooks
+    from aqt.operations import QueryOp
+    from aqt.utils import showWarning, tooltip
+
+    mw = aqt.mw
+    out_path = settings.default_export_path()
+
+    def start() -> None:
+        def on_success(_: None) -> None:
+            mw.reopen()
+            tooltip(f"Exported to {out_path}", parent=mw)
+
+        def on_failure(exc: Exception) -> None:
+            mw.reopen()
+            showWarning(str(exc), parent=mw)
+
+        gui_hooks.collection_will_temporarily_close(mw.col)
+        QueryOp(
+            parent=mw,
+            op=lambda col: col.export_collection_package(
+                out_path, include_media=True, legacy=False
+            ),
+            success=on_success,
+        ).with_progress("Exporting your collection").failure(
+            on_failure
+        ).run_in_background()
+
+    mw.taskman.run_on_main(start)
+    return _json({"status": "started", "path": out_path})
+
+
 # Registered once into mediasrv's post_handler_list (see qt/aqt/mediasrv.py).
 pgrep_post_handlers = [
     pgrep_seed,
@@ -282,4 +338,7 @@ pgrep_post_handlers = [
     pgrep_tutor_grade,
     pgrep_tutor_synthesis,
     pgrep_sync,
+    pgrep_settings_get,
+    pgrep_settings_set,
+    pgrep_export,
 ]
