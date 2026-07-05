@@ -261,6 +261,27 @@ def pgrep_sync() -> bytes:
     return _json({"status": "started", "url": url})
 
 
+# Dev-only (pgrep-lab, L5.9 P5). Injects or clears a clearly-marked hypothetical
+# demo profile so the three scores light up on demand for hands-on testing and
+# the desktop-to-mobile sync demo. This is NOT wired into any shipped user
+# surface (Home, Study, Progress, Diagnostic, Library, Settings); it is reachable
+# only from the pgrep-lab dev gallery. Real accounts never call it, so they still
+# abstain by construction. Always returns the current status (with a scores
+# snapshot) so the lab can show the result of the action immediately.
+def pgrep_demo_profile() -> bytes:
+    from anki.pgrep import demo_profile
+
+    args = _args()
+    action = args.get("action", "status")
+    if action == "inject":
+        demo_profile.inject_demo_profile(
+            aqt.mw.col, profile=args.get("profile", demo_profile.DEFAULT_PROFILE)
+        )
+    elif action == "clear":
+        demo_profile.clear_demo_profile(aqt.mw.col)
+    return _json(demo_profile.demo_status(aqt.mw.col))
+
+
 # Registered once into mediasrv's post_handler_list (see qt/aqt/mediasrv.py).
 pgrep_post_handlers = [
     pgrep_seed,
@@ -282,4 +303,5 @@ pgrep_post_handlers = [
     pgrep_tutor_grade,
     pgrep_tutor_synthesis,
     pgrep_sync,
+    pgrep_demo_profile,
 ]

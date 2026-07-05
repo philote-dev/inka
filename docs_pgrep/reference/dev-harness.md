@@ -166,6 +166,78 @@ The iOS Simulator shares the Mac's network, so `http://127.0.0.1:8080/` works
 from the Simulator. A physical device needs the Mac's LAN IP. Health check:
 `curl http://127.0.0.1:8080/health` returns `200`.
 
+## Demo profile and the sync walkthrough
+
+The three scores abstain honestly until an account has earned them, which is the
+correct behavior but leaves a fresh demo account showing "not enough yet"
+everywhere. The demo profile injector fixes that on demand. It writes a clearly
+marked, hypothetical study history (reviewed cards with FSRS state, plus clean
+Attempt notes across most of the blueprint) so Memory, Performance, and
+Readiness all produce real numbers. It is a dev tool, reachable only from
+`pgrep-lab`, so real user accounts never auto-inject and still abstain by
+construction.
+
+What it does and does not light up. It lights up the three **scores** (Memory,
+Performance, Readiness). It does not change the **calibration** reliability
+diagrams on Progress, which come from embedded offline evaluations rather than
+user data. That is expected.
+
+The module is `pylib/anki/pgrep/demo_profile.py`
+(`inject_demo_profile`, `clear_demo_profile`, `demo_status`), driven by the
+dev-only bridge handler `pgrep_demo_profile` in `qt/aqt/pgrep.py`. Every reviewed
+card carries the `pgrep::demo` tag and every attempt carries a `demo` payload
+flag, so injection is idempotent and `Clear demo` removes exactly the demo data.
+
+### Inject on the desktop
+
+The demo control lives at the `/pgrep-lab/demo` route, alongside the manifold lab
+and the component gallery (linked from the shared lab nav). It is a dev surface
+with no link from the shipped Home / Study / Progress flow, so reach it one of
+two ways.
+
+- Inside the running app (no flags). Run `just run`. The `just run` log prints a
+  remote debugging URL (for example `http://127.0.0.1:8080`). Open it in Chrome,
+  pick the pgrep page, and run `location.assign('/pgrep-lab/demo')` in the
+  console. The page loads inside the app's webview, which injects the bridge
+  auth header, so its buttons work.
+- In a plain browser (dev convenience). Launch with the local API open,
+  `ANKI_API_HOST=0.0.0.0 just run`, then open
+  `http://127.0.0.1:40000/pgrep-lab/demo` in any browser. This flag lets a
+  non-webview page reach the bridge, so use it only on a trusted dev machine.
+
+Then the click path is the same:
+
+1. Pick **Strong learner** or **Rusty learner**, then click **Inject profile**.
+   The three score cards switch from "Abstains" to real numbers and the coverage
+   bar clears the 70% Readiness gate. Both profiles clear every gate; the strong
+   learner just projects a higher score.
+2. Open the real **Progress** surface to confirm Memory, Performance, and
+   Readiness now render live scores with ranges. **Clear demo** on the lab page
+   removes it again.
+
+### Push it desktop to mobile
+
+1. Start the self-hosted server: `just sync-server` (serves `pgrep:pgrep` on
+   `0.0.0.0:8080`). Health check: `curl http://127.0.0.1:8080/health` returns
+   `200`.
+2. On the desktop, inject the profile (above), then sync up. Either use the
+   **Sync now** button on the pgrep **Settings** surface with the server URL set
+   to `http://127.0.0.1:8080/`, or open **Preferences** and set the self-hosted
+   sync URL there, then Sync. Log in with `pgrep` / `pgrep`. The reviewed cards
+   and the Attempt notes ride Anki's normal note sync, so nothing custom is
+   needed.
+3. On iOS: `just ios-run` to launch the app in the Simulator. Open the
+   **Settings** tab, set the same URL (`http://127.0.0.1:8080/` works from the
+   Simulator, which shares the Mac network), log in with `pgrep` / `pgrep`, and
+   Sync.
+4. The phone's Home glance now shows the same lit-up Memory, Performance, and
+   Readiness that the desktop shows, computed on the shared engine from the
+   synced cards and attempts. Record it for the demo reel with
+   `xcrun simctl io booted recordVideo pgrep-ios.mp4`.
+
+To reset, click **Clear demo** on the desktop lab page and sync both ends again,
+or sync a fresh account.
+
 ## CI (follow-up)
 
 A macOS GitHub Actions job could run `just ios-smoke` on every PR to guard the
