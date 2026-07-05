@@ -29,9 +29,11 @@ from anki.pgrep import performance
 from anki.pgrep.attempt_log import append_attempt
 from anki.pgrep.blueprint import CATEGORY_SLUGS
 from anki.pgrep.performance import (
+    _REASON_IMPRECISE,
     DEFAULT_CALIBRATION,
     DEFAULT_COEFFICIENTS,
     K_PERF_DEFAULT,
+    MIN_RESPONSE_MS_DEFAULT,
     BetaCalibration,
     PFACoefficients,
     _beta_interval,
@@ -177,19 +179,22 @@ def _add_mastery(col, topic, n=5, **kwargs):
         _add_reviewed_card(col, topic, **kwargs)
 
 
-def _append_attempts(col, topic, results, *, difficulty=None):
+def _append_attempts(col, topic, results, *, difficulty=None, distinct=None):
     """Append clean attempts for ``topic``; ``results`` is a list of bools.
 
-    Each attempt gets a distinct ``item_note_id`` (so topic coverage is full) and
-    an increasing ``answered_at`` (so the recency window is well ordered).
+    Each attempt gets an increasing ``answered_at`` (so the recency window is well
+    ordered). ``distinct`` bounds the number of distinct ``item_note_id`` values
+    (default: one per attempt, i.e. full item coverage); a small ``distinct``
+    models drilling the same few items, which deflates the interval's evidence.
     """
     base = next(_counter) * 1000
     start = int(time.time()) - len(results) * 3600
     for i, correct in enumerate(results):
+        item_offset = i % distinct if distinct else i
         event = {
             "topic": topic,
             "correct": bool(correct),
-            "item_note_id": base + i,
+            "item_note_id": base + item_offset,
             "answered_at": start + i * 60,
             "ladder_depth": 0,
         }
@@ -347,6 +352,103 @@ def test_harder_authored_difficulty_scores_lower_end_to_end():
 
     assert easy["abstain"] is False and hard["abstain"] is False
     assert easy["point"] > hard["point"]
+
+
+def test_word_difficulty_labels_map_hard_below_easy():
+    # Difficulty supplied as WORDS ("easy"/"hard") must route through the
+    # _DIFFICULTY_LABELS map (2.0 vs 4.0), so the harder topic scores lower.
+    col = getEmptyCol()
+    _add_mastery(col, "topic::mechanics::kinematics")
+    _add_mastery(col, "topic::quantum::spin")
+    _append_attempts(
+        col, "topic::mechanics::kinematics", [True] * K_PERF_DEFAULT, difficulty="easy"
+    )
+    _append_attempts(
+        col, "topic::quantum::spin", [True] * K_PERF_DEFAULT, difficulty="hard"
+    )
+
+    data = performance_score(col)
+    easy = _topic(data, "mechanics")
+    hard = _topic(data, "quantum")
+
+    assert easy["abstain"] is False and hard["abstain"] is False
+    assert easy["point"] > hard["point"]
+
+
+# --- Collection integration: data-quality filter, coverage, precision --------
+
+
+def test_is_clean_excludes_laddered_and_rapid_guess_attempts():
+    # M5 data-quality filter: a laddered attempt (help used) and a rapid guess are
+    # both dropped, so only the k_perf clean attempts count toward the score.
+    col = getEmptyCol()
+    topic = "topic::mechanics::kinematics"
+    _append_attempts(col, topic, [True] * K_PERF_DEFAULT)  # clean, would score
+    answered = int(time.time())
+    append_attempt(
+        col,
+        {
+            "topic": topic,
+            "correct": True,
+            "item_note_id": 900001,
+            "answered_at": answered,
+            "ladder_depth": 2,  # help was used -> excluded
+        },
+    )
+    append_attempt(
+        col,
+        {
+            "topic": topic,
+            "correct": True,
+            "item_note_id": 900002,
+            "answered_at": answered,
+            "ladder_depth": 0,
+            "response_ms": int(MIN_RESPONSE_MS_DEFAULT) - 1,  # rapid guess -> excluded
+        },
+    )
+
+    mech = _topic(performance_score(col), "mechanics")
+
+    # If either dirty attempt leaked in, this count would be 9 or 10, not k_perf.
+    assert mech["n_attempts"] == K_PERF_DEFAULT
+    assert mech["abstain"] is False
+
+
+def test_repeated_items_widen_the_interval_versus_distinct_items():
+    # Coverage (M6) as interval widener: same count and record, but drilling one
+    # item deflates n_eff, so the interval is wider than the same attempts spread
+    # over distinct items. A relaxed width cap keeps both topics scored so the
+    # widths are directly comparable.
+    col = getEmptyCol()
+    record = [True, False] * K_PERF_DEFAULT  # 16 attempts, balanced
+    _append_attempts(col, "topic::mechanics::kinematics", record)  # all distinct
+    _append_attempts(col, "topic::quantum::spin", record, distinct=1)  # one item
+
+    data = performance_score(col, max_interval_width=1.0)
+    diverse = _topic(data, "mechanics")
+    repeated = _topic(data, "quantum")
+
+    assert diverse["abstain"] is False and repeated["abstain"] is False
+    diverse_width = diverse["high"] - diverse["low"]
+    repeated_width = repeated["high"] - repeated["low"]
+    assert repeated_width > diverse_width
+
+
+def test_precision_abstain_when_items_are_too_few_and_repeated():
+    # Precision-based abstain: enough attempts to pass the thin gate, but all on a
+    # SINGLE item, so the deflated interval stays wider than max_interval_width and
+    # the topic abstains as "not precise enough" (the _REASON_IMPRECISE branch).
+    col = getEmptyCol()
+    balanced = [i % 2 == 0 for i in range(K_PERF_DEFAULT)]
+    _append_attempts(col, "topic::mechanics::kinematics", balanced, distinct=1)
+
+    mech = _topic(performance_score(col), "mechanics")
+
+    assert mech["n_attempts"] == K_PERF_DEFAULT  # past the thin gate
+    assert mech["abstain"] is True
+    assert mech["reason"] == _REASON_IMPRECISE
+    assert mech["point"] is None
+    assert mech["low"] is None and mech["high"] is None
 
 
 # --- AI-off by construction --------------------------------------------------

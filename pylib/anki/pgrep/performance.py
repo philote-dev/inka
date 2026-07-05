@@ -21,7 +21,8 @@ calibrated logistic over four interpretable predictors:
 - ``mastery_t`` is the topic's mean FSRS retrievability ``R`` (the memory ->
   performance bridge), read from the **same** primitive Memory uses
   (:func:`anki.pgrep.memory.memory_score`), so Memory and Performance never
-  disagree. Unknown mastery (Memory abstains) falls back to the max-entropy prior.
+  disagree. Unknown mastery (Memory abstains) falls back to a neutral value
+  (max entropy, ``0.5``).
 - ``difficulty_norm_j`` is the item's authored difficulty (numeric 1..5) mapped to
   ``[0,1]`` by ``(d-1)/4`` and **subtracted** (harder -> less likely). Read from
   the attempt payload; a neutral default is used when it is absent.
@@ -37,13 +38,16 @@ al. 2017): ``p = sigma(c + a*ln(raw) - b*ln(1-raw))``. Shipped params are
 constants from the offline fit.
 
 Uncertainty & abstain (``performance-model.md`` §5). Every score ships an **80%
-central interval** (house convention). We form it as a **Bayesian (Beta) credible
-interval that partially pools the topic toward the calibrated model prediction**:
-the model prediction is the prior mean, and the topic's clean attempts add
-evidence (a partial-pooling-style shrinkage — thin topics get honest wide
-intervals). A topic **abstains** until it has ``k_perf`` clean attempts *and* its
-interval is tighter than ``max_interval_width``. With an empty attempt log (the
-n=1 reality today) every topic abstains — that is the correct behavior.
+central interval** (house convention). The interval is the central span of a Beta
+distribution **centered on the calibrated point prediction**, whose concentration
+grows with the number of **distinct** clean attempts (``n_eff``). It is *not* a
+Bayesian posterior over the success rate: the center is fixed at the model's
+prediction, and the attempts only set the width. So a thin or repetitive topic
+gets an honestly wide interval, and observed wins/losses move the point *only*
+through the prediction's recency features (M3/M4), never as a rate update of the
+interval's center. A topic **abstains** until it has ``k_perf`` clean attempts
+*and* its interval is tighter than ``max_interval_width``. With an empty attempt
+log (the n=1 reality today) every topic abstains — that is the correct behavior.
 
 The learned coefficients and calibration params below are **defaults from the
 offline synthetic fit** (``content/tools/performance_eval.py``, ``SEED``
@@ -61,7 +65,7 @@ from typing import TYPE_CHECKING, Any
 
 from anki.pgrep.attempt_log import attempts
 from anki.pgrep.blueprint import BLUEPRINT_PERCENT, CATEGORY_SLUGS
-from anki.pgrep.coverage import COVERAGE_GATE, coverage
+from anki.pgrep.coverage import COVERAGE_GATE
 from anki.pgrep.memory import memory_score
 
 if TYPE_CHECKING:
@@ -83,10 +87,12 @@ MAX_INTERVAL_WIDTH_DEFAULT = 0.40
 # ``g_s`` / ``g_f`` stay on scale (eval RECENCY_WINDOW = 8).
 RECENCY_WINDOW_DEFAULT = 8
 
-# Partial-pooling prior strength: how many pseudo-observations of confidence the
-# calibrated model prediction contributes before any attempts are seen. The model
-# is a validated predictor (it beats the base-rate baseline), so it is worth a few
-# observations; real attempts still gate the abstain (``k_perf``). Tunable.
+# Base concentration for the interval: a floor on the effective attempt count
+# ``n_eff`` so that a just-qualified topic gets a sensibly bounded width. It is NOT
+# a Bayesian prior on the rate; the interval is always centered on the calibrated
+# prediction. The model is a validated predictor (it beats the base-rate
+# baseline), so a small floor is justified; real attempts still gate the abstain
+# (``k_perf``). Tunable.
 POOLING_STRENGTH_DEFAULT = 4.0
 
 # Latency data-quality filter (M5): attempts faster than this are rapid guesses
@@ -101,7 +107,7 @@ __all__ = ["performance_score", "COVERAGE_GATE"]
 # used only for the overall aggregate (per-topic uses the Beta interval).
 _Z_80 = 1.2816
 
-# Central-interval mass for the per-topic Beta credible interval.
+# Central-interval mass for the per-topic Beta interval.
 _INTERVAL_MASS = 0.80
 
 _REASON_THIN = "Not enough attempts yet"
@@ -293,9 +299,15 @@ def _beta_ppf(q: float, a: float, b: float) -> float:
     return 0.5 * (lo + hi)
 
 
-def _posterior_alpha_beta(point: float, n_eff: float) -> tuple[float, float]:
-    """Beta posterior params: prior centered at ``point`` with concentration
-    ``n_eff`` plus a Jeffreys ``+0.5`` (partial pooling toward the model)."""
+def _beta_concentration_params(point: float, n_eff: float) -> tuple[float, float]:
+    """Beta ``(alpha, beta)`` for an interval centered on ``point``.
+
+    The mean is pinned near ``point`` (the calibrated prediction) and the total
+    concentration is ``n_eff``, so more distinct clean attempts give a tighter
+    interval. The ``+0.5`` keeps both shape params positive at the extremes. This
+    is a width model, not a Bayesian posterior over the success rate: ``point`` is
+    fixed and the attempts only set the spread.
+    """
     p = _clamp(point, 1e-6, 1.0 - 1e-6)
     kappa = max(n_eff, 0.0)
     return kappa * p + 0.5, kappa * (1.0 - p) + 0.5
@@ -304,8 +316,8 @@ def _posterior_alpha_beta(point: float, n_eff: float) -> tuple[float, float]:
 def _beta_interval(
     point: float, n_eff: float, mass: float = _INTERVAL_MASS
 ) -> tuple[float, float]:
-    """The ``mass`` central Beta credible interval, guaranteed to bracket ``point``."""
-    a, b = _posterior_alpha_beta(point, n_eff)
+    """The ``mass`` central interval of the width Beta, guaranteed to bracket ``point``."""
+    a, b = _beta_concentration_params(point, n_eff)
     tail = (1.0 - mass) / 2.0
     low = _beta_ppf(tail, a, b)
     high = _beta_ppf(1.0 - tail, a, b)
@@ -314,8 +326,8 @@ def _beta_interval(
 
 
 def _beta_variance(point: float, n_eff: float) -> float:
-    """Variance of the topic's Beta posterior (for the overall aggregate)."""
-    a, b = _posterior_alpha_beta(point, n_eff)
+    """Variance of the topic's width Beta (for the overall aggregate)."""
+    a, b = _beta_concentration_params(point, n_eff)
     total = a + b
     return (a * b) / (total * total * (total + 1.0))
 
@@ -370,13 +382,14 @@ def _attempt_difficulty(payload: dict[str, Any]) -> float | None:
 
 
 def _topic_features(
-    events: list[Event], mastery: float, recency_window: int
-) -> tuple[float, float, int, int, int]:
-    """(mastery, mean_difficulty, recent_successes, recent_failures, distinct_items).
+    events: list[Event], recency_window: int
+) -> tuple[float, int, int, int]:
+    """(mean_difficulty, recent_successes, recent_failures, distinct_items).
 
     ``events`` are the topic's clean attempts, oldest first. Successes/failures are
     counted over the last ``recency_window``; difficulty is averaged over all of
-    the topic's clean attempts that carry one (neutral when none do).
+    the topic's clean attempts that carry one (neutral when none do). Mastery is
+    not derived here (it comes from Memory), so it is kept in the caller.
     """
     window = events[-recency_window:] if recency_window > 0 else events
     recent_successes = sum(1 for e in window if e.correct)
@@ -393,7 +406,7 @@ def _topic_features(
         if e.payload.get("item_note_id") is not None
     }
     distinct_items = len(item_ids)
-    return mastery, difficulty, recent_successes, recent_failures, distinct_items
+    return difficulty, recent_successes, recent_failures, distinct_items
 
 
 # --- the seam (three-scores.md §2; performance-model.md) ----------------------
@@ -431,8 +444,6 @@ def performance_score(
         entry["category"]: entry["point"] for entry in mem["by_topic"]
     }
 
-    cov = coverage(col)
-
     # Group clean attempts by category through the read-model seam (K4). Attempts
     # come back oldest-first, which the recency window relies on.
     clean_by_category: dict[str, list[Event]] = {}
@@ -459,9 +470,7 @@ def performance_score(
 
         raw_mastery = mastery_by_category.get(category)
         mastery = raw_mastery if raw_mastery is not None else _MASTERY_NEUTRAL
-        mastery, difficulty, succ, fail, distinct = _topic_features(
-            events, mastery, recency_window
-        )
+        difficulty, succ, fail, distinct = _topic_features(events, recency_window)
         point = performance_probability(
             mastery, difficulty, succ, fail, coefficients, calibration
         )
@@ -496,10 +505,25 @@ def performance_score(
         "overall": _overall(scored),
         "by_topic": by_topic,
         "k_perf": k_perf,
-        "coverage_pct": cov["overall_pct"],
+        "coverage_pct": _covered_fraction(mem),
         "coverage_gate": COVERAGE_GATE,
         "last_updated": now if total_attempts > 0 else None,
     }
+
+
+def _covered_fraction(memory: dict) -> float:
+    """Blueprint-weighted fraction of categories with at least one reviewed card.
+
+    Computed locally from the already-fetched Memory result to avoid a second
+    ``memory_score`` pass through :func:`anki.pgrep.coverage.coverage`; it matches
+    that function's ``overall_pct`` definition (``covered`` means ``n_cards >= 1``).
+    When ``performance_score`` is deck-scoped this fraction is likewise scoped to
+    that deck (``coverage`` is always collection-wide), which is the consistent
+    reading for a deck-scoped score.
+    """
+    covered = sum(e["blueprint"] for e in memory["by_topic"] if e["n_cards"] >= 1)
+    total = sum(e["blueprint"] for e in memory["by_topic"])
+    return covered / total if total else 0.0
 
 
 def _topic_entry(
