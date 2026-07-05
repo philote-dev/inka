@@ -9,6 +9,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
      rail comes from +layout.svelte, so this surface renders content only. -->
 <script lang="ts">
     import { onMount } from "svelte";
+    import { pgrepCall } from "../lib/bridge";
 
     type Theme = "Light" | "Dark" | "System";
 
@@ -18,8 +19,23 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let aiOn = true;
     let theme: Theme = "Dark";
     const testDate = "Oct 24, 2026";
-    const lastSynced = "12m ago";
-    const account = "sam.chen@fastmail.com";
+
+    let serverURL = "http://127.0.0.1:8090/";
+    let syncing = false;
+    let syncMsg = "";
+
+    async function syncNow(): Promise<void> {
+        syncing = true;
+        syncMsg = "Syncing\u2026";
+        try {
+            await pgrepCall("pgrepSync", { url: serverURL.trim() });
+            syncMsg = "Sync running. Watch the desktop for progress and completion.";
+        } catch (e) {
+            syncMsg = `Sync failed: ${e}`;
+        } finally {
+            syncing = false;
+        }
+    }
 
     $: retentionLabel = targetRetention.toFixed(2);
 
@@ -111,21 +127,25 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <div class="card">
                 <div class="row">
                     <div class="row-text">
-                        <div class="row-title">Sync</div>
-                        <div class="row-sub mono">Last synced {lastSynced}</div>
+                        <div class="row-title">Server</div>
+                        <div class="row-sub">Self-hosted sync server URL</div>
                     </div>
-                    <button class="pill-btn strong" type="button">Sync now</button>
+                    <input
+                        class="url-input mono"
+                        type="text"
+                        bind:value={serverURL}
+                        spellcheck="false"
+                        autocomplete="off"
+                        aria-label="Sync server URL"
+                    />
                 </div>
                 <div class="row">
                     <div class="row-text">
-                        <div class="row-title">Account</div>
-                        <div class="row-sub">{account}</div>
+                        <div class="row-title">Sync</div>
+                        <div class="row-sub">{syncMsg || "Two-way sync with the phone"}</div>
                     </div>
-                    <button class="link-btn" type="button">
-                        Manage
-                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="6,3.5 11,8 6,12.5" />
-                        </svg>
+                    <button class="pill-btn strong" type="button" on:click={syncNow} disabled={syncing}>
+                        {syncing ? "Syncing…" : "Sync now"}
                     </button>
                 </div>
             </div>
@@ -234,10 +254,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         font-size: var(--text-small);
         color: var(--muted);
         margin-top: 3px;
-
-        &.mono {
-            font-variant-numeric: tabular-nums;
-        }
     }
 
     .row-control {
@@ -266,6 +282,25 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     .mono {
         font-variant-numeric: tabular-nums;
+    }
+
+    .url-input {
+        flex: 0 0 auto;
+        width: 240px;
+        max-width: 48vw;
+        background: var(--elevated);
+        border: var(--hairline);
+        border-radius: var(--radius-control);
+        padding: 9px 12px;
+        color: var(--text);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        text-align: right;
+
+        &:focus {
+            outline: none;
+            border-color: var(--muted);
+        }
     }
 
     .pill-btn {
@@ -301,25 +336,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 border-color: var(--error-tint-strong);
                 background: var(--error-wash);
             }
-        }
-    }
-
-    .link-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        background: none;
-        border: none;
-        color: var(--muted);
-        font-family: var(--font-ui);
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-        padding: 8px 4px;
-        transition: var(--transition-calm);
-
-        &:hover {
-            color: var(--text);
         }
     }
 
