@@ -9,9 +9,13 @@ workspace.
 
 **State (2026-07-05).** L4 is built and merged to `main`, off by default, so the
 app demos and ships with AI on or off. The gold is verified and frozen (157
-items), and the L4.0 round-1 batch has been scored against it: the AI beats the
-retrieval baselines with CIs excluding zero (spec constraint 6), while the
-absolute quality cutoffs are not yet met under the LLM judge (section 7).
+items), and the L4.0 batch has been scored by both raters. The AI beats every
+baseline including naive-distractor generation with CIs excluding zero (spec
+constraint 6). Under the human adjudicator the quality is high (cards clear
+useful-yield; shipped problems near-perfect), and the human-vs-LLM-judge kappa is
+near zero, showing an LLM-only gate would have been unreliable. The absolute
+cutoffs are not fully green (card fact-precision one step short, problem yield
+refusal-limited); details in section 7.
 
 ---
 
@@ -160,45 +164,61 @@ off the same index.
 
 ---
 
-## 7. The eval run (L4.0, provisional)
+## 7. The eval run (L4.0, two raters)
 
-Scored on 2026-07-05 against the frozen gold (157 verified items), generator
-`gpt-5.5-2026-04-23`, judge `gpt-5.4-mini-2026-03-17` (rater 2). Rater 1 (Frank
-on the generated batch) is deferred, so this is provisional. The gold was
-authored and cross-checked by gpt-4o and gpt-5.5, both different from the judge.
+Scored on 2026-07-05 against the frozen gold (157 verified items). Generator
+`gpt-5.5-2026-04-23`. Two raters, per the locked methodology: the LLM judge
+`gpt-5.4-mini-2026-03-17` (rater 2), and Frank (rater 1 and adjudicator), who
+rated the 73 non-refused AI items blind.
 
-Two rounds were run: an initial pass, then after hardening the generator with
-key self-consistency (an independent re-solve regenerates a problem whose key
-its own solve disagrees with) and a tuned grounding floor (0.60 to 0.45 cosine,
-which cut over-refusal).
+**Generator hardening.** Between an initial pass and this run the generator
+gained key self-consistency (an independent re-solve regenerates a problem whose
+key its own solve disagrees with) and a tuned grounding floor (0.60 to 0.45
+cosine). This halved refusals (28% to 15% overall) and, under the LLM judge,
+lifted problem key-correctness from 0.31 to 0.44.
 
-| Metric (AI) | Round 1 | Round 2 (hardened) | Bar |
+**The two raters barely agree.** Cohen's kappa over the 73 rated items is -0.03
+on "useful" and 0.14 on fact-precision, essentially no agreement. The LLM judge
+systematically under-rated usefulness, so an LLM-only gate is unreliable here and
+the human adjudicator is doing real work. This is the project's clearest argument
+for the locked two-rater rule.
+
+**Under the human adjudicator (the gate of record).**
+
+| Metric (AI) | LLM judge | Frank | Bar |
 |---|---|---|---|
-| Card fact precision | 0.92 | 0.90 | 0.95 |
-| Card useful-yield | 0.48 | 0.34 | 0.80 |
-| Problem key correctness | 0.31 | 0.44 | 0.95 |
-| Problem distractor quality | 0.28 | 0.33 | 0.70 |
-| Problem useful-yield | 0.19 | 0.17 | 0.75 |
-| AI refusals | 24/86 | 13/86 | reported |
+| Card useful-yield | 0.34 | 0.84 | 0.80 |
+| Card fact-precision | 0.90 | 0.90 | 0.95 |
+| Problem key-correctness | 0.44 | 0.69 | 0.95 |
+| Problem distractor quality | 0.33 | 0.67 | 0.70 |
+| Problem useful-yield | 0.17 | 0.64 | 0.75 |
 
-Beat-baseline passes in both rounds, CIs excluding zero (cards +0.22 to +0.40,
-problems +0.28 to +0.33). That is the spec's constraint 6.
+Cards clear useful-yield (0.84) and miss fact-precision by one bar step (0.90,
+five cards carried a fact slip). Problems are two stories: the shipped
+(non-refused) problems are excellent by the human (key 1.00, useful 0.92,
+distractors 0.96), but a 31% problem refusal rate (22% malformed or declined
+generations, 8% correct answer-leak safeguards) drags the batch numbers under the
+bars.
 
-**Reading it.** Two honest findings. Key self-consistency lifted problem
-key-correctness by +0.13 and halved refusals. But there is a ceiling: all 25
-shipped problems were gpt-5.5 self-consistent, yet the independent judge confirms
-only 44% of keys, because two passes of the same model share blind spots. The
-card shift is within noise (the CIs overlap). The absolute cutoffs remain unmet.
-Clearing them is a deeper generation problem, and the principled next step is
-cross-model verification (a different model confirms the key, trading some yield
-for correctness), not further tuning.
+**Beats every baseline, and beats naive.** Under the human adjudicator the AI
+beats keyword and vector retrieval by +0.74 (cards) and +0.67 (problems), CIs
+excluding zero, and beats naive-distractor generation by +0.42 (CI excluding
+zero). That last point validates the misconception-first design: naming the error
+first yields materially better distractors than asking for four wrong answers.
 
-**Firewall.** No ETS fed. Reject-memorized kept 86 of 86 (nothing was a near-copy
-of an ETS item or a fed example). Seen-versus-held reported in the run manifest.
+**Firewall.** No ETS fed. Reject-memorized kept 86 of 86. Seen-versus-held in the
+run manifest.
 
-Artifacts: `content/run/score_report.json` and `run_manifest.json`. The generator
-hardening lives in `pylib/anki/pgrep/ai/` (`generation_core.solve_problem` plus
-the `verify_key` path, and the tuned floor in `provenance.py`).
+**Where the gate stands.** Not green on the absolute bars: card fact-precision is
+one step short and problem batch yield is refusal-limited. But the substance is
+strong. The generator's actual output is high quality by the human expert, it
+beats every baseline including naive, and the LLM-judge unreliability (kappa near
+zero) is itself a finding. Closing the gap is generation work (cut the
+malformed-MCQ rate, tighten fact precision), not a gold or methodology problem.
+
+Artifacts: `content/run/score_report.json`, `run_manifest.json`. Generator
+hardening in `pylib/anki/pgrep/ai/` (`generation_core.solve_problem` plus the
+`verify_key` path, and the tuned floor in `provenance.py`).
 
 ---
 
@@ -212,10 +232,11 @@ angular-momentum commutators, the spin-orbit shift, two source-section relabels,
 and others), 34 kept. The full gold (111 problems, 46 cards) is frozen to
 `verified` and the round-1 batch was scored on it (section 7).
 
-**Remaining (optional, touchpoint 2): rater 1 on the batch.** Frank can grade the
-generated items blind against the frozen gold to produce the human rater-1 numbers
-and inter-rater agreement (Cohen's kappa). It does not change the beat-baseline
-result; it firms up the absolute numbers, which the LLM judge currently scores low.
+**Done (2026-07-05): touchpoint 2, rater 1 on the batch.** Frank rated the 73
+non-refused AI items blind (no judge verdicts shown). His labels are the gate of
+record (section 7): they lifted the measured quality far above the LLM judge and
+gave a near-zero inter-rater kappa, the project's evidence that an LLM-only gate
+would have been wrong here. Both human touchpoints are complete.
 
 ---
 
