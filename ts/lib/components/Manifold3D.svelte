@@ -19,7 +19,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     import Manifold from "$lib/components/Manifold.svelte";
     import { FULL_SURFACE, type Surface } from "$lib/pgrep/manifold";
-    import { createManifold3D, type Manifold3DHandle, type ProjectedLabel3D, supportsWebGL } from "$lib/pgrep/manifold3d";
+    import {
+        createManifold3D,
+        type Manifold3DHandle,
+        type ProjectedLabel3D,
+        supportsWebGL,
+    } from "$lib/pgrep/manifold3d";
 
     export let width = 720;
     export let height = 460;
@@ -44,8 +49,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     $: scale2d = fallbackScale ?? Math.round(width * 0.216);
 
     function currentTheme(): "light" | "dark" {
-        const dark = document.documentElement.classList.contains("night-mode")
-            || document.body.classList.contains("night-mode");
+        const dark =
+            document.documentElement.classList.contains("night-mode") ||
+            document.body.classList.contains("night-mode");
         return dark ? "dark" : "light";
     }
 
@@ -75,7 +81,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             return;
         }
         observer = new MutationObserver(() => handle?.update(surface, currentTheme()));
-        observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+        observer.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ["class"],
+        });
     });
 
     onDestroy(() => {
@@ -107,14 +116,25 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     {#if l.visible}
                         <g>
                             <circle cx={l.ax} cy={l.ay} r="2.5" fill="var(--muted)" />
-                            <line x1={l.ax} y1={l.ay} x2={l.lx} y2={l.ly} stroke="var(--muted)" stroke-width="1" opacity="0.7" />
+                            <line
+                                x1={l.ax}
+                                y1={l.ay}
+                                x2={l.lx}
+                                y2={l.ly}
+                                stroke="var(--muted)"
+                                stroke-width="1"
+                                opacity="0.7"
+                            />
                         </g>
                     {/if}
                 {/each}
             </svg>
             {#each labels as l (l.name)}
                 {#if l.visible}
-                    <div class="label" style="left: {l.lx}px; top: {l.ly}px; transform: {l.tf}; color: {l.c};">
+                    <div
+                        class="label"
+                        style="left: {l.lx}px; top: {l.ly}px; transform: {l.tf}; color: {l.c};"
+                    >
                         {l.name}
                     </div>
                 {/if}

@@ -84,12 +84,14 @@ Do not move a bar after seeing results; a new round needs a new dated block.
 Useful-yield is the headline; fact precision is a hard floor.
 
 **Problem gate.** Key correctness >= 0.95, all-four-distractors-pass per problem
->= 0.70, useful-yield >= 0.75, batch >= 30. Distractor quality is the headline;
-key correctness is a hard floor.
+
+> = 0.70, useful-yield >= 0.75, batch >= 30. Distractor quality is the headline;
+> key correctness is a hard floor.
 
 **Beat-baseline.** The AI must beat the better of keyword and vector search by
->= 0.10 absolute on the headline metric, with the bootstrap CI of the advantage
-excluding zero. Scored blind, side by side, against the same gold.
+
+> = 0.10 absolute on the headline metric, with the bootstrap CI of the advantage
+> excluding zero. Scored blind, side by side, against the same gold.
 
 **Naive-distractor.** Reported comparison only, not a gate.
 
@@ -108,10 +110,10 @@ evaluation integrity is. Under v3, no ETS form is fed to generation. One form
 form out of generation is what makes the "beats a baseline on held-out ETS it
 never saw" claim airtight.
 
-| Form | Year | Role |
-|---|---|---|
-| GR0177 | 2001 | In-app exam mode + held-out Performance bank. Never fed. Clean text. |
-| GR0877 | 2008 | In-app exam mode + held-out Performance bank. Never fed. Clean text. |
+| Form   | Year | Role                                                                          |
+| ------ | ---- | ----------------------------------------------------------------------------- |
+| GR0177 | 2001 | In-app exam mode + held-out Performance bank. Never fed. Clean text.          |
+| GR0877 | 2008 | In-app exam mode + held-out Performance bank. Never fed. Clean text.          |
 | GR9677 | 1996 | Problem gold source, vision-cleaned to gold-grade text (61 items). Never fed. |
 | GR8677 | 1986 | Reserve held-out Performance bank. Never fed. Keys reliable, stems OCR-rough. |
 | GR9277 | 1992 | Reserve held-out Performance bank. Never fed. Keys reliable, stems OCR-rough. |
@@ -185,13 +187,13 @@ for the locked two-rater rule.
 
 **Under the human adjudicator (the gate of record).**
 
-| Metric (AI) | LLM judge | Frank | Bar |
-|---|---|---|---|
-| Card useful-yield | 0.34 | 0.84 | 0.80 |
-| Card fact-precision | 0.90 | 0.90 | 0.95 |
-| Problem key-correctness | 0.44 | 0.69 | 0.95 |
-| Problem distractor quality | 0.33 | 0.67 | 0.70 |
-| Problem useful-yield | 0.17 | 0.64 | 0.75 |
+| Metric (AI)                | LLM judge | Frank | Bar  |
+| -------------------------- | --------- | ----- | ---- |
+| Card useful-yield          | 0.34      | 0.84  | 0.80 |
+| Card fact-precision        | 0.90      | 0.90  | 0.95 |
+| Problem key-correctness    | 0.44      | 0.69  | 0.95 |
+| Problem distractor quality | 0.33      | 0.67  | 0.70 |
+| Problem useful-yield       | 0.17      | 0.64  | 0.75 |
 
 Cards clear useful-yield (0.84) and miss fact-precision by one bar step (0.90,
 five cards carried a fact slip). Problems are two stories: the shipped
@@ -244,21 +246,21 @@ would have been wrong here. Both human touchpoints are complete.
 
 Under `content/tools/`.
 
-| Script | What it does |
-|---|---|
-| `build_index.py` | Chunk, embed, and index the corpus (leakage guard wired in) |
-| `query_index.py` | Query the RAG index |
-| `baselines.py` | The keyword and vector baselines |
-| `run_batch.py` | Generate the graded batch (AI + baselines + naive) |
-| `score_batch.py` | Blind-score a batch, gate metrics, bootstrap CIs, manifest |
-| `eval_*.py` | Metrics, splits, judge, manifest for the scorer |
-| `leakage_check.py` | Assert the firewall holds |
-| `promote_gold.py` | Assemble problem gold from the clean candidates |
+| Script                  | What it does                                                     |
+| ----------------------- | ---------------------------------------------------------------- |
+| `build_index.py`        | Chunk, embed, and index the corpus (leakage guard wired in)      |
+| `query_index.py`        | Query the RAG index                                              |
+| `baselines.py`          | The keyword and vector baselines                                 |
+| `run_batch.py`          | Generate the graded batch (AI + baselines + naive)               |
+| `score_batch.py`        | Blind-score a batch, gate metrics, bootstrap CIs, manifest       |
+| `eval_*.py`             | Metrics, splits, judge, manifest for the scorer                  |
+| `leakage_check.py`      | Assert the firewall holds                                        |
+| `promote_gold.py`       | Assemble problem gold from the clean candidates                  |
 | `annotate_community.py` | Draft distractor rationales + a gpt-4o solve for community items |
-| `crosscheck_keys.py` | Independent gpt-5.5 re-solve of every community key |
-| `fill_confirmed.py` | Fill the one distractor left blank when gpt-4o slipped |
-| `author_card_gold.py` | Author the 50 corpus-grounded card-gold items |
-| `validate_gold.py` | Structural check over all gold files |
+| `crosscheck_keys.py`    | Independent gpt-5.5 re-solve of every community key              |
+| `fill_confirmed.py`     | Fill the one distractor left blank when gpt-4o slipped           |
+| `author_card_gold.py`   | Author the 50 corpus-grounded card-gold items                    |
+| `validate_gold.py`      | Structural check over all gold files                             |
 
 ---
 

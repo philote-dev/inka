@@ -23,12 +23,19 @@ def _make_problem(col) -> int:
     note = col.new_note(notetype)
     note[problem.FIELD_STEM] = "A 500 nm photon energy (hc = 1240 eV nm)?"
     note[problem.FIELD_CHOICES] = json.dumps(
-        ["0.40 eV", "1.24 eV", "2.48 eV", "4.96 eV", "620 eV"])
+        ["0.40 eV", "1.24 eV", "2.48 eV", "4.96 eV", "620 eV"]
+    )
     note[problem.FIELD_CORRECT] = "C"
     note[problem.FIELD_DISTRACTOR_RATIONALES] = json.dumps({"A": "inverted"})
-    note[problem.FIELD_SOLUTION_DECOMPOSITION] = json.dumps([
-        {"subgoal": "Pick the relation", "rubric": "writes E = hc/lambda"},
-        {"subgoal": "Insert values", "rubric": "uses hc = 1240 eV nm with lambda in nm"}])
+    note[problem.FIELD_SOLUTION_DECOMPOSITION] = json.dumps(
+        [
+            {"subgoal": "Pick the relation", "rubric": "writes E = hc/lambda"},
+            {
+                "subgoal": "Insert values",
+                "rubric": "uses hc = 1240 eV nm with lambda in nm",
+            },
+        ]
+    )
     note[problem.FIELD_DIFFICULTY] = "medium"
     note[problem.FIELD_SOURCE_REF] = "OpenStax Vol 3, p. 254"
     col.add_note(note, col.decks.id("PGRE::Problems"))
@@ -59,9 +66,14 @@ def test_grade_subgoal_ai_on_grades(monkeypatch):
     nid = _make_problem(col)
     ai_config.set_ai_enabled(col, True)
     ai_config.set_ai_model(col, "gpt-x-2026-01-01")
-    monkeypatch.setattr(llm_module, "LLMClient",
-                        lambda m, **kw: _FakeLLM(m, {"coverage": "partial",
-                                                    "probe": "Which variable goes in the denominator?"}))
+    monkeypatch.setattr(
+        llm_module,
+        "LLMClient",
+        lambda m, **kw: _FakeLLM(
+            m,
+            {"coverage": "partial", "probe": "Which variable goes in the denominator?"},
+        ),
+    )
     res = tutor.grade_subgoal(col, nid, 0, "energy is proportional to wavelength")
     assert res["ai"] == "on" and res["mode"] == "grade"
     assert res["coverage"] == "partial"
@@ -74,9 +86,13 @@ def test_grade_subgoal_giveaway_probe_is_blocked(monkeypatch):
     ai_config.set_ai_enabled(col, True)
     ai_config.set_ai_model(col, "gpt-x-2026-01-01")
     # A probe that leaks the key text must be refused and replaced.
-    monkeypatch.setattr(llm_module, "LLMClient",
-                        lambda m, **kw: _FakeLLM(m, {"coverage": "missing",
-                                                    "probe": "Recall that the answer is 2.48 eV."}))
+    monkeypatch.setattr(
+        llm_module,
+        "LLMClient",
+        lambda m, **kw: _FakeLLM(
+            m, {"coverage": "missing", "probe": "Recall that the answer is 2.48 eV."}
+        ),
+    )
     res = tutor.grade_subgoal(col, nid, 0, "no idea")
     assert res["giveaway_blocked"] is True
     assert "2.48" not in res["probe"]
@@ -86,9 +102,16 @@ def test_session_synthesis_ai_off_recap():
     col = getEmptyCol()
     now = int(time.time())
     for i in range(3):
-        attempt_log.append_attempt(col, {
-            "event_id": f"s1-{i}", "topic": "topic::atomic", "correct": i != 0,
-            "session_id": "sess-1", "answered_at": now})
+        attempt_log.append_attempt(
+            col,
+            {
+                "event_id": f"s1-{i}",
+                "topic": "topic::atomic",
+                "correct": i != 0,
+                "session_id": "sess-1",
+                "answered_at": now,
+            },
+        )
     res = tutor.session_synthesis(col, "sess-1")
     assert res["ai"] == "off"
     assert res["recap"]["attempted"] == 3

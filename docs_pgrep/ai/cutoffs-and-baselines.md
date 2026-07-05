@@ -26,12 +26,12 @@ passing cutoff before looking.
 From `gold-set-spec.md` section 5. All are scored against the gold sets by two
 blind raters with adjudication.
 
-| Metric | Applies to | Definition |
-|---|---|---|
-| **Fact precision** | cards, problems | fraction of items with zero wrong-facts |
-| **Useful-yield rate** | cards, problems | fraction that are correct and useful |
-| **Distractor quality (per problem)** | problems | fraction of problems where all four distractors pass all four criteria |
-| **Key correctness** | problems | fraction of problems whose key is correct |
+| Metric                               | Applies to      | Definition                                                             |
+| ------------------------------------ | --------------- | ---------------------------------------------------------------------- |
+| **Fact precision**                   | cards, problems | fraction of items with zero wrong-facts                                |
+| **Useful-yield rate**                | cards, problems | fraction that are correct and useful                                   |
+| **Distractor quality (per problem)** | problems        | fraction of problems where all four distractors pass all four criteria |
+| **Key correctness**                  | problems        | fraction of problems whose key is correct                              |
 
 Useful-yield is the headline number for cards. Distractor quality is the headline
 number for problems. Fact precision and key correctness are hard floors: an item
@@ -46,10 +46,10 @@ move for L4.0 round 1.
 
 ### 3.1 Card generation
 
-| Bar | Locked | Status |
-|---|---|---|
-| Fact precision | >= 0.95 | LOCKED |
-| Useful-yield rate | >= 0.80 | LOCKED |
+| Bar               | Locked             | Status |
+| ----------------- | ------------------ | ------ |
+| Fact precision    | >= 0.95            | LOCKED |
+| Useful-yield rate | >= 0.80            | LOCKED |
 | Batch size scored | 50 generated cards | LOCKED |
 
 Reasoning for the proposals, to argue with. Fact precision is a near-hard floor
@@ -59,12 +59,12 @@ batch, reported with a bootstrap confidence interval and a per-area breakdown.
 
 ### 3.2 Problem generation
 
-| Bar | Locked | Status |
-|---|---|---|
-| Key correctness | >= 0.95 | LOCKED |
+| Bar                                             | Locked  | Status |
+| ----------------------------------------------- | ------- | ------ |
+| Key correctness                                 | >= 0.95 | LOCKED |
 | Distractor quality (per problem, all four pass) | >= 0.70 | LOCKED |
-| Useful-yield rate | >= 0.75 | LOCKED |
-| Batch size scored | >= 30 | LOCKED |
+| Useful-yield rate                               | >= 0.75 | LOCKED |
+| Batch size scored                               | >= 30   | LOCKED |
 
 Reasoning. The key must almost always be right, so key correctness sits high.
 Distractor quality is the hard, novel part and the whole point of
@@ -121,11 +121,11 @@ The gold-set gate above governs L4 generation. The held-out model bars govern L5
 and are detailed in `heldout-and-leakage.md` and `../research/statistics-and-evaluation.md`.
 Named here so the whole pre-registration lives in one place.
 
-| Score | Metric | Baseline to beat | Bar |
-|---|---|---|---|
-| Memory | Brier, log-loss, ECE | fixed-interval / SM-2 | DECISION |
-| Performance | accuracy, AUC, Brier | base-rate + memory-only | DECISION |
-| Readiness | scaled-point MAE | raw% = scaled guess | sanity only, low n |
+| Score       | Metric               | Baseline to beat        | Bar                |
+| ----------- | -------------------- | ----------------------- | ------------------ |
+| Memory      | Brier, log-loss, ECE | fixed-interval / SM-2   | DECISION           |
+| Performance | accuracy, AUC, Brier | base-rate + memory-only | DECISION           |
+| Readiness   | scaled-point MAE     | raw% = scaled guess     | sanity only, low n |
 
 These are set with Frank at the L5 boundary, before the held-out numbers are
 seen, the same pre-registration discipline as the gate.

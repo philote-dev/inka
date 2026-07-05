@@ -17,20 +17,20 @@ _Grounding: exploration of the real code ([sync/mobile map](c406326e-1ffa-4583-8
 
 Anki is **not** global last-writer-wins. Per object type (`changes.rs`, `chunks.rs`):
 
-| Object | Rule |
-|---|---|
-| **revlog (review history)** | **append-only, `INSERT OR IGNORE` by id** → two devices reviewing *different* cards offline both land, none lost/double-counted |
-| **cards / notes** | pending-USN + **newer `mtime` wins** → same card reviewed on both → the newer review's scheduling state wins |
-| notetypes / decks | newer mtime; structural count change → forced full sync |
-| tags | union |
-| deletions | graves exchanged first |
-| schema mismatch / sanity fail | **mandatory one-way full sync** |
+| Object                        | Rule                                                                                                                            |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **revlog (review history)**   | **append-only, `INSERT OR IGNORE` by id** → two devices reviewing _different_ cards offline both land, none lost/double-counted |
+| **cards / notes**             | pending-USN + **newer `mtime` wins** → same card reviewed on both → the newer review's scheduling state wins                    |
+| notetypes / decks             | newer mtime; structural count change → forced full sync                                                                         |
+| tags                          | union                                                                                                                           |
+| deletions                     | graves exchanged first                                                                                                          |
+| schema mismatch / sanity fail | **mandatory one-way full sync**                                                                                                 |
 
-**Our documented winner (spec 7b):** *revlog is unioned by id (no loss/dup); for the same card, the review with the newer timestamp wins the scheduling state, with a deterministic device-id tie-break on equal timestamps.* This is Anki's real behavior, made explicit. _(felipe's cohort proposed the same rule [cohort — verify].)_
+**Our documented winner (spec 7b):** _revlog is unioned by id (no loss/dup); for the same card, the review with the newer timestamp wins the scheduling state, with a deterministic device-id tie-break on equal timestamps._ This is Anki's real behavior, made explicit. _(felipe's cohort proposed the same rule [cohort — verify].)_
 
 ## (a) Shared engine on mobile — one FFI crate, custom UI
 
-**Finding (updated 2026-07-03): the mobile FFI now exists.** `mobile/ios/PgrepStudy` is a **SwiftUI app driving the shared Anki Rust engine over a C ABI** (protobuf-generated Swift), built as **`AnkiFfi.xcframework`** with both `ios-arm64` (device) and `ios-arm64-simulator` slices, plus a Simulator-first `just` harness (`just ios-smoke` / `ios-run`). At design time there was none: `rslib` is an rlib; `pylib/rsbridge` is a PyO3 cdylib for Python only. The engine is driven entirely by protobuf: **`Backend::run_service_method(service_id, method_id, bytes) → bytes`**. AnkiDroid drives the *same* engine this way via `rsdroid`/JNI (`proto/anki/ankidroid.proto`, `rslib/src/ankidroid/`).
+**Finding (updated 2026-07-03): the mobile FFI now exists.** `mobile/ios/PgrepStudy` is a **SwiftUI app driving the shared Anki Rust engine over a C ABI** (protobuf-generated Swift), built as **`AnkiFfi.xcframework`** with both `ios-arm64` (device) and `ios-arm64-simulator` slices, plus a Simulator-first `just` harness (`just ios-smoke` / `ios-run`). At design time there was none: `rslib` is an rlib; `pylib/rsbridge` is a PyO3 cdylib for Python only. The engine is driven entirely by protobuf: **`Backend::run_service_method(service_id, method_id, bytes) → bytes`**. AnkiDroid drives the _same_ engine this way via `rsdroid`/JNI (`proto/anki/ankidroid.proto`, `rslib/src/ankidroid/`).
 
 So to run the shared engine under a **custom pgrep mobile UI** (which we want — not Anki's UI):
 
@@ -41,11 +41,11 @@ So to run the shared engine under a **custom pgrep mobile UI** (which we want �
 
 **Two platform paths:**
 
-| Path | What you get | Cost | UI fit |
-|---|---|---|---|
-| **iOS via new FFI + SwiftUI** | clean custom pgrep UI; Mac-native (Xcode) | build the FFI crate + Swift bridge | ✅ custom (matches our goal) |
-| **Android via AnkiDroid/`rsdroid`** | engine + a shipping app "for free" | fork/customize AnkiDroid (big app) | ✗ Anki's UI unless heavily reskinned |
-| **Android via new FFI + Compose** | clean custom UI (same FFI crate) | FFI crate + Compose bridge | ✅ custom |
+| Path                                | What you get                              | Cost                               | UI fit                               |
+| ----------------------------------- | ----------------------------------------- | ---------------------------------- | ------------------------------------ |
+| **iOS via new FFI + SwiftUI**       | clean custom pgrep UI; Mac-native (Xcode) | build the FFI crate + Swift bridge | ✅ custom (matches our goal)         |
+| **Android via AnkiDroid/`rsdroid`** | engine + a shipping app "for free"        | fork/customize AnkiDroid (big app) | ✗ Anki's UI unless heavily reskinned |
+| **Android via new FFI + Compose**   | clean custom UI (same FFI crate)          | FFI crate + Compose bridge         | ✅ custom                            |
 
 **Cohort head start (big):** ryan's `charged_up` (MCAT) fork already has — per its own notes _[cohort — verify]_ — a **self-hosted sync server running**, **engine conflict/dedup/offline proofs**, a **4-symbol FFI + iOS cross-compile script (`build_xcframework.sh`)**, desktop sync via `customSyncUrl`, and an **iOS SwiftUI companion scaffold** (`AnkiBridge.swift`, `SyncManager.swift`). That's a near-drop-in reference for the FFI + iOS path — which flips felipe's "defer iOS, do Android-via-AnkiDroid" recommendation: iOS-via-FFI is de-risked by a working sibling.
 
@@ -76,7 +76,7 @@ flowchart TB
 
 ## Test recipes (spec 7b/7g) — brief
 
-- **7b sync:** 10 cards offline on phone + 10 different on desktop → reconnect → all 20 land (revlog union). Then same card on both → reconnect → newer-mtime scheduling state wins (documented). 
+- **7b sync:** 10 cards offline on phone + 10 different on desktop → reconnect → all 20 land (revlog union). Then same card on both → reconnect → newer-mtime scheduling state wins (documented).
 - **7g crash/offline:** kill mid-review ×20 → zero corruption (SQLite transactions/WAL protect this); pull network → AI off cleanly, both apps still score.
 
 ## Decision — iOS via FFI + SwiftUI (implemented)
@@ -89,23 +89,23 @@ Because the FFI is shared work, **Android via the same FFI + Compose** stays a l
 
 ## (d) Data model — extend Anki, ride its sync
 
-**Principle (cohort-converged):** use **notes** for content *and* logs (they chunk-sync row-by-row with USN merge — two-way sync for free), **tags** for taxonomy, **config** only for tiny rolled-up state. Nothing custom-synced.
+**Principle (cohort-converged):** use **notes** for content _and_ logs (they chunk-sync row-by-row with USN merge — two-way sync for free), **tags** for taxonomy, **config** only for tiny rolled-up state. Nothing custom-synced.
 
-| Entity | Representation | Key fields |
-|---|---|---|
-| **Topic** | hierarchical **tags** `topic::mechanics::lagrangian` + a `config` map (tag → blueprint % + label) | — |
-| **Card** (memory) | standard note + topic tags | `type` (conceptual/computational), `source_ref`, `created_by` (human/ai) |
-| **Problem** (performance) | **new "Problem" notetype** → generates a schedulable card, syncs free | `stem`, `choices`, `correct`, `distractor_rationales`, `solution_decomposition` (JSON: sub-goals + rubrics for the ladder), `difficulty`, `source_ref`, `is_held_out`, `created_by`, `time_limit` |
-| **Attempt** (event log) | **new "Attempt" notetype**, append-only + **immutable**, one note per graded event (**note guid = event id**), cards suspended in a hidden deck → **rides note sync**. Decided **"A now, C-ready"** (`attempt-log-storage.md`). | `event_json` (self-contained payload: `item_id`, `correct`, `selected_answer`, `response_ms`, `ladder_depth`, sub-goal productions, `answered_at`, `device_id`/HLC, `session_id`) **+ denormalized hot fields** `topic`, `correct`, `answered_at`; topic also on **tags** |
-| **Exam** | an assembled problem set (query/tag) + Attempt notes tagged a timed `session_id` (no-help) | — |
-| **Source** | bundled named-source corpus + `source_ref` (id + quote anchor) on items | — |
-| **Derived** (per-topic mastery, readiness) | **recomputed** from the append-only log; small rolled-up snapshot in `config` | — |
+| Entity                                     | Representation                                                                                                                                                                                                                  | Key fields                                                                                                                                                                                                                                                                |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Topic**                                  | hierarchical **tags** `topic::mechanics::lagrangian` + a `config` map (tag → blueprint % + label)                                                                                                                               | —                                                                                                                                                                                                                                                                         |
+| **Card** (memory)                          | standard note + topic tags                                                                                                                                                                                                      | `type` (conceptual/computational), `source_ref`, `created_by` (human/ai)                                                                                                                                                                                                  |
+| **Problem** (performance)                  | **new "Problem" notetype** → generates a schedulable card, syncs free                                                                                                                                                           | `stem`, `choices`, `correct`, `distractor_rationales`, `solution_decomposition` (JSON: sub-goals + rubrics for the ladder), `difficulty`, `source_ref`, `is_held_out`, `created_by`, `time_limit`                                                                         |
+| **Attempt** (event log)                    | **new "Attempt" notetype**, append-only + **immutable**, one note per graded event (**note guid = event id**), cards suspended in a hidden deck → **rides note sync**. Decided **"A now, C-ready"** (`attempt-log-storage.md`). | `event_json` (self-contained payload: `item_id`, `correct`, `selected_answer`, `response_ms`, `ladder_depth`, sub-goal productions, `answered_at`, `device_id`/HLC, `session_id`) **+ denormalized hot fields** `topic`, `correct`, `answered_at`; topic also on **tags** |
+| **Exam**                                   | an assembled problem set (query/tag) + Attempt notes tagged a timed `session_id` (no-help)                                                                                                                                      | —                                                                                                                                                                                                                                                                         |
+| **Source**                                 | bundled named-source corpus + `source_ref` (id + quote anchor) on items                                                                                                                                                         | —                                                                                                                                                                                                                                                                         |
+| **Derived** (per-topic mastery, readiness) | **recomputed** from the append-only log; small rolled-up snapshot in `config`                                                                                                                                                   | —                                                                                                                                                                                                                                                                         |
 
-**Why notes, not a custom table, for the log:** notes chunk-sync with USN conflict handling and merge cleanly; `config` is a whole-blob resend (few-KB budget); per-card `custom_data` (<100 B) only fits a last-attempt flag. So the append-only Attempt log **as notes** gives two-way sync *for free* — no custom sync code. (Cohort: stephen.zhang `PerformanceEvent`, alan.abraham `Performance Attempt`; linjian.ni explored a dedicated `attempts` table but it needs custom sync.) _[cohort — verify]_
+**Why notes, not a custom table, for the log:** notes chunk-sync with USN conflict handling and merge cleanly; `config` is a whole-blob resend (few-KB budget); per-card `custom_data` (<100 B) only fits a last-attempt flag. So the append-only Attempt log **as notes** gives two-way sync _for free_ — no custom sync code. (Cohort: stephen.zhang `PerformanceEvent`, alan.abraham `Performance Attempt`; linjian.ni explored a dedicated `attempts` table but it needs custom sync.) _[cohort — verify]_
 
 **Cross-device:** Attempt notes union by note-id (same principle as revlog union-by-id) + `device_id`/HLC for ordering → consistent with the sync conflict rule above.
 
-**A-now / C-ready (the log's evolution path):** the Attempt notetype is **immutable** and each note's **guid is the event id**, so the log is a clean event stream and any cache is a *pure fold of the notes*. All attempt analytics read through **one seam** — `attempts(topic, window) → [Event]` + `performance_fold(…)` — so callers (Performance/calibration L5, dashboard) never touch storage. Today that seam parses each note's `event_json` on demand (**pure A**). If it slows (~150 ms fold, or a few-thousand events), we drop in **C**: a **local, never-synced, recomputable** cache produced by the *same* fold — no caller change, no sync change, and it never touches `rslib/src/sync/**`. Capacity constraints K1–K5 in `attempt-log-storage.md`.
+**A-now / C-ready (the log's evolution path):** the Attempt notetype is **immutable** and each note's **guid is the event id**, so the log is a clean event stream and any cache is a _pure fold of the notes_. All attempt analytics read through **one seam** — `attempts(topic, window) → [Event]` + `performance_fold(…)` — so callers (Performance/calibration L5, dashboard) never touch storage. Today that seam parses each note's `event_json` on demand (**pure A**). If it slows (~150 ms fold, or a few-thousand events), we drop in **C**: a **local, never-synced, recomputable** cache produced by the _same_ fold — no caller change, no sync change, and it never touches `rslib/src/sync/**`. Capacity constraints K1–K5 in `attempt-log-storage.md`.
 
 **How each layer uses it:** the **selector** (L1) reads topic tags + FSRS state; **forced-gen** (L4) writes Card/Problem notes with `source_ref` + `solution_decomposition`; the **ladder** (L4) reads `solution_decomposition`; **performance/calibration** (L5) folds the Attempt log; the **dashboard** reads recomputed snapshots.
 
@@ -124,6 +124,7 @@ flowchart LR
 ```
 
 ### Decided (d) — attempt log = "A now, C-ready"
+
 **Notes-as-log (A)** ships now as the synced source of truth; a **local recomputable cache (C)** is pre-engineered (K1–K5) and added only if the fold slows (flip trigger ~150 ms / few-thousand events). **Custom synced table (B) rejected** — needs risky custom sync and jeopardizes the graded R2 requirement. Full rationale + constraints: `attempt-log-storage.md`.
 
 ## (c) Desktop shell — custom `ts/` pages, `aqt` as a thin host
@@ -157,14 +158,14 @@ flowchart LR
 
 ## (e) Cross-cutting — the guarantees every surface inherits
 
-| Concern | Decision (source) |
-|---|---|
-| **AI-off, still scores (spec 7)** | Every feature degrades gracefully: F2 → authored/curated items + reveal-and-self-compare; F3 → stored `solution_decomposition` + self-compare; F4 → model calibration (no AI); F1 selector is pure engine logic. Both hosts run fully offline + AI-off and still produce all three scores. (`features.md`, `ux-foundation.md` §6.) |
-| **Performance budgets (spec §10)** | No UI action freezes the screen > ~100 ms (`ux-foundation.md` §3.4); the L1 selector's Rust second pass is bounded to the due set; the manifold falls back to the D3 2D contour on weak/no-WebGL contexts; L6 ships a one-command benchmark on ~50k cards (p50/p95/worst). |
-| **Crash + offline safety (spec 7g)** | SQLite transactions/WAL protect the collection; kill-mid-review ×20 → zero corruption; offline-first (local `collection.anki2`, engine fully offline), sync is opportunistic. The attempt log is append-only + undo-safe (notes undo; the future C cache is recomputable). |
-| **Reproducible eval (spec 4/6)** | Held-out splits + fixed seeds + a gold-set gate + a named-baseline comparison, run by one command. Owned by the eval harness (`build-plan.md` L4.0/L5). Methodology now has its own doc, `statistics-and-evaluation.md`. |
-| **Secrets + privacy** | LLM API keys live in Settings / OS secure storage — **never synced, never committed, never in notes**. Self-hosted sync auth via `SYNC_USER1=user:pass`. User data stays local-first; the sync server is ours (no AnkiWeb). |
-| **Licensing / attribution (spec 9)** | The fork stays **AGPL-3.0-or-later**, credits Anki. Added deps are AGPL-compatible (Three.js MIT, Inter/JetBrains Mono OFL, Lucide ISC — `ux-foundation.md` §10). |
-| **Packaging / installers (spec 8)** | Desktop installer (Briefcase templates in `qt/installer/`) + phone build (iOS TestFlight/sideload). Owned by **L6**; external accounts/signing in `../reference/content-and-dependencies.md`. |
+| Concern                              | Decision (source)                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **AI-off, still scores (spec 7)**    | Every feature degrades gracefully: F2 → authored/curated items + reveal-and-self-compare; F3 → stored `solution_decomposition` + self-compare; F4 → model calibration (no AI); F1 selector is pure engine logic. Both hosts run fully offline + AI-off and still produce all three scores. (`features.md`, `ux-foundation.md` §6.) |
+| **Performance budgets (spec §10)**   | No UI action freezes the screen > ~100 ms (`ux-foundation.md` §3.4); the L1 selector's Rust second pass is bounded to the due set; the manifold falls back to the D3 2D contour on weak/no-WebGL contexts; L6 ships a one-command benchmark on ~50k cards (p50/p95/worst).                                                         |
+| **Crash + offline safety (spec 7g)** | SQLite transactions/WAL protect the collection; kill-mid-review ×20 → zero corruption; offline-first (local `collection.anki2`, engine fully offline), sync is opportunistic. The attempt log is append-only + undo-safe (notes undo; the future C cache is recomputable).                                                         |
+| **Reproducible eval (spec 4/6)**     | Held-out splits + fixed seeds + a gold-set gate + a named-baseline comparison, run by one command. Owned by the eval harness (`build-plan.md` L4.0/L5). Methodology now has its own doc, `statistics-and-evaluation.md`.                                                                                                           |
+| **Secrets + privacy**                | LLM API keys live in Settings / OS secure storage — **never synced, never committed, never in notes**. Self-hosted sync auth via `SYNC_USER1=user:pass`. User data stays local-first; the sync server is ours (no AnkiWeb).                                                                                                        |
+| **Licensing / attribution (spec 9)** | The fork stays **AGPL-3.0-or-later**, credits Anki. Added deps are AGPL-compatible (Three.js MIT, Inter/JetBrains Mono OFL, Lucide ISC — `ux-foundation.md` §10).                                                                                                                                                                  |
+| **Packaging / installers (spec 8)**  | Desktop installer (Briefcase templates in `qt/installer/`) + phone build (iOS TestFlight/sideload). Owned by **L6**; external accounts/signing in `../reference/content-and-dependencies.md`.                                                                                                                                      |
 
 _Sources: exploration agent c406326e; `.understand-anything/knowledge-graph.json`; `rslib/src/sync/**`, `rslib/src/ankidroid/**`, `proto/anki/{sync,ankidroid}.proto`, `docs/syncserver/`, `docs/architecture.md`; cohort chats (felipe shared-engine-sync; ryan charged_up iOS/FFI; aadi sync exploration). Spec §3, 7b, 7g._

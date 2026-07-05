@@ -61,8 +61,9 @@ def _overlap(a: str, b: str) -> float:
     return len(ta & tb) / len(ta)
 
 
-def best_support(claim_text: str, retrieved: list, *, min_score: float = MIN_SUPPORT_SCORE
-                 ) -> Provenance | None:
+def best_support(
+    claim_text: str, retrieved: list, *, min_score: float = MIN_SUPPORT_SCORE
+) -> Provenance | None:
     """The retrieved chunk that best supports the claim, or None to refuse.
 
     ``retrieved`` is a list of ``RetrievedChunk`` (or dicts). A chunk qualifies
@@ -79,20 +80,38 @@ def best_support(claim_text: str, retrieved: list, *, min_score: float = MIN_SUP
             score = r.get("score", 0.0)
         if score is None or score < min_score:
             continue
-        text = getattr(r, "text", None) or (r.get("text", "") if isinstance(r, dict) else "")
-        source_ref = getattr(r, "source_ref", None) or (r.get("source_ref", "") if isinstance(r, dict) else "")
-        chunk_id = getattr(r, "chunk_id", None) or (r.get("chunk_id", "") if isinstance(r, dict) else "")
-        title = getattr(r, "source_title", None) or (r.get("source_title", "") if isinstance(r, dict) else "")
+        text = getattr(r, "text", None) or (
+            r.get("text", "") if isinstance(r, dict) else ""
+        )
+        source_ref = getattr(r, "source_ref", None) or (
+            r.get("source_ref", "") if isinstance(r, dict) else ""
+        )
+        chunk_id = getattr(r, "chunk_id", None) or (
+            r.get("chunk_id", "") if isinstance(r, dict) else ""
+        )
+        title = getattr(r, "source_title", None) or (
+            r.get("source_title", "") if isinstance(r, dict) else ""
+        )
         rank = float(score) + _overlap(claim_text, text)
         if rank > best_rank:
             best_rank = rank
-            best = Provenance(source_ref=source_ref, chunk_id=chunk_id, source_title=title,
-                              quote_anchor=_first_sentence(text), support_score=float(score))
+            best = Provenance(
+                source_ref=source_ref,
+                chunk_id=chunk_id,
+                source_title=title,
+                quote_anchor=_first_sentence(text),
+                support_score=float(score),
+            )
     return best
 
 
-def cite_or_refuse(item: dict, retrieved: list, *, claim_key: str = "back",
-                   min_score: float = MIN_SUPPORT_SCORE) -> dict:
+def cite_or_refuse(
+    item: dict,
+    retrieved: list,
+    *,
+    claim_key: str = "back",
+    min_score: float = MIN_SUPPORT_SCORE,
+) -> dict:
     """Attach provenance to ``item`` or mark it refused.
 
     ``claim_key`` names the field carrying the item's core claim (``back`` for a
@@ -104,7 +123,9 @@ def cite_or_refuse(item: dict, retrieved: list, *, claim_key: str = "back",
     prov = best_support(claim, retrieved, min_score=min_score)
     if prov is None:
         item["refused"] = True
-        item["refusal_reason"] = "no corpus source supports this item above the grounding floor"
+        item["refusal_reason"] = (
+            "no corpus source supports this item above the grounding floor"
+        )
         item["source_ref"] = None
         return item
     item["refused"] = False

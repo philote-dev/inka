@@ -22,22 +22,97 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     // Fixed layout of the nine units: screen position, blueprint weight, and the
     // label offset the renderer uses for leader lines.
     const LAYOUT = [
-        { name: "Classical Mechanics", x: -0.6, y: -0.5, weight: 0.2, dx: -60, dy: -44, tf: "translate(-100%, -100%)" },
-        { name: "Electromagnetism", x: 0.56, y: -0.48, weight: 0.18, dx: 30, dy: -60, tf: "translate(0, -100%)" },
-        { name: "Optics & Waves", x: 1.0, y: -0.14, weight: 0.08, dx: 54, dy: -22, tf: "translate(0, -100%)" },
-        { name: "Thermo & Stat Mech", x: -1.05, y: 0.14, weight: 0.1, dx: -54, dy: 26, tf: "translate(-100%, 0)" },
-        { name: "Quantum Mechanics", x: 0.16, y: 0.6, weight: 0.13, dx: -60, dy: 40, tf: "translate(-100%, 0)" },
-        { name: "Atomic Physics", x: 0.72, y: 0.4, weight: 0.1, dx: 64, dy: 46, tf: "translate(0, 0)" },
-        { name: "Special Relativity", x: -0.56, y: 0.62, weight: 0.06, dx: -50, dy: 62, tf: "translate(-100%, 0)" },
-        { name: "Laboratory Methods", x: -0.05, y: -0.62, weight: 0.06, dx: 10, dy: -60, tf: "translate(-50%, -100%)" },
-        { name: "Specialized Topics", x: 0.16, y: 0.04, weight: 0.09, dx: 30, dy: 60, tf: "translate(0, 0)" },
+        {
+            name: "Classical Mechanics",
+            x: -0.6,
+            y: -0.5,
+            weight: 0.2,
+            dx: -60,
+            dy: -44,
+            tf: "translate(-100%, -100%)",
+        },
+        {
+            name: "Electromagnetism",
+            x: 0.56,
+            y: -0.48,
+            weight: 0.18,
+            dx: 30,
+            dy: -60,
+            tf: "translate(0, -100%)",
+        },
+        {
+            name: "Optics & Waves",
+            x: 1.0,
+            y: -0.14,
+            weight: 0.08,
+            dx: 54,
+            dy: -22,
+            tf: "translate(0, -100%)",
+        },
+        {
+            name: "Thermo & Stat Mech",
+            x: -1.05,
+            y: 0.14,
+            weight: 0.1,
+            dx: -54,
+            dy: 26,
+            tf: "translate(-100%, 0)",
+        },
+        {
+            name: "Quantum Mechanics",
+            x: 0.16,
+            y: 0.6,
+            weight: 0.13,
+            dx: -60,
+            dy: 40,
+            tf: "translate(-100%, 0)",
+        },
+        {
+            name: "Atomic Physics",
+            x: 0.72,
+            y: 0.4,
+            weight: 0.1,
+            dx: 64,
+            dy: 46,
+            tf: "translate(0, 0)",
+        },
+        {
+            name: "Special Relativity",
+            x: -0.56,
+            y: 0.62,
+            weight: 0.06,
+            dx: -50,
+            dy: 62,
+            tf: "translate(-100%, 0)",
+        },
+        {
+            name: "Laboratory Methods",
+            x: -0.05,
+            y: -0.62,
+            weight: 0.06,
+            dx: 10,
+            dy: -60,
+            tf: "translate(-50%, -100%)",
+        },
+        {
+            name: "Specialized Topics",
+            x: 0.16,
+            y: 0.04,
+            weight: 0.09,
+            dx: 30,
+            dy: 60,
+            tf: "translate(0, 0)",
+        },
     ];
 
     // Seeded so the default view already tells the data story: varied peaks, two
     // real gaps (Quantum, Lab), a mix of leading scores.
-    const DEFAULTS: Record<string, { performance: number; coverage: number; lead: Lead }> = {
+    const DEFAULTS: Record<
+        string,
+        { performance: number; coverage: number; lead: Lead }
+    > = {
         "Classical Mechanics": { performance: 0.82, coverage: 1, lead: "performance" },
-        "Electromagnetism": { performance: 0.68, coverage: 1, lead: "performance" },
+        Electromagnetism: { performance: 0.68, coverage: 1, lead: "performance" },
         "Optics & Waves": { performance: 0.55, coverage: 1, lead: "memory" },
         "Thermo & Stat Mech": { performance: 0.6, coverage: 1, lead: "readiness" },
         "Quantum Mechanics": { performance: 0.35, coverage: 0.2, lead: "memory" },
@@ -79,45 +154,69 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     // The four isolation tiles, each changing exactly one input from a flat base.
-    function stat(fn: (name: string) => { performance: number; coverage: number; lead: Lead }): TopicStat[] {
+    function stat(
+        fn: (name: string) => { performance: number; coverage: number; lead: Lead },
+    ): TopicStat[] {
         return LAYOUT.map((u) => ({ ...u, ...fn(u.name) }));
     }
     const tiles = [
         {
             title: "Baseline",
-            surface: buildSurface(stat(() => ({ performance: 0.5, coverage: 1, lead: "performance" }))),
-            caption: "Moderate performance everywhere, full coverage, performance led. The reference for the three below.",
+            surface: buildSurface(
+                stat(() => ({ performance: 0.5, coverage: 1, lead: "performance" })),
+            ),
+            caption:
+                "Moderate performance everywhere, full coverage, performance led. The reference for the three below.",
         },
         {
             title: "Performance drives height",
-            surface: buildSurface(stat((n) => ({ performance: n === "Quantum Mechanics" ? 0.96 : 0.5, coverage: 1, lead: "performance" }))),
-            caption: "Only Quantum's performance rose to 0.96. Its peak grows. Nothing else changed.",
+            surface: buildSurface(
+                stat((n) => ({
+                    performance: n === "Quantum Mechanics" ? 0.96 : 0.5,
+                    coverage: 1,
+                    lead: "performance",
+                })),
+            ),
+            caption:
+                "Only Quantum's performance rose to 0.96. Its peak grows. Nothing else changed.",
         },
         {
             title: "Coverage drives gaps",
-            surface: buildSurface(stat((n) => ({ performance: 0.5, coverage: n === "Quantum Mechanics" ? 0.1 : 1, lead: "performance" }))),
-            caption: "Only Quantum's coverage fell below the line. A hole opens exactly there. A gap is real, not decorative.",
+            surface: buildSurface(
+                stat((n) => ({
+                    performance: 0.5,
+                    coverage: n === "Quantum Mechanics" ? 0.1 : 1,
+                    lead: "performance",
+                })),
+            ),
+            caption:
+                "Only Quantum's coverage fell below the line. A hole opens exactly there. A gap is real, not decorative.",
         },
         {
             title: "Leading score drives hue",
-            surface: buildSurface(stat(() => ({ performance: 0.5, coverage: 1, lead: "memory" }))),
-            caption: "Same shape, every unit now led by Memory. The surface warms to amber. Color is the reserved score language.",
+            surface: buildSurface(
+                stat(() => ({ performance: 0.5, coverage: 1, lead: "memory" })),
+            ),
+            caption:
+                "Same shape, every unit now led by Memory. The surface warms to amber. Color is the reserved score language.",
         },
     ];
 </script>
 
 <div class="lab">
     <nav class="lab-nav" aria-label="Lab pages">
-        <a class="lab-nav__link is-active" href="/pgrep-lab" aria-current="page">Manifold lab</a>
+        <a class="lab-nav__link is-active" href="/pgrep-lab" aria-current="page">
+            Manifold lab
+        </a>
         <a class="lab-nav__link" href="/pgrep-lab/gallery">Component gallery</a>
     </nav>
 
     <header class="head">
         <h1>Manifold lab</h1>
         <p>
-            One surface object drives everything. Height is Performance, hue is the leading score, holes are
-            coverage gaps, footprint is blueprint weight. Edit the units and watch the same instrument reshape
-            in 3D or its 2D fallback.
+            One surface object drives everything. Height is Performance, hue is the
+            leading score, holes are coverage gaps, footprint is blueprint weight. Edit
+            the units and watch the same instrument reshape in 3D or its 2D fallback.
         </p>
     </header>
 
@@ -125,15 +224,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         <div class="stage">
             <div class="toolbar">
                 <div class="seg" role="group" aria-label="View mode">
-                    <button class:on={view === "3d"} on:click={() => (view = "3d")}>3D</button>
-                    <button class:on={view === "2d"} on:click={() => (view = "2d")}>2D</button>
+                    <button class:on={view === "3d"} on:click={() => (view = "3d")}>
+                        3D
+                    </button>
+                    <button class:on={view === "2d"} on:click={() => (view = "2d")}>
+                        2D
+                    </button>
                 </div>
                 {#if view === "3d"}
                     <label class="check">
                         <input type="checkbox" bind:checked={autoRotate} />
                         Auto-rotate
                     </label>
-                    <button class="ghost" on:click={() => manifold3d?.resetView()}>Reset view</button>
+                    <button class="ghost" on:click={() => manifold3d?.resetView()}>
+                        Reset view
+                    </button>
                 {/if}
                 <span class="spacer"></span>
                 <span class="meta">{gapCount} {gapCount === 1 ? "gap" : "gaps"}</span>
@@ -151,7 +256,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         {autoRotate}
                     />
                 {:else}
-                    <Manifold width={VIEW_W} height={VIEW_H} scale={150} grid={64} {surface} showLabels />
+                    <Manifold
+                        width={VIEW_W}
+                        height={VIEW_H}
+                        scale={150}
+                        grid={64}
+                        {surface}
+                        showLabels
+                    />
                 {/if}
             </div>
 
@@ -159,19 +271,33 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="stage-controls">
                     <label class="slider">
                         <span>Grid</span>
-                        <input type="range" min="24" max="96" step="4" bind:value={grid} />
+                        <input
+                            type="range"
+                            min="24"
+                            max="96"
+                            step="4"
+                            bind:value={grid}
+                        />
                         <span class="val">{grid}</span>
                     </label>
                     <label class="slider">
                         <span>Height</span>
-                        <input type="range" min="0.6" max="2" step="0.05" bind:value={heightScale} />
+                        <input
+                            type="range"
+                            min="0.6"
+                            max="2"
+                            step="0.05"
+                            bind:value={heightScale}
+                        />
                         <span class="val">{heightScale.toFixed(2)}</span>
                     </label>
                     <span class="hint">Drag to orbit. Scroll to zoom.</span>
                 </div>
             {:else}
                 <div class="stage-controls">
-                    <span class="hint">Canvas 2D wireframe. The same surface, no WebGL.</span>
+                    <span class="hint">
+                        Canvas 2D wireframe. The same surface, no WebGL.
+                    </span>
                 </div>
             {/if}
         </div>
@@ -188,13 +314,29 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         <div class="unit-ctrls">
                             <label class="slider small">
                                 <span>Perf</span>
-                                <input type="range" min="0" max="1" step="0.01" bind:value={u.performance} on:input={bump} />
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="1"
+                                    step="0.01"
+                                    bind:value={u.performance}
+                                    on:input={bump}
+                                />
                                 <span class="val">{u.performance.toFixed(2)}</span>
                             </label>
                             <label class="slider small">
                                 <span>Cov</span>
-                                <input type="range" min="0" max="1" step="0.01" bind:value={u.coverage} on:input={bump} />
-                                <span class="val" class:below={u.coverage < 0.4}>{u.coverage.toFixed(2)}</span>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="1"
+                                    step="0.01"
+                                    bind:value={u.coverage}
+                                    on:input={bump}
+                                />
+                                <span class="val" class:below={u.coverage < 0.4}>
+                                    {u.coverage.toFixed(2)}
+                                </span>
                             </label>
                             <div class="leads" role="group" aria-label="Leading score">
                                 {#each LEADS as l (l.id)}
@@ -203,7 +345,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                         title={l.label}
                                         on:click={() => setLead(i, l.id)}
                                     >
-                                        <span class="dot" style="background: var(--{l.id});"></span>{l.short}
+                                        <span
+                                            class="dot"
+                                            style="background: var(--{l.id});"
+                                        ></span>
+                                        {l.short}
                                     </button>
                                 {/each}
                             </div>
@@ -221,7 +367,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <section class="tile">
                     <div class="tile-head">{tile.title}</div>
                     <div class="viz">
-                        <Manifold width={440} height={230} scale={96} grid={70} surface={tile.surface} showLabels={false} />
+                        <Manifold
+                            width={440}
+                            height={230}
+                            scale={96}
+                            grid={70}
+                            surface={tile.surface}
+                            showLabels={false}
+                        />
                     </div>
                     <p class="caption">{tile.caption}</p>
                 </section>

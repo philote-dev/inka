@@ -51,7 +51,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     onMount(() => {
-        const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+        const reduce =
+            window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
         use3d = supportsWebGL() && !reduce;
         void loadMemory();
     });
@@ -81,12 +82,19 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     // The honest abstain for Memory. While loading we only say so (no link). On a
     // real thin-data abstain we name what is missing and link to where the learner
     // acts on it (Study), per the honesty rule.
-    function memoryAbstain(loading: boolean, errored: boolean, data: MemoryData | null): AbstainProps {
+    function memoryAbstain(
+        loading: boolean,
+        errored: boolean,
+        data: MemoryData | null,
+    ): AbstainProps {
         if (loading) {
             return { message: "Loading Memory" };
         }
         if (errored) {
-            return { message: "Could not load Memory", missing: "Try reopening the app." };
+            return {
+                message: "Could not load Memory",
+                missing: "Try reopening the app.",
+            };
         }
         return {
             message: "Not enough reviews yet",
@@ -99,7 +107,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     $: memAbstain = !mem || mem.overall.abstain || mem.overall.point === null;
-    $: memValue = mem && mem.overall.point !== null ? pct(mem.overall.point) : undefined;
+    $: memValue =
+        mem && mem.overall.point !== null ? pct(mem.overall.point) : undefined;
     $: memRange =
         mem && mem.overall.low !== null && mem.overall.high !== null
             ? ([pct(mem.overall.low), pct(mem.overall.high)] as [number, number])
@@ -119,7 +128,16 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <p>Memory, performance, and readiness, shown honestly.</p>
         </div>
         <a class="diag-link" href="/pgrep/diagnostic">
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+                width="16"
+                height="16"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
                 <polyline points="2,10 5.5,10 8,4.5 12,15.5 14.5,10 18,10" />
             </svg>
             Run the diagnostic
@@ -128,9 +146,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     <div class="hero">
         {#if use3d}
-            <Manifold3D width={720} height={380} grid={84} heightScale={1.2} surface={FULL_SURFACE} />
+            <Manifold3D
+                width={720}
+                height={380}
+                grid={84}
+                heightScale={1.2}
+                surface={FULL_SURFACE}
+            />
         {:else}
-            <Manifold width={720} height={360} scale={156} grid={90} surface={FULL_SURFACE} />
+            <Manifold
+                width={720}
+                height={360}
+                scale={156}
+                grid={90}
+                surface={FULL_SURFACE}
+            />
         {/if}
     </div>
 
@@ -138,7 +168,16 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         <section class="today">
             <div class="today-head">
                 <div class="today-label">
-                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
                         <polyline points="2,10 5.5,10 8,4.5 12,15.5 14.5,10 18,10" />
                     </svg>
                     <span>Today</span>
@@ -148,7 +187,16 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <div class="today-meta">Cards and problems, topics interleaved</div>
             <a class="start" href="/pgrep/study">
                 Start session
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
                     <line x1="2" y1="8" x2="13" y2="8" />
                     <polyline points="9,4 13,8 9,12" />
                 </svg>

@@ -31,17 +31,64 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
 <div class="reliability">
     <svg width={size} height={size} class="chart">
-        <line x1={px(0)} y1={py(0)} x2={px(1)} y2={py(0)} stroke="var(--border)" stroke-width="1" />
-        <line x1={px(0)} y1={py(0)} x2={px(0)} y2={py(1)} stroke="var(--border)" stroke-width="1" />
-        <line x1={px(0)} y1={py(0)} x2={px(1)} y2={py(1)} stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 4" opacity="0.6" />
+        <line
+            x1={px(0)}
+            y1={py(0)}
+            x2={px(1)}
+            y2={py(0)}
+            stroke="var(--border)"
+            stroke-width="1"
+        />
+        <line
+            x1={px(0)}
+            y1={py(0)}
+            x2={px(0)}
+            y2={py(1)}
+            stroke="var(--border)"
+            stroke-width="1"
+        />
+        <line
+            x1={px(0)}
+            y1={py(0)}
+            x2={px(1)}
+            y2={py(1)}
+            stroke="var(--muted)"
+            stroke-width="1"
+            stroke-dasharray="3 4"
+            opacity="0.6"
+        />
         {#if points.length > 1}
-            <polyline points={poly} fill="none" stroke={color} stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            <polyline
+                points={poly}
+                fill="none"
+                stroke={color}
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            />
         {/if}
         {#each points as p, i (i)}
             <circle cx={px(p.p)} cy={py(p.o)} r="2.5" fill={color} />
         {/each}
-        <text x={px(0.5)} y={size - 8} text-anchor="middle" font-size="10" fill="var(--muted)">predicted</text>
-        <text x="10" y={py(0.5)} text-anchor="middle" font-size="10" fill="var(--muted)" transform="rotate(-90 10 {py(0.5)})">observed</text>
+        <text
+            x={px(0.5)}
+            y={size - 8}
+            text-anchor="middle"
+            font-size="10"
+            fill="var(--muted)"
+        >
+            predicted
+        </text>
+        <text
+            x="10"
+            y={py(0.5)}
+            text-anchor="middle"
+            font-size="10"
+            fill="var(--muted)"
+            transform="rotate(-90 10 {py(0.5)})"
+        >
+            observed
+        </text>
     </svg>
     <div class="foot" style="padding-left: {pad}px;">
         {#if brier != null}<span class="brier">Brier {brier}</span>{/if}

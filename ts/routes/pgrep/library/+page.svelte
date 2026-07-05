@@ -196,11 +196,11 @@ verification status, and low confidence routes to review rather than the deck.
         <div class="modes">
             <label>
                 <input type="radio" bind:group={mode} value="gap_fill" />
-                 Gap-fill (net-new from corpus, graded)
+                Gap-fill (net-new from corpus, graded)
             </label>
             <label>
                 <input type="radio" bind:group={mode} value="stylize" />
-                 Stylize (rephrase the bundle, shown live)
+                Stylize (rephrase the bundle, shown live)
             </label>
         </div>
 

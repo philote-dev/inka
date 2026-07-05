@@ -76,73 +76,73 @@ differs, it is flagged in section 5.
 
 ### Classical Mechanics, 20%, `topic::mechanics`, ~14 questions
 
-| Finest unit | Tag | ETS content |
-|---|---|---|
-| Newtonian dynamics, work and energy | `topic::mechanics::dynamics_energy` | kinematics, Newton's laws, work and energy, systems of particles, 3D particle dynamics |
-| Oscillations | `topic::mechanics::oscillations` | simple, damped, and driven harmonic motion, resonance |
-| Rotation and rigid bodies | `topic::mechanics::rotation` | rotational motion about a fixed axis, rigid bodies, angular momentum, moment of inertia |
-| Central forces and orbits | `topic::mechanics::central_forces` | central forces, celestial mechanics, orbits |
+| Finest unit                          | Tag                                        | ETS content                                                                                 |
+| ------------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| Newtonian dynamics, work and energy  | `topic::mechanics::dynamics_energy`        | kinematics, Newton's laws, work and energy, systems of particles, 3D particle dynamics      |
+| Oscillations                         | `topic::mechanics::oscillations`           | simple, damped, and driven harmonic motion, resonance                                       |
+| Rotation and rigid bodies            | `topic::mechanics::rotation`               | rotational motion about a fixed axis, rigid bodies, angular momentum, moment of inertia     |
+| Central forces and orbits            | `topic::mechanics::central_forces`         | central forces, celestial mechanics, orbits                                                 |
 | Lagrangian and Hamiltonian formalism | `topic::mechanics::lagrangian_hamiltonian` | Lagrangian and Hamiltonian formalism, noninertial frames, elementary fluid dynamics (minor) |
 
 ### Electromagnetism, 18%, `topic::electromagnetism`, ~13 questions
 
-| Finest unit | Tag | ETS content |
-|---|---|---|
-| Electrostatics | `topic::electromagnetism::electrostatics` | Coulomb, fields, potential, Gauss, capacitance, dielectrics |
-| Magnetostatics and the Lorentz force | `topic::electromagnetism::magnetostatics` | magnetic fields in free space, Lorentz force, Ampere, Biot-Savart |
-| Induction and Maxwell's equations | `topic::electromagnetism::induction_maxwell` | induction, Maxwell's equations and their applications |
-| Electromagnetic waves | `topic::electromagnetism::em_waves` | electromagnetic waves, propagation, radiation |
-| Circuits (DC and AC) | `topic::electromagnetism::circuits` | DC and AC circuits, fields in matter (minor) |
+| Finest unit                          | Tag                                          | ETS content                                                       |
+| ------------------------------------ | -------------------------------------------- | ----------------------------------------------------------------- |
+| Electrostatics                       | `topic::electromagnetism::electrostatics`    | Coulomb, fields, potential, Gauss, capacitance, dielectrics       |
+| Magnetostatics and the Lorentz force | `topic::electromagnetism::magnetostatics`    | magnetic fields in free space, Lorentz force, Ampere, Biot-Savart |
+| Induction and Maxwell's equations    | `topic::electromagnetism::induction_maxwell` | induction, Maxwell's equations and their applications             |
+| Electromagnetic waves                | `topic::electromagnetism::em_waves`          | electromagnetic waves, propagation, radiation                     |
+| Circuits (DC and AC)                 | `topic::electromagnetism::circuits`          | DC and AC circuits, fields in matter (minor)                      |
 
 ### Quantum Mechanics, 13%, `topic::quantum`, ~9 questions
 
-| Finest unit | Tag | ETS content |
-|---|---|---|
-| Formalism | `topic::quantum::formalism` | fundamental concepts, states, operators, measurement, uncertainty |
-| Schrodinger solutions | `topic::quantum::schrodinger_solutions` | square wells, barriers, harmonic oscillator, hydrogenic atoms |
-| Angular momentum and spin | `topic::quantum::angular_momentum_spin` | angular momentum, spin |
+| Finest unit                      | Tag                                     | ETS content                                                                |
+| -------------------------------- | --------------------------------------- | -------------------------------------------------------------------------- |
+| Formalism                        | `topic::quantum::formalism`             | fundamental concepts, states, operators, measurement, uncertainty          |
+| Schrodinger solutions            | `topic::quantum::schrodinger_solutions` | square wells, barriers, harmonic oscillator, hydrogenic atoms              |
+| Angular momentum and spin        | `topic::quantum::angular_momentum_spin` | angular momentum, spin                                                     |
 | Perturbation theory and symmetry | `topic::quantum::perturbation_symmetry` | elementary perturbation theory, identical particles, wavefunction symmetry |
 
 ### Thermodynamics and Statistical Mechanics, 10%, `topic::thermodynamics`, ~7 questions
 
-| Finest unit | Tag | ETS content |
-|---|---|---|
-| Laws and processes | `topic::thermodynamics` | laws of thermodynamics, processes, equations of state, ideal gases, thermal expansion, heat transfer |
-| Statistical mechanics and kinetic theory | `topic::thermodynamics` | kinetic theory, ensembles, statistical calculation of thermodynamic quantities |
+| Finest unit                              | Tag                     | ETS content                                                                                          |
+| ---------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| Laws and processes                       | `topic::thermodynamics` | laws of thermodynamics, processes, equations of state, ideal gases, thermal expansion, heat transfer |
+| Statistical mechanics and kinetic theory | `topic::thermodynamics` | kinetic theory, ensembles, statistical calculation of thermodynamic quantities                       |
 
 ### Atomic Physics, 10%, `topic::atomic`, ~7 questions
 
-| Finest unit | Tag | ETS content |
-|---|---|---|
-| Atomic structure and spectra | `topic::atomic` | Bohr model, energy quantization, atomic structure, atomic spectra, selection rules |
+| Finest unit                   | Tag             | ETS content                                                                              |
+| ----------------------------- | --------------- | ---------------------------------------------------------------------------------------- |
+| Atomic structure and spectra  | `topic::atomic` | Bohr model, energy quantization, atomic structure, atomic spectra, selection rules       |
 | Radiation and atoms in fields | `topic::atomic` | black-body radiation, x-rays, atoms in electric and magnetic fields, electron properties |
 
 ### Optics and Wave Phenomena, 8%, `topic::optics_waves`, ~6 questions
 
-| Finest unit | Tag | ETS content |
-|---|---|---|
-| Wave phenomena | `topic::optics_waves` | wave properties, superposition, interference, diffraction, Doppler effect |
-| Geometrical optics and polarization | `topic::optics_waves` | geometrical optics, polarization |
+| Finest unit                         | Tag                   | ETS content                                                               |
+| ----------------------------------- | --------------------- | ------------------------------------------------------------------------- |
+| Wave phenomena                      | `topic::optics_waves` | wave properties, superposition, interference, diffraction, Doppler effect |
+| Geometrical optics and polarization | `topic::optics_waves` | geometrical optics, polarization                                          |
 
 ### Special Relativity, 6%, `topic::special_relativity`, ~4 questions
 
-| Finest unit | Tag | ETS content |
-|---|---|---|
+| Finest unit                          | Tag                         | ETS content                                                                                                                      |
+| ------------------------------------ | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Relativistic kinematics and dynamics | `topic::special_relativity` | time dilation, length contraction, simultaneity, four-vectors and Lorentz transformation, energy and momentum, velocity addition |
 
 ### Laboratory Methods, 6%, `topic::lab`, ~4 questions
 
-| Finest unit | Tag | ETS content |
-|---|---|---|
+| Finest unit             | Tag          | ETS content                                                                                                                                                                                                                 |
+| ----------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Data and error analysis | `topic::lab` | data and error analysis, counting statistics, probability and statistics, electronics, instrumentation, radiation detection, interaction of charged particles with matter, lasers and interferometers, dimensional analysis |
 
 ### Specialized Topics, 9%, `topic::specialized`, ~6 questions
 
-| Finest unit | Tag | ETS content |
-|---|---|---|
-| Nuclear and particle physics | `topic::specialized` | nuclear properties, radioactive decay, fission and fusion, reactions, elementary particle properties |
-| Condensed matter | `topic::specialized` | crystal structure, x-ray diffraction, thermal and electron properties of solids, semiconductors, superconductors |
-| Miscellaneous and astrophysics | `topic::specialized` | astrophysics, mathematical methods, computer applications |
+| Finest unit                    | Tag                  | ETS content                                                                                                      |
+| ------------------------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Nuclear and particle physics   | `topic::specialized` | nuclear properties, radioactive decay, fission and fusion, reactions, elementary particle properties             |
+| Condensed matter               | `topic::specialized` | crystal structure, x-ray diffraction, thermal and electron properties of solids, semiconductors, superconductors |
+| Miscellaneous and astrophysics | `topic::specialized` | astrophysics, mathematical methods, computer applications                                                        |
 
 All three specialized units share the single `topic::specialized` category tag
 (strict L1 rule). They are distinct for seed authoring and the coverage
@@ -177,11 +177,11 @@ The public ETS current breakdown and the L1 table agree on 7 of 9 categories and
 differ by one point on two. **Decision: keep L1.** No change to
 `L1-coordination-schema.md` weights.
 
-| Category | L1 locked (in force) | ETS current public |
-|---|---:|---:|
-| `quantum` | 13 | 12 |
-| `optics_waves` | 8 | 9 |
-| all others | identical | identical |
+| Category       | L1 locked (in force) | ETS current public |
+| -------------- | -------------------: | -----------------: |
+| `quantum`      |                   13 |                 12 |
+| `optics_waves` |                    8 |                  9 |
+| all others     |            identical |          identical |
 
 Both tables sum to 100. The one-question gap between quantum and optics is
 accepted in favor of the values the seed checklist, the sourcing plan, and the

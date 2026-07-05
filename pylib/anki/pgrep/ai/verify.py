@@ -44,8 +44,13 @@ def is_duplicate(front: str, existing_hashes: set[str]) -> bool:
 # --- giveaway verifier -----------------------------------------------------
 
 _REVEAL_PHRASES = (
-    "the answer is", "answer is", "correct answer", "the correct choice",
-    "the solution is", "equals", "the result is",
+    "the answer is",
+    "answer is",
+    "correct answer",
+    "the correct choice",
+    "the solution is",
+    "equals",
+    "the result is",
 )
 
 
@@ -60,7 +65,9 @@ def _numbers(text: str) -> set[str]:
     return out
 
 
-def find_giveaway(hint: str, answer: str, *, choice_label: str | None = None) -> str | None:
+def find_giveaway(
+    hint: str, answer: str, *, choice_label: str | None = None
+) -> str | None:
     """Return a reason string if the hint reveals the answer, else None.
 
     Flags three ways a hint can leak: the answer text appears verbatim, a
@@ -118,8 +125,9 @@ def cas_equivalent(expr_a: str, expr_b: str) -> bool:
         return False
 
 
-def cas_check_value(expr: str, expected: float, *, tolerance: float = 1e-3,
-                    subs: dict | None = None) -> bool:
+def cas_check_value(
+    expr: str, expected: float, *, tolerance: float = 1e-3, subs: dict | None = None
+) -> bool:
     """True when ``expr`` evaluates to ``expected`` within ``tolerance``."""
     import sympy  # type: ignore[import-not-found]
 
@@ -131,4 +139,6 @@ def cas_check_value(expr: str, expected: float, *, tolerance: float = 1e-3,
     except (SyntaxError, TypeError, ValueError, AttributeError):
         return False
     denom = max(1.0, abs(expected))
-    return abs(value - expected) <= tolerance * denom or abs(value - expected) <= tolerance
+    return (
+        abs(value - expected) <= tolerance * denom or abs(value - expected) <= tolerance
+    )

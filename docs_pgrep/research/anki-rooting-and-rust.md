@@ -6,13 +6,14 @@ _Grounding: knowledge graph (`.understand-anything/knowledge-graph.json`) + dire
 
 ## The key finding (changes the shape of the change)
 
-**Anki orders review cards via SQL `ORDER BY` at *gather* time — not a Rust post-sort.** `review_order_sql` (`rslib/src/storage/card/mod.rs:859`) maps each `ReviewCardOrder` variant to an SQL clause, and **the daily review limit is applied *during* SQL iteration** (`gathering.rs:35–61`). `sorting.rs` only sorts *new* cards — there is **no `sort_review`**.
+**Anki orders review cards via SQL `ORDER BY` at _gather_ time — not a Rust post-sort.** `review_order_sql` (`rslib/src/storage/card/mod.rs:859`) maps each `ReviewCardOrder` variant to an SQL clause, and **the daily review limit is applied _during_ SQL iteration** (`gathering.rs:35–61`). `sorting.rs` only sorts _new_ cards — there is **no `sort_review`**.
 
 Consequence for points-at-stake: a naive post-sort is **insufficient** — the wrong cards may never be gathered before the limit cuts in. So our change is a genuine engine change with two parts:
+
 1. A new `ReviewCardOrder::PointsAtStake` variant.
 2. A **Rust second pass** that **gathers all due reviews, scores them, then truncates to the limit** ("gather-then-limit"), inserted at the gather seam.
 
-This is *more* than a cosmetic sort — exactly the kind of real Rust change the rubric wants, and it never touches `due`/`interval`/`memory_state`.
+This is _more_ than a cosmetic sort — exactly the kind of real Rust change the rubric wants, and it never touches `due`/`interval`/`memory_state`.
 
 ## What "weakness" is (consistent with the locked selector design)
 
@@ -20,19 +21,19 @@ This is *more* than a cosmetic sort — exactly the kind of real Rust change the
 
 ## Concrete insertion plan (file + function level)
 
-| # | Action | File | Anchor |
-|---|--------|------|--------|
-| 1 | Add `REVIEW_CARD_ORDER_POINTS_AT_STAKE = 13` | `proto/anki/deck_config.proto` | 97–111 |
-| 2 | Neutral SQL gather order for the new variant (Day + random tiebreak) | `rslib/src/storage/card/mod.rs` | `review_order_sql` 859–896 |
-| 3 | For the new variant, **gather all due, defer the limit** | `rslib/src/scheduler/queue/builder/gathering.rs` | `gather_due_cards` 35–61 |
-| 4 | **New scorer module** `sort_reviews_points_at_stake(&mut QueueBuilder, &Collection)`: score = blueprint% × (1−meanR), prefer 60–85% band, anti-blocking (max K same-topic), truncate to limit | new `builder/points_at_stake.rs` | — |
-| 5 | Load note tags (filter `topic::…`) | `rslib/src/storage/note/mod.rs` `get_note_tags_by_id_list` (250) + `tags::split_tags` (42) | — |
-| 6 | Load FSRS state in gather order (stability/difficulty/decay) | `storage/card/mod.rs` `set_search_table_to_card_ids` (726) + `all_searched_cards_in_search_order` (604) | — |
-| 7 | Compute retrievability | mirror `rslib/src/stats/card.rs:51` (`current_retrievability_seconds`) or reuse SQL UDF `extract_fsrs_retrievability` | — |
-| 8 | Wire scorer in after review gather | `gathering.rs:14–21` / end of `gather_due_cards(Review)` | — |
-| 9 | Proto message + RPC to set selector config (K, band, blueprint weights) | `proto/anki/scheduler.proto` (or `deck_config.proto`) | — |
-| 10 | Rust RPC impl | `rslib/src/scheduler/service/mod.rs` `impl SchedulerService for Collection` | 34–385 |
-| 11 | Python wrapper (optional) | `pylib/anki/collection.py` | mirror 1186–1199 |
+| #  | Action                                                                                                                                                                                        | File                                                                                                                  | Anchor                     |
+| -- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| 1  | Add `REVIEW_CARD_ORDER_POINTS_AT_STAKE = 13`                                                                                                                                                  | `proto/anki/deck_config.proto`                                                                                        | 97–111                     |
+| 2  | Neutral SQL gather order for the new variant (Day + random tiebreak)                                                                                                                          | `rslib/src/storage/card/mod.rs`                                                                                       | `review_order_sql` 859–896 |
+| 3  | For the new variant, **gather all due, defer the limit**                                                                                                                                      | `rslib/src/scheduler/queue/builder/gathering.rs`                                                                      | `gather_due_cards` 35–61   |
+| 4  | **New scorer module** `sort_reviews_points_at_stake(&mut QueueBuilder, &Collection)`: score = blueprint% × (1−meanR), prefer 60–85% band, anti-blocking (max K same-topic), truncate to limit | new `builder/points_at_stake.rs`                                                                                      | —                          |
+| 5  | Load note tags (filter `topic::…`)                                                                                                                                                            | `rslib/src/storage/note/mod.rs` `get_note_tags_by_id_list` (250) + `tags::split_tags` (42)                            | —                          |
+| 6  | Load FSRS state in gather order (stability/difficulty/decay)                                                                                                                                  | `storage/card/mod.rs` `set_search_table_to_card_ids` (726) + `all_searched_cards_in_search_order` (604)               | —                          |
+| 7  | Compute retrievability                                                                                                                                                                        | mirror `rslib/src/stats/card.rs:51` (`current_retrievability_seconds`) or reuse SQL UDF `extract_fsrs_retrievability` | —                          |
+| 8  | Wire scorer in after review gather                                                                                                                                                            | `gathering.rs:14–21` / end of `gather_due_cards(Review)`                                                              | —                          |
+| 9  | Proto message + RPC to set selector config (K, band, blueprint weights)                                                                                                                       | `proto/anki/scheduler.proto` (or `deck_config.proto`)                                                                 | —                          |
+| 10 | Rust RPC impl                                                                                                                                                                                 | `rslib/src/scheduler/service/mod.rs` `impl SchedulerService for Collection`                                           | 34–385                     |
+| 11 | Python wrapper (optional)                                                                                                                                                                     | `pylib/anki/collection.py`                                                                                            | mirror 1186–1199           |
 
 ## Proto → Python (auto-generated, no manual bridge edits)
 
@@ -40,7 +41,7 @@ This is *more* than a cosmetic sort — exactly the kind of real Rust change the
 
 ## Undo & safety (verified)
 
-Queues live in memory (`Collection.state.card_queues`); building/reordering them **writes nothing** and creates **no undo record** — undo tracks *card answers*, not queue order (`scheduler/queue/undo.rs`). So reordering the due `Vec`/`VecDeque` is **undo-safe and non-corrupting**, and FSRS interval validity is preserved because scheduling fields are untouched. **Hard rule:** the scorer must **not** call `compute_memory_state`/`update_card` during queue build (that would write cards).
+Queues live in memory (`Collection.state.card_queues`); building/reordering them **writes nothing** and creates **no undo record** — undo tracks _card answers_, not queue order (`scheduler/queue/undo.rs`). So reordering the due `Vec`/`VecDeque` is **undo-safe and non-corrupting**, and FSRS interval validity is preserved because scheduling fields are untouched. **Hard rule:** the scorer must **not** call `compute_memory_state`/`update_card` during queue build (that would write cards).
 
 ## Tests (3 Rust + 1 Python, per spec 7a)
 

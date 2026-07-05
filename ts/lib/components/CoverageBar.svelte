@@ -17,7 +17,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     export let showLabels = true;
 
     $: total = segments.reduce((sum, x) => sum + x.weight, 0) || 1;
-    $: computed = Math.round((segments.reduce((sum, x) => sum + x.weight * x.covered, 0) / total) * 100);
+    $: computed = Math.round(
+        (segments.reduce((sum, x) => sum + x.weight * x.covered, 0) / total) * 100,
+    );
     $: covered = coveredPct ?? computed;
 </script>
 

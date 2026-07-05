@@ -40,7 +40,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <div class="reveal">{@html revealHtml}</div>
         {:else}
             <div class="reveal-action">
-                <button type="button" class="ghost" on:click={onShow}>Show the step</button>
+                <button type="button" class="ghost" on:click={onShow}>
+                    Show the step
+                </button>
             </div>
         {/if}
     {/if}

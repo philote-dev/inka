@@ -6,13 +6,13 @@
 
 Card generation makes retrieval items, and in core it mostly stylizes a verified bundle. Problem generation makes exam-style multiple-choice questions, which is a different and harder job. The value and the risk both sit in the **distractors** (the four wrong choices), not just the key. So problem generation has its own pipeline, its own gold set, and its own eval.
 
-| Dimension | Card generation | Problem generation |
-|---|---|---|
-| Core content | stylize bundle + gap-fill | generate MCQ (stem, key, 4 distractors, decomposition) |
-| Hardest part | correct facts | plausible, misconception-grounded distractors |
-| Gold set | fact-focused | MCQ-shaped, a rationale per distractor |
-| Beats a baseline | beats keyword/vector | misconception-first beats naive distractors; gen beats retrieval |
-| Feeds | Memory (retrieval) | Performance (the ladder) |
+| Dimension        | Card generation           | Problem generation                                               |
+| ---------------- | ------------------------- | ---------------------------------------------------------------- |
+| Core content     | stylize bundle + gap-fill | generate MCQ (stem, key, 4 distractors, decomposition)           |
+| Hardest part     | correct facts             | plausible, misconception-grounded distractors                    |
+| Gold set         | fact-focused              | MCQ-shaped, a rationale per distractor                           |
+| Beats a baseline | beats keyword/vector      | misconception-first beats naive distractors; gen beats retrieval |
+| Feeds            | Memory (retrieval)        | Performance (the ladder)                                         |
 
 ## The pipeline
 
@@ -48,6 +48,7 @@ Every generated problem also gets its stored **decomposition** (ordered sub-goal
 A **gold set** is a small set of hand-verified, known-good items used as the ruler. You grade generation against it, set the passing bar before looking, and generation must beat a simple baseline. For problems it is MCQ-shaped: stem, five choices, correct answer, and a rationale or misconception for each distractor.
 
 Sourcing (the "from questions available online" plan, with the guardrails that keep it valid):
+
 - **Correctness is easy to source.** Real practice questions give stem, choices, and key.
 - **Licensing.** Official ETS PGRE items are copyright (Tier 3). Use them as a private, held-out gold/eval set only. Do not bundle, ship, or feed them to generation. Openly-licensed questions can be used more freely, check each.
 - **Leakage.** Anything in the gold or held-out set must never enter the corpus, the RAG index, or any generation prompt.
@@ -65,6 +66,7 @@ Metrics: answer correctness (fact precision), distractor quality (plausible, mis
 Curated problems (plan task C4) stay as the trusted seed bank and the first verified decompositions. Problem generation **scales** that bank. Both live in one pool, both feed the wrong-answer ladder and the Performance score.
 
 ## Open
+
 - Distractor overlap and near-duplicate detection across generated problems.
 - CAS feasibility for physics problems (units, multiple valid forms), the same caveat as cards.
 - How many gold problems make the distractor-quality gate stable.

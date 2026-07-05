@@ -17,11 +17,14 @@ from anki.pgrep.ai import llm as llm_module
 from tests.shared import getEmptyCol
 
 _GROUNDED = [
-    {"score": 0.80,
-     "text": "A photon of wavelength lambda has energy E = h c / lambda.",
-     "source_ref": "OpenStax University Physics Volume 3, p. 254",
-     "chunk_id": "openstax-vol3#p0254#c001",
-     "source_title": "OpenStax University Physics Volume 3"}]
+    {
+        "score": 0.80,
+        "text": "A photon of wavelength lambda has energy E = h c / lambda.",
+        "source_ref": "OpenStax University Physics Volume 3, p. 254",
+        "chunk_id": "openstax-vol3#p0254#c001",
+        "source_title": "OpenStax University Physics Volume 3",
+    }
+]
 
 
 def _good_problem() -> dict:
@@ -30,15 +33,40 @@ def _good_problem() -> dict:
         "choices": ["0.40 eV", "1.24 eV", "2.48 eV", "4.96 eV", "620 eV"],
         "key": "C",
         "distractors": [
-            {"label": "A", "misconception_tag": "inverted-ratio", "rationale": "lambda over hc"},
-            {"label": "B", "misconception_tag": "wrong-wavelength", "rationale": "used 1000 nm"},
-            {"label": "D", "misconception_tag": "halved-wavelength", "rationale": "used 250 nm"},
-            {"label": "E", "misconception_tag": "multiplied", "rationale": "multiplied hc by lambda"}],
+            {
+                "label": "A",
+                "misconception_tag": "inverted-ratio",
+                "rationale": "lambda over hc",
+            },
+            {
+                "label": "B",
+                "misconception_tag": "wrong-wavelength",
+                "rationale": "used 1000 nm",
+            },
+            {
+                "label": "D",
+                "misconception_tag": "halved-wavelength",
+                "rationale": "used 250 nm",
+            },
+            {
+                "label": "E",
+                "misconception_tag": "multiplied",
+                "rationale": "multiplied hc by lambda",
+            },
+        ],
         "solution_decomposition": [
             {"subgoal": "Pick the relation", "rubric": "writes E = hc/lambda"},
-            {"subgoal": "Insert values", "rubric": "uses hc = 1240 eV nm with lambda in nm"}],
-        "problem_kind": "conceptual", "difficulty": 0.5, "confidence": 0.85,
-        "computational": None, "refuse": False}
+            {
+                "subgoal": "Insert values",
+                "rubric": "uses hc = 1240 eV nm with lambda in nm",
+            },
+        ],
+        "problem_kind": "conceptual",
+        "difficulty": 0.5,
+        "confidence": 0.85,
+        "computational": None,
+        "refuse": False,
+    }
 
 
 class _FakeLLM:
@@ -85,9 +113,13 @@ def test_problem_gen_giveaway_in_decomposition_refused(monkeypatch):
     col = getEmptyCol()
     _enable_ai(col)
     leaky = _good_problem()
-    leaky["solution_decomposition"] = [{"subgoal": "Compute", "rubric": "the answer is 2.48 eV"}]
+    leaky["solution_decomposition"] = [
+        {"subgoal": "Compute", "rubric": "the answer is 2.48 eV"}
+    ]
     monkeypatch.setattr(problem_gen, "_retrieve", lambda col, query: list(_GROUNDED))
-    monkeypatch.setattr(llm_module, "LLMClient", lambda model, **kw: _FakeLLM(model, response=leaky))
+    monkeypatch.setattr(
+        llm_module, "LLMClient", lambda model, **kw: _FakeLLM(model, response=leaky)
+    )
 
     res = problem_gen.generate(col, topic="topic::atomic", n=1)
     assert res["added"] == []

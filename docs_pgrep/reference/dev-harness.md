@@ -139,10 +139,10 @@ pgrep syncs desktop and iOS through a self-hosted copy of Anki's own sync server
 sync code. The conflict rule it enforces is documented in
 [`L3-sync-conflict-rule.md`](L3-sync-conflict-rule.md).
 
-| Command | What it does |
-| ---------------------------- | ----------------------------------------------------------------- |
-| `just sync-server` | Build pylib, then run the server on `0.0.0.0:8080` as `pgrep:pgrep`. |
-| `just sync-server user="me:secret"` | Same, with a custom account. |
+| Command                             | What it does                                                         |
+| ----------------------------------- | -------------------------------------------------------------------- |
+| `just sync-server`                  | Build pylib, then run the server on `0.0.0.0:8080` as `pgrep:pgrep`. |
+| `just sync-server user="me:secret"` | Same, with a custom account.                                         |
 
 The recipe runs `tools/sync-server.py`, which mirrors `tools/run.py`'s path
 setup and calls `anki.syncserver.run_sync_server()` (the same `SimpleServer` the

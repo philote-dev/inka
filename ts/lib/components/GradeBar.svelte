@@ -16,7 +16,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
 <div class="grades" style="grid-template-columns: repeat({grades.length}, 1fr);">
     {#each grades as g (g.value)}
-        <button type="button" class="grade" {disabled} on:click={() => onGrade && onGrade(g.value)}>
+        <button
+            type="button"
+            class="grade"
+            {disabled}
+            on:click={() => onGrade && onGrade(g.value)}
+        >
             <span class="label">{g.label}</span>
             {#if showIntervals && g.interval}
                 <span class="interval">{g.interval}</span>

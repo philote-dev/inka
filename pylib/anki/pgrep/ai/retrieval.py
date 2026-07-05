@@ -148,8 +148,13 @@ _SEARCH_SQL = """
 """
 
 
-def search(query: str, k: int = 5, *, db_path: str | None = None,
-           conn: sqlite3.Connection | None = None) -> list[RetrievedChunk]:
+def search(
+    query: str,
+    k: int = 5,
+    *,
+    db_path: str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> list[RetrievedChunk]:
     """Top-k corpus chunks for a natural language query, best first.
 
     Pass an open ``conn`` to reuse a connection across calls, or a ``db_path``
@@ -165,11 +170,23 @@ def search(query: str, k: int = 5, *, db_path: str | None = None,
         if own:
             db.close()
     out: list[RetrievedChunk] = []
-    for (chunk_id, title, file, page, page_end, section, source_ref, text,
-         distance) in rows:
+    for (
+        chunk_id,
+        title,
+        file,
+        page,
+        page_end,
+        section,
+        source_ref,
+        text,
+        distance,
+    ) in rows:
         cosine = 1.0 - (distance * distance) / 2.0
-        out.append(RetrievedChunk(chunk_id, title, file, page, page_end, section,
-                                  source_ref, text, cosine))
+        out.append(
+            RetrievedChunk(
+                chunk_id, title, file, page, page_end, section, source_ref, text, cosine
+            )
+        )
     return out
 
 
@@ -192,8 +209,12 @@ def sample_index_texts(db_path: str | None = None, n: int = 24) -> list[str]:
     return [t for (t,) in rows]
 
 
-def parity_check(texts: list[str] | None = None, *, db_path: str | None = None,
-                 min_cosine: float = PARITY_MIN_COSINE) -> dict:
+def parity_check(
+    texts: list[str] | None = None,
+    *,
+    db_path: str | None = None,
+    min_cosine: float = PARITY_MIN_COSINE,
+) -> dict:
     """Verify the ONNX embedder matches the sentence-transformers build.
 
     Embeds each text with both backends (passage style, no instruction) and
@@ -202,7 +223,9 @@ def parity_check(texts: list[str] | None = None, *, db_path: str | None = None,
     offline env (which built the index) needs it.
     """
     import numpy as np  # type: ignore[import-not-found]
-    from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
+    from sentence_transformers import (  # type: ignore[import-not-found]
+        SentenceTransformer,
+    )
 
     if texts is None:
         texts = sample_index_texts(db_path)

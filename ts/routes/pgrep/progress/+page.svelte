@@ -183,7 +183,8 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
                 kind,
                 title,
                 read: "Calibration unavailable",
-                caption: "Calibration could not be loaded right now. Reload to try again.",
+                caption:
+                    "Calibration could not be loaded right now. Reload to try again.",
                 points: [],
                 brier: null,
                 meta: "",
@@ -236,11 +237,27 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
     $: topics = data ? data.by_topic : [];
     $: coveredCount = topics.filter((t) => t.covered).length;
     $: anyCards = topics.some((t) => t.n_cards > 0);
-    $: segments = topics.map((t) => ({ topic: label(t.category), weight: t.blueprint, covered: t.covered ? 1 : 0 }));
+    $: segments = topics.map((t) => ({
+        topic: label(t.category),
+        weight: t.blueprint,
+        covered: t.covered ? 1 : 0,
+    }));
 
     $: calibViews = [
-        calibView("memory", "Memory", "Held-out reviews", calibration?.memory, calibrationErrored),
-        calibView("performance", "Performance", "Held-out synthetic", calibration?.performance, calibrationErrored),
+        calibView(
+            "memory",
+            "Memory",
+            "Held-out reviews",
+            calibration?.memory,
+            calibrationErrored,
+        ),
+        calibView(
+            "performance",
+            "Performance",
+            "Held-out synthetic",
+            calibration?.performance,
+            calibrationErrored,
+        ),
     ];
 
     // Coverage-gated Readiness: a scaled point + 80% range when covered, an honest
@@ -250,7 +267,10 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         readinessCovered && readiness
             ? ([readiness.low, readiness.high] as [number, number])
             : undefined;
-    $: readinessHowSure = readinessCovered && readiness ? `${pct(readiness.coverage_pct)} percent covered` : "";
+    $: readinessHowSure =
+        readinessCovered && readiness
+            ? `${pct(readiness.coverage_pct)} percent covered`
+            : "";
     $: readinessAbstain = readinessAbstainState(readiness);
 </script>
 
@@ -258,10 +278,21 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
     <header class="head">
         <div class="head-text">
             <h1>Progress</h1>
-            <p class="sub">Coverage gates Readiness. Calibration shows how honest the model is.</p>
+            <p class="sub">
+                Coverage gates Readiness. Calibration shows how honest the model is.
+            </p>
         </div>
         <a class="diag-link" href="/pgrep/diagnostic">
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+                width="16"
+                height="16"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
                 <polyline points="2,10 5.5,10 8,4.5 12,15.5 14.5,10 18,10" />
             </svg>
             Run the diagnostic
@@ -279,7 +310,9 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         <div class="panel">
             <div class="panel-head">
                 <h2>Coverage</h2>
-                <span class="count">{coveredCount} of {topics.length} categories started</span>
+                <span class="count">
+                    {coveredCount} of {topics.length} categories started
+                </span>
             </div>
 
             <CoverageBar
@@ -302,7 +335,9 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
                             <span>Blueprint {pct(topic.blueprint)} percent</span>
                             <span>{cardCount(topic.n_cards)}</span>
                             {#if topic.memory_point !== null}
-                                <span class="mem">Memory {pct(topic.memory_point)} percent</span>
+                                <span class="mem">
+                                    Memory {pct(topic.memory_point)} percent
+                                </span>
                             {/if}
                         </div>
                     </li>
@@ -310,14 +345,18 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
             </ul>
 
             {#if !anyCards}
-                <p class="muted small seed-hint">Seed sample content to see your coverage.</p>
+                <p class="muted small seed-hint">
+                    Seed sample content to see your coverage.
+                </p>
             {/if}
 
             <div class="actions">
                 <button class="btn" on:click={seed} disabled={seeding}>
                     {seeding ? "Seeding sample content" : "Seed sample content"}
                 </button>
-                <span class="muted small">A category counts once it has one reviewed card.</span>
+                <span class="muted small">
+                    A category counts once it has one reviewed card.
+                </span>
             </div>
         </div>
 
@@ -331,8 +370,10 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
                 abstain={readinessAbstain}
             />
             <p class="muted small readiness-note">
-                Readiness leans on Performance under exam conditions, gated on questions attempted (not cards reviewed).
-                It abstains until at least {pct(readiness?.coverage_gate ?? 0.7)} percent of the exam has been attempted.
+                Readiness leans on Performance under exam conditions, gated on questions
+                attempted (not cards reviewed). It abstains until at least {pct(
+                    readiness?.coverage_gate ?? 0.7,
+                )} percent of the exam has been attempted.
             </p>
         </div>
 
@@ -344,7 +385,12 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
             <div class="calib">
                 {#each calibViews as view (view.kind)}
                     <div class="calib-cell">
-                        <span class="calib-tone" style="color: var(--{view.kind}-text);">{view.title}</span>
+                        <span
+                            class="calib-tone"
+                            style="color: var(--{view.kind}-text);"
+                        >
+                            {view.title}
+                        </span>
                         <ReliabilityDiagram
                             points={view.points}
                             brier={view.brier}
@@ -357,14 +403,17 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
                             <p class="muted calib-meta">{view.meta}</p>
                         {/if}
                         {#if view.source}
-                            <p class="muted calib-prov" title={view.method}>{view.source}</p>
+                            <p class="muted calib-prov" title={view.method}>
+                                {view.source}
+                            </p>
                         {/if}
                     </div>
                 {/each}
             </div>
             <p class="muted small calib-note">
-                Calibration compares each model's predicted chance against what actually happened on held-out data.
-                The closer the line sits to the diagonal, the more honest the model.
+                Calibration compares each model's predicted chance against what actually
+                happened on held-out data. The closer the line sits to the diagonal, the
+                more honest the model.
             </p>
         </div>
     {/if}

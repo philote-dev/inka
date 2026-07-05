@@ -3,7 +3,7 @@
 Physics GRE prep, forked from Anki. The Friday layer: AI added and checked,
 phone syncs with desktop. Every AI feature still runs with AI switched off.
 
-**Commit:** `4a98581f5`  ·  verify live with `git rev-parse HEAD`
+**Commit:** `4a98581f5` · verify live with `git rev-parse HEAD`
 
 ## AI checking and safety
 

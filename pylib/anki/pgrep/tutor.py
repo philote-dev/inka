@@ -37,18 +37,20 @@ GRADE_SYSTEM = (
     "Willow checkpoint style. Score the learner's sub-goal against the rubric as "
     "covered, partial, or missing, then ask ONE short probing question about the "
     "weakest gap. NEVER state or imply the final answer or the key choice. Return "
-    "STRICT JSON: {\"coverage\": \"covered\"|\"partial\"|\"missing\", \"probe\": str}."
+    'STRICT JSON: {"coverage": "covered"|"partial"|"missing", "probe": str}.'
 )
 
 SYNTH_SYSTEM = (
     "You write a brief end-of-session synthesis for a Physics GRE learner from "
     "their attempt log: the recurring confusions, the discriminating principles "
     "to remember, and a one-line calibration note. Ground it in the topics and "
-    "sources given. Return STRICT JSON: {\"patterns\": [str], \"principles\": "
-    "[str], \"calibration\": str}."
+    'sources given. Return STRICT JSON: {"patterns": [str], "principles": '
+    '[str], "calibration": str}.'
 )
 
-_SAFE_PROBE = "Look again at the step you were least sure about. What principle decides it?"
+_SAFE_PROBE = (
+    "Look again at the step you were least sure about. What principle decides it?"
+)
 
 
 def _load_problem(col: Collection, note_id: int) -> dict:
@@ -63,13 +65,23 @@ def _load_problem(col: Collection, note_id: int) -> dict:
         idx = problem.CHOICE_LETTERS.index(key)
         if idx < len(choices):
             key_text = choices[idx]
-    return {"stem": note[problem.FIELD_STEM], "choices": choices, "key": key,
-            "key_text": key_text, "decomposition": decomposition,
-            "source_ref": note[problem.FIELD_SOURCE_REF]}
+    return {
+        "stem": note[problem.FIELD_STEM],
+        "choices": choices,
+        "key": key,
+        "key_text": key_text,
+        "decomposition": decomposition,
+        "source_ref": note[problem.FIELD_SOURCE_REF],
+    }
 
 
-def grade_subgoal(col: Collection, note_id: int, subgoal_index: int,
-                  learner_text: str, learner_why: str = "") -> dict[str, Any]:
+def grade_subgoal(
+    col: Collection,
+    note_id: int,
+    subgoal_index: int,
+    learner_text: str,
+    learner_why: str = "",
+) -> dict[str, Any]:
     """Evaluate one produced sub-goal. AI off reveals for self-compare; AI on grades."""
     prob = _load_problem(col, note_id)
     decomposition = prob["decomposition"]
@@ -81,19 +93,33 @@ def grade_subgoal(col: Collection, note_id: int, subgoal_index: int,
 
     if not ai_config.ai_enabled(col):
         # Reveal-and-self-compare: show the stored correct sub-goal (L2 baseline).
-        return {"ai": "off", "mode": "reveal", "subgoal": subgoal, "rubric": rubric,
-                "is_last": subgoal_index == len(decomposition) - 1}
+        return {
+            "ai": "off",
+            "mode": "reveal",
+            "subgoal": subgoal,
+            "rubric": rubric,
+            "is_last": subgoal_index == len(decomposition) - 1,
+        }
 
     from anki.pgrep.ai import llm, verify
 
-    user = (f"RUBRIC for this sub-goal: {rubric}\n"
-            f"(The correct sub-goal, for your judgement only, do not reveal it: {subgoal})\n\n"
-            f"LEARNER SUB-GOAL: {learner_text}\nLEARNER WHY: {learner_why}")
+    user = (
+        f"RUBRIC for this sub-goal: {rubric}\n"
+        f"(The correct sub-goal, for your judgement only, do not reveal it: {subgoal})\n\n"
+        f"LEARNER SUB-GOAL: {learner_text}\nLEARNER WHY: {learner_why}"
+    )
     try:
-        raw = llm.LLMClient(ai_config.resolve_model(col)).complete_json(GRADE_SYSTEM, user)
+        raw = llm.LLMClient(ai_config.resolve_model(col)).complete_json(
+            GRADE_SYSTEM, user
+        )
     except Exception as exc:  # noqa: BLE001 - never crash study; fall back to the safe path
-        return {"ai": "error", "mode": "reveal", "subgoal": subgoal, "rubric": rubric,
-                "message": f"grading failed: {exc}"}
+        return {
+            "ai": "error",
+            "mode": "reveal",
+            "subgoal": subgoal,
+            "rubric": rubric,
+            "message": f"grading failed: {exc}",
+        }
 
     coverage = raw.get("coverage", "partial")
     probe = raw.get("probe", "") or _SAFE_PROBE
@@ -102,14 +128,22 @@ def grade_subgoal(col: Collection, note_id: int, subgoal_index: int,
     giveaway_blocked = reason is not None
     if giveaway_blocked:
         probe = _SAFE_PROBE
-    return {"ai": "on", "mode": "grade", "coverage": coverage, "probe": probe,
-            "giveaway_blocked": giveaway_blocked,
-            "is_last": subgoal_index == len(decomposition) - 1}
+    return {
+        "ai": "on",
+        "mode": "grade",
+        "coverage": coverage,
+        "probe": probe,
+        "giveaway_blocked": giveaway_blocked,
+        "is_last": subgoal_index == len(decomposition) - 1,
+    }
 
 
 def _session_attempts(col: Collection, session_id: str) -> list:
-    return [e for e in attempt_log.attempts(col)
-            if e.payload.get("session_id") == session_id]
+    return [
+        e
+        for e in attempt_log.attempts(col)
+        if e.payload.get("session_id") == session_id
+    ]
 
 
 def session_synthesis(col: Collection, session_id: str) -> dict[str, Any]:
@@ -122,31 +156,56 @@ def session_synthesis(col: Collection, session_id: str) -> dict[str, Any]:
         bucket = by_topic.setdefault(e.category, [0, 0])
         bucket[0] += 1 if e.correct else 0
         bucket[1] += 1
-    recap = {"attempted": total, "correct": correct,
-             "accuracy": (correct / total) if total else 0.0,
-             "by_topic": {t: {"correct": c, "total": n} for t, (c, n) in by_topic.items()}}
+    recap = {
+        "attempted": total,
+        "correct": correct,
+        "accuracy": (correct / total) if total else 0.0,
+        "by_topic": {t: {"correct": c, "total": n} for t, (c, n) in by_topic.items()},
+    }
 
     if total == 0:
-        return {"ai": "off", "recap": recap, "patterns": [], "principles": [],
-                "calibration": "No attempts this session yet."}
+        return {
+            "ai": "off",
+            "recap": recap,
+            "patterns": [],
+            "principles": [],
+            "calibration": "No attempts this session yet.",
+        }
 
     if not ai_config.ai_enabled(col):
         weak = sorted(by_topic.items(), key=lambda kv: kv[1][0] / max(1, kv[1][1]))
         patterns = [f"{t}: {c}/{n} correct" for t, (c, n) in weak[:3]]
-        return {"ai": "off", "recap": recap, "patterns": patterns,
-                "principles": [f"Review {weak[0][0]}"] if weak else [],
-                "calibration": f"You answered {correct} of {total} first-try."}
+        return {
+            "ai": "off",
+            "recap": recap,
+            "patterns": patterns,
+            "principles": [f"Review {weak[0][0]}"] if weak else [],
+            "calibration": f"You answered {correct} of {total} first-try.",
+        }
 
     from anki.pgrep.ai import llm
 
     topics = ", ".join(f"{t} ({c}/{n})" for t, (c, n) in by_topic.items())
-    user = (f"SESSION: {correct}/{total} first-try correct.\nTOPICS: {topics}\n"
-            "Summarize the recurring confusions and the discriminating principles.")
+    user = (
+        f"SESSION: {correct}/{total} first-try correct.\nTOPICS: {topics}\n"
+        "Summarize the recurring confusions and the discriminating principles."
+    )
     try:
-        raw = llm.LLMClient(ai_config.resolve_model(col)).complete_json(SYNTH_SYSTEM, user)
+        raw = llm.LLMClient(ai_config.resolve_model(col)).complete_json(
+            SYNTH_SYSTEM, user
+        )
     except Exception as exc:  # noqa: BLE001
-        return {"ai": "error", "recap": recap, "patterns": [], "principles": [],
-                "calibration": f"synthesis failed: {exc}"}
-    return {"ai": "on", "recap": recap,
-            "patterns": raw.get("patterns", []), "principles": raw.get("principles", []),
-            "calibration": raw.get("calibration", "")}
+        return {
+            "ai": "error",
+            "recap": recap,
+            "patterns": [],
+            "principles": [],
+            "calibration": f"synthesis failed: {exc}",
+        }
+    return {
+        "ai": "on",
+        "recap": recap,
+        "patterns": raw.get("patterns", []),
+        "principles": raw.get("principles", []),
+        "calibration": raw.get("calibration", ""),
+    }

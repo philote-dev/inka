@@ -2,7 +2,7 @@
 
 **Status: designed (core).** Shared mission / constraints / exam facts live in `README.md`. Surfaces and IA originate in `vision-and-structure.md`; the four features that fill these screens are in `features.md` and the `feature-*.md` docs.
 
-**One line:** pgrep is *an honest physics instrument that renders your readiness beautifully.*
+**One line:** pgrep is _an honest physics instrument that renders your readiness beautifully._
 
 > **Copy rule (locked, applies to all UI text):** no em-dashes, and no colon-heavy phrasing. Use periods, commas, and short labels. This doc follows the same rule.
 
@@ -27,6 +27,7 @@
 ## 3. Design language
 
 ### 3.1 Typography
+
 - **UI:** a premium humanist / geometric sans (Inter, SF Pro, or Geist family).
 - **Numbers and data:** tabular monospaced numerals so scores, ranges, and timers read like an instrument and do not jitter as they update.
 - **Math:** MathJax as a first-class citizen (the fork already ships MathJax 3). This is where the editorial-physics beauty lives, so we do not need a decorative serif in the UI. KaTeX is an optional lighter swap, not required.
@@ -36,34 +37,37 @@
 
 Neutrals are warm (Anthropic-flavored). The dark canvas is a warm dark grey, not a void black. Accents are pastel and Nord-flavored.
 
-| Role | Light | Dark |
-|---|---|---|
-| Canvas | `#FBFAF8` | `#262624` (warm grey) |
-| Surface / card | `#FFFFFF` | `#302F2C` |
-| Elevated | `#F5F2EC` | `#3A3835` |
-| Border (hairline) | `#E8E4DA` | `#45433E` |
-| Text | `#262624` | `#ECEAE3` |
-| Muted text | `#6E6B64` | `#A5A199` |
-| **Memory** (pastel amber) | text `#A9752A`, fill `#EBCB8B` | `#EBCB8B` |
-| **Performance** (pastel blue) | text `#5E81AC`, fill `#81A1C1` | `#81A1C1` |
-| **Readiness** (Nord lilac) | text `#7E6593`, fill `#C4A7D6` | `#C4A7D6` |
-| Primary action (monochrome) | `#262624` on `#FBFAF8` | `#ECEAE3` on `#262624` |
-| Success | `#A3BE8C` | `#A3BE8C` |
-| Caution | `#D08770` | `#D08770` |
-| Error | `#BF616A` | `#BF616A` |
+| Role                          | Light                          | Dark                   |
+| ----------------------------- | ------------------------------ | ---------------------- |
+| Canvas                        | `#FBFAF8`                      | `#262624` (warm grey)  |
+| Surface / card                | `#FFFFFF`                      | `#302F2C`              |
+| Elevated                      | `#F5F2EC`                      | `#3A3835`              |
+| Border (hairline)             | `#E8E4DA`                      | `#45433E`              |
+| Text                          | `#262624`                      | `#ECEAE3`              |
+| Muted text                    | `#6E6B64`                      | `#A5A199`              |
+| **Memory** (pastel amber)     | text `#A9752A`, fill `#EBCB8B` | `#EBCB8B`              |
+| **Performance** (pastel blue) | text `#5E81AC`, fill `#81A1C1` | `#81A1C1`              |
+| **Readiness** (Nord lilac)    | text `#7E6593`, fill `#C4A7D6` | `#C4A7D6`              |
+| Primary action (monochrome)   | `#262624` on `#FBFAF8`         | `#ECEAE3` on `#262624` |
+| Success                       | `#A3BE8C`                      | `#A3BE8C`              |
+| Caution                       | `#D08770`                      | `#D08770`              |
+| Error                         | `#BF616A`                      | `#BF616A`              |
 
 Reserved meanings, everywhere: **amber = Memory, blue = Performance, lilac = Readiness.** State colors (success, caution, error) are a separate set and never collide with the score language. Interactive elements (buttons, links, focus rings) are **monochrome**, so the only meaning-bearing color on screen is the data.
 
 ### 3.3 Shape, depth, spacing
+
 - Rounded "squircle" cards, hairline borders plus very soft shadows.
 - An 8pt spacing grid, generous negative space, one primary action per screen.
 
 ### 3.4 Motion
+
 - Calm spring motion, roughly 200 to 300ms, confident rather than bouncy.
 - The manifold morphs smoothly as stats change.
 - Nothing freezes the screen for more than 100ms (a spec speed rule).
 
 ### 3.5 Voice
+
 **Honest instrument, lightly human.** Truth first. Warmth comes from reframing (for example "in-session accuracy understates your learning"), never from empty praise. No em-dashes, no colon-heavy phrasing.
 
 ## 4. Navigation shell
@@ -77,12 +81,14 @@ Reserved meanings, everywhere: **amber = Memory, blue = Performance, lilac = Rea
 The hero of the app is a **3D wireframe manifold**, a clean mathematical surface plot rather than photoreal terrain. It is both an overview and a launchpad.
 
 **Encoding (how it conforms to your stats):**
+
 - **Height** = Performance (can you do the problems).
 - **Glow / hue** = Memory (can you recall it).
 - **Holes** = knowledge gaps. **Fog / bare wireframe** = uncovered topics. Low coverage makes the surface visibly incomplete, which is honest by construction. You cannot fake readiness over a hole.
 - Topic **footprint** tracks the exam blueprint weight, so the layout teaches what matters.
 
 **Behavior:**
+
 - Tap a region to drill into that topic (this is the Focus drill entry from `feature-interleaving.md`).
 - **Buildability:** default to the clean wireframe / displaced-plane surface (Three.js), with a 2D top-down contour projection as the reliable fallback and small-screen mode. A future **Bridge** toggle can lift a second Memory surface above the Performance surface to visualize the memory-to-performance gap directly (see section 10).
 - **Honesty pairing:** the manifold is the emotional overview. The exact numbers, ranges, and coverage always coexist beside it and in Progress.
@@ -90,6 +96,7 @@ The hero of the app is a **3D wireframe manifold**, a clean mathematical surface
 ## 6. Honesty as a system
 
 **Score card anatomy (Home).** Each of Memory, Performance, Readiness shows:
+
 - the point number in tabular figures,
 - a **likely range** (for example "64 to 74"), never a bare number,
 - a **how-sure** read,
@@ -103,9 +110,11 @@ The hero of the app is a **3D wireframe manifold**, a clean mathematical surface
 ## 7. Surfaces
 
 ### 7.1 Home (Readiness)
+
 The command center. The manifold hero, the three score cards, a single **Today** card (the one best next action plus `Start session`), and a quiet streak. See `assets/reference/home-dark.png`.
 
 ### 7.2 Study
+
 The training and measuring instrument, and the home of features F1 (interleaving order), F3 (productive failure), and the Cards / Problems doors.
 
 **Session launcher:** `Start today's session` (interleaved, recommended), `Focus drill` (one topic), `Exam mode` (timed mock).
@@ -132,15 +141,19 @@ flowchart TD
 - **Session synthesis:** patterns across the session plus a performance recap. Calibration itself lives in Progress, not here.
 
 ### 7.3 Progress (the evidence ledger)
+
 Where honesty lives. A **Coverage** element (percent of exam covered, per-topic, that gates Readiness and states the abstain rule), and **model calibration** (reliability diagram plus Brier for Memory and Performance, with a plain-language read such as "well calibrated" or "underconfident"), plus per-topic mastery and trends. See `assets/reference/progress-dark.png`.
 
 ### 7.4 Library (content, forced generation)
+
 `Author a seed`. The learner writes one conceptual card in their own words, then the AI conforms siblings to that style. Every generated card cites a **named source**, shows a verification status, and passes a gold-set gate before entering the deck.
 
 ### 7.5 Settings
+
 AI on/off (the AI-off path always works), sync, target retention, test date, appearance (light / dark / system), account.
 
 ### 7.6 Diagnostic
+
 First-run and re-runnable adaptive placement that seeds the manifold. Topics are placed as strong or rusty, with no cold bucket in core, since the persona is post-undergrad.
 
 ## 8. Component patterns (reusable)
@@ -171,6 +184,7 @@ Confirmed against the fork so the design is buildable as specified.
 ### Dependencies (final decisions)
 
 **Approved additions:**
+
 - **Three.js** (`three` + `@types/three`, MIT) for the 3D manifold and the future Bridge view. Installed in build layer L2 when the manifold component imports it. The 2D D3 contour stays the fallback, so the app never hard-depends on WebGL.
 - **Fonts (self-hosted, OFL):** **Inter** for UI (with tabular lining figures for scores and timers) plus **JetBrains Mono** for data and the exam timer. Deliver via Fontsource variable packages (`@fontsource-variable/inter`, `@fontsource-variable/jetbrains-mono`) or vendored woff2. Add `--font-ui` and `--font-mono` tokens in `ts/lib/sass`. Geist and Geist Mono are the alternative pairing if we want the Vercel edge.
 - **Lucide** icons (`lucide-static`, ISC) for pgrep's new surfaces, imported via the existing `.svg?component` pattern in `ts/lib/components/icons.ts`. Anki's existing `@mdi` usage stays untouched.

@@ -48,7 +48,7 @@ STYLIZE_SYSTEM = (
     "You rephrase a verified flashcard into the learner's voice. Keep every fact "
     "identical, change only phrasing and framing to match the style seed. Never "
     "add or remove facts, never change the answer. Return STRICT JSON: "
-    "{\"front\": str, \"back\": str}."
+    '{"front": str, "back": str}.'
 )
 
 
@@ -71,15 +71,22 @@ def _existing_front_hashes(col: Collection) -> set[str]:
     from anki.pgrep.ai import verify
 
     hashes: set[str] = set()
-    for nid in col.find_notes('note:Basic'):
+    for nid in col.find_notes("note:Basic"):
         note = col.get_note(nid)
         if "Front" in note:
             hashes.add(verify.normalized_front_hash(note["Front"]))
     return hashes
 
 
-def _add_card(col: Collection, front: str, back: str, topic: str, *,
-              tag: str, source_ref: str | None) -> int:
+def _add_card(
+    col: Collection,
+    front: str,
+    back: str,
+    topic: str,
+    *,
+    tag: str,
+    source_ref: str | None,
+) -> int:
     """Add one new Basic card (cold-start FSRS). Returns the note id."""
     note = col.new_note(_basic(col))
     note["Front"] = front
@@ -112,18 +119,24 @@ def _retrieve(col: Collection, query: str) -> Any:
     return retrieval.search(query, k=RETRIEVE_K)
 
 
-def stylize(col: Collection, topic: str, seed_front: str, seed_back: str) -> dict[str, Any]:
+def stylize(
+    col: Collection, topic: str, seed_front: str, seed_back: str
+) -> dict[str, Any]:
     """AI on. Rephrase the bundle's cards for the topic into the seed's voice.
 
     Shown live: returns the rephrased cards for display, facts verified locked. It
     adds no duplicates to the pool (the learner's own seed is what enters).
     """
     if not ai_config.ai_enabled(col):
-        return {"ai": "off", "cards": [], "message": "AI is off; your seed card was kept as is."}
+        return {
+            "ai": "off",
+            "cards": [],
+            "message": "AI is off; your seed card was kept as is.",
+        }
     from anki.pgrep.ai import llm, verify
 
     tag = _topic_tag(topic)
-    bundle_nids = list(col.find_notes(f'note:Basic tag:{tag}'))[:8]
+    bundle_nids = list(col.find_notes(f"note:Basic tag:{tag}"))[:8]
     client = llm.LLMClient(ai_config.resolve_model(col))
     seed_toks = None
     out = []
@@ -132,31 +145,47 @@ def stylize(col: Collection, topic: str, seed_front: str, seed_back: str) -> dic
         if "Front" not in note or "Back" not in note:
             continue
         orig_front, orig_back = note["Front"], note["Back"]
-        user = (f"STYLE SEED:\nfront: {seed_front}\nback: {seed_back}\n\n"
-                f"CARD TO REPHRASE:\nfront: {orig_front}\nback: {orig_back}")
+        user = (
+            f"STYLE SEED:\nfront: {seed_front}\nback: {seed_back}\n\n"
+            f"CARD TO REPHRASE:\nfront: {orig_front}\nback: {orig_back}"
+        )
         try:
             raw = client.complete_json(STYLIZE_SYSTEM, user)
         except Exception as exc:  # noqa: BLE001 - surface a clean status, never crash the app
             return {"ai": "error", "cards": [], "message": f"generation failed: {exc}"}
         new_back = raw.get("back", "")
-        facts_locked = verify.normalize(orig_back) == verify.normalize(new_back) or \
-            _overlap(orig_back, new_back) >= _STYLE_FACT_OVERLAP
-        out.append({
-            "front": raw.get("front", orig_front),
-            "back": new_back if facts_locked else orig_back,
-            "facts_locked": bool(facts_locked),
-            "original_front": orig_front,
-            "provenance": f"bundle card: {orig_front}",
-        })
+        facts_locked = (
+            verify.normalize(orig_back) == verify.normalize(new_back)
+            or _overlap(orig_back, new_back) >= _STYLE_FACT_OVERLAP
+        )
+        out.append(
+            {
+                "front": raw.get("front", orig_front),
+                "back": new_back if facts_locked else orig_back,
+                "facts_locked": bool(facts_locked),
+                "original_front": orig_front,
+                "provenance": f"bundle card: {orig_front}",
+            }
+        )
     return {"ai": "on", "mode": "stylize", "cards": out, "count": len(out)}
 
 
-def gap_fill(col: Collection, topic: str, seed_front: str, seed_back: str,
-             n: int = DEFAULT_GAPFILL_N) -> dict[str, Any]:
+def gap_fill(
+    col: Collection,
+    topic: str,
+    seed_front: str,
+    seed_back: str,
+    n: int = DEFAULT_GAPFILL_N,
+) -> dict[str, Any]:
     """AI on, the graded path. Generate net-new siblings from the corpus only."""
     if not ai_config.ai_enabled(col):
-        return {"ai": "off", "added": [], "review": [], "refused": [],
-                "message": "AI is off; author your card and it enters the pool as is."}
+        return {
+            "ai": "off",
+            "added": [],
+            "review": [],
+            "refused": [],
+            "message": "AI is off; author your card and it enters the pool as is.",
+        }
     from anki.pgrep.ai import generation_core as gc
     from anki.pgrep.ai import llm
 
@@ -169,13 +198,24 @@ def gap_fill(col: Collection, topic: str, seed_front: str, seed_back: str,
     added, review, refused = [], [], []
     for _ in range(max(1, n)):
         try:
-            item = gc.generate_card(topic=_topic_tag(topic), retrieved=retrieved,
-                                    llm=client, seed_card=seed_card)
+            item = gc.generate_card(
+                topic=_topic_tag(topic),
+                retrieved=retrieved,
+                llm=client,
+                seed_card=seed_card,
+            )
         except Exception as exc:  # noqa: BLE001
-            return {"ai": "error", "added": [], "review": [], "refused": [],
-                    "message": f"generation failed: {exc}"}
+            return {
+                "ai": "error",
+                "added": [],
+                "review": [],
+                "refused": [],
+                "message": f"generation failed: {exc}",
+            }
         if item.get("refused"):
-            refused.append({"reason": item.get("refusal_reason"), "front": item.get("front")})
+            refused.append(
+                {"reason": item.get("refusal_reason"), "front": item.get("front")}
+            )
             continue
         from anki.pgrep.ai import verify
 
@@ -183,23 +223,46 @@ def gap_fill(col: Collection, topic: str, seed_front: str, seed_back: str,
         if h in existing:
             continue
         existing.add(h)
-        record = {"front": item["front"], "back": item["back"],
-                  "source_ref": item.get("source_ref"), "confidence": item.get("confidence"),
-                  "card_kind": item.get("card_kind")}
+        record = {
+            "front": item["front"],
+            "back": item["back"],
+            "source_ref": item.get("source_ref"),
+            "confidence": item.get("confidence"),
+            "card_kind": item.get("card_kind"),
+        }
         if item.get("needs_review"):
             record["review_reason"] = item.get("review_reason")
             review.append(record)
             continue
-        note_id = _add_card(col, item["front"], item["back"], topic,
-                            tag=GENERATED_TAG, source_ref=item.get("source_ref"))
+        note_id = _add_card(
+            col,
+            item["front"],
+            item["back"],
+            topic,
+            tag=GENERATED_TAG,
+            source_ref=item.get("source_ref"),
+        )
         record["note_id"] = note_id
         added.append(record)
-    return {"ai": "on", "mode": "gap_fill", "added": added, "review": review,
-            "refused": refused, "n_requested": n}
+    return {
+        "ai": "on",
+        "mode": "gap_fill",
+        "added": added,
+        "review": review,
+        "refused": refused,
+        "n_requested": n,
+    }
 
 
-def generate(col: Collection, *, mode: str, topic: str, seed_front: str,
-             seed_back: str, n: int = DEFAULT_GAPFILL_N) -> dict[str, Any]:
+def generate(
+    col: Collection,
+    *,
+    mode: str,
+    topic: str,
+    seed_front: str,
+    seed_back: str,
+    n: int = DEFAULT_GAPFILL_N,
+) -> dict[str, Any]:
     """Library entry: author the seed, then stylize or gap-fill by mode."""
     seed = author_seed(col, seed_front, seed_back, topic)
     if mode == "stylize":

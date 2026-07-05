@@ -2,7 +2,7 @@
 
 Physics GRE prep, forked from Anki. No AI (that is Friday).
 
-**Commit:** `a340fa458`  ·  verify live with `git rev-parse HEAD`
+**Commit:** `a340fa458` · verify live with `git rev-parse HEAD`
 
 ## Real Rust engine change
 
@@ -29,8 +29,6 @@ check:pytest ... n2: ran 3 tasks
 Build succeeded in 24.42s.
 ```
 
-
-
 ## Fork proof
 
 A fork of Anki that builds from source: `just clean && just run` compiles the
@@ -46,15 +44,13 @@ aqt.mediasrv: Serving on http://127.0.0.1:40000
 aqt.mediasrv: GET /pgrep      <- opens straight into pgrep
 ```
 
-
-
 ## Score honesty
 
 Three separate scores, each shown honestly or not at all:
 
 - **Memory** - real, from the engine's per-topic FSRS retrievability. Shows a
-point, a likely range, and a how-sure read; abstains when a topic is too thin.
-The one that is going to appear on the application (for memory) is derived from the imported sample set.
+  point, a likely range, and a how-sure read; abstains when a topic is too thin.
+  The one that is going to appear on the application (for memory) is derived from the imported sample set.
 - **Performance** - abstains: no model yet (that is Friday).
 - **Readiness** - abstains: needs performance data and 70% topic coverage first.
 

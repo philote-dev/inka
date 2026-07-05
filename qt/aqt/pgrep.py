@@ -187,7 +187,9 @@ def pgrep_problem_generate() -> bytes:
     a = _args()
     return _json(
         problem_gen.generate(
-            aqt.mw.col, topic=a.get("topic", ""), n=int(a.get("n", problem_gen.DEFAULT_N))
+            aqt.mw.col,
+            topic=a.get("topic", ""),
+            n=int(a.get("n", problem_gen.DEFAULT_N)),
         )
     )
 

@@ -256,8 +256,8 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
         <div class="panel">
             <p class="lead">Answer one quick check per topic.</p>
             <p class="muted">
-                We combine each answer with what your reviews already show, then place every topic strong or
-                rusty. Run it again whenever you like.
+                We combine each answer with what your reviews already show, then place
+                every topic strong or rusty. Run it again whenever you like.
             </p>
         </div>
 
@@ -266,7 +266,11 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
                 <p class="muted small">Your last placement</p>
                 <ul class="grid">
                     {#each priorPlaced as topic (topic.category)}
-                        <li class="chip" class:strong={topic.placement === "strong"} class:rusty={topic.placement === "rusty"}>
+                        <li
+                            class="chip"
+                            class:strong={topic.placement === "strong"}
+                            class:rusty={topic.placement === "rusty"}
+                        >
                             <span class="chip-name">{label(topic.category)}</span>
                             <span class="pill">{topic.placement}</span>
                         </li>
@@ -295,7 +299,8 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
                         selected={selectedKey(item.category)}
                         committed={false}
                         correctKey={null}
-                        onSelect={(key) => pick(item.category, CHOICE_LETTERS.indexOf(key))}
+                        onSelect={(key) =>
+                            pick(item.category, CHOICE_LETTERS.indexOf(key))}
                     />
                 </li>
             {/each}
@@ -304,23 +309,37 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
         <div class="actions">
             <button class="btn ghost" on:click={back} disabled={busy}>Back</button>
             {#if isLastStep}
-                <button class="btn primary" on:click={submit} disabled={!batchComplete || busy}>
+                <button
+                    class="btn primary"
+                    on:click={submit}
+                    disabled={!batchComplete || busy}
+                >
                     {busy ? "Placing" : "See placement"}
                 </button>
             {:else}
-                <button class="btn primary" on:click={next} disabled={!batchComplete}>Next</button>
+                <button class="btn primary" on:click={next} disabled={!batchComplete}>
+                    Next
+                </button>
             {/if}
             <span class="muted small">Pick an answer for each check to continue.</span>
         </div>
     {:else if screen === "results" && placeData}
         <div class="panel">
-            <p class="lead">{strongCount} of {placeData.topics.length} topics placed strong.</p>
-            <p class="muted small">Saved. Reviews keep refining this, and you can run it again.</p>
+            <p class="lead">
+                {strongCount} of {placeData.topics.length} topics placed strong.
+            </p>
+            <p class="muted small">
+                Saved. Reviews keep refining this, and you can run it again.
+            </p>
         </div>
 
         <ul class="grid">
             {#each placeData.topics as topic (topic.category)}
-                <li class="chip" class:strong={topic.placement === "strong"} class:rusty={topic.placement === "rusty"}>
+                <li
+                    class="chip"
+                    class:strong={topic.placement === "strong"}
+                    class:rusty={topic.placement === "rusty"}
+                >
                     <span class="chip-name">{label(topic.category)}</span>
                     <span class="pill">{topic.placement}</span>
                 </li>

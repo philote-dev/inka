@@ -31,8 +31,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let labels: ProjectedLabel[] = [];
 
     function currentTheme(): "light" | "dark" {
-        const dark = document.documentElement.classList.contains("night-mode")
-            || document.body.classList.contains("night-mode");
+        const dark =
+            document.documentElement.classList.contains("night-mode") ||
+            document.body.classList.contains("night-mode");
         return dark ? "dark" : "light";
     }
 
@@ -89,7 +90,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             {/each}
         </svg>
         {#each labels as l (l.name)}
-            <div class="label" style="left: {l.lx}px; top: {l.ly}px; transform: {l.tf}; color: {l.c};">
+            <div
+                class="label"
+                style="left: {l.lx}px; top: {l.ly}px; transform: {l.tf}; color: {l.c};"
+            >
                 {l.name}
             </div>
         {/each}

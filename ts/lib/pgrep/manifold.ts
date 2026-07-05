@@ -481,7 +481,15 @@ export function drawManifold(canvas: HTMLCanvasElement, opts: ManifoldOpts = {})
     return surface.labels.map((l) => {
         const p = project(l.x, l.y, height(surface, l.x, l.y), po);
         const cc = colorAt(surface, l.x, l.y, theme).map((v, i) => Math.round(v + (ink[i] - v) * mixK));
-        return { name: l.name, ax: p.X, ay: p.Y, lx: p.X + l.dx, ly: p.Y + l.dy, tf: l.tf, c: "rgb(" + cc.join(",") + ")" };
+        return {
+            name: l.name,
+            ax: p.X,
+            ay: p.Y,
+            lx: p.X + l.dx,
+            ly: p.Y + l.dy,
+            tf: l.tf,
+            c: "rgb(" + cc.join(",") + ")",
+        };
     });
 }
 

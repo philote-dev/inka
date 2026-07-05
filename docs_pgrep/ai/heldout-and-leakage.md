@@ -33,14 +33,14 @@ held out or sealed. That keeps the beats-a-baseline-on-held-out claim airtight:
 the generator never saw a real ETS item, and gold is never fed. The fed examples
 come from a clean non-ETS pool instead (Brainscape, CWRU, all of REA).
 
-| Form | Year | Role |
-|---|---|---|
-| GR0177 | 2001 | In-app exam mode plus held-out Performance bank. Clean text layer. Never fed. |
-| GR0877 | 2008 | In-app exam mode plus held-out Performance bank. Clean text layer. Never fed. |
+| Form   | Year | Role                                                                                                        |
+| ------ | ---- | ----------------------------------------------------------------------------------------------------------- |
+| GR0177 | 2001 | In-app exam mode plus held-out Performance bank. Clean text layer. Never fed.                               |
+| GR0877 | 2008 | In-app exam mode plus held-out Performance bank. Clean text layer. Never fed.                               |
 | GR9677 | 1996 | Problem gold source, real ETS vision-cleaned to gold-grade text (about 40 to 50 verified items). Never fed. |
-| GR8677 | 1986 | Reserve held-out Performance bank, supplementary. Keys reliable, stems OCR-rough. Never fed. |
-| GR9277 | 1992 | Reserve held-out Performance bank, supplementary. Keys reliable, stems OCR-rough. Never fed. |
-| GR1777 | 2017 | Sealed final readiness mock plus readiness constants. Untouched. |
+| GR8677 | 1986 | Reserve held-out Performance bank, supplementary. Keys reliable, stems OCR-rough. Never fed.                |
+| GR9277 | 1992 | Reserve held-out Performance bank, supplementary. Keys reliable, stems OCR-rough. Never fed.                |
+| GR1777 | 2017 | Sealed final readiness mock plus readiness constants. Untouched.                                            |
 
 The hard rule holds across the whole pool: nothing is both fed and graded. Gold is
 never fed, so GR9677 as the problem gold is fine. REA is no longer split: all 200

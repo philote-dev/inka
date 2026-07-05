@@ -19,10 +19,10 @@ The held-out splits and the leakage rule live in `heldout-and-leakage.md`.
 
 ## 1. Two gold sets, one job each
 
-| Gold set | Grades | Hardest part | Schema |
-|---|---|---|---|
-| **Card gold set** (about 50 items) | card generation (stylize + gap-fill) | correct, useful facts | `content/gold/gold-item.schema.json` |
-| **Problem gold set** (MCQ-shaped) | problem generation (misconception-first distractors) | plausible, grounded distractors | `content/gold/gold-problem.schema.json` |
+| Gold set                           | Grades                                               | Hardest part                    | Schema                                  |
+| ---------------------------------- | ---------------------------------------------------- | ------------------------------- | --------------------------------------- |
+| **Card gold set** (about 50 items) | card generation (stylize + gap-fill)                 | correct, useful facts           | `content/gold/gold-item.schema.json`    |
+| **Problem gold set** (MCQ-shaped)  | problem generation (misconception-first distractors) | plausible, grounded distractors | `content/gold/gold-problem.schema.json` |
 
 Both are hand-verified, both are evaluation-only, and both are covered by the
 leakage rule. A gold item is never fed to the generator as a source or a
@@ -55,6 +55,7 @@ verified question and answer with the evidence needed to grade a generated card
 against it.
 
 **Required.**
+
 - `id`, `schema_version`, `type` (card).
 - `card_kind`: `conceptual` or `computational`. This routes verification.
   Conceptual leans on provenance and human spot-check. Computational is
@@ -71,6 +72,7 @@ against it.
 - `leakage_class`: fixed to `gold`.
 
 **Conditional.**
+
 - `solution_decomposition`: required for computational items, ordered sub-goals
   with a rubric each. Optional for conceptual.
 - `computational`: a SymPy-parseable form, expected value, units, and tolerance,
@@ -92,6 +94,7 @@ problem generation both sit in the four distractors, so the schema makes each
 distractor carry its misconception and rationale.
 
 **Required.**
+
 - `id`, `schema_version`, `type` (problem).
 - `problem_kind`: `conceptual` or `computational`.
 - `topic` and `blueprint_area`.
@@ -106,6 +109,7 @@ distractor carry its misconception and rationale.
 - `provenance`, `verification`, `leakage_class` as for cards.
 
 **Conditional.**
+
 - `computational`: a SymPy form for the key, optional forms tying each distractor
   to the misconception that produces it, units and tolerance.
 

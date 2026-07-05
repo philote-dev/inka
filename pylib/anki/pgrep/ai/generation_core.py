@@ -32,23 +32,23 @@ CONTEXT_CHUNKS = 6
 CARD_SYSTEM = (
     "You write one Physics GRE flashcard grounded ONLY in the provided corpus "
     "context. Every fact must be supported by that context. If the context does "
-    "not support a correct, useful card, set \"refuse\": true. Never invent "
-    "physics. Return STRICT JSON: {\"front\": str, \"back\": str, \"card_kind\": "
-    "\"conceptual\"|\"computational\", \"difficulty\": 0..1, \"confidence\": 0..1, "
-    "\"computational\": {\"expression\": str, \"expected\": number, \"tolerance\": "
-    "number} | null, \"refuse\": bool}."
+    'not support a correct, useful card, set "refuse": true. Never invent '
+    'physics. Return STRICT JSON: {"front": str, "back": str, "card_kind": '
+    '"conceptual"|"computational", "difficulty": 0..1, "confidence": 0..1, '
+    '"computational": {"expression": str, "expected": number, "tolerance": '
+    'number} | null, "refuse": bool}.'
 )
 
 PROBLEM_SYSTEM = (
     "You write one Physics GRE multiple-choice problem grounded ONLY in the "
     "provided corpus context, with misconception-first distractors: name the "
     "likely error, then derive the wrong answer it produces. Return STRICT JSON: "
-    "{\"stem\": str, \"choices\": [5 strings A..E], \"key\": \"A\"|..|\"E\", "
-    "\"distractors\": [{\"label\": str, \"misconception_tag\": str, \"rationale\": "
-    "str}], \"solution_decomposition\": [{\"subgoal\": str, \"rubric\": str}], "
-    "\"problem_kind\": \"conceptual\"|\"computational\", \"difficulty\": 0..1, "
-    "\"confidence\": 0..1, \"computational\": {\"expression\": str, \"expected\": "
-    "number, \"tolerance\": number} | null, \"refuse\": bool}. No sub-goal or "
+    '{"stem": str, "choices": [5 strings A..E], "key": "A"|..|"E", '
+    '"distractors": [{"label": str, "misconception_tag": str, "rationale": '
+    'str}], "solution_decomposition": [{"subgoal": str, "rubric": str}], '
+    '"problem_kind": "conceptual"|"computational", "difficulty": 0..1, '
+    '"confidence": 0..1, "computational": {"expression": str, "expected": '
+    'number, "tolerance": number} | null, "refuse": bool}. No sub-goal or '
     "rationale may state the final answer."
 )
 
@@ -57,7 +57,7 @@ PROBLEM_SYSTEM = (
 # trusted only when this agrees with it.
 PROBLEM_SOLVE_SYSTEM = (
     "Solve this Physics GRE multiple-choice problem from physics. Reason it out, "
-    "then answer. Return STRICT JSON: {\"answer\": \"A\"|\"B\"|\"C\"|\"D\"|\"E\"}."
+    'then answer. Return STRICT JSON: {"answer": "A"|"B"|"C"|"D"|"E"}.'
 )
 
 
@@ -65,8 +65,12 @@ def build_context(retrieved: list) -> str:
     """Format retrieved corpus chunks as numbered, cited context for the prompt."""
     lines = []
     for i, r in enumerate(retrieved[:CONTEXT_CHUNKS], start=1):
-        ref = getattr(r, "source_ref", None) or (r.get("source_ref") if isinstance(r, dict) else "")
-        text = getattr(r, "text", None) or (r.get("text") if isinstance(r, dict) else "")
+        ref = getattr(r, "source_ref", None) or (
+            r.get("source_ref") if isinstance(r, dict) else ""
+        )
+        text = getattr(r, "text", None) or (
+            r.get("text") if isinstance(r, dict) else ""
+        )
         lines.append(f"[{i}] ({ref}) {' '.join(text.split())}")
     return "\n\n".join(lines)
 
@@ -87,9 +91,16 @@ def _route_confidence(item: dict) -> dict:
 
 def _cas_verify_card(item: dict) -> dict:
     comp = item.get("computational")
-    if item.get("card_kind") == "computational" and isinstance(comp, dict) and comp.get("expression"):
-        ok = verify.cas_check_value(comp["expression"], float(comp.get("expected", 0.0)),
-                                    tolerance=float(comp.get("tolerance", 1e-3)))
+    if (
+        item.get("card_kind") == "computational"
+        and isinstance(comp, dict)
+        and comp.get("expression")
+    ):
+        ok = verify.cas_check_value(
+            comp["expression"],
+            float(comp.get("expected", 0.0)),
+            tolerance=float(comp.get("tolerance", 1e-3)),
+        )
         item["cas_verified"] = bool(ok)
         if not ok:
             item["refused"] = True
@@ -97,13 +108,17 @@ def _cas_verify_card(item: dict) -> dict:
     return item
 
 
-def generate_card(*, topic: str, retrieved: list, llm: Any, seed_card: dict | None = None) -> dict:
+def generate_card(
+    *, topic: str, retrieved: list, llm: Any, seed_card: dict | None = None
+) -> dict:
     """Generate one corpus-grounded card. ``seed_card`` steers style (stylize)."""
     context = build_context(retrieved)
     user = f"TOPIC: {topic}\n\nCORPUS CONTEXT:\n{context}"
     if seed_card:
-        user += (f"\n\nSTYLE SEED (match this learner's voice, keep facts from the "
-                 f"context):\nfront: {seed_card.get('front','')}\nback: {seed_card.get('back','')}")
+        user += (
+            f"\n\nSTYLE SEED (match this learner's voice, keep facts from the "
+            f"context):\nfront: {seed_card.get('front', '')}\nback: {seed_card.get('back', '')}"
+        )
     raw = llm.complete_json(CARD_SYSTEM, user)
     item = {
         "kind": "card",
@@ -130,17 +145,30 @@ def solve_problem(stem: str, choices: list, llm: Any) -> str:
     """Independently solve an MCQ (blind to the claimed key). Returns A-E or ""."""
     if not stem or len(choices) != 5:
         return ""
-    payload = {"stem": stem, "choices": {lab: str(choices[i]) for i, lab in enumerate("ABCDE")}}
+    payload = {
+        "stem": stem,
+        "choices": {lab: str(choices[i]) for i, lab in enumerate("ABCDE")},
+    }
     try:
-        raw = llm.complete_json(PROBLEM_SOLVE_SYSTEM, json.dumps(payload, ensure_ascii=False))
+        raw = llm.complete_json(
+            PROBLEM_SOLVE_SYSTEM, json.dumps(payload, ensure_ascii=False)
+        )
     except Exception:  # noqa: BLE001
         return ""
-    ans = str(raw.get("answer", "")).strip().upper()[:1] if isinstance(raw, dict) else ""
+    ans = (
+        str(raw.get("answer", "")).strip().upper()[:1] if isinstance(raw, dict) else ""
+    )
     return ans if ans in ("A", "B", "C", "D", "E") else ""
 
 
-def generate_problem(*, topic: str, retrieved: list, llm: Any, verify_key: bool = False,
-                     attempts: int = 1) -> dict:
+def generate_problem(
+    *,
+    topic: str,
+    retrieved: list,
+    llm: Any,
+    verify_key: bool = False,
+    attempts: int = 1,
+) -> dict:
     """Generate one corpus-grounded MCQ with misconception-first distractors.
 
     With ``verify_key`` the generated key is confirmed by an independent solve
@@ -182,8 +210,11 @@ def _generate_problem_once(*, topic: str, retrieved: list, llm: Any) -> dict:
         "choices": choices,
         "key": raw.get("key", ""),
         "distractors": distractors,
-        "distractor_rationales": {d.get("label"): d.get("rationale") for d in distractors
-                                  if isinstance(d, dict) and d.get("label")},
+        "distractor_rationales": {
+            d.get("label"): d.get("rationale")
+            for d in distractors
+            if isinstance(d, dict) and d.get("label")
+        },
         "solution_decomposition": raw.get("solution_decomposition", []),
         "problem_kind": raw.get("problem_kind", "conceptual"),
         "difficulty": raw.get("difficulty", 0.5),
@@ -191,7 +222,11 @@ def _generate_problem_once(*, topic: str, retrieved: list, llm: Any) -> dict:
         "computational": raw.get("computational"),
         "prompt_version": PROBLEM_PROMPT_VERSION,
     }
-    if raw.get("refuse") or len(choices) != 5 or item["key"] not in ("A", "B", "C", "D", "E"):
+    if (
+        raw.get("refuse")
+        or len(choices) != 5
+        or item["key"] not in ("A", "B", "C", "D", "E")
+    ):
         item["refused"] = True
         item["refusal_reason"] = "model declined or produced a malformed MCQ"
         item["source_ref"] = None
@@ -200,7 +235,11 @@ def _generate_problem_once(*, topic: str, retrieved: list, llm: Any) -> dict:
     key_text = choices["ABCDE".index(item["key"])] if len(choices) == 5 else ""
     leaks = []
     for step in item["solution_decomposition"]:
-        text = f"{step.get('subgoal','')} {step.get('rubric','')}" if isinstance(step, dict) else str(step)
+        text = (
+            f"{step.get('subgoal', '')} {step.get('rubric', '')}"
+            if isinstance(step, dict)
+            else str(step)
+        )
         reason = verify.find_giveaway(text, key_text, choice_label=item["key"])
         if reason:
             leaks.append(reason)
@@ -210,16 +249,24 @@ def _generate_problem_once(*, topic: str, retrieved: list, llm: Any) -> dict:
         item["source_ref"] = None
         return _route_confidence(item)
     item = provenance.cite_or_refuse(item, retrieved, claim_key="stem")
-    if item.get("problem_kind") == "computational" and isinstance(item.get("computational"), dict):
+    if item.get("problem_kind") == "computational" and isinstance(
+        item.get("computational"), dict
+    ):
         comp = item["computational"]
         if comp.get("expression"):
-            item["cas_verified"] = bool(verify.cas_check_value(
-                comp["expression"], float(comp.get("expected", 0.0)),
-                tolerance=float(comp.get("tolerance", 1e-3))))
+            item["cas_verified"] = bool(
+                verify.cas_check_value(
+                    comp["expression"],
+                    float(comp.get("expected", 0.0)),
+                    tolerance=float(comp.get("tolerance", 1e-3)),
+                )
+            )
     return _route_confidence(item)
 
 
-def dedup_filter(items: list[dict], existing_hashes: set[str] | None = None) -> tuple[list[dict], list[dict]]:
+def dedup_filter(
+    items: list[dict], existing_hashes: set[str] | None = None
+) -> tuple[list[dict], list[dict]]:
     """Split items into (kept, dropped) by normalized-front dedup within the batch
     and against any existing hashes."""
     seen = set(existing_hashes or set())

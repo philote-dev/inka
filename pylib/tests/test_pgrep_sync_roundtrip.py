@@ -251,19 +251,31 @@ def test_sync_round_trip(sync_server: str, tmp_path: Path) -> None:
     # === 3. Attempt log union (immutable notes, idempotent by event id) =======
     id_a = attempt_log.append_attempt(
         dev_a,
-        {"topic": "topic::mechanics", "category": "mechanics", "correct": True,
-         "selected_option": "A", "answered_at": int(time.time())},
+        {
+            "topic": "topic::mechanics",
+            "category": "mechanics",
+            "correct": True,
+            "selected_option": "A",
+            "answered_at": int(time.time()),
+        },
     )
     id_b = attempt_log.append_attempt(
         dev_b,
-        {"topic": "topic::quantum", "category": "quantum", "correct": False,
-         "selected_option": "C", "answered_at": int(time.time())},
+        {
+            "topic": "topic::quantum",
+            "category": "quantum",
+            "correct": False,
+            "selected_option": "C",
+            "answered_at": int(time.time()),
+        },
     )
     assert id_a != id_b
 
     # Idempotent within a device: re-appending the same event id is a no-op.
     before = _attempt_guids(dev_a)
-    again = attempt_log.append_attempt(dev_a, {"event_id": id_a, "topic": "topic::mechanics"})
+    again = attempt_log.append_attempt(
+        dev_a, {"event_id": id_a, "topic": "topic::mechanics"}
+    )
     assert again == id_a
     assert _attempt_guids(dev_a) == before
 

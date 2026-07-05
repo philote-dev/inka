@@ -21,7 +21,8 @@ import { boundaryR, colorAt, FULL_SURFACE, height, inHole, type Surface } from "
 export function supportsWebGL(): boolean {
     try {
         const canvas = document.createElement("canvas");
-        return !!(window.WebGLRenderingContext && (canvas.getContext("webgl") || canvas.getContext("experimental-webgl")));
+        return !!(window.WebGLRenderingContext
+            && (canvas.getContext("webgl") || canvas.getContext("experimental-webgl")));
     } catch {
         return false;
     }
@@ -200,7 +201,10 @@ export function createManifold3D(container: HTMLElement, opts: Manifold3DOpts = 
         const zc = Math.max(0, z);
         const base = theme === "dark" ? 0.05 : 0.07;
         const gain = theme === "dark" ? 0.9 : 0.75;
-        const a = Math.max(0, Math.min(0.55, glow * (0.4 + 0.6 * rimFade(surface, x, y)) * (base + gain * Math.pow(zc, 1.3))));
+        const a = Math.max(
+            0,
+            Math.min(0.55, glow * (0.4 + 0.6 * rimFade(surface, x, y)) * (base + gain * Math.pow(zc, 1.3))),
+        );
         col.push(scratch.r, scratch.g, scratch.b, a);
     }
 

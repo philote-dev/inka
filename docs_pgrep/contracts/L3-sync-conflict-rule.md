@@ -16,15 +16,15 @@ tie-break on equal timestamps. This is Anki's real behavior, made explicit.
 
 ## Per-object rules (Anki's behavior, adopted as-is)
 
-| Object | Merge rule | Effect for pgrep |
-|---|---|---|
-| **revlog** (review history) | append-only, `INSERT OR IGNORE` by id | Two devices reviewing different cards offline both land. No review lost, none double counted. |
-| **notes** (incl. the Attempt log) | pending-USN guard, then newer `mtime` wins | Attempt notes are keyed by a stable id, so they union by id (see below). No duplication. |
-| **cards** | pending-USN guard, then newer `mtime` wins | Same card reviewed on both devices: the newer review's scheduling state wins. |
-| **notetypes / decks / deck config** | newer `mtime` wins; a structural (field/template count) change forces a one-way full sync | The `pgrep::Attempt` and `pgrep::Problem` notetypes sync like any other. |
-| **tags** | union | The `topic::…` and `pgrep::attempt` tags merge across devices. |
-| **deletions** | graves exchanged at sync start | Deletes propagate by id, not by mtime. |
-| **schema mismatch / sanity failure** | mandatory one-way full sync | The safety net when a client is too far out of step. |
+| Object                               | Merge rule                                                                                | Effect for pgrep                                                                              |
+| ------------------------------------ | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| **revlog** (review history)          | append-only, `INSERT OR IGNORE` by id                                                     | Two devices reviewing different cards offline both land. No review lost, none double counted. |
+| **notes** (incl. the Attempt log)    | pending-USN guard, then newer `mtime` wins                                                | Attempt notes are keyed by a stable id, so they union by id (see below). No duplication.      |
+| **cards**                            | pending-USN guard, then newer `mtime` wins                                                | Same card reviewed on both devices: the newer review's scheduling state wins.                 |
+| **notetypes / decks / deck config**  | newer `mtime` wins; a structural (field/template count) change forces a one-way full sync | The `pgrep::Attempt` and `pgrep::Problem` notetypes sync like any other.                      |
+| **tags**                             | union                                                                                     | The `topic::…` and `pgrep::attempt` tags merge across devices.                                |
+| **deletions**                        | graves exchanged at sync start                                                            | Deletes propagate by id, not by mtime.                                                        |
+| **schema mismatch / sanity failure** | mandatory one-way full sync                                                               | The safety net when a client is too far out of step.                                          |
 
 ## Why the Attempt log unions cleanly by id
 

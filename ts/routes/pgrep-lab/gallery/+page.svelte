@@ -80,11 +80,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     // ScoreCard: the abstain state for each hue. Data is thin, so the card names
     // what is missing rather than showing a bare number.
-    const abstainCards: { kind: Hue; abstain: { missing: string; linkLabel: string; linkHref: string } }[] = [
+    const abstainCards: {
+        kind: Hue;
+        abstain: { missing: string; linkLabel: string; linkHref: string };
+    }[] = [
         {
             kind: "memory",
             abstain: {
-                missing: "Only a handful of cards reviewed so far. Review a few more to size Memory.",
+                missing:
+                    "Only a handful of cards reviewed so far. Review a few more to size Memory.",
                 linkLabel: "See what is missing",
                 linkHref: "/pgrep/study",
             },
@@ -92,7 +96,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         {
             kind: "performance",
             abstain: {
-                missing: "Only two problems attempted so far. Attempt a few more to size Performance.",
+                missing:
+                    "Only two problems attempted so far. Attempt a few more to size Performance.",
                 linkLabel: "See what is missing",
                 linkHref: "/pgrep/progress",
             },
@@ -100,7 +105,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         {
             kind: "readiness",
             abstain: {
-                missing: "Coverage sits below the line. Cover Quantum Mechanics and Laboratory Methods to unlock Readiness.",
+                missing:
+                    "Coverage sits below the line. Cover Quantum Mechanics and Laboratory Methods to unlock Readiness.",
                 linkLabel: "See coverage",
                 linkHref: "/pgrep/progress",
             },
@@ -222,15 +228,22 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <div class="gallery">
     <nav class="lab-nav" aria-label="Lab pages">
         <a class="lab-nav__link" href="/pgrep-lab">Manifold lab</a>
-        <a class="lab-nav__link is-active" href="/pgrep-lab/gallery" aria-current="page">Component gallery</a>
+        <a
+            class="lab-nav__link is-active"
+            href="/pgrep-lab/gallery"
+            aria-current="page"
+        >
+            Component gallery
+        </a>
     </nav>
 
     <header class="head">
         <h1>Component gallery</h1>
         <p>
-            Every pgrep primitive in its key states, so a reviewer can inspect the system without running a study
-            session. Each demo renders in light and dark together. The data is synthetic but realistic, and the
-            reserved hues stay data only, amber for Memory, blue for Performance, lilac for Readiness.
+            Every pgrep primitive in its key states, so a reviewer can inspect the
+            system without running a study session. Each demo renders in light and dark
+            together. The data is synthetic but realistic, and the reserved hues stay
+            data only, amber for Memory, blue for Performance, lilac for Readiness.
         </p>
     </header>
 
@@ -250,9 +263,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="section-head">
                     <h2>Score card</h2>
                     <p>
-                        The full honesty anatomy, a point number in tabular figures, a likely range, a how sure
-                        read, and a last updated line. The hue touches only the glyph and the sparkline. The second
-                        row shows the abstain state, which names what is missing instead of guessing a number.
+                        The full honesty anatomy, a point number in tabular figures, a
+                        likely range, a how sure read, and a last updated line. The hue
+                        touches only the glyph and the sparkline. The second row shows
+                        the abstain state, which names what is missing instead of
+                        guessing a number.
                     </p>
                 </div>
                 <div class="split">
@@ -260,7 +275,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         <div class="pane pgrep {t.cls}">
                             <span class="pane-label">{t.label}</span>
                             <div class="stage">
-                                <span class="state-label">Full anatomy, all three hues</span>
+                                <span class="state-label">
+                                    Full anatomy, all three hues
+                                </span>
                                 <div class="card-row">
                                     {#each scoreCards as c (c.kind)}
                                         <ScoreCard
@@ -273,7 +290,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                         />
                                     {/each}
                                 </div>
-                                <span class="state-label">Abstain, not enough evidence yet</span>
+                                <span class="state-label">
+                                    Abstain, not enough evidence yet
+                                </span>
                                 <div class="card-row">
                                     {#each abstainCards as c (c.kind)}
                                         <ScoreCard kind={c.kind} abstain={c.abstain} />
@@ -290,9 +309,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="section-head">
                     <h2>Choice list</h2>
                     <p>
-                        Five choices, monochrome by default. A live selection takes a thin blue outline and a faint
-                        wash. After commit the row locks, the correct choice takes a calm success outline and a wrong
-                        commit dims and wears a blue tag. Nothing turns red during learning.
+                        Five choices, monochrome by default. A live selection takes a
+                        thin blue outline and a faint wash. After commit the row locks,
+                        the correct choice takes a calm success outline and a wrong
+                        commit dims and wears a blue tag. Nothing turns red during
+                        learning.
                     </p>
                 </div>
                 <div class="split">
@@ -300,13 +321,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         <div class="pane pgrep {t.cls}">
                             <span class="pane-label">{t.label}</span>
                             <div class="stage">
-                                <p class="stem">If the speed of a nonrelativistic particle doubles, how does its kinetic energy change?</p>
+                                <p class="stem">
+                                    If the speed of a nonrelativistic particle doubles,
+                                    how does its kinetic energy change?
+                                </p>
                                 <span class="state-label">Default</span>
                                 <ChoiceList {choices} selected="" committed={false} />
                                 <span class="state-label">Selected, before commit</span>
                                 <ChoiceList {choices} selected="B" committed={false} />
                                 <span class="state-label">Committed, not correct</span>
-                                <ChoiceList {choices} selected="B" committed={true} correctKey="D" />
+                                <ChoiceList
+                                    {choices}
+                                    selected="B"
+                                    committed={true}
+                                    correctKey="D"
+                                />
                             </div>
                         </div>
                     {/each}
@@ -318,9 +347,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="section-head">
                     <h2>Hint rung</h2>
                     <p>
-                        One calm step of the wrong-answer ladder. A hint budget shows how far you are along, the
-                        prompt asks for a sub-goal, and the step reveals only itself. The final answer never appears
-                        here, so the rung stays giveaway safe.
+                        One calm step of the wrong-answer ladder. A hint budget shows
+                        how far you are along, the prompt asks for a sub-goal, and the
+                        step reveals only itself. The final answer never appears here,
+                        so the rung stays giveaway safe.
                     </p>
                 </div>
                 <div class="split">
@@ -328,7 +358,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         <div class="pane pgrep {t.cls}">
                             <span class="pane-label">{t.label}</span>
                             <div class="stage stack">
-                                <span class="state-label">Budget shown, step still hidden</span>
+                                <span class="state-label">
+                                    Budget shown, step still hidden
+                                </span>
                                 <HintRung
                                     title="Break it down"
                                     index={2}
@@ -338,7 +370,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                     shown={false}
                                     onShow={noop}
                                 />
-                                <span class="state-label">Step revealed, answer still withheld</span>
+                                <span class="state-label">
+                                    Step revealed, answer still withheld
+                                </span>
                                 <HintRung
                                     title="Break it down"
                                     index={2}
@@ -359,9 +393,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="section-head">
                     <h2>Grade bar</h2>
                     <p>
-                        The four FSRS grades for the Cards door, equal and monochrome, each carrying its next
-                        interval underneath. The top row hides intervals for the moment before reveal, the bottom row
-                        shows them.
+                        The four FSRS grades for the Cards door, equal and monochrome,
+                        each carrying its next interval underneath. The top row hides
+                        intervals for the moment before reveal, the bottom row shows
+                        them.
                     </p>
                 </div>
                 <div class="split">
@@ -370,9 +405,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                             <span class="pane-label">{t.label}</span>
                             <div class="stage stack">
                                 <span class="state-label">Intervals shown</span>
-                                <GradeBar {grades} showIntervals={true} onGrade={noop} />
+                                <GradeBar
+                                    {grades}
+                                    showIntervals={true}
+                                    onGrade={noop}
+                                />
                                 <span class="state-label">Intervals hidden</span>
-                                <GradeBar {grades} showIntervals={false} onGrade={noop} />
+                                <GradeBar
+                                    {grades}
+                                    showIntervals={false}
+                                    onGrade={noop}
+                                />
                             </div>
                         </div>
                     {/each}
@@ -384,8 +427,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="section-head">
                     <h2>Coverage bar</h2>
                     <p>
-                        One segment per topic, width by blueprint weight, fill by how covered that topic is. Coverage
-                        gates Readiness, so the note states the rule plainly. The first bar clears the line, the
+                        One segment per topic, width by blueprint weight, fill by how
+                        covered that topic is. Coverage gates Readiness, so the note
+                        states the rule plainly. The first bar clears the line, the
                         second dips below it and abstains.
                     </p>
                 </div>
@@ -400,7 +444,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                     threshold={70}
                                     note="Coverage clears the line, so Readiness reports a number."
                                 />
-                                <span class="state-label">Below the line, Readiness abstains</span>
+                                <span class="state-label">
+                                    Below the line, Readiness abstains
+                                </span>
                                 <CoverageBar
                                     segments={coverageBelow}
                                     threshold={70}
@@ -417,8 +463,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="section-head">
                     <h2>Reliability diagram</h2>
                     <p>
-                        Predicted probability against observed accuracy, with the perfect-calibration diagonal and a
-                        Brier score. With no graded predictions it draws the empty frame and abstains rather than
+                        Predicted probability against observed accuracy, with the
+                        perfect-calibration diagonal and a Brier score. With no graded
+                        predictions it draws the empty frame and abstains rather than
                         inventing a curve.
                     </p>
                 </div>
@@ -429,7 +476,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                             <div class="stage">
                                 <div class="rel-row">
                                     <div class="rel-cell">
-                                        <span class="state-label">Performance, well calibrated</span>
+                                        <span class="state-label">
+                                            Performance, well calibrated
+                                        </span>
                                         <ReliabilityDiagram
                                             points={relPerformance}
                                             brier={0.11}
@@ -439,7 +488,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                         />
                                     </div>
                                     <div class="rel-cell">
-                                        <span class="state-label">Memory, underconfident</span>
+                                        <span class="state-label">
+                                            Memory, underconfident
+                                        </span>
                                         <ReliabilityDiagram
                                             points={relMemory}
                                             brier={0.17}
@@ -449,7 +500,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                         />
                                     </div>
                                     <div class="rel-cell">
-                                        <span class="state-label">Abstain, nothing graded yet</span>
+                                        <span class="state-label">
+                                            Abstain, nothing graded yet
+                                        </span>
                                         <ReliabilityDiagram
                                             points={[]}
                                             brier={null}
@@ -470,12 +523,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="section-head">
                     <h2>Calibration panel</h2>
                     <p>
-                        The wired Progress surface (L5.5). Readiness is coverage gated, shown both abstaining at n
-                        equals one (naming the uncovered exam) and covered with a point and an 80 percent range.
-                        Calibration shows each model layer with its evidence, a reliability diagram plus Brier and
-                        provenance for Memory and for Performance, from the embedded offline runs. A failed fetch
-                        reads as unavailable, kept distinct from a genuine absence of evidence. The reserved hues
-                        stay data only, amber for Memory, blue for Performance, lilac for Readiness.
+                        The wired Progress surface (L5.5). Readiness is coverage gated,
+                        shown both abstaining at n equals one (naming the uncovered
+                        exam) and covered with a point and an 80 percent range.
+                        Calibration shows each model layer with its evidence, a
+                        reliability diagram plus Brier and provenance for Memory and for
+                        Performance, from the embedded offline runs. A failed fetch
+                        reads as unavailable, kept distinct from a genuine absence of
+                        evidence. The reserved hues stay data only, amber for Memory,
+                        blue for Performance, lilac for Readiness.
                     </p>
                 </div>
                 <div class="split">
@@ -483,15 +539,20 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         <div class="pane pgrep {t.cls}">
                             <span class="pane-label">{t.label}</span>
                             <div class="stage stack">
-                                <span class="state-label">Readiness, abstain at n = 1</span>
+                                <span class="state-label">
+                                    Readiness, abstain at n = 1
+                                </span>
                                 <ScoreCard
                                     kind="readiness"
                                     abstain={{
-                                        message: "Not enough of the exam is covered yet",
+                                        message:
+                                            "Not enough of the exam is covered yet",
                                         missing: readinessUncovered,
                                     }}
                                 />
-                                <span class="state-label">Readiness, covered with a range</span>
+                                <span class="state-label">
+                                    Readiness, covered with a range
+                                </span>
                                 <ScoreCard
                                     kind="readiness"
                                     value={620}
@@ -499,10 +560,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                     howSure="74 percent covered"
                                     updated=""
                                 />
-                                <span class="state-label">Calibration evidence, Memory and Performance</span>
+                                <span class="state-label">
+                                    Calibration evidence, Memory and Performance
+                                </span>
                                 <div class="rel-row">
                                     <div class="rel-cell">
-                                        <span class="calib-tone" style="color: var(--memory-text);">Memory</span>
+                                        <span
+                                            class="calib-tone"
+                                            style="color: var(--memory-text);"
+                                        >
+                                            Memory
+                                        </span>
                                         <ReliabilityDiagram
                                             points={calibMemory}
                                             brier={calibMemoryBrier}
@@ -510,14 +578,26 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                             tone="memory"
                                             size={200}
                                         />
-                                        <p class="calib-caption">Validated on held-out reviews. Default FSRS, slightly overconfident.</p>
+                                        <p class="calib-caption">
+                                            Validated on held-out reviews. Default FSRS,
+                                            slightly overconfident.
+                                        </p>
                                         <p class="calib-meta">n 7,503 · 2026-07-05</p>
-                                        <p class="calib-prov" title="Default FSRS-6 (fsrs-rs 5.2.0) retrievability vs recall; binning-free Brier">
-                                            Held-out reviews from the anki-revlogs-10k sample (4 users, time-split)
+                                        <p
+                                            class="calib-prov"
+                                            title="Default FSRS-6 (fsrs-rs 5.2.0) retrievability vs recall; binning-free Brier"
+                                        >
+                                            Held-out reviews from the anki-revlogs-10k
+                                            sample (4 users, time-split)
                                         </p>
                                     </div>
                                     <div class="rel-cell">
-                                        <span class="calib-tone" style="color: var(--performance-text);">Performance</span>
+                                        <span
+                                            class="calib-tone"
+                                            style="color: var(--performance-text);"
+                                        >
+                                            Performance
+                                        </span>
                                         <ReliabilityDiagram
                                             points={calibPerformance}
                                             brier={calibPerformanceBrier}
@@ -525,17 +605,31 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                             tone="performance"
                                             size={200}
                                         />
-                                        <p class="calib-caption">Methodology validated on held-out synthetic (n = 1 cohort).</p>
+                                        <p class="calib-caption">
+                                            Methodology validated on held-out synthetic
+                                            (n = 1 cohort).
+                                        </p>
                                         <p class="calib-meta">n 160 · 2026-07-05</p>
-                                        <p class="calib-prov" title="PFA logistic + beta calibration on a held-out split; binning-free Brier">
-                                            Held-out synthetic exam-style outcomes (pipeline validation)
+                                        <p
+                                            class="calib-prov"
+                                            title="PFA logistic + beta calibration on a held-out split; binning-free Brier"
+                                        >
+                                            Held-out synthetic exam-style outcomes
+                                            (pipeline validation)
                                         </p>
                                     </div>
                                 </div>
-                                <span class="state-label">Calibration unavailable, fetch failed</span>
+                                <span class="state-label">
+                                    Calibration unavailable, fetch failed
+                                </span>
                                 <div class="rel-row">
                                     <div class="rel-cell">
-                                        <span class="calib-tone" style="color: var(--memory-text);">Memory</span>
+                                        <span
+                                            class="calib-tone"
+                                            style="color: var(--memory-text);"
+                                        >
+                                            Memory
+                                        </span>
                                         <ReliabilityDiagram
                                             points={[]}
                                             brier={null}
@@ -543,10 +637,18 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                             tone="memory"
                                             size={200}
                                         />
-                                        <p class="calib-caption">Calibration could not be loaded right now. Reload to try again.</p>
+                                        <p class="calib-caption">
+                                            Calibration could not be loaded right now.
+                                            Reload to try again.
+                                        </p>
                                     </div>
                                     <div class="rel-cell">
-                                        <span class="calib-tone" style="color: var(--performance-text);">Performance</span>
+                                        <span
+                                            class="calib-tone"
+                                            style="color: var(--performance-text);"
+                                        >
+                                            Performance
+                                        </span>
                                         <ReliabilityDiagram
                                             points={[]}
                                             brier={null}
@@ -554,7 +656,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                             tone="performance"
                                             size={200}
                                         />
-                                        <p class="calib-caption">Calibration could not be loaded right now. Reload to try again.</p>
+                                        <p class="calib-caption">
+                                            Calibration could not be loaded right now.
+                                            Reload to try again.
+                                        </p>
                                     </div>
                                 </div>
                             </div>
@@ -568,9 +673,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="section-head">
                     <h2>Study frame</h2>
                     <p>
-                        The minimal session chrome, a mono progress count, a topic chip toned to the door, and a
-                        close control over a single focused column. The previews are clipped to their chrome. The
-                        Problems door tones blue, the Cards door tones amber.
+                        The minimal session chrome, a mono progress count, a topic chip
+                        toned to the door, and a close control over a single focused
+                        column. The previews are clipped to their chrome. The Problems
+                        door tones blue, the Cards door tones amber.
                     </p>
                 </div>
                 <div class="split">
@@ -578,7 +684,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         <div class="pane pgrep {t.cls}">
                             <span class="pane-label">{t.label}</span>
                             <div class="stage stack">
-                                <span class="state-label">Problems door, performance tone</span>
+                                <span class="state-label">
+                                    Problems door, performance tone
+                                </span>
                                 <div class="frame-preview">
                                     <StudyFrame
                                         count="Problem 3 of 12"
@@ -587,8 +695,16 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                         columnWidth={520}
                                         onClose={noop}
                                     >
-                                        <p class="stem">A string fixed at both ends is driven at its second harmonic. Which pattern describes the steady displacement?</p>
-                                        <ChoiceList choices={frameChoices} selected="B" committed={false} />
+                                        <p class="stem">
+                                            A string fixed at both ends is driven at its
+                                            second harmonic. Which pattern describes the
+                                            steady displacement?
+                                        </p>
+                                        <ChoiceList
+                                            choices={frameChoices}
+                                            selected="B"
+                                            committed={false}
+                                        />
                                     </StudyFrame>
                                 </div>
                                 <span class="state-label">Cards door, memory tone</span>
@@ -600,8 +716,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                         columnWidth={520}
                                         onClose={noop}
                                     >
-                                        <p class="stem">State the selection rule for an electric dipole transition in hydrogen.</p>
-                                        <button type="button" class="demo-btn primary" on:click={noop}>Show answer</button>
+                                        <p class="stem">
+                                            State the selection rule for an electric
+                                            dipole transition in hydrogen.
+                                        </p>
+                                        <button
+                                            type="button"
+                                            class="demo-btn primary"
+                                            on:click={noop}
+                                        >
+                                            Show answer
+                                        </button>
                                     </StudyFrame>
                                 </div>
                             </div>
@@ -615,9 +740,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="section-head">
                     <h2>Nav rail</h2>
                     <p>
-                        The quiet left rail. It carries the nested-contour logo glyph, the four calm destinations
-                        with the active one on a surface chip, and an optional streak footer. Monochrome throughout,
-                        so no score hue leaks into the chrome.
+                        The quiet left rail. It carries the nested-contour logo glyph,
+                        the four calm destinations with the active one on a surface
+                        chip, and an optional streak footer. Monochrome throughout, so
+                        no score hue leaks into the chrome.
                     </p>
                 </div>
                 <div class="split">
@@ -628,7 +754,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                 <div class="rail-preview">
                                     <NavRail active="Study" streak={12} />
                                     <NavRail active="Home" />
-                                    <div class="rail-main">Left carries an opt-in streak. Right is the honest default with none.</div>
+                                    <div class="rail-main">
+                                        Left carries an opt-in streak. Right is the
+                                        honest default with none.
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -641,17 +770,28 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="section-head">
                     <h2>Manifold</h2>
                     <p>
-                        The one piece of imagery, a data-driven wireframe surface. Height is Performance, hue is the
-                        leading score, holes are coverage gaps, footprint is blueprint weight. The thumbnail follows
-                        the app theme. The manifold lab reshapes it live in 3D or the 2D fallback.
+                        The one piece of imagery, a data-driven wireframe surface.
+                        Height is Performance, hue is the leading score, holes are
+                        coverage gaps, footprint is blueprint weight. The thumbnail
+                        follows the app theme. The manifold lab reshapes it live in 3D
+                        or the 2D fallback.
                     </p>
                 </div>
                 <div class="pane manifold-pane">
                     <div class="stage">
                         <div class="manifold-thumb">
-                            <Manifold width={420} height={260} scale={104} grid={62} surface={FULL_SURFACE} showLabels={false} />
+                            <Manifold
+                                width={420}
+                                height={260}
+                                scale={104}
+                                grid={62}
+                                surface={FULL_SURFACE}
+                                showLabels={false}
+                            />
                         </div>
-                        <a class="manifold-link" href="/pgrep-lab">Open the manifold lab</a>
+                        <a class="manifold-link" href="/pgrep-lab">
+                            Open the manifold lab
+                        </a>
                     </div>
                 </div>
             </section>

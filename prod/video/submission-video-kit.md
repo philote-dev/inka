@@ -40,23 +40,23 @@ reel" section below.)
 
 ### Proof A — clean build plus commit hash (W1)
 
-| Step | Action |
-|---|---|
-| 1 | Show `git rev-parse HEAD` in the terminal. |
-| 2 | `just clean` to wipe build outputs. |
-| 3 | `just run` and capture the full compile until the pgrep window opens. |
+| Step | Action                                                                |
+| ---- | --------------------------------------------------------------------- |
+| 1    | Show `git rev-parse HEAD` in the terminal.                            |
+| 2    | `just clean` to wipe build outputs.                                   |
+| 3    | `just run` and capture the full compile until the pgrep window opens. |
 
 Narration: "Forked Anki, building from source. Commit abc123."
 
 ### Proof B — the Rust engine change plus tests (W2)
 
-| Step | Action |
-|---|---|
-| 1 | `git show --stat` and open the changed `rslib` files to show the real diff. |
-| 2 | `just test-rust` so the 3 Rust unit tests pass (points-at-stake ordering, scoring, anti-blocking or limit). |
-| 3 | `just test-py` so the 1 Python test that calls the change passes. |
-| 4 | In the app, show the change working: the review order reordering by topic weight times weakness. |
-| 5 | Show undo still works and the collection is intact (review, undo, reopen). |
+| Step | Action                                                                                                      |
+| ---- | ----------------------------------------------------------------------------------------------------------- |
+| 1    | `git show --stat` and open the changed `rslib` files to show the real diff.                                 |
+| 2    | `just test-rust` so the 3 Rust unit tests pass (points-at-stake ordering, scoring, anti-blocking or limit). |
+| 3    | `just test-py` so the 1 Python test that calls the change passes.                                           |
+| 4    | In the app, show the change working: the review order reordering by topic weight times weakness.            |
+| 5    | Show undo still works and the collection is intact (review, undo, reopen).                                  |
 
 Narration: "A real engine change, the points-at-stake review order, with three
 Rust tests and a Python test. Here it is reordering the queue by topic weight
@@ -64,11 +64,11 @@ times weakness."
 
 ### Proof C — clean-machine install (W5)
 
-| Step | Action |
-|---|---|
-| 1 | Produce the installer. `just release build --ref <your-branch>` for the CI unsigned artifact, or build locally with Briefcase from `qt/installer/`. |
-| 2 | On a fresh VM or a clean user account with no dev tools, run the installer. |
-| 3 | Record it installing, the app launching, and one card reviewed. |
+| Step | Action                                                                                                                                              |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Produce the installer. `just release build --ref <your-branch>` for the CI unsigned artifact, or build locally with Briefcase from `qt/installer/`. |
+| 2    | On a fresh VM or a clean user account with no dev tools, run the installer.                                                                         |
+| 3    | Record it installing, the app launching, and one card reviewed.                                                                                     |
 
 Narration: "The installer on a clean machine, and a card reviewed."
 
@@ -77,11 +77,11 @@ maximum. This clip matters.
 
 ### Proof D — phone review session (W6, W7)
 
-| Step | Action |
-|---|---|
-| 1 | Build the shared engine for mobile (the `rslib/ffi` crate to an iOS static lib via a `build_xcframework` script, see `technical-architecture.md` (a)) and the minimal SwiftUI shell. |
-| 2 | Launch on a real device or the iOS Simulator, load the same Physics GRE deck. |
-| 3 | Screen record a real review session. The engine schedules and grades on device. Sync is not required Wednesday. |
+| Step | Action                                                                                                                                                                               |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1    | Build the shared engine for mobile (the `rslib/ffi` crate to an iOS static lib via a `build_xcframework` script, see `technical-architecture.md` (a)) and the minimal SwiftUI shell. |
+| 2    | Launch on a real device or the iOS Simulator, load the same Physics GRE deck.                                                                                                        |
+| 3    | Screen record a real review session. The engine schedules and grades on device. Sync is not required Wednesday.                                                                      |
 
 Narration: "The same Rust engine running a review session on the phone."
 

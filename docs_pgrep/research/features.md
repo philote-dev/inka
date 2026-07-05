@@ -6,10 +6,10 @@
 
 pgrep stands on the shared **FSRS engine + our Layer-B selector**. Four learning-science features compose on top, each owning a different question:
 
-- **Interleaving (POV1)** — the *order* you practice (which item next, across topics).
-- **Forced generation (POV2)** — *what* you practice (how cards/problems get made).
-- **Productive failure (POV3)** — *how* you work a problem (struggle → scaffolded help → consolidation).
-- **Calibration (POV4)** — *whether you're ready* (honest scores).
+- **Interleaving (POV1)** — the _order_ you practice (which item next, across topics).
+- **Forced generation (POV2)** — _what_ you practice (how cards/problems get made).
+- **Productive failure (POV3)** — _how_ you work a problem (struggle → scaffolded help → consolidation).
+- **Calibration (POV4)** — _whether you're ready_ (honest scores).
 
 Said fastest: **F2 makes it · F1 orders it · F3 is how you work it · F4 tells you honestly where you stand.**
 
@@ -43,16 +43,12 @@ flowchart TD
 
 ## Features × the three scores
 
-
-|                             | Cards → Memory                                                        | Problems → Performance            | Exams → Readiness                         |
-| --------------------------- | --------------------------------------------------------------------- | --------------------------------- | ----------------------------------------- |
-| **Interleaving (F1)**       | orders due cards (topic-mixed)                                        | orders due problems (topic-mixed) | exams are inherently mixed                |
-| **Forced generation (F2)**  | author conceptual seed → AI conforms/scales; CAS-checks computational | curated seed + AI-generated (feature-problem-generation.md)   | —                                         |
-| **Productive failure (F3)** | —                                                                     | commit → ladder → consolidation   | exam = no help; ladder → post-exam review |
-| **Calibration (F4)**        | FSRS R vs recall                                                      | predicted vs held-out Q           | score mapping + range                     |
-
-
-
+|                             | Cards → Memory                                                        | Problems → Performance                                      | Exams → Readiness                         |
+| --------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------- | ----------------------------------------- |
+| **Interleaving (F1)**       | orders due cards (topic-mixed)                                        | orders due problems (topic-mixed)                           | exams are inherently mixed                |
+| **Forced generation (F2)**  | author conceptual seed → AI conforms/scales; CAS-checks computational | curated seed + AI-generated (feature-problem-generation.md) | —                                         |
+| **Productive failure (F3)** | —                                                                     | commit → ladder → consolidation                             | exam = no help; ladder → post-exam review |
+| **Calibration (F4)**        | FSRS R vs recall                                                      | predicted vs held-out Q                                     | score mapping + range                     |
 
 ## How they compose
 
@@ -71,21 +67,15 @@ flowchart TD
     Log -.->|"drives next selection"| F1
 ```
 
-
-
-
-
 ## Reading the flow
 
 - The **review/attempt log is the spine**: every card review, problem attempt, and exam feeds it; it drives the selector (F1), the scores (F4), and the consolidation (F3).
 - **Ablation:** F1 (interleaving) is the single study feature tested full / off / plain-Anki.
 - **AI-off (all four degrade gracefully):** F2 → authored/curated + reveal-and-self-compare; F3 → stored decompositions + self-compare; F4 → model calibration (no AI); F1 is pure engine logic.
 
-
-
 ## Baselines & AI-off (three distinct comparisons, don't conflate)
 
-- **Ablation baseline (study feature, spec 5):** interleaving *full* vs *off* vs *plain Anki*, equal study time, metric pre-stated. "Off" means the selector is disabled (blocked order), not a reimplementation.
+- **Ablation baseline (study feature, spec 5):** interleaving _full_ vs _off_ vs _plain Anki_, equal study time, metric pre-stated. "Off" means the selector is disabled (blocked order), not a reimplementation.
 - **AI-quality baseline (spec 6):** AI generation must beat **keyword / vector search** over the same corpus, both scored on the gold set, side by side. The baseline is a simpler non-AI method doing the same job.
 - **Works-with-AI-off (spec 7):** the whole app runs and produces scores with no AI at runtime, by graceful degradation (verified bundled content, FSRS, stored problem decompositions). It is not a parallel AI-off twin of every feature.
 
@@ -97,10 +87,8 @@ flowchart TD
 - F3 Productive failure (POV3) → `feature-productive-failure.md`
 - F4 Calibration (POV4) → `feature-calibration.md`
 
-
-
 ## Build mapping (see `build-plan.md`)
 
 - **F1 selector = L1** (the graded Rust change) · **F1/F3/F4 surfaces = L2** · **F2 + F3 tutor = L4** · **F4 models = L5**.
 
-*Sources: the four feature docs; the project spec; the learning-science corpus.*
+_Sources: the four feature docs; the project spec; the learning-science corpus._

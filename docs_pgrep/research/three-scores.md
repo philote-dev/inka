@@ -1,8 +1,8 @@
 # Scoring & Readiness — the three scores (Memory, Performance, Readiness)
 
-**Status: designed (core); one open decision (the Performance model).** Shared context in `README.md`. This is the **product's core thesis made concrete** — the memory → performance → readiness bridge stock Anki lacks (spec constraint 3). **This doc covers how the three scores are *derived*, their ranges, their coverage gates, and their abstain rules.** The statistical methods and the **held-out evaluation** (spec constraint 4) live in the companion **`statistics-and-evaluation.md`**. `feature-calibration.md` covers the honest dashboard that displays them.
+**Status: designed (core); one open decision (the Performance model).** Shared context in `README.md`. This is the **product's core thesis made concrete** — the memory → performance → readiness bridge stock Anki lacks (spec constraint 3). **This doc covers how the three scores are _derived_, their ranges, their coverage gates, and their abstain rules.** The statistical methods and the **held-out evaluation** (spec constraint 4) live in the companion **`statistics-and-evaluation.md`**. `feature-calibration.md` covers the honest dashboard that displays them.
 
-> **The through-line (Soderstrom & Bjork 2015, learning ≠ performance):** three different questions need three different instruments. **Memory** = can you recall it now. **Performance** = can you apply it to a *new* question. **Readiness** = what would you score. You can have high Memory and low Performance (recall ≠ transfer), so we never collapse them.
+> **The through-line (Soderstrom & Bjork 2015, learning ≠ performance):** three different questions need three different instruments. **Memory** = can you recall it now. **Performance** = can you apply it to a _new_ question. **Readiness** = what would you score. You can have high Memory and low Performance (recall ≠ transfer), so we never collapse them.
 
 ---
 
@@ -30,7 +30,7 @@ flowchart TD
 - **This doc** answers "how is the number derived, bounded, and gated." Evaluation lives in `statistics-and-evaluation.md`.
 - **F4** (`feature-calibration.md`) answers "how do we show it honestly and prove it is trustworthy," plus the decision not to capture user confidence.
 
-The word "calibration" is overloaded, which is the usual source of confusion. It is a *step inside* the Performance model (beta-calibration, to make its probabilities honest), and it is also the *F4 feature* (the dashboard plus the held-out reliability and Brier that verify all three). The companion `statistics-and-evaluation.md` owns the eval *methodology*; F4 owns the *surface* that displays it.
+The word "calibration" is overloaded, which is the usual source of confusion. It is a _step inside_ the Performance model (beta-calibration, to make its probabilities honest), and it is also the _F4 feature_ (the dashboard plus the held-out reliability and Brier that verify all three). The companion `statistics-and-evaluation.md` owns the eval _methodology_; F4 owns the _surface_ that displays it.
 
 ---
 
@@ -61,9 +61,9 @@ The word "calibration" is overloaded, which is the usual source of confusion. It
 
 ---
 
-## 2. Performance score — P(correct on a *new* exam-style question)
+## 2. Performance score — P(correct on a _new_ exam-style question)
 
-**Definition.** The probability you get a **novel, unseen** exam-style problem right, per topic and overall. This is *transfer*, not recall, so it is computed from the **attempt log**, not FSRS.
+**Definition.** The probability you get a **novel, unseen** exam-style problem right, per topic and overall. This is _transfer_, not recall, so it is computed from the **attempt log**, not FSRS.
 
 **Inputs.** Each Attempt note carries `topic`, `correct`, `difficulty` (of the item), `answered_at` (for recency), and whether the item was help-free (only clean, committed, first-try attempts count toward the score; laddered/hinted attempts inform the tutor, not the score).
 
@@ -71,7 +71,7 @@ The word "calibration" is overloaded, which is the usual source of confusion. It
 
 **Full spec: `performance-model.md`.** Locked (cohort- + literature-grounded): the Performance model is **Performance Factors Analysis (PFA)** — a calibrated logistic model over interpretable metrics (topic mastery, item difficulty, recent successes/failures, latency, coverage) — with the **batting average (base-rate) kept as the baseline it must beat**, and **in-house IRT rejected** (item difficulty + ability are unidentifiable with one learner). Calibration via **beta calibration** (small-data best practice), honest ranges via Bayesian partial pooling / conformal.
 
-- Why not the batting average as the model: it *is* the baseline; the spec rewards beating a simpler method.
+- Why not the batting average as the model: it _is_ the baseline; the spec rewards beating a simpler method.
 - Why not IRT/Rasch in-house: not defensible at n=1 (needs ~100–200 examinees per item). PFA gives most of the difficulty-awareness via the authored difficulty tag, no estimation required.
 
 **Abstain.** A topic with fewer than `k_perf` scored attempts (default **8**) abstains.
@@ -140,14 +140,14 @@ To keep this doc focused on the three scores, the statistical methods (which ran
 
 ## 7. Data each score needs (tees up the end-to-end data plan)
 
-| Score | Needs | Source / tier | Ships in app? |
-|---|---|---|---|
-| **Memory** | reviewed cards + revlog | generated by use (Frank authors cards) | yes (user data) |
-| **Performance** | attempt log + **item difficulty** (for P-B) | generated by use; difficulty from expert tags | yes |
-| **Readiness (map)** | **official raw→scaled conversion table** | **Tier-3, ETS practice test — private** | **no** (constants only) |
-| **Readiness (validate)** | **1–2 real practice mocks** | **Tier-3, private, held out** | no |
-| **All (validate)** | held-out reviews / questions | carved from Frank's authored content | no |
-| **Blueprint `n_t`** | per-topic question counts | `README.md` blueprint + official test | yes |
+| Score                    | Needs                                       | Source / tier                                 | Ships in app?           |
+| ------------------------ | ------------------------------------------- | --------------------------------------------- | ----------------------- |
+| **Memory**               | reviewed cards + revlog                     | generated by use (Frank authors cards)        | yes (user data)         |
+| **Performance**          | attempt log + **item difficulty** (for P-B) | generated by use; difficulty from expert tags | yes                     |
+| **Readiness (map)**      | **official raw→scaled conversion table**    | **Tier-3, ETS practice test — private**       | **no** (constants only) |
+| **Readiness (validate)** | **1–2 real practice mocks**                 | **Tier-3, private, held out**                 | no                      |
+| **All (validate)**       | held-out reviews / questions                | carved from Frank's authored content          | no                      |
+| **Blueprint `n_t`**      | per-topic question counts                   | `README.md` blueprint + official test         | yes                     |
 
 The one **hard external dependency** is Tier-3: the **raw→scaled table** (to render a real PGRE-scale Readiness number) and **a mock** (to validate it). Everything else is generated by use or authored by Frank. Full procurement list in `../reference/content-and-dependencies.md` §1.
 
@@ -163,14 +163,14 @@ Secondary (defaults fine for now, tune in L5): `k_mem=5`, `k_perf=8`, coverage `
 
 ## 9. Evidence / literature
 
-| Source | Used for |
-|---|---|
-| FSRS / DSR memory model (Ye et al.; Anki FSRS docs) | Memory = retrievability of the power forgetting curve |
-| Soderstrom & Bjork 2015 | learning ≠ performance → three separate scores; Readiness leans on Performance |
-| Rasch 1960; Lord & Novick 1968; ETS GRE **IRT equating** | Performance P-B; why difficulty-aware modeling matches the real exam |
-| Brier 1950; DeGroot & Fienberg 1983; Guo et al. 2017 | calibration metrics + reliability diagrams |
-| Wilson 1927; Beta-Binomial conjugacy (Gelman, BDA) | proportion intervals + small-n abstain |
-| Poisson-binomial (Le Cam) | aggregating heterogeneous Bernoullis (Memory fraction, Readiness raw) |
-| Practice-test predictive validity (test-prep literature) | Readiness projection + honest low-n caveat |
+| Source                                                   | Used for                                                                       |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| FSRS / DSR memory model (Ye et al.; Anki FSRS docs)      | Memory = retrievability of the power forgetting curve                          |
+| Soderstrom & Bjork 2015                                  | learning ≠ performance → three separate scores; Readiness leans on Performance |
+| Rasch 1960; Lord & Novick 1968; ETS GRE **IRT equating** | Performance P-B; why difficulty-aware modeling matches the real exam           |
+| Brier 1950; DeGroot & Fienberg 1983; Guo et al. 2017     | calibration metrics + reliability diagrams                                     |
+| Wilson 1927; Beta-Binomial conjugacy (Gelman, BDA)       | proportion intervals + small-n abstain                                         |
+| Poisson-binomial (Le Cam)                                | aggregating heterogeneous Bernoullis (Memory fraction, Readiness raw)          |
+| Practice-test predictive validity (test-prep literature) | Readiness projection + honest low-n caveat                                     |
 
 _Sources: `README.md` (thesis, blueprint, exam facts); `feature-calibration.md` (validation, locked); `anki-rooting-and-rust.md` (retrievability primitive, weakness); engine reads (`rslib/src/stats/card.rs`, `rslib/src/storage/sqlite.rs`); the PGRE BrainLift; the psychometrics + calibration literature above. Cohort eval code (`eval/metrics.py`) reused where possible [verify]._

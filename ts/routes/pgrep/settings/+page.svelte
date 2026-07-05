@@ -40,8 +40,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     $: retentionLabel = targetRetention.toFixed(2);
 
     function nightModeOn(): boolean {
-        return document.documentElement.classList.contains("night-mode")
-            || document.body.classList.contains("night-mode");
+        return (
+            document.documentElement.classList.contains("night-mode") ||
+            document.body.classList.contains("night-mode")
+        );
     }
 
     function applyTheme(next: Theme): void {
@@ -52,7 +54,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         } else if (next === "Dark") {
             el.classList.add("night-mode");
         } else {
-            const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+            const prefersDark =
+                window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
             el.classList.toggle("night-mode", prefersDark);
         }
     }
@@ -75,10 +78,19 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="row">
                     <div class="row-text">
                         <div class="row-title">Target retention</div>
-                        <div class="row-sub">How much you keep before a card comes back</div>
+                        <div class="row-sub">
+                            How much you keep before a card comes back
+                        </div>
                     </div>
                     <div class="row-control slider">
-                        <input type="range" min="0.7" max="0.97" step="0.01" bind:value={targetRetention} aria-label="Target retention" />
+                        <input
+                            type="range"
+                            min="0.7"
+                            max="0.97"
+                            step="0.01"
+                            bind:value={targetRetention}
+                            aria-label="Target retention"
+                        />
                         <span class="val">{retentionLabel}</span>
                     </div>
                 </div>
@@ -88,7 +100,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         <div class="row-sub">Pacing works back from this day</div>
                     </div>
                     <button class="pill-btn" type="button">
-                        <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                        <svg
+                            width="15"
+                            height="15"
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                        >
                             <rect x="3" y="4.5" width="14" height="12.5" rx="2" />
                             <line x1="3" y1="8.5" x2="17" y2="8.5" />
                             <line x1="7" y1="2.5" x2="7" y2="6" />
@@ -106,7 +126,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="row">
                     <div class="row-text">
                         <div class="row-title">AI assistance</div>
-                        <div class="row-sub">The app always works and still scores with AI off.</div>
+                        <div class="row-sub">
+                            The app always works and still scores with AI off.
+                        </div>
                     </div>
                     <button
                         class="toggle"
@@ -142,9 +164,16 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="row">
                     <div class="row-text">
                         <div class="row-title">Sync</div>
-                        <div class="row-sub">{syncMsg || "Two-way sync with the phone"}</div>
+                        <div class="row-sub">
+                            {syncMsg || "Two-way sync with the phone"}
+                        </div>
                     </div>
-                    <button class="pill-btn strong" type="button" on:click={syncNow} disabled={syncing}>
+                    <button
+                        class="pill-btn strong"
+                        type="button"
+                        on:click={syncNow}
+                        disabled={syncing}
+                    >
                         {syncing ? "Syncing…" : "Sync now"}
                     </button>
                 </div>
@@ -161,7 +190,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     </div>
                     <div class="segmented" role="group" aria-label="Theme">
                         {#each THEMES as opt (opt)}
-                            <button class="seg" class:on={theme === opt} on:click={() => applyTheme(opt)}>{opt}</button>
+                            <button
+                                class="seg"
+                                class:on={theme === opt}
+                                on:click={() => applyTheme(opt)}
+                            >
+                                {opt}
+                            </button>
                         {/each}
                     </div>
                 </div>
@@ -174,7 +209,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="row">
                     <div class="row-text">
                         <div class="row-title">Export</div>
-                        <div class="row-sub">Your cards, attempts, and history as a file</div>
+                        <div class="row-sub">
+                            Your cards, attempts, and history as a file
+                        </div>
                     </div>
                     <button class="pill-btn strong" type="button">Export</button>
                 </div>
@@ -359,7 +396,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             height: 20px;
             border-radius: var(--radius-pill);
             background: var(--muted);
-            transition: transform 240ms var(--ease-spring), background 240ms var(--ease-spring);
+            transition:
+                transform 240ms var(--ease-spring),
+                background 240ms var(--ease-spring);
         }
 
         &.on {

@@ -12,9 +12,11 @@
 ## Documentation map
 
 ### Spec (the assignment)
+
 - [`spec/`](spec/) — the governing project spec + the learning-science source PDFs.
 
 ### Research (the "why" behind every part)
+
 - [`research/vision-and-structure.md`](research/vision-and-structure.md) — persona, user stories, app structure/IA, MVP + milestones.
 - [`research/features.md`](research/features.md) — the four features together: how they map to the three scores + the session.
 - [`research/feature-interleaving.md`](research/feature-interleaving.md) — interleaving + Layer-B selector + session structure.
@@ -30,19 +32,23 @@
 - [`research/anki-rooting-and-rust.md`](research/anki-rooting-and-rust.md) — the graded Rust engine change: file-level plan.
 
 ### Plan (execution)
+
 - [`plan/build-plan.md`](plan/build-plan.md) — the unified build plan: current status, the remaining trajectory (L2.7, then L3 and L4, then L5, L6), the per-layer agent split, gates, and controller prompts.
 - [`plan/dataset-pipeline.md`](plan/dataset-pipeline.md) — the status board for every dataset the AI layer needs (corpus, gold, held-out, examples): role, source, status, owner.
 
 ### Contracts (durable technical contracts the code depends on)
+
 - [`contracts/L1-coordination-schema.md`](contracts/L1-coordination-schema.md) — the two-level topic tags, the Attempt-log schema, and the K1-K5 invariants.
 - [`contracts/L2-api-contract.md`](contracts/L2-api-contract.md) — the frontend-to-backend API contract, plus the desktop-takeover architecture (§6).
 - [`contracts/L3-sync-conflict-rule.md`](contracts/L3-sync-conflict-rule.md) — the sync conflict rule (union-by-id on the Attempt log).
 
 ### Reference (operational how-to)
+
 - [`reference/content-and-dependencies.md`](reference/content-and-dependencies.md) — content sourcing, provenance, the leakage firewall, the data assets, and the external toolchain.
 - [`reference/dev-harness.md`](reference/dev-harness.md) — dev + test harness notes.
 
 ### AI layer (methodology + evaluation)
+
 - [`ai/ai-layer.md`](ai/ai-layer.md) — the AI layer's data, locked decisions, leakage firewall, and evaluation. Start here for L4.
 - [`ai/gold-set-spec.md`](ai/gold-set-spec.md) — what qualifies a gold item, and the scoring rubric.
 - [`ai/cutoffs-and-baselines.md`](ai/cutoffs-and-baselines.md) — the frozen pass bars and the beat-baseline rule (the pre-registration).
@@ -50,30 +56,38 @@
 - [`ai/blueprint.md`](ai/blueprint.md), [`ai/slugs.md`](ai/slugs.md) — the PGRE topic taxonomy.
 
 ### Private data workspace (`content/`, git-ignored)
+
 The private data the AI layer operates on lives in `content/`, which is never committed (the corpus, the gold items, the held-out ETS forms, the index, and the harness). It carries its own map:
+
 - [`../content/README.md`](../content/README.md) — the workspace map: every folder and its data.
 
 ### Design (UI)
+
 All design material lives in its own folder at the repo root [`design/`](../design/), outside this docs tree. It holds the UX spec and the reference renders; the living design system is the Svelte code in `ts/` (tokens in `ts/lib/sass/_pgrep.scss`, components in `ts/lib/components`, surfaces in `ts/routes/pgrep`):
+
 - [`../design/ux-foundation.md`](../design/ux-foundation.md) — UI/UX foundation: identity, design language, nav shell, manifold, surfaces, tech-stack.
 - [`../design/readme.md`](../design/readme.md) — the brand system (colors, type, voice), pointing at the live components.
 - [`../design/assets/reference/`](../design/assets/reference/) — the concept renders and the logo mark.
 
 ### Proofs & prod
+
 - [`proofs/`](proofs/) — the build proofs (clean build, tests, installer artifact, phone smoke logs).
 - [`../prod/pgrep-prototype.html`](../prod/pgrep-prototype.html) — clickable prototype of the L2 desktop surfaces. A rehearsal aid, **not the submission**.
 - [`../prod/video/`](../prod/video/) — the submission video kit (`submission-video-kit.md`) plus the concept walkthrough.
 
 ## Open design gaps
+
 The four features, UI/UX, technical architecture, and the **three-score model** are designed; build layers are ready.
 
 - **Resolved:** scoring/readiness derivation + held-out eval methodology → [`research/three-scores.md`](research/three-scores.md) (spec constraints 3 + 4). Performance model **decided** → [`research/performance-model.md`](research/performance-model.md) (the "smart formula": PFA calibrated logistic; batting-average baseline; IRT rejected at n=1).
 - Smaller known open items: diagnostic placement algorithm (v0 scope); manifold interaction details ([`../design/ux-foundation.md`](../design/ux-foundation.md) §13); privacy/security specifics for keys + sync auth (sketched in [`research/technical-architecture.md`](research/technical-architecture.md) (e)).
 
 ## Mission
+
 pgrep is a study environment for one graduate-level exam — the **Physics GRE (PGRE)** — built by forking Anki. It ships a **desktop app + phone companion sharing one engine**, and answers three different questions honestly: can the student **recall** a fact (memory), **apply** it to a new question (performance), and **what would they score** (readiness)?
 
 ## Governing constraints (from the project spec)
+
 1. A **real change inside Anki's Rust engine** (not just Python/UI).
 2. Two apps — **desktop + phone — sharing ONE engine**, with two-way sync.
 3. Three **separate** scores: **memory / performance / readiness**, each with a range + a give-up rule.
@@ -85,12 +99,15 @@ pgrep is a study environment for one graduate-level exam — the **Physics GRE (
 9. License **AGPL-3.0-or-later**, crediting Anki.
 
 ## The exam: PGRE
+
 - ~70 five-choice MCQ / 2 hours, computer-delivered, **no guessing penalty**. ~1.71 min/question.
 - Blueprint (stable 20+ yrs): Mechanics 20%, E&M 18%, Quantum 13%, Thermo/Stat Mech 10%, Atomic 10%, Optics/Waves 8%, Special Rel 6%, Lab 6%, Specialized 9%.
 - Subscores (0–100, not equated): Classical Mechanics, E&M, Quantum + Atomic.
 
 ## Core thesis
-The PGRE is **problem-solving-heavy, fact-recall-light** — so flashcards are its *weakest* tool. pgrep's reason to exist is the **memory → performance → readiness bridge** that stock Anki lacks:
+
+The PGRE is **problem-solving-heavy, fact-recall-light** — so flashcards are its _weakest_ tool. pgrep's reason to exist is the **memory → performance → readiness bridge** that stock Anki lacks:
+
 - **Memory** = P(recall now) → FSRS, verified on held-out reviews.
-- **Performance** = P(correct on a *new* exam-style question) → held-out item bank.
+- **Performance** = P(correct on a _new_ exam-style question) → held-out item bank.
 - **Readiness** = projected score with explicit range + uncertainty + coverage.

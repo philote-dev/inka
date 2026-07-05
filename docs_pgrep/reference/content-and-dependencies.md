@@ -18,12 +18,12 @@ with a legal edge the project respects.
 
 ### 1.1 The tiers (ordered by legal safety)
 
-| Tier | Source | Use in pgrep | License note |
-|---|---|---|---|
-| **1 · Open** | OpenStax University Physics Vol 1-3; the Fitzpatrick texts; Wikibooks; public-domain texts; open lecture notes | The bundled named-source corpus (RAG + provenance) | OpenStax CC-BY 4.0 (attribute, bundle freely). Wikibooks CC-BY-SA (share-alike, fine under AGPL). Check each set. |
-| **2 · Yours** | Cards and problems Frank authors, own notes | Curated content, gold set (E1) | original work, safe |
-| **3 · ETS official** | Official PGRE forms (GR8677, GR9277, GR9677, GR0177, GR0877, GR1777) | Private held-out validation and the problem gold ruler only. Never bundled, shipped, or fed to generation. | Copyright ETS. Academic use is defensible, redistribution is not. Kept out of the shipped app and out of the corpus. |
-| **4 · AI-generated** | Cards and problems the pipeline produces | Deck content, only if it cites a Tier-1 source and passes the gold-set gate | provenance + gate are the spec requirement |
+| Tier                 | Source                                                                                                         | Use in pgrep                                                                                               | License note                                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **1 · Open**         | OpenStax University Physics Vol 1-3; the Fitzpatrick texts; Wikibooks; public-domain texts; open lecture notes | The bundled named-source corpus (RAG + provenance)                                                         | OpenStax CC-BY 4.0 (attribute, bundle freely). Wikibooks CC-BY-SA (share-alike, fine under AGPL). Check each set.    |
+| **2 · Yours**        | Cards and problems Frank authors, own notes                                                                    | Curated content, gold set (E1)                                                                             | original work, safe                                                                                                  |
+| **3 · ETS official** | Official PGRE forms (GR8677, GR9277, GR9677, GR0177, GR0877, GR1777)                                           | Private held-out validation and the problem gold ruler only. Never bundled, shipped, or fed to generation. | Copyright ETS. Academic use is defensible, redistribution is not. Kept out of the shipped app and out of the corpus. |
+| **4 · AI-generated** | Cards and problems the pipeline produces                                                                       | Deck content, only if it cites a Tier-1 source and passes the gold-set gate                                | provenance + gate are the spec requirement                                                                           |
 
 **The rule that keeps the project safe and compliant.** The corpus (what the AI
 cites and generates from) is Tier 1 plus Tier 2 only. Tier 3 never enters the
@@ -97,32 +97,32 @@ Everything not living in the repo, grouped by when it is first needed.
 
 ### 3.1 Build toolchain (L0, local, mostly wired by `just`)
 
-| Tool | For | Cost |
-|---|---|---|
-| Rust (rustup) + `aarch64-apple-ios` target | the engine, the graded change, iOS cross-compile | free |
-| Python 3 | pylib, scripts, CAS, eval harness | free |
-| Node + Yarn (vendored) | the `ts/` frontend | free |
-| `just` | every build, run, test, lint recipe | free |
-| Xcode + Command Line Tools | iOS build, native manifold, signing | free (account extra) |
-| Protobuf toolchain | cross-language API (handled by the build) | free |
+| Tool                                       | For                                              | Cost                 |
+| ------------------------------------------ | ------------------------------------------------ | -------------------- |
+| Rust (rustup) + `aarch64-apple-ios` target | the engine, the graded change, iOS cross-compile | free                 |
+| Python 3                                   | pylib, scripts, CAS, eval harness                | free                 |
+| Node + Yarn (vendored)                     | the `ts/` frontend                               | free                 |
+| `just`                                     | every build, run, test, lint recipe              | free                 |
+| Xcode + Command Line Tools                 | iOS build, native manifold, signing              | free (account extra) |
+| Protobuf toolchain                         | cross-language API (handled by the build)        | free                 |
 
 ### 3.2 AI and content tooling (L4)
 
-| Tool / service | For | Cost / note |
-|---|---|---|
-| LLM API (OpenAI) | generation, tutor grading, session synthesis, eval judge | key + account. Stored in `content/.env`, never synced, never committed. |
-| Embeddings | RAG over the corpus | local (`sentence-transformers` / `bge`), free, offline, keeps the corpus private |
-| Vector store | retrieval index | local `sqlite-vec`, no service needed |
-| CAS: SymPy | verify computational cards and problems without an LLM | free, deterministic, offline. Central to the gate. |
-| PDF extraction | source PDFs into corpus text | `PyMuPDF` (text). Vision models for scanned equations where needed. |
+| Tool / service   | For                                                      | Cost / note                                                                      |
+| ---------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| LLM API (OpenAI) | generation, tutor grading, session synthesis, eval judge | key + account. Stored in `content/.env`, never synced, never committed.          |
+| Embeddings       | RAG over the corpus                                      | local (`sentence-transformers` / `bge`), free, offline, keeps the corpus private |
+| Vector store     | retrieval index                                          | local `sqlite-vec`, no service needed                                            |
+| CAS: SymPy       | verify computational cards and problems without an LLM   | free, deterministic, offline. Central to the gate.                               |
+| PDF extraction   | source PDFs into corpus text                             | `PyMuPDF` (text). Vision models for scanned equations where needed.              |
 
 ### 3.3 Mobile and ship (L3 / L6)
 
-| Thing | For | Cost / note |
-|---|---|---|
-| Apple Developer Program | TestFlight and clean device signing | $99/yr. Free path: simulator + 7-day sideload for the demo. |
-| Self-hosted sync server | the two-device sync requirement | `anki-sync-server` (in-repo). Local Mac free for the demo; a small VPS optional. |
-| (Optional) Apple Developer ID + notarization | signed and notarized mac installer | polish. Unsigned installs are fine for grading. |
+| Thing                                        | For                                 | Cost / note                                                                      |
+| -------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------- |
+| Apple Developer Program                      | TestFlight and clean device signing | $99/yr. Free path: simulator + 7-day sideload for the demo.                      |
+| Self-hosted sync server                      | the two-device sync requirement     | `anki-sync-server` (in-repo). Local Mac free for the demo; a small VPS optional. |
+| (Optional) Apple Developer ID + notarization | signed and notarized mac installer  | polish. Unsigned installs are fine for grading.                                  |
 
 ### 3.4 Frontend libraries (no new accounts)
 

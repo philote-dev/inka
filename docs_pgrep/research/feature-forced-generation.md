@@ -52,6 +52,7 @@ flowchart TD
 ```
 
 **User-authored cards, two cases (the only place net-new generation is allowed):**
+
 - **Bundle covers it.** Your card is the style signal; AI **stylizes** the existing bundle cards into your voice. Your card also stays. No net-new generation, no duplication.
 - **Bundle does not cover it.** Your card enters the pool as your own and **triggers gap-fill generation**: AI produces siblings for that technique, grounded in the corpus and gold-set gated. User-initiated, so it is wanted, and it cannot duplicate the bundle (which had no coverage there).
 
@@ -91,7 +92,7 @@ flowchart TD
 
 ## The AI generation + verification pipeline
 
-*(This is the **gap-fill** path from the assembly model above. It runs only when the user authors a technique the bundle does not cover. Where the bundle already covers a subtopic, the AI **stylizes** instead of generating.)*
+_(This is the **gap-fill** path from the assembly model above. It runs only when the user authors a technique the bundle does not cover. Where the bundle already covers a subtopic, the AI **stylizes** instead of generating.)_
 
 ```mermaid
 flowchart TD
@@ -110,7 +111,7 @@ flowchart TD
 ### The verification stack (ordered by trustworthiness)
 
 1. **RAG grounding + source binding + verbatim anchors + enforced abstention** → provenance; mechanically satisfies the spec's "named source / no untraceable claims" rule. _[primary technique]_
-2. **CAS / symbolic check (SymPy, PAL)** — decisive for **computational** cards. _[primary technique]_ **Physics caveat _[verify]_:** units, dimensional analysis, and *multiple valid symbolic forms* make physics derivations harder to auto-check than GRE-math arithmetic — confirm feasibility per card type.
+2. **CAS / symbolic check (SymPy, PAL)** — decisive for **computational** cards. _[primary technique]_ **Physics caveat _[verify]_:** units, dimensional analysis, and _multiple valid symbolic forms_ make physics derivations harder to auto-check than GRE-math arithmetic — confirm feasibility per card type.
 3. **Self-consistency / multi-sample agreement** — generate N, keep agreement. _[primary]_
 4. **Retrieval-grounded verification** — claim vs source passage. _[primary]_
 5. **Independent LLM "critic" — WEAK.** Corpus + known LLM-eval finding: self-critics rubber-stamp and can introduce errors. Supplementary only. _[cohort + known finding]_
@@ -172,7 +173,7 @@ Lets generation feed the scheduler directly, no separate rating pass. _[cohort �
 
 ## Locked (core) decisions
 
-1. **Authoring quota — one conceptual seed per finest topic unit** (subtopic where subtopics exist — the big three; category otherwise). The human authors **conceptual** cards only. Rough load ~20–30 seeds total. This *is* the generation-effect surface **and** the style signal.
+1. **Authoring quota — one conceptual seed per finest topic unit** (subtopic where subtopics exist — the big three; category otherwise). The human authors **conceptual** cards only. Rough load ~20–30 seeds total. This _is_ the generation-effect surface **and** the style signal.
 2. **Human/AI allocation by mechanism** (the principle behind the split):
    - **Conceptual → human-authored** — gain is the **generation effect** (organizing the big idea); AI least trustworthy here.
    - **Computational → AI-generated, user-rehearsed** — gain is the **testing/retrieval effect** (reps), not authoring; AI most trustworthy here (CAS-checkable).
@@ -183,6 +184,7 @@ Lets generation feed the scheduler directly, no separate rating pass. _[cohort �
 6. **gen→FSRS:** keep the AI difficulty rating (feeds our selector's 60–85% band + computational/conceptual routing); do **not** seed FSRS `D0` for core (marginal; FSRS cold-starts fine).
 
 ## Still open (deferred)
+
 - Exact verification-layer composition + thresholds (when we build it).
 - How the style signal is extracted (few-shot template vs. richer).
 - Whether a rare "author one computational exemplar" option is offered for power users.

@@ -67,9 +67,11 @@ def _add_problem(col: Collection, item: dict, topic: str) -> int:
     note[problem.FIELD_CHOICES] = json.dumps(list(item["choices"]), ensure_ascii=False)
     note[problem.FIELD_CORRECT] = item["key"]
     note[problem.FIELD_DISTRACTOR_RATIONALES] = json.dumps(
-        item.get("distractor_rationales", {}), ensure_ascii=False, sort_keys=True)
+        item.get("distractor_rationales", {}), ensure_ascii=False, sort_keys=True
+    )
     note[problem.FIELD_SOLUTION_DECOMPOSITION] = json.dumps(
-        item.get("solution_decomposition", []), ensure_ascii=False)
+        item.get("solution_decomposition", []), ensure_ascii=False
+    )
     note[problem.FIELD_DIFFICULTY] = str(item.get("difficulty", "medium"))
     note[problem.FIELD_SOURCE_REF] = item.get("source_ref") or ""
     note.tags = [GENERATED_TAG, _topic_tag(topic)]
@@ -87,8 +89,13 @@ def _retrieve(col: Collection, query: str) -> Any:
 def generate(col: Collection, *, topic: str, n: int = DEFAULT_N) -> dict[str, Any]:
     """Generate ``n`` misconception-first MCQs for a topic (AI on only)."""
     if not ai_config.ai_enabled(col):
-        return {"ai": "off", "added": [], "review": [], "refused": [],
-                "message": "AI is off; the Problems door uses the curated and bundled problems."}
+        return {
+            "ai": "off",
+            "added": [],
+            "review": [],
+            "refused": [],
+            "message": "AI is off; the Problems door uses the curated and bundled problems.",
+        }
     from anki.pgrep.ai import generation_core as gc
     from anki.pgrep.ai import llm, verify
 
@@ -99,25 +106,44 @@ def generate(col: Collection, *, topic: str, n: int = DEFAULT_N) -> dict[str, An
     added, review, refused = [], [], []
     for _ in range(max(1, n)):
         try:
-            item = gc.generate_problem(topic=_topic_tag(topic), retrieved=retrieved, llm=client)
+            item = gc.generate_problem(
+                topic=_topic_tag(topic), retrieved=retrieved, llm=client
+            )
         except Exception as exc:  # noqa: BLE001 - surface a clean status, never crash the app
-            return {"ai": "error", "added": [], "review": [], "refused": [],
-                    "message": f"generation failed: {exc}"}
+            return {
+                "ai": "error",
+                "added": [],
+                "review": [],
+                "refused": [],
+                "message": f"generation failed: {exc}",
+            }
         if item.get("refused"):
-            refused.append({"reason": item.get("refusal_reason"), "stem": item.get("stem")})
+            refused.append(
+                {"reason": item.get("refusal_reason"), "stem": item.get("stem")}
+            )
             continue
         h = verify.normalized_front_hash(item.get("stem", ""))
         if h in existing:
             continue
         existing.add(h)
-        record = {"stem": item["stem"], "key": item["key"],
-                  "source_ref": item.get("source_ref"), "confidence": item.get("confidence"),
-                  "n_distractors": len(item.get("distractors", [])),
-                  "cas_verified": item.get("cas_verified")}
+        record = {
+            "stem": item["stem"],
+            "key": item["key"],
+            "source_ref": item.get("source_ref"),
+            "confidence": item.get("confidence"),
+            "n_distractors": len(item.get("distractors", [])),
+            "cas_verified": item.get("cas_verified"),
+        }
         if item.get("needs_review"):
             record["review_reason"] = item.get("review_reason")
             review.append(record)
             continue
         record["note_id"] = _add_problem(col, item, topic)
         added.append(record)
-    return {"ai": "on", "added": added, "review": review, "refused": refused, "n_requested": n}
+    return {
+        "ai": "on",
+        "added": added,
+        "review": review,
+        "refused": refused,
+        "n_requested": n,
+    }
