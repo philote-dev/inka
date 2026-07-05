@@ -235,6 +235,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         >
             Component gallery
         </a>
+        <a class="lab-nav__link" href="/pgrep-lab/demo">Demo profile</a>
     </nav>
 
     <header class="head">
