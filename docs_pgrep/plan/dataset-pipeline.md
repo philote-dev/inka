@@ -35,8 +35,8 @@ build status, location, and owner. Update the status column as builds land.
 | Generated batch | AI vs baselines, blind scored | corpus + gpt-5.5 generator | done, 294 candidates (86 AI, 24 refused) | `content/run/candidates.json` | agent |
 | Score report | the gate numbers | batch vs 157 verified gold | done, two raters: beats every baseline incl naive (CIs exclude 0); under the human adjudicator cards clear useful-yield (0.84) and shipped problems are near-perfect; human-vs-judge kappa ~0; absolute cutoffs not fully green (card fact-precision, problem refusal rate) | `content/run/score_report.json` | agent |
 | Sealed readiness mock | final readiness validation | GR1777 | sealed | `content/tier3-private/sealed-mock/` | untouched |
-| Readiness constants | raw-to-scaled mapping | GR1777 tables | done, extracted | `content/tier3-private/constants/` | agent |
-| Memory calibration | FSRS Brier and reliability | anki-revlogs-10k slice | verify first | to be placed | eval agent |
+| Readiness constants | raw-to-scaled + percentiles | prep-book table + GR0177 conversion page (numbers only) | done: `raw_to_scaled.json` (64 levels) + `gr0177_score_conversion.json` (61 levels, percent-below from 10,947 examinees) | `content/tier3-private/constants/` | agent |
+| Memory calibration | FSRS Brier and reliability | anki-revlogs-10k | schema verified, fits (card_id, day_offset, rating, elapsed_days); data files gated, need an HF token + license accept, else fall back to Frank's own revlog | `content/heldout/anki-revlogs-sample/` (README + VERIFY) | Frank + eval agent |
 
 ## Firewall (unchanged)
 
