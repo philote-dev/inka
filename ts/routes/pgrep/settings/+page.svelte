@@ -3,26 +3,64 @@ Copyright: Ankitects Pty Ltd and contributors
 License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
 <!-- pgrep Settings. Sectioned preference cards, ported from the Claude Design
-     export (design/ux-foundation.md). State is local for now; the values wire to
-     the backend once settings RPCs exist. The theme control flips the theme live.
-     Honesty note baked in: the app works and still scores with AI off. The shared
-     rail comes from +layout.svelte, so this surface renders content only. -->
+     export (design/ux-foundation.md). Sync (pgrepSync) and the AI toggle
+     (pgrepAiStatus / pgrepAiSetEnabled) are wired to the backend; the theme
+     control flips the theme live. The remaining rows (target retention, test
+     date, export, reset) are local until their RPCs exist. Honesty note baked in:
+     the app works and still scores with AI off. The shared rail comes from
+     +layout.svelte, so this surface renders content only. -->
 <script lang="ts">
     import { onMount } from "svelte";
     import { pgrepCall } from "../lib/bridge";
 
     type Theme = "Light" | "Dark" | "System";
 
+    interface AiStatus {
+        enabled: boolean;
+        model: string | null;
+        has_key: boolean;
+        ready: boolean;
+    }
+
     const THEMES: Theme[] = ["Light", "Dark", "System"];
 
     let targetRetention = 0.9;
-    let aiOn = true;
+    // AI is off by default; the real state is read from the backend on mount so
+    // the toggle never claims AI is on when it is not.
+    let aiOn = false;
+    let aiBusy = false;
     let theme: Theme = "Dark";
     const testDate = "Oct 24, 2026";
 
     let serverURL = "http://127.0.0.1:8090/";
     let syncing = false;
     let syncMsg = "";
+
+    async function loadAiStatus(): Promise<void> {
+        try {
+            const status = await pgrepCall<AiStatus>("pgrepAiStatus", {});
+            aiOn = status.enabled;
+        } catch {
+            aiOn = false;
+        }
+    }
+
+    async function toggleAi(): Promise<void> {
+        if (aiBusy) {
+            return;
+        }
+        aiBusy = true;
+        try {
+            const status = await pgrepCall<AiStatus>("pgrepAiSetEnabled", {
+                enabled: !aiOn,
+            });
+            aiOn = status.enabled;
+        } catch {
+            // Leave the toggle unchanged when the write fails.
+        } finally {
+            aiBusy = false;
+        }
+    }
 
     async function syncNow(): Promise<void> {
         syncing = true;
@@ -63,6 +101,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     onMount(() => {
         // Reflect the theme the app already shows, so the control starts honest.
         theme = nightModeOn() ? "Dark" : "Light";
+        void loadAiStatus();
     });
 </script>
 
@@ -136,7 +175,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         role="switch"
                         aria-checked={aiOn}
                         aria-label="AI assistance"
-                        on:click={() => (aiOn = !aiOn)}
+                        disabled={aiBusy}
+                        on:click={toggleAi}
                     >
                         <span class="knob"></span>
                     </button>
@@ -387,6 +427,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         cursor: pointer;
         padding: 0;
         transition: var(--transition-calm);
+
+        &:disabled {
+            cursor: default;
+        }
 
         .knob {
             position: absolute;
