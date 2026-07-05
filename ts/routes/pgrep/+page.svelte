@@ -2,10 +2,10 @@
 Copyright: Ankitects Pty Ltd and contributors
 License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
-<!-- pgrep Home (Readiness). The manifold hero + three score cards. Memory is
-     wired to the real engine (pgrepMemoryScore); Performance and Readiness
-     abstain honestly until their models exist. No mock scores. The shared nav
-     lives in +layout.svelte. -->
+<!-- pgrep Home (Readiness). The manifold hero + three score cards. All three are
+     wired to their real engines (pgrepMemoryScore, pgrepPerformanceScore,
+     pgrepReadinessScore) and abstain honestly on thin data, naming what is
+     missing. No mock scores. The shared nav lives in +layout.svelte. -->
 <script lang="ts">
     import { onMount } from "svelte";
 
@@ -31,30 +31,103 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         last_updated: number | null;
     }
 
+    interface PerformanceData {
+        overall: OverallScore;
+        k_perf: number;
+        coverage_pct: number;
+        coverage_gate: number;
+        last_updated: number | null;
+    }
+
+    interface ReadinessData {
+        scaled: number | null;
+        low: number | null;
+        high: number | null;
+        coverage_pct: number;
+        coverage_gate: number;
+        abstain: boolean;
+        reason: string | null;
+        uncovered_topics: string[];
+        last_updated: number | null;
+    }
+
+    // Blueprint category slugs to short exam-area labels, so an abstaining
+    // Readiness card can name the uncovered areas honestly (matches Progress).
+    const CATEGORY_LABELS: Record<string, string> = {
+        mechanics: "Mechanics",
+        electromagnetism: "Electromagnetism",
+        quantum: "Quantum",
+        thermodynamics: "Thermodynamics",
+        atomic: "Atomic physics",
+        optics_waves: "Optics and waves",
+        special_relativity: "Special relativity",
+        lab: "Lab methods",
+        specialized: "Specialized",
+    };
+
+    function label(slug: string): string {
+        return CATEGORY_LABELS[slug] ?? slug.replace(/_/g, " ");
+    }
+
     // The 3D hero on capable devices, the Canvas 2D fallback otherwise or when
     // the learner prefers reduced motion. Both draw the same FULL_SURFACE.
     let use3d = false;
+
+    // Each card owns its own loading/error/data so one slow or failed call
+    // abstains its own card rather than blocking the surface. All three scores
+    // are pure AI-off math and return well within the 100ms feel.
     let mem: MemoryData | null = null;
     let memLoading = true;
     let memError = false;
 
-    async function loadMemory(): Promise<void> {
-        memLoading = true;
-        memError = false;
-        try {
-            mem = await pgrepCall<MemoryData>("pgrepMemoryScore", {});
-        } catch {
-            memError = true;
-        } finally {
-            memLoading = false;
-        }
+    let perf: PerformanceData | null = null;
+    let perfLoading = true;
+    let perfError = false;
+
+    let ready: ReadinessData | null = null;
+    let readyLoading = true;
+    let readyError = false;
+
+    async function loadScores(): Promise<void> {
+        await Promise.all([
+            pgrepCall<MemoryData>("pgrepMemoryScore", {})
+                .then((d) => {
+                    mem = d;
+                })
+                .catch(() => {
+                    memError = true;
+                })
+                .finally(() => {
+                    memLoading = false;
+                }),
+            pgrepCall<PerformanceData>("pgrepPerformanceScore", {})
+                .then((d) => {
+                    perf = d;
+                })
+                .catch(() => {
+                    perfError = true;
+                })
+                .finally(() => {
+                    perfLoading = false;
+                }),
+            pgrepCall<ReadinessData>("pgrepReadinessScore", {})
+                .then((d) => {
+                    ready = d;
+                })
+                .catch(() => {
+                    readyError = true;
+                })
+                .finally(() => {
+                    readyLoading = false;
+                }),
+        ]);
     }
 
     onMount(() => {
         const reduce =
             window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
         use3d = supportsWebGL() && !reduce;
-        void loadMemory();
+        void loadScores();
     });
 
     function pct(value: number): number {
@@ -106,6 +179,59 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         };
     }
 
+    // Performance is transfer (a new, unseen problem), read from the attempt log.
+    // With an empty log it abstains honestly and points at where attempts happen
+    // (the Problems door), never a fabricated number.
+    function performanceAbstain(
+        loading: boolean,
+        errored: boolean,
+        data: PerformanceData | null,
+    ): AbstainProps {
+        if (loading) {
+            return { message: "Loading Performance" };
+        }
+        if (errored) {
+            return {
+                message: "Could not load Performance",
+                missing: "Try reopening the app.",
+            };
+        }
+        return {
+            message: data?.overall.reason ?? "Not enough attempts yet",
+            missing:
+                "Work problems in the Problems door to build this. It stays quiet until a topic has enough attempts.",
+            linkHref: "/pgrep/study",
+            linkLabel: "Go to Study",
+        };
+    }
+
+    // Readiness is coverage-gated: below the gate it abstains and names the
+    // uncovered exam areas, so the learner sees exactly what to cover next.
+    function readinessAbstain(
+        loading: boolean,
+        errored: boolean,
+        data: ReadinessData | null,
+    ): AbstainProps {
+        if (loading) {
+            return { message: "Loading Readiness" };
+        }
+        if (errored) {
+            return {
+                message: "Could not load Readiness",
+                missing: "Try reopening the app.",
+            };
+        }
+        const names = (data?.uncovered_topics ?? []).map(label).join(", ");
+        return {
+            message: data?.reason ?? "Not enough of the exam is covered yet",
+            missing: names
+                ? `Cover ${names} to unlock Readiness.`
+                : "Readiness needs about 70 percent topic coverage first.",
+            linkHref: "/pgrep/progress",
+            linkLabel: "See coverage",
+        };
+    }
+
     $: memAbstain = !mem || mem.overall.abstain || mem.overall.point === null;
     $: memValue =
         mem && mem.overall.point !== null ? pct(mem.overall.point) : undefined;
@@ -119,6 +245,34 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             : "";
     $: memUpdated = mem && mem.last_updated ? "Updated just now" : "";
     $: memAbstainProps = memoryAbstain(memLoading, memError, mem);
+
+    $: perfAbstain = !perf || perf.overall.abstain || perf.overall.point === null;
+    $: perfValue =
+        perf && perf.overall.point !== null ? pct(perf.overall.point) : undefined;
+    $: perfRange =
+        perf && perf.overall.low !== null && perf.overall.high !== null
+            ? ([pct(perf.overall.low), pct(perf.overall.high)] as [number, number])
+            : undefined;
+    $: perfHowSure =
+        perf && perf.overall.low !== null && perf.overall.high !== null
+            ? howSure(perf.overall.low, perf.overall.high)
+            : "";
+    $: perfUpdated = perf && perf.last_updated ? "Updated just now" : "";
+    $: perfAbstainProps = performanceAbstain(perfLoading, perfError, perf);
+
+    // Readiness ships a 200..990 scaled score (not a percent), so its value and
+    // range pass through untouched. The how-sure read is coverage, the gate it
+    // lives under.
+    $: readyAbstain = !ready || ready.abstain || ready.scaled === null;
+    $: readyValue = ready && ready.scaled !== null ? ready.scaled : undefined;
+    $: readyRange =
+        ready && ready.low !== null && ready.high !== null
+            ? ([ready.low, ready.high] as [number, number])
+            : undefined;
+    $: readyHowSure =
+        ready && !ready.abstain ? `${pct(ready.coverage_pct)} percent covered` : "";
+    $: readyUpdated = ready && ready.last_updated ? "Updated just now" : "";
+    $: readyAbstainProps = readinessAbstain(readyLoading, readyError, ready);
 </script>
 
 <div class="main">
@@ -215,25 +369,29 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             />
         {/if}
 
-        <ScoreCard
-            kind="performance"
-            abstain={{
-                message: "No performance model yet",
-                missing:
-                    "Performance comes online with the AI problem set. It stays quiet until then.",
-                linkHref: "/pgrep/progress",
-                linkLabel: "See the evidence",
-            }}
-        />
-        <ScoreCard
-            kind="readiness"
-            abstain={{
-                missing:
-                    "Readiness needs performance data and 70 percent topic coverage first. It stays quiet until then.",
-                linkHref: "/pgrep/progress",
-                linkLabel: "See coverage",
-            }}
-        />
+        {#if perfAbstain}
+            <ScoreCard kind="performance" abstain={perfAbstainProps} />
+        {:else}
+            <ScoreCard
+                kind="performance"
+                value={perfValue}
+                range={perfRange}
+                howSure={perfHowSure}
+                updated={perfUpdated}
+            />
+        {/if}
+
+        {#if readyAbstain}
+            <ScoreCard kind="readiness" abstain={readyAbstainProps} />
+        {:else}
+            <ScoreCard
+                kind="readiness"
+                value={readyValue}
+                range={readyRange}
+                howSure={readyHowSure}
+                updated={readyUpdated}
+            />
+        {/if}
     </section>
 </div>
 
