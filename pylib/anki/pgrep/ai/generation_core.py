@@ -17,6 +17,7 @@ manifest can pin exactly what produced a batch.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from . import provenance, verify
@@ -49,6 +50,14 @@ PROBLEM_SYSTEM = (
     "\"confidence\": 0..1, \"computational\": {\"expression\": str, \"expected\": "
     "number, \"tolerance\": number} | null, \"refuse\": bool}. No sub-goal or "
     "rationale may state the final answer."
+)
+
+# Independent solve, used to confirm a generated key is self-consistent. Blind to
+# the claimed key: the model re-solves the problem from physics, and the key is
+# trusted only when this agrees with it.
+PROBLEM_SOLVE_SYSTEM = (
+    "Solve this Physics GRE multiple-choice problem from physics. Reason it out, "
+    "then answer. Return STRICT JSON: {\"answer\": \"A\"|\"B\"|\"C\"|\"D\"|\"E\"}."
 )
 
 
@@ -117,8 +126,50 @@ def generate_card(*, topic: str, retrieved: list, llm: Any, seed_card: dict | No
     return _route_confidence(item)
 
 
-def generate_problem(*, topic: str, retrieved: list, llm: Any) -> dict:
-    """Generate one corpus-grounded MCQ with misconception-first distractors."""
+def solve_problem(stem: str, choices: list, llm: Any) -> str:
+    """Independently solve an MCQ (blind to the claimed key). Returns A-E or ""."""
+    if not stem or len(choices) != 5:
+        return ""
+    payload = {"stem": stem, "choices": {lab: str(choices[i]) for i, lab in enumerate("ABCDE")}}
+    try:
+        raw = llm.complete_json(PROBLEM_SOLVE_SYSTEM, json.dumps(payload, ensure_ascii=False))
+    except Exception:  # noqa: BLE001
+        return ""
+    ans = str(raw.get("answer", "")).strip().upper()[:1] if isinstance(raw, dict) else ""
+    return ans if ans in ("A", "B", "C", "D", "E") else ""
+
+
+def generate_problem(*, topic: str, retrieved: list, llm: Any, verify_key: bool = False,
+                     attempts: int = 1) -> dict:
+    """Generate one corpus-grounded MCQ with misconception-first distractors.
+
+    With ``verify_key`` the generated key is confirmed by an independent solve
+    (``solve_problem``); on disagreement the problem is regenerated up to
+    ``attempts`` times. If no attempt is self-consistent, the last valid item is
+    returned flagged for review. Default off, so the app and the existing tests
+    keep the single-shot behavior.
+    """
+    if not verify_key:
+        return _generate_problem_once(topic=topic, retrieved=retrieved, llm=llm)
+    last = None
+    for _ in range(max(1, attempts)):
+        item = _generate_problem_once(topic=topic, retrieved=retrieved, llm=llm)
+        last = item
+        if item.get("refused"):
+            continue
+        solved = solve_problem(item.get("stem", ""), item.get("choices", []), llm)
+        item["independent_solve"] = solved
+        item["key_self_consistent"] = bool(solved) and solved == item.get("key")
+        if item["key_self_consistent"]:
+            return item
+    if last is not None and not last.get("refused"):
+        last["needs_review"] = True
+        last["review_reason"] = "generated key not confirmed by an independent solve"
+    return last
+
+
+def _generate_problem_once(*, topic: str, retrieved: list, llm: Any) -> dict:
+    """One MCQ generation pass (no key self-consistency)."""
     context = build_context(retrieved)
     user = f"TOPIC: {topic}\n\nCORPUS CONTEXT:\n{context}"
     raw = llm.complete_json(PROBLEM_SYSTEM, user)

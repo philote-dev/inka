@@ -7,10 +7,11 @@ reference for the AI layer. The private data it operates on (the corpus, the gol
 items, the held-out forms, the index) lives in the git-ignored `content/`
 workspace.
 
-**State (2026-07-04).** L4 is built and merged to `main`, off by default, so the
-app demos and ships with AI on or off. The eval harness works, the gold sets are
-built and validated, and the graded batch is generated. What remains is Frank's
-short audit of the gold, then the scored re-run.
+**State (2026-07-05).** L4 is built and merged to `main`, off by default, so the
+app demos and ships with AI on or off. The gold is verified and frozen (157
+items), and the L4.0 round-1 batch has been scored against it: the AI beats the
+retrieval baselines with CIs excluding zero (spec constraint 6), while the
+absolute quality cutoffs are not yet met under the LLM judge (section 7).
 
 ---
 
@@ -159,32 +160,62 @@ off the same index.
 
 ---
 
-## 7. The eval run
+## 7. The eval run (L4.0, provisional)
 
-- **Generated batch:** 50 card targets and 36 problem targets, three systems each
-  (AI, keyword, vector, plus naive for problems), 294 candidates. 86 are AI items;
-  18 of those were refused by the provenance layer (declined to cite a source),
-  which is the safety behavior working.
-- **Scoring:** held until the gold is frozen by Frank's audit. The current
-  `content/run/score_report.json` and `run_manifest.json` are from an earlier
-  smoke run and are stale; the real score lands after the audit.
-- **Models:** generator `gpt-5.5-2026-04-23`, judge `gpt-5.4-mini-2026-03-17`,
-  pinned in the run manifest. The gold was authored and cross-checked by gpt-4o
-  and gpt-5.5, both different from the judge.
+Scored on 2026-07-05 against the frozen gold (157 verified items), generator
+`gpt-5.5-2026-04-23`, judge `gpt-5.4-mini-2026-03-17` (rater 2). Rater 1 (Frank
+on the generated batch) is deferred, so this is provisional. The gold was
+authored and cross-checked by gpt-4o and gpt-5.5, both different from the judge.
+
+Two rounds were run: an initial pass, then after hardening the generator with
+key self-consistency (an independent re-solve regenerates a problem whose key
+its own solve disagrees with) and a tuned grounding floor (0.60 to 0.45 cosine,
+which cut over-refusal).
+
+| Metric (AI) | Round 1 | Round 2 (hardened) | Bar |
+|---|---|---|---|
+| Card fact precision | 0.92 | 0.90 | 0.95 |
+| Card useful-yield | 0.48 | 0.34 | 0.80 |
+| Problem key correctness | 0.31 | 0.44 | 0.95 |
+| Problem distractor quality | 0.28 | 0.33 | 0.70 |
+| Problem useful-yield | 0.19 | 0.17 | 0.75 |
+| AI refusals | 24/86 | 13/86 | reported |
+
+Beat-baseline passes in both rounds, CIs excluding zero (cards +0.22 to +0.40,
+problems +0.28 to +0.33). That is the spec's constraint 6.
+
+**Reading it.** Two honest findings. Key self-consistency lifted problem
+key-correctness by +0.13 and halved refusals. But there is a ceiling: all 25
+shipped problems were gpt-5.5 self-consistent, yet the independent judge confirms
+only 44% of keys, because two passes of the same model share blind spots. The
+card shift is within noise (the CIs overlap). The absolute cutoffs remain unmet.
+Clearing them is a deeper generation problem, and the principled next step is
+cross-model verification (a different model confirms the key, trading some yield
+for correctness), not further tuning.
+
+**Firewall.** No ETS fed. Reject-memorized kept 86 of 86 (nothing was a near-copy
+of an ETS item or a fed example). Seen-versus-held reported in the run manifest.
+
+Artifacts: `content/run/score_report.json` and `run_manifest.json`. The generator
+hardening lives in `pylib/anki/pgrep/ai/` (`generation_core.solve_problem` plus
+the `verify_key` path, and the tuned floor in `provenance.py`).
 
 ---
 
-## 8. Frank's remaining review (the gate)
+## 8. The human review (done and remaining)
 
-Frank is rater 1 and the adjudicator. The machine work resolved the hard parts,
-so this is an audit, not a from-scratch grade.
+**Done (2026-07-05): gold verified.** Frank audited every gold item. Problems:
+7 dropped (broken OCR or not self-contained, logged in `content/gold/dropped/`),
+2 keys corrected (`0095` to D, `0114` to E, both siding with the gpt-5.5 dissent),
+109 kept. Cards: 4 duplicates dropped, 12 corrected (the Coulomb constant, the
+angular-momentum commutators, the spin-orbit shift, two source-section relabels,
+and others), 34 kept. The full gold (111 problems, 46 cards) is frozen to
+`verified` and the round-1 batch was scored on it (section 7).
 
-1. Contested keys: done. The one ambiguous key (`gold-problem-0115`) is adjudicated.
-2. Spot-check: skim a small sample (the 4 gpt-5.5-dissent problems `0095`,
-   `0101`, `0102`, `0114`, plus a handful of random problems and cards).
-3. Freeze: on the OK, the gold flips to verified and the scored batch runs on it.
-
-Then touchpoint 2: rate the generated items blind against the frozen gold.
+**Remaining (optional, touchpoint 2): rater 1 on the batch.** Frank can grade the
+generated items blind against the frozen gold to produce the human rater-1 numbers
+and inter-rater agreement (Cohen's kappa). It does not change the beat-baseline
+result; it firms up the absolute numbers, which the LLM judge currently scores low.
 
 ---
 

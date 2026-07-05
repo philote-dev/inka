@@ -113,6 +113,38 @@ def test_generate_problem_giveaway_in_decomposition_refused():
     assert prob["refused"]
 
 
+class _SeqLLM:
+    """Fake that answers the generate call and the independent-solve call."""
+
+    model = "fake-seq"
+
+    def __init__(self, gen_resp: dict, solve_answer: str):
+        self.gen_resp = gen_resp
+        self.solve_answer = solve_answer
+
+    def complete_json(self, system: str, user: str) -> dict:
+        if system == gc.PROBLEM_SOLVE_SYSTEM:
+            return {"answer": self.solve_answer}
+        return dict(self.gen_resp)
+
+
+def test_generate_problem_key_self_consistent_accepts():
+    llm = _SeqLLM(_good_problem_response(), solve_answer="C")  # matches key C
+    prob = gc.generate_problem(topic="topic::atomic", retrieved=_GROUNDED, llm=llm,
+                               verify_key=True, attempts=3)
+    assert prob["key_self_consistent"] is True
+    assert not prob["needs_review"]
+
+
+def test_generate_problem_key_disagreement_flags_review():
+    llm = _SeqLLM(_good_problem_response(), solve_answer="D")  # disagrees with key C
+    prob = gc.generate_problem(topic="topic::atomic", retrieved=_GROUNDED, llm=llm,
+                               verify_key=True, attempts=3)
+    assert prob["key_self_consistent"] is False
+    assert prob["needs_review"]
+    assert "independent solve" in prob["review_reason"]
+
+
 def test_cas_check_when_sympy_available():
     pytest.importorskip("sympy")
     assert verify.cas_equivalent("2*x + x", "3*x")

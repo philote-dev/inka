@@ -30,10 +30,10 @@ build status, location, and owner. Update the status column as builds land.
 | Community 70 | problem gold source (with the GR9677 gold) | forum RTF | done, 57 keyed, annotated + key-triangulated | `content/gold/candidates/community-70.json` | agent |
 | GR9677 gold | problem gold source, real ETS vision-cleaned | GR9677 form | done, 61 promoted | `content/gold/candidates/gr9677-problem-gold.json` | agent |
 | Fed problem examples | few-shot for problem gen | REA (all 200 MCQs, both exams) | done, 200 MCQs | `content/examples/reference-questions/` | agent |
-| Problem gold set | ruler for problem generation | GR9677 (cleaned) + community 70 | done, 118 drafted + validated, Frank audit pending | `content/gold/problems/` | Frank + me |
-| Card gold set (~50) | ruler for card generation | corpus (OpenStax, Fitzpatrick), not CWRU | done, 50 authored + validated, Frank audit pending | `content/gold/cards/` | Frank + me |
-| Generated batch | AI vs baselines, blind scored | corpus + gpt-5.5 generator | done, 294 candidates (86 AI, 18 refused) | `content/run/candidates.json` | agent |
-| Score report | the gate numbers | batch vs gold | pending, runs after gold is frozen | `content/run/score_report.json` | agent |
+| Problem gold set | ruler for problem generation | GR9677 (cleaned) + community 70 | done, 111 verified (7 dropped, 2 keys fixed) | `content/gold/problems/` | Frank + me |
+| Card gold set | ruler for card generation | corpus (OpenStax, Fitzpatrick), not CWRU | done, 46 verified (4 dropped, 12 fixed) | `content/gold/cards/` | Frank + me |
+| Generated batch | AI vs baselines, blind scored | corpus + gpt-5.5 generator | done, 294 candidates (86 AI, 24 refused) | `content/run/candidates.json` | agent |
+| Score report | the gate numbers | batch vs 157 verified gold | done, provisional: beats baseline (CIs exclude 0); generator hardening lifted problem key-correctness 0.31 to 0.44 and halved refusals; absolute cutoffs not yet met | `content/run/score_report.json` | agent |
 | Sealed readiness mock | final readiness validation | GR1777 | sealed | `content/tier3-private/sealed-mock/` | untouched |
 | Readiness constants | raw-to-scaled mapping | GR1777 tables | done, extracted | `content/tier3-private/constants/` | agent |
 | Memory calibration | FSRS Brier and reliability | anki-revlogs-10k slice | verify first | to be placed | eval agent |
