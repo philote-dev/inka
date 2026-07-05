@@ -87,10 +87,16 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
     let loading = true;
     let seeding = false;
     let errored = false;
+    // A calibration fetch that FAILS is distinct from a layer that genuinely has
+    // no evidence: the former says "unavailable" (honest about the fetch), the
+    // latter says "no evidence yet". Tracked so the panel never implies the model
+    // is uncalibrated when it simply could not be loaded.
+    let calibrationErrored = false;
 
     async function load(): Promise<void> {
         loading = true;
         errored = false;
+        calibrationErrored = false;
         try {
             // Coverage is the primary read; calibration (embedded evidence) and
             // Readiness are secondary, so a hiccup on either abstains its panel
@@ -103,6 +109,7 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
             ]);
             data = coverage;
             calibration = calib;
+            calibrationErrored = calib === null;
             readiness = ready;
         } catch {
             errored = true;
@@ -146,9 +153,10 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         return `${n} ${n === 1 ? "card" : "cards"}`;
     }
 
-    // One reliability view per model layer. Honors the abstain rule: a layer with
-    // no evidence draws the empty frame and names why. Both layers ship evidence,
-    // so both draw their curve with a rounded Brier and an honest caption.
+    // One reliability view per model layer. Honors the abstain rule with an honest
+    // three-way split: a FAILED fetch says "unavailable" (we could not load it), a
+    // layer with genuinely no evidence says "no evidence yet", and a scored layer
+    // draws its curve with a rounded Brier, an honest caption, and its provenance.
     interface CalibView {
         kind: "memory" | "performance";
         title: string;
@@ -157,6 +165,8 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         points: RelPoint[];
         brier: number | null;
         meta: string;
+        source: string;
+        method: string;
     }
 
     function calibView(
@@ -164,7 +174,23 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         title: string,
         read: string,
         layer: CalibrationLayer | undefined,
+        failed: boolean,
     ): CalibView {
+        if (failed) {
+            // Fetch failure, not an absence of evidence: mirror how Readiness
+            // reports "unavailable" rather than implying the model is uncalibrated.
+            return {
+                kind,
+                title,
+                read: "Calibration unavailable",
+                caption: "Calibration could not be loaded right now. Reload to try again.",
+                points: [],
+                brier: null,
+                meta: "",
+                source: "",
+                method: "",
+            };
+        }
         if (!layer || layer.points.length === 0) {
             return {
                 kind,
@@ -174,6 +200,8 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
                 points: [],
                 brier: null,
                 meta: "",
+                source: "",
+                method: "",
             };
         }
         return {
@@ -184,6 +212,8 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
             points: layer.points,
             brier: layer.brier != null ? round3(layer.brier) : null,
             meta: `n ${formatN(layer.n)} · ${layer.date}`,
+            source: layer.source,
+            method: layer.method,
         };
     }
 
@@ -209,8 +239,8 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
     $: segments = topics.map((t) => ({ topic: label(t.category), weight: t.blueprint, covered: t.covered ? 1 : 0 }));
 
     $: calibViews = [
-        calibView("memory", "Memory", "Held-out reviews", calibration?.memory),
-        calibView("performance", "Performance", "Held-out synthetic", calibration?.performance),
+        calibView("memory", "Memory", "Held-out reviews", calibration?.memory, calibrationErrored),
+        calibView("performance", "Performance", "Held-out synthetic", calibration?.performance, calibrationErrored),
     ];
 
     // Coverage-gated Readiness: a scaled point + 80% range when covered, an honest
@@ -325,6 +355,9 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
                         <p class="muted small calib-cell-note">{view.caption}</p>
                         {#if view.meta}
                             <p class="muted calib-meta">{view.meta}</p>
+                        {/if}
+                        {#if view.source}
+                            <p class="muted calib-prov" title={view.method}>{view.source}</p>
                         {/if}
                     </div>
                 {/each}
@@ -519,6 +552,13 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         margin: 2px 0 0;
         font-size: var(--text-caption);
         font-variant-numeric: tabular-nums;
+    }
+
+    .calib-prov {
+        margin: 2px 0 0;
+        font-size: var(--text-caption);
+        line-height: 1.45;
+        cursor: help;
     }
 
     .calib-note {

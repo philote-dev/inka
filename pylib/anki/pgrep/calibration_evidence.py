@@ -8,14 +8,14 @@ two model layers with its calibration evidence: a **reliability diagram** (the
 predicted vs observed points) plus a **Brier** score. Those numbers come from
 offline evaluations on held-out data:
 
-- **Memory** — FSRS-6 retrievability ``R`` against actual recall on held-out
-  reviews (L5.1; ``content/run/memory_calibration_results.json``). We ship the
-  **default (as-shipped) FSRS** curve, not the secondary per-user recalibration:
+- **Memory** is FSRS-6 retrievability ``R`` against actual recall on held-out
+  reviews (L5.1, ``content/run/memory_calibration_results.json``). We ship the
+  **default (as-shipped) FSRS** curve, not the secondary per-user recalibration.
   pgrep serves raw FSRS ``R``, so the honest curve is the default one, which is
   slightly overconfident.
-- **Performance** — ``P(correct)`` against held-out exam-style outcomes (L5.2;
+- **Performance** is ``P(correct)`` against held-out exam-style outcomes (L5.2,
   ``content/run/performance_results.json``). The synthetic study validates the
-  *pipeline / methodology*, not a real-cohort population.
+  *pipeline* and *methodology*, not a real-cohort population.
 
 Like :mod:`anki.pgrep.readiness_constants`, this module embeds those results as
 **tracked constants**. The values are aggregate statistics (binned reliability

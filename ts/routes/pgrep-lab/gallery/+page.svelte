@@ -470,11 +470,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="section-head">
                     <h2>Calibration panel</h2>
                     <p>
-                        The wired Progress surface (L5.5). Readiness is coverage gated, so at n equals one it
-                        abstains and names the uncovered exam. Calibration shows each model layer with its evidence,
-                        a reliability diagram plus Brier for Memory and for Performance, from the embedded offline
-                        runs. The reserved hues stay data only, amber for Memory, blue for Performance, lilac for
-                        Readiness.
+                        The wired Progress surface (L5.5). Readiness is coverage gated, shown both abstaining at n
+                        equals one (naming the uncovered exam) and covered with a point and an 80 percent range.
+                        Calibration shows each model layer with its evidence, a reliability diagram plus Brier and
+                        provenance for Memory and for Performance, from the embedded offline runs. A failed fetch
+                        reads as unavailable, kept distinct from a genuine absence of evidence. The reserved hues
+                        stay data only, amber for Memory, blue for Performance, lilac for Readiness.
                     </p>
                 </div>
                 <div class="split">
@@ -511,6 +512,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                         />
                                         <p class="calib-caption">Validated on held-out reviews. Default FSRS, slightly overconfident.</p>
                                         <p class="calib-meta">n 7,503 · 2026-07-05</p>
+                                        <p class="calib-prov" title="Default FSRS-6 (fsrs-rs 5.2.0) retrievability vs recall; binning-free Brier">
+                                            Held-out reviews from the anki-revlogs-10k sample (4 users, time-split)
+                                        </p>
                                     </div>
                                     <div class="rel-cell">
                                         <span class="calib-tone" style="color: var(--performance-text);">Performance</span>
@@ -523,6 +527,34 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                         />
                                         <p class="calib-caption">Methodology validated on held-out synthetic (n = 1 cohort).</p>
                                         <p class="calib-meta">n 160 · 2026-07-05</p>
+                                        <p class="calib-prov" title="PFA logistic + beta calibration on a held-out split; binning-free Brier">
+                                            Held-out synthetic exam-style outcomes (pipeline validation)
+                                        </p>
+                                    </div>
+                                </div>
+                                <span class="state-label">Calibration unavailable, fetch failed</span>
+                                <div class="rel-row">
+                                    <div class="rel-cell">
+                                        <span class="calib-tone" style="color: var(--memory-text);">Memory</span>
+                                        <ReliabilityDiagram
+                                            points={[]}
+                                            brier={null}
+                                            read="Calibration unavailable"
+                                            tone="memory"
+                                            size={200}
+                                        />
+                                        <p class="calib-caption">Calibration could not be loaded right now. Reload to try again.</p>
+                                    </div>
+                                    <div class="rel-cell">
+                                        <span class="calib-tone" style="color: var(--performance-text);">Performance</span>
+                                        <ReliabilityDiagram
+                                            points={[]}
+                                            brier={null}
+                                            read="Calibration unavailable"
+                                            tone="performance"
+                                            size={200}
+                                        />
+                                        <p class="calib-caption">Calibration could not be loaded right now. Reload to try again.</p>
                                     </div>
                                 </div>
                             </div>
@@ -852,6 +884,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         font-size: var(--text-caption);
         color: var(--muted);
         font-variant-numeric: tabular-nums;
+    }
+
+    .calib-prov {
+        margin: 2px 0 0;
+        font-size: var(--text-caption);
+        line-height: 1.45;
+        color: var(--muted);
+        cursor: help;
     }
 
     .frame-preview {

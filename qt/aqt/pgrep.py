@@ -79,7 +79,9 @@ def pgrep_performance_score() -> bytes:
 def pgrep_readiness_score() -> bytes:
     from anki.pgrep import readiness
 
-    return _json(readiness.readiness_score(aqt.mw.col))
+    # deck_id scopes only the mastery (FSRS) component, mirroring memory and
+    # performance. The attempt log Readiness leans on is always collection-wide.
+    return _json(readiness.readiness_score(aqt.mw.col, deck_id=_args().get("deck_id")))
 
 
 # L5.5 Progress / Calibration -> anki.pgrep.calibration_evidence (embedded, no col)
