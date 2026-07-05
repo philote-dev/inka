@@ -35,7 +35,7 @@ Everything through the desktop takeover, the visual system, the closeout, and th
 | **L3 Mobile parity + Sync**      | ✅      | The native SwiftUI companion (`mobile/ios/PgrepStudy/`): a Home glance (2D wireframe manifold, native Memory that matches desktop by construction, honest Performance and Readiness abstains), a Study Cards door with full FSRS grading, and Settings sync. Two-way sync reuses Anki's self-hosted server unmodified (`just sync-server`) with the conflict rule in `[L3-sync-conflict-rule.md](L3-sync-conflict-rule.md)`, proven by `pylib/tests/test_pgrep_sync_roundtrip.py` (revlog and Attempt union, newer-mtime, offline-then-sync) and `just ios-sync-proof` (the iOS FFI upload downloaded by a desktop engine). No changes under `rslib/src/sync`. |
 
 
-**What is deliberately not done yet.** L4 (AI) is merged to `main` and off by default, with its provisional gate green on beat-baseline but the absolute cutoffs and the human E4 rating still pending (see the L4 status block in section 4). No Performance or Readiness scores or model evidence (L5), and no final packaging or the exclusive takeover flip (L6).
+**What is deliberately not done yet.** L4 (AI) is merged to `main` and off by default, with its provisional gate green on beat-baseline but the absolute cutoffs and the human E4 rating still pending (see the L4 status block in section 4). L5 (Models + evidence) is merged to `main` @ `280621c36`: all three scores are calibrated with held-out evidence and the ablation is reported (see the L5 status block in section 4). What remains is L6 (final packaging, hardening, and the exclusive takeover flip), plus the human E4 deliverables (the results report, model cards, and the Brainlift).
 
 ---
 
@@ -48,7 +48,7 @@ flowchart TD
     NOW["main @ 3682a3e1e<br/>L0-L2.7 + L3 (mobile + sync) ✅"] --> L27["L2.7 · Closeout (make it ours) ✅<br/>visual QA · A→C readiness · identity groundwork"]
     L27 --> L3["L3 · Mobile parity + Sync ✅"]
     L27 --> L4["L4 · AI layer<br/>generation + problems + tutor + evals"]
-    L3 --> L5["L5 · Models + evidence"]
+    L3 --> L5["L5 · Models + evidence ✅"]
     L4 --> L5
     L5 --> L6["L6 · Ship + harden"]
 ```
@@ -234,7 +234,9 @@ _Resume commands (repo root, conda `pgrep-ai`)._ `python content/tools/make_gold
 
 
 
-### L5 · Models + evidence · entry: data flowing (L2 plus L4) 🔒 depends on L4 evals
+### L5 · Models + evidence · entry: L2 + L4 ✅ · done ✅
+
+**Status. Done, merged to `main` @ `280621c36` by fast-forward.** Memory is calibrated on the held-out anki-revlogs-10k (default FSRS Brier 0.234, log-loss 0.743, ECE 0.159; beats the base-rate baseline on the primary Brier; reconstruction pinned to the engine's fsrs-rs 5.2.0 vectors). Performance is the PFA calibrated logistic with beta calibration, validated held-out on seeded synthetic (Brier 0.175 vs 0.268, accuracy 0.775 vs 0.563; the pre-registered beat-baseline rule passes, honest that synthetic validates the pipeline at n=1). Readiness maps expected performance to a 200 to 990 scaled score with an 80% range, coverage-gated at 70% (abstains and names the uncovered exam). The ablation reports negatives: interleaving-as-spacing beats blocked practice robustly, but the full selector does not robustly beat stock Anki (it loses at the scarcest budget) and the K=3 anti-blocking is memory-neutral by construction. The Progress dashboard shows real Memory and Performance reliability diagrams plus Brier, coverage-gated Readiness, and the abstain rule. The calibration and ablation harnesses live in the private `content/tools/`; the shipped models are `pylib/anki/pgrep/{performance,readiness,calibration_evidence}.py`, with the raw-to-scaled table and calibration evidence embedded as constants (no runtime `content/` read, firewall intact). E4 (human spot-check, results report, model cards, Brainlift) remains for L6.
 
 **Why.** The three scores and their held-out evidence (spec constraints 3, 4, 5). This turns the honest dashboard from "Memory only" into all three calibrated scores.
 
@@ -343,9 +345,9 @@ Content and judgment are the scarce inputs. Compute is not the bottleneck.
 | --- | ---------------------------------------------------------------------------- | -------------------------------------------- |
 | 1   | A real change inside Anki's Rust engine                                      | L1 selector ✅ (`points_at_stake.rs`)         |
 | 2   | Two apps sharing one engine, two-way sync                                    | L3 ✅                                         |
-| 3   | Three separate scores, each with a range and a give-up rule                  | Memory L2 ✅; Performance and Readiness L5    |
-| 4   | Held-out evaluation for every model, reproducibly                            | L4.0 harness, L5 evidence                    |
-| 5   | One study feature built on learning science, ablation-tested                 | L1 interleaving ✅; ablation L5.4             |
+| 3   | Three separate scores, each with a range and a give-up rule                  | Memory L2 ✅; Performance and Readiness L5 ✅ |
+| 4   | Held-out evaluation for every model, reproducibly                            | L4.0 harness ✅; L5 evidence ✅              |
+| 5   | One study feature built on learning science, ablation-tested                 | L1 interleaving ✅; ablation L5.4 ✅          |
 | 6   | Every AI output traces to a named source, gold-set checked, beats a baseline | L4                                           |
 | 7   | Both apps run with AI off and still score                                    | L2 ✅ (desktop), L3 ✅ (mobile), guarded in L4 |
 | 8   | Ship a desktop installer plus a phone build                                  | Installer L2 and L2.5 ✅; final L6            |
