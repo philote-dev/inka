@@ -261,6 +261,19 @@ def pgrep_sync() -> bytes:
     return _json({"status": "started", "url": url})
 
 
+# L2.3 Diagnostic completion gate. Reads the rolled-up placement snapshot the
+# Diagnostic writes (anki.pgrep.diagnostic.place stores it in the collection
+# config), so Home and Progress can show the first-run "Run the diagnostic"
+# prompt only until it has been completed once. A completed run persists a
+# non-empty snapshot; a never-run collection has none.
+def pgrep_diagnostic_status() -> bytes:
+    from anki.pgrep.diagnostic import DIAGNOSTIC_CONFIG_KEY
+
+    stored = aqt.mw.col.get_config(DIAGNOSTIC_CONFIG_KEY, {})
+    completed = isinstance(stored, dict) and bool(stored)
+    return _json({"completed": completed})
+
+
 # Registered once into mediasrv's post_handler_list (see qt/aqt/mediasrv.py).
 pgrep_post_handlers = [
     pgrep_seed,
@@ -282,4 +295,5 @@ pgrep_post_handlers = [
     pgrep_tutor_grade,
     pgrep_tutor_synthesis,
     pgrep_sync,
+    pgrep_diagnostic_status,
 ]
