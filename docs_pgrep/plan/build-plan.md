@@ -298,6 +298,24 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 **Agents.** Human-led. P1/P2 as an implementer pass with review; P3 and P5 as their own subagent-built features (spec then quality review each); P4 is content authoring with Frank in the loop; P6 is a small cleanup pass. Reuse the L5 orchestration model where a task is agent-buildable.
 
+**Controller prompt.**
+
+> You are the controller for **Build Layer L5.9 (Polish and completion, human-led)** of pgrep.
+> **Read first, in full:**
+>
+> - this file's L5.9 section
+> - design/ux-foundation.md (the visual contract, and §7 for the surfaces)
+> - docs_pgrep/research/performance-model.md (M5: the timed Exam-mode pace signal)
+> - docs_pgrep/research/technical-architecture.md (Phase 4: the self-hosted sync path)
+> - docs_pgrep/contracts/L2-api-contract.md (the bridge and per-surface endpoints)
+> - docs_pgrep/reference/dev-harness.md (run, iOS, and sync recipes) and docs_pgrep/reference/content-and-dependencies.md (content and provenance)
+>
+> **Entry check:** confirm `main` builds, `just lint` and `just test-py` are green, and the L5 scores render on Progress (Memory and Performance reliability plus Brier, coverage-gated Readiness abstaining honestly on thin data). If not, stop and tell me.
+> **Deliverable:** every surface fine-tuned and hands-on approved in both themes, the wired-but-unshown elements rendered (the live Performance card first), the timed Exam mode built and producing a Readiness projection, the placeholder content replaced with real corpus-grounded generated content, and a dev-only harness that injects hypothetical user data and demonstrates the same account syncing desktop to mobile.
+> **Your job:** run this layer with subagent-driven development in a `.worktrees/l5.9-polish` worktree. This one is Frank-led, so surface tasks (P1, P2, P4) go through Frank in the loop, while P3 (exam mode) and P5 (demo harness) are agent-built features, each with a spec-compliance reviewer then a code-quality reviewer. Dispatch P1 and P2 as an implementer pass first, then P3 and P5 as parallel feature builds (different surfaces and modules), with P4 content authoring alongside and P6 whenever convenient. Never two implementers on the same files.
+> **Constraints (hard):** keep the scores honest (abstain on thin data, never hardcode a number), never mutate scheduling state, everything still works AI off, hold the copy rule and the 100ms speed rule, and keep the demo harness dev-only and out of the shipped user path so real accounts still abstain by construction. Held-out and gold data never leak into the app. Prefer the durable `pgrep-lab` workflow over throwaway harnesses.
+> **Exit gate:** as above, `just lint` and `just test-py` green (full `just check` green if P6 is taken). This is a "done when it feels complete" bar set by Frank, not a machine gate. Report what changed per surface, the exam-mode flow, the demo-to-sync walkthrough, and any drift you could not resolve.
+
 ---
 
 
