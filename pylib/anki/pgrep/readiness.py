@@ -76,8 +76,16 @@ from anki.pgrep.readiness_constants import (
 if TYPE_CHECKING:
     from anki.collection import Collection
 
-# Re-export the gate so callers can read it from Readiness directly.
-__all__ = ["readiness_score", "raw_to_scaled", "COVERAGE_GATE"]
+# The public seam, the pure functions it is built from (all unit-tested), and the
+# re-exported gate so callers can read it from Readiness directly.
+__all__ = [
+    "readiness_score",
+    "raw_to_scaled",
+    "poisson_binomial_stats",
+    "correct_to_raw",
+    "project_scaled_score",
+    "COVERAGE_GATE",
+]
 
 # z for the 80% two-sided central interval (the house convention; matches Memory
 # and Performance so every range is built the same way).
@@ -210,6 +218,10 @@ def _topic_sd(entry: dict[str, Any]) -> float:
     ``(high - low)`` is the 80% central width, so ``sd ~= width / (2*z)``. Returns
     0 when the topic has no interval (it is abstaining and will fall back to the
     guessing baseline, whose spread is captured by the sampling term).
+
+    Backing a single sd out of the (asymmetric) Beta 80% width and applying it
+    symmetrically discards the interval's asymmetry; that is acceptable here given
+    the raw->scaled table's coarse 10-point quantization.
     """
     low, high = entry.get("low"), entry.get("high")
     if low is None or high is None:
@@ -235,10 +247,12 @@ def readiness_score(
     scaled ``point`` (as ``scaled``), the 80% ``low``/``high`` scaled interval, the
     underlying ``raw``/``raw_low``/``raw_high`` and ``expected_correct``,
     ``coverage_pct`` + ``coverage_gate``, ``abstain=False``, the documented
-    ``raw_formula`` assumption, the topics filled with the guessing baseline in
-    ``uncovered_topics``, and a per-topic ``by_topic`` breakdown. Below the gate it
-    **abstains**: ``scaled``/``low``/``high``/``raw`` are ``None``, ``abstain`` is
-    ``True``, ``reason`` explains, and ``uncovered_topics`` names what is missing.
+    ``raw_formula`` assumption, the genuinely uncovered topics in
+    ``uncovered_topics`` plus any covered-but-unscored topics that fell back to the
+    guessing baseline in ``scored_as_guess``, and a per-topic ``by_topic``
+    breakdown. Below the gate it **abstains**: ``scaled``/``low``/``high``/``raw``
+    are ``None``, ``abstain`` is ``True``, ``reason`` explains, and
+    ``uncovered_topics`` names what is missing.
 
     ``deck_id`` scopes only the mastery (FSRS) component of Performance; the
     attempt log is collection-wide. Everything is arithmetic over Performance + the
@@ -272,9 +286,13 @@ def readiness_score(
             p_sd = _topic_sd(entry)
             source = "performance"
         else:
-            # Uncovered or too-imprecise: fall back to the guessing baseline so the
-            # projection still spans this topic's questions (contributes ~0 raw
-            # under formula scoring). Its uncertainty rides the sampling term.
+            # Uncovered, or covered-but-imprecise: fall back to the guessing
+            # baseline so the projection still spans this topic's questions
+            # (contributes ~0 raw under formula scoring). Performance drops the
+            # interval when it abstains (``low``/``high`` are ``None``), so no model
+            # width survives to widen the band here; the Poisson-binomial sampling
+            # term is the only uncertainty available for this topic. Covered ones
+            # are surfaced in ``scored_as_guess`` below so they cannot bluff.
             p_t = guess_baseline
             p_sd = 0.0
             source = "guess"
@@ -295,11 +313,21 @@ def readiness_score(
 
     coverage_pct = covered_weight / total_weight if total_weight else 0.0
 
+    # Covered topics (>= k_perf attempts) that Performance still could not score
+    # (imprecise: ``point is None``), so Readiness fell back to the guess baseline.
+    # Surfaced top-level so such a topic cannot quietly help clear the coverage gate
+    # while contributing no real signal (abstain beats bluffing). Genuinely
+    # uncovered topics are named separately in ``uncovered_topics``.
+    scored_as_guess = [
+        t["category"] for t in by_topic if t["source"] == "guess" and t["covered"]
+    ]
+
     result: dict[str, Any] = {
         "coverage_pct": coverage_pct,
         "coverage_gate": coverage_gate,
         "k_perf": k_perf,
         "uncovered_topics": uncovered_topics,
+        "scored_as_guess": scored_as_guess,
         "raw_formula": RAW_SCORE_FORMULA,
         "raw_formula_note": _RAW_FORMULA_NOTE,
         "assume_all_attempted": assume_all_attempted,

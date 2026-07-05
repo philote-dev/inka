@@ -247,6 +247,7 @@ def test_shape_has_score_range_coverage_and_assumptions():
         "abstain",
         "reason",
         "uncovered_topics",
+        "scored_as_guess",
         "raw_formula",
         "assume_all_attempted",
         "by_topic",
@@ -335,6 +336,47 @@ def test_readiness_coverage_is_attempts_based_not_memory_based():
     assert lab["covered"] is False
     assert lab["source"] == "guess"
     assert "lab" in data["uncovered_topics"]
+
+
+def test_imprecise_covered_topic_is_named_in_scored_as_guess():
+    # The honesty gap: a topic can pass the thin gate (n_attempts >= k_perf, so it
+    # counts toward coverage) yet be too imprecise for Performance to score
+    # (point is None), so Readiness falls back to the guess baseline. It must be
+    # named top-level so it cannot bluff its way past the coverage gate.
+    col = getEmptyCol()
+    # Four topics scored cleanly (0.51 of the blueprint)...
+    _cover(col, ["electromagnetism", "quantum", "thermodynamics", "atomic"])
+    # ...and mechanics (0.20) has enough attempts but all on ONE item, so
+    # Performance abstains for imprecision (n >= k_perf, point is None).
+    balanced = [i % 2 == 0 for i in range(K_PERF_DEFAULT)]
+    _append_attempts(col, "topic::mechanics::kinematics", balanced, distinct=1)
+
+    data = readiness_score(col)
+    mech = next(t for t in data["by_topic"] if t["category"] == "mechanics")
+
+    # It cleared the thin gate (counts as covered) but carries no real signal.
+    assert mech["covered"] is True
+    assert mech["source"] == "guess"
+    assert "mechanics" in data["scored_as_guess"]
+    # Because it counts toward coverage (0.71 >= gate), Readiness still scores.
+    assert abs(data["coverage_pct"] - 0.71) < 1e-9
+    assert data["abstain"] is False
+    # Genuinely uncovered topics are named in uncovered_topics, NOT scored_as_guess.
+    for cat in ("optics_waves", "special_relativity", "lab", "specialized"):
+        assert cat in data["uncovered_topics"]
+        assert cat not in data["scored_as_guess"]
+
+
+def test_scored_as_guess_is_empty_when_every_covered_topic_scores():
+    col = getEmptyCol()
+    _cover(
+        col, ["mechanics", "electromagnetism", "quantum", "thermodynamics", "atomic"]
+    )
+
+    data = readiness_score(col)
+
+    # Every covered topic has a real Performance point, so none is scored as guess.
+    assert data["scored_as_guess"] == []
 
 
 def test_more_correct_attempts_score_higher_end_to_end():

@@ -29,11 +29,6 @@ if the private source is ever corrected.
 
 from __future__ import annotations
 
-# Scale bounds documented by the source table (the reachable floor is 360, the
-# scaled score the table assigns to a raw of 0; 200 is the theoretical minimum).
-SCALE_MIN = 200
-SCALE_MAX = 990
-
 # The PGRE has this many scored questions; the raw axis of the table spans them.
 SCORED_QUESTION_COUNT = 100
 
