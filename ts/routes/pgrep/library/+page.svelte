@@ -4,11 +4,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
 <!--
 pgrep Library (L4.1), the forced-generation authoring surface (ux-foundation.md
-7.4). The learner authors one conceptual seed in their own words. That seed
-enters the pool (the generation-effect act, works AI on or off) and, with AI on,
-either stylizes the bundle's cards into their voice or gap-fills net-new siblings
-from the corpus. Every generated card cites a named source, shows its
-verification status, and low confidence routes to review rather than the deck.
+7.4). The learner writes one flashcard in their own words. That card enters their
+deck (the generation-effect act, works AI on or off) and, with AI on, the app
+builds matching cards from the corpus. Every built card cites a named source and
+carries a verification status. Cards that pass the gate join the deck, the rest
+wait for the learner's review. How the matching cards are built (rephrasing an
+existing bundle vs drafting net-new siblings) is an internal AI decision and is
+never surfaced as a user choice.
 -->
 <script lang="ts">
     import { onMount } from "svelte";
@@ -84,9 +86,8 @@ verification status, and low confidence routes to review rather than the deck.
 
     let status: AiStatus | null = null;
     let topic = TOPICS[0].tag;
-    let seedFront = "";
-    let seedBack = "";
-    let mode: "gap_fill" | "stylize" = "gap_fill";
+    let front = "";
+    let back = "";
     let busy = false;
     let result: any = null;
     let error = "";
@@ -117,17 +118,20 @@ verification status, and low confidence routes to review rather than the deck.
     async function generate() {
         error = "";
         result = null;
-        if (!seedFront.trim() || !seedBack.trim()) {
-            error = "Write both the front and the back of your seed card first.";
+        if (!front.trim() || !back.trim()) {
+            error = "Write both the front and the back first.";
             return;
         }
         busy = true;
         try {
+            // How the matching cards are built (rephrase vs net-new siblings) is
+            // an internal AI decision, so the surface always asks for the
+            // source-cited, gated build. The learner just writes a card.
             result = await pgrepCall("pgrepLibraryGenerate", {
-                mode,
+                mode: "gap_fill",
                 topic,
-                seed_front: seedFront,
-                seed_back: seedBack,
+                seed_front: front,
+                seed_back: back,
                 n: 3,
             });
         } catch (e) {
@@ -142,9 +146,8 @@ verification status, and low confidence routes to review rather than the deck.
     <header>
         <h1>Library</h1>
         <p class="lede">
-            Author a seed in your own words. It enters your pool, and with AI on it
-            stylizes the bundle into your voice or gap-fills net-new siblings from the
-            corpus.
+            Write one flashcard in your own words. With AI on, pgrep builds matching
+            cards from named sources and checks each one before it joins your deck.
         </p>
     </header>
 
@@ -158,11 +161,11 @@ verification status, and low confidence routes to review rather than the deck.
             </button>
             {#if status.enabled && !status.has_key}
                 <span class="warn">
-                    No API key found. Set OPENAI_API_KEY to generate.
+                    No API key found. Set OPENAI_API_KEY to build cards.
                 </span>
             {/if}
             {#if status.enabled && status.model}
-                <span class="muted">model: {status.model}</span>
+                <span class="muted">model {status.model}</span>
             {/if}
         </div>
     {/if}
@@ -177,35 +180,30 @@ verification status, and low confidence routes to review rather than the deck.
             </select>
         </label>
         <label class="field">
-            <span>Seed front (the prompt, in your words)</span>
+            <span>Front, in your words</span>
             <textarea
-                bind:value={seedFront}
+                bind:value={front}
                 rows="2"
                 placeholder="What does this concept test?"
             ></textarea>
         </label>
         <label class="field">
-            <span>Seed back (the answer, in your words)</span>
+            <span>Back, in your words</span>
             <textarea
-                bind:value={seedBack}
+                bind:value={back}
                 rows="3"
                 placeholder="Your concise answer."
             ></textarea>
         </label>
 
-        <div class="modes">
-            <label>
-                <input type="radio" bind:group={mode} value="gap_fill" />
-                Gap-fill (net-new from corpus, graded)
-            </label>
-            <label>
-                <input type="radio" bind:group={mode} value="stylize" />
-                Stylize (rephrase the bundle, shown live)
-            </label>
-        </div>
-
         <button class="primary" on:click={generate} disabled={busy}>
-            {busy ? "Working..." : "Author and generate"}
+            {#if busy}
+                Working...
+            {:else if status?.enabled}
+                Build matching cards
+            {:else}
+                Add my flashcard
+            {/if}
         </button>
         {#if error}<p class="warn">{error}</p>{/if}
     </section>
@@ -213,66 +211,65 @@ verification status, and low confidence routes to review rather than the deck.
     {#if result}
         <section class="results">
             {#if result.seed?.added}
-                <p class="ok">Your seed card entered the pool.</p>
+                <p class="ok">Your flashcard is saved.</p>
             {/if}
 
             {#if result.ai === "off"}
-                <p class="muted">{result.message}</p>
+                <p class="muted">
+                    AI is off, so your flashcard was added on its own. Turn AI on to
+                    build a matching set from named sources.
+                </p>
             {:else if result.ai === "error"}
-                <p class="warn">{result.message}</p>
-            {:else if result.mode === "stylize"}
-                <h2>Stylized ({result.count})</h2>
-                {#each result.cards as c}
-                    <div class="gen">
-                        <div class="front">{c.front}</div>
-                        <div class="back">{c.back}</div>
-                        <div class="meta">
-                            <span class="tag" class:good={c.facts_locked}>
-                                {c.facts_locked ? "facts locked" : "kept original"}
-                            </span>
-                            <span class="src">{c.provenance}</span>
-                        </div>
-                    </div>
-                {/each}
+                <p class="warn">
+                    Something went wrong building the matching cards. Your flashcard was
+                    still saved.
+                </p>
             {:else}
-                <h2>Gap-fill</h2>
                 {#if result.added?.length}
-                    <h3>Added to your pool ({result.added.length})</h3>
+                    <h3>Added to your deck ({result.added.length})</h3>
                     {#each result.added as c}
                         <div class="gen">
                             <div class="front">{c.front}</div>
                             <div class="back">{c.back}</div>
                             <div class="meta">
-                                <span class="tag good">
-                                    confidence {(c.confidence ?? 0).toFixed(2)}
-                                </span>
-                                <span class="src">Source: {c.source_ref}</span>
+                                <span class="tag good">Verified</span>
+                                {#if c.source_ref}
+                                    <span class="src">Cited from {c.source_ref}</span>
+                                {/if}
                             </div>
                         </div>
                     {/each}
                 {/if}
                 {#if result.review?.length}
-                    <h3>Routed to review ({result.review.length})</h3>
+                    <h3>Waiting for your review ({result.review.length})</h3>
                     {#each result.review as c}
                         <div class="gen review">
                             <div class="front">{c.front}</div>
                             <div class="meta">
-                                <span class="tag warn-tag">{c.review_reason}</span>
-                                <span class="src">Source: {c.source_ref}</span>
+                                <span class="tag warn-tag">Needs a check</span>
+                                {#if c.source_ref}
+                                    <span class="src">Cited from {c.source_ref}</span>
+                                {/if}
                             </div>
                         </div>
                     {/each}
                 {/if}
                 {#if result.refused?.length}
-                    <h3>Refused ({result.refused.length})</h3>
-                    {#each result.refused as c}
-                        <div class="gen refused">
-                            <span class="tag warn-tag">{c.reason}</span>
-                        </div>
-                    {/each}
+                    <h3>Left out ({result.refused.length})</h3>
+                    <p class="muted small">
+                        pgrep could not ground these in a named source, so they stay out
+                        of your deck.
+                    </p>
                 {/if}
                 {#if !result.added?.length && !result.review?.length && !result.refused?.length}
-                    <p class="muted">No siblings were produced.</p>
+                    <p class="muted">No matching cards were built this time.</p>
+                {/if}
+
+                {#if result.added?.length || result.review?.length}
+                    <p class="muted small gate-note">
+                        Cards that pass the check join your deck. The rest wait for your
+                        review, each with its named source.
+                    </p>
                 {/if}
             {/if}
         </section>
@@ -291,10 +288,6 @@ verification status, and low confidence routes to review rather than the deck.
         font-size: 22px;
         margin: 0 0 6px;
         letter-spacing: -0.01em;
-    }
-    h2 {
-        font-size: 16px;
-        margin: 18px 0 8px;
     }
     h3 {
         font-size: 13px;
@@ -332,6 +325,13 @@ verification status, and low confidence routes to review rather than the deck.
         color: var(--muted);
         font-size: 13px;
     }
+    .small {
+        font-size: 12px;
+    }
+    .gate-note {
+        margin-top: 12px;
+        line-height: 1.5;
+    }
     .warn {
         color: #b4553b;
         font-size: 13px;
@@ -364,13 +364,6 @@ verification status, and low confidence routes to review rather than the deck.
         border-radius: 8px;
         padding: 8px 10px;
         resize: vertical;
-    }
-    .modes {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        font-size: 13px;
-        color: var(--text);
     }
 
     button {
@@ -413,9 +406,6 @@ verification status, and low confidence routes to review rather than the deck.
     }
     .gen.review {
         border-style: dashed;
-    }
-    .gen.refused {
-        color: var(--muted);
     }
     .front {
         font-weight: 600;
