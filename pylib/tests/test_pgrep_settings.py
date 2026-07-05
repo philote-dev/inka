@@ -199,12 +199,17 @@ def test_reset_progress_clears_attempts_and_forgets_sample_cards():
     col = getEmptyCol()
     seed_sample_content(col)
     seeded_cids = list(col.find_cards(f"tag:{SEEDED_TAG}"))
-    # The seed leaves several reviewed sample cards with FSRS memory state.
-    reviewed_before = [
-        col.get_card(cid)
-        for cid in seeded_cids
-        if col.get_card(cid).memory_state is not None
-    ]
+    # The bundle seeds cold (P4: no fabricated FSRS state), so put a few seeded
+    # cards into a reviewed state with memory first, mirroring studied cards, so
+    # the reset's forget-to-new actually has memory state to drop.
+    reviewed_before = []
+    for cid in seeded_cids[:3]:
+        card = col.get_card(cid)
+        card.type = CARD_TYPE_REV
+        card.queue = QUEUE_TYPE_REV
+        card.memory_state = cards_pb2.FsrsMemoryState(stability=30.0, difficulty=5.0)
+        col.update_cards([card])
+        reviewed_before.append(card)
     assert reviewed_before
 
     append_attempt(

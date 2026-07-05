@@ -72,13 +72,34 @@ def _sit_exam(col, session_id, order, *, correct: bool, response_ms: int = 5000)
     return exam.finish_exam(col, session_id)
 
 
+# The six categories the small-N exam-logic tests exercise (one Problem each),
+# reconstructing the pre-bundle placeholder seed. The committed content bundle
+# (P4) now seeds the full mock (137 Problems across all nine categories), which
+# would swamp these deterministic assertions about assembly, projection range,
+# untested-topic fallback, skip counting, and difficulty carry-through, so these
+# tests seed this fixed sample explicitly instead of calling seed_sample_problems.
+_SAMPLE_CATEGORIES = (
+    "mechanics",
+    "electromagnetism",
+    "quantum",
+    "thermodynamics",
+    "atomic",
+    "optics_waves",
+)
+
+
+def _seed_six_category_sample(col) -> list[int]:
+    """Add one Problem per sample category (six total, difficulty "medium")."""
+    return [_add_problem(col, category=category) for category in _SAMPLE_CATEGORIES]
+
+
 # Assembly
 ##########################################################################
 
 
 def test_assembly_is_capped_by_available_problems():
     col = getEmptyCol()
-    problem.seed_sample_problems(col)  # 6 seeded, one per category
+    _seed_six_category_sample(col)  # six Problems, one per sample category
 
     order = exam.assemble_exam(col, exam.FULL_LENGTH_QUESTION_COUNT)
 
@@ -123,7 +144,7 @@ def test_assembly_empty_without_problems():
 
 def test_start_reports_shape_and_scaled_duration():
     col = getEmptyCol()
-    problem.seed_sample_problems(col)
+    _seed_six_category_sample(col)
 
     started = exam.start_exam(col)
     assert isinstance(started["session_id"], str) and started["session_id"]
@@ -200,7 +221,7 @@ def test_answer_can_be_changed_before_finish():
 
 def test_finish_logs_clean_committed_timed_attempts():
     col = getEmptyCol()
-    problem.seed_sample_problems(col)
+    _seed_six_category_sample(col)
     started = exam.start_exam(col)
     sid = started["session_id"]
     order = exam._SESSIONS[sid]["order"]
@@ -292,7 +313,7 @@ def test_exam_attempts_feed_performance_seam():
 
 def test_result_projects_scaled_with_a_range():
     col = getEmptyCol()
-    problem.seed_sample_problems(col)
+    _seed_six_category_sample(col)
     started = exam.start_exam(col)
     sid = started["session_id"]
     order = exam._SESSIONS[sid]["order"]
@@ -329,7 +350,7 @@ def test_result_matches_readiness_pure_functions():
 
 def test_untested_topics_fall_back_to_the_guess_baseline():
     col = getEmptyCol()
-    problem.seed_sample_problems(col)  # covers 6 of the 9 categories
+    _seed_six_category_sample(col)  # covers six of the nine categories
     started = exam.start_exam(col)
     sid = started["session_id"]
     order = exam._SESSIONS[sid]["order"]
@@ -411,7 +432,7 @@ def test_thin_coverage_abstains_but_still_reports_raw():
 
 def test_skipped_questions_are_counted():
     col = getEmptyCol()
-    problem.seed_sample_problems(col)
+    _seed_six_category_sample(col)
     started = exam.start_exam(col)
     sid = started["session_id"]
     order = exam._SESSIONS[sid]["order"]
