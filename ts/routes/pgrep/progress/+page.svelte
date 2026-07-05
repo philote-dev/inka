@@ -57,6 +57,22 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         performance: CalibrationLayer;
     }
 
+    interface OverallScore {
+        point: number | null;
+        low: number | null;
+        high: number | null;
+        abstain: boolean;
+        reason: string | null;
+    }
+
+    interface PerformanceData {
+        overall: OverallScore;
+        k_perf: number;
+        coverage_pct: number;
+        coverage_gate: number;
+        last_updated: number | null;
+    }
+
     interface ReadinessData {
         scaled: number | null;
         low: number | null;
@@ -83,6 +99,7 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
 
     let data: CoverageData | null = null;
     let calibration: CalibrationData | null = null;
+    let performance: PerformanceData | null = null;
     let readiness: ReadinessData | null = null;
     let loading = true;
     let seeding = false;
@@ -98,16 +115,20 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         errored = false;
         calibrationErrored = false;
         try {
-            // Coverage is the primary read; calibration (embedded evidence) and
-            // Readiness are secondary, so a hiccup on either abstains its panel
-            // rather than failing the whole surface. All three are pure math and
-            // return well within the 100ms feel.
-            const [coverage, calib, ready] = await Promise.all([
+            // Coverage is the primary read; Performance, calibration (embedded
+            // evidence), and Readiness are secondary, so a hiccup on any abstains
+            // its own panel rather than failing the whole surface. All are pure
+            // math and return well within the 100ms feel.
+            const [coverage, perf, calib, ready] = await Promise.all([
                 pgrepCall<CoverageData>("pgrepCoverage", {}),
+                pgrepCall<PerformanceData>("pgrepPerformanceScore", {}).catch(
+                    () => null,
+                ),
                 pgrepCall<CalibrationData>("pgrepCalibration", {}).catch(() => null),
                 pgrepCall<ReadinessData>("pgrepReadinessScore", {}).catch(() => null),
             ]);
             data = coverage;
+            performance = perf;
             calibration = calib;
             calibrationErrored = calib === null;
             readiness = ready;
@@ -139,6 +160,19 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
 
     function round3(value: number): number {
         return Math.round(value * 1000) / 1000;
+    }
+
+    // How-sure read from the 80% interval width (on the 0..1 scale), matching
+    // Home. A tighter range reads as more confident.
+    function howSure(low: number, high: number): string {
+        const width = high - low;
+        if (width <= 0.12) {
+            return "Fairly sure";
+        }
+        if (width <= 0.25) {
+            return "Roughly sure";
+        }
+        return "Not very sure";
     }
 
     function formatN(value: number): string {
@@ -218,6 +252,24 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         };
     }
 
+    // Performance abstains honestly on thin data: with today's empty attempt log
+    // every topic is below k_perf, so the overall abstains and names what is
+    // missing (attempts through the Problems door), never a fabricated number.
+    function performanceAbstainState(
+        p: PerformanceData | null,
+    ): { message: string; missing?: string } | undefined {
+        if (!p) {
+            return { message: "Performance is unavailable right now." };
+        }
+        if (!p.overall.abstain && p.overall.point !== null) {
+            return undefined;
+        }
+        return {
+            message: p.overall.reason ?? "Not enough attempts yet",
+            missing: "Work problems in the Problems door to build this.",
+        };
+    }
+
     function readinessAbstainState(
         r: ReadinessData | null,
     ): { message: string; missing?: string } | undefined {
@@ -259,6 +311,36 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
             calibrationErrored,
         ),
     ];
+
+    // Live Performance: the overall P(correct) as a percent with an 80% range and
+    // a how-sure read from the interval, or an honest abstain on thin data. This
+    // is the transfer signal Readiness leans on, so it reads just above it.
+    $: performanceCovered =
+        !!performance &&
+        !performance.overall.abstain &&
+        performance.overall.point !== null;
+    $: performanceValue =
+        performanceCovered && performance && performance.overall.point !== null
+            ? pct(performance.overall.point)
+            : undefined;
+    $: performanceRange =
+        performanceCovered &&
+        performance &&
+        performance.overall.low !== null &&
+        performance.overall.high !== null
+            ? ([
+                  pct(performance.overall.low),
+                  pct(performance.overall.high),
+              ] as [number, number])
+            : undefined;
+    $: performanceHowSure =
+        performanceCovered &&
+        performance &&
+        performance.overall.low !== null &&
+        performance.overall.high !== null
+            ? howSure(performance.overall.low, performance.overall.high)
+            : "";
+    $: performanceAbstain = performanceAbstainState(performance);
 
     // Coverage-gated Readiness: a scaled point + 80% range when covered, an honest
     // abstain that names the uncovered exam otherwise (the n=1 reality today).
@@ -358,6 +440,22 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
                     A category counts once it has one reviewed card.
                 </span>
             </div>
+        </div>
+
+        <div class="performance-block">
+            <ScoreCard
+                kind="performance"
+                value={performanceValue}
+                range={performanceRange}
+                howSure={performanceHowSure}
+                updated=""
+                abstain={performanceAbstain}
+            />
+            <p class="muted small performance-note">
+                Performance is your chance on a new, unseen problem, read from the
+                problems you attempt (not cards reviewed). It abstains until a topic
+                has at least {performance?.k_perf ?? 8} attempts.
+            </p>
         </div>
 
         <div class="readiness-block">
@@ -560,12 +658,14 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         }
     }
 
+    .performance-block,
     .readiness-block {
         display: flex;
         flex-direction: column;
         gap: var(--space-1);
     }
 
+    .performance-note,
     .readiness-note {
         margin: 0;
         line-height: 1.55;
