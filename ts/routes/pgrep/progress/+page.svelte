@@ -198,6 +198,32 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         return value.toLocaleString("en-US");
     }
 
+    // Last-updated read for the score cards, from an epoch-seconds timestamp
+    // (performance.py writes int(time.time())). Empty when there is nothing to
+    // date yet, so the card never invents a freshness it does not have.
+    function formatUpdated(ts: number | null | undefined): string {
+        if (ts == null) {
+            return "";
+        }
+        const seconds = Math.floor(Date.now() / 1000 - ts);
+        if (!Number.isFinite(seconds) || seconds < 0) {
+            return "";
+        }
+        if (seconds < 90) {
+            return "Updated just now";
+        }
+        const minutes = Math.round(seconds / 60);
+        if (minutes < 60) {
+            return `Updated ${minutes}m ago`;
+        }
+        const hours = Math.round(minutes / 60);
+        if (hours < 24) {
+            return `Updated ${hours}h ago`;
+        }
+        const days = Math.round(hours / 24);
+        return `Updated ${days}d ago`;
+    }
+
     function label(slug: string): string {
         return CATEGORY_LABELS[slug] ?? slug.replace(/_/g, " ");
     }
@@ -360,6 +386,9 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
             ? howSure(performance.overall.low, performance.overall.high)
             : "";
     $: performanceAbstain = performanceAbstainState(performance);
+    $: performanceUpdated = performanceCovered
+        ? formatUpdated(performance?.last_updated)
+        : "";
 
     // Coverage-gated Readiness: a scaled point + 80% range when covered, an honest
     // abstain that names the uncovered exam otherwise (the n=1 reality today).
@@ -373,6 +402,9 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
             ? `${pct(readiness.coverage_pct)} percent covered`
             : "";
     $: readinessAbstain = readinessAbstainState(readiness);
+    $: readinessUpdated = readinessCovered
+        ? formatUpdated(readiness?.last_updated)
+        : "";
 </script>
 
 <section class="progress">
@@ -471,7 +503,7 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
                 value={performanceValue}
                 range={performanceRange}
                 howSure={performanceHowSure}
-                updated=""
+                updated={performanceUpdated}
                 abstain={performanceAbstain}
             />
             <p class="muted small performance-note">
@@ -487,7 +519,7 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
                 value={readiness?.scaled ?? undefined}
                 range={readinessRange}
                 howSure={readinessHowSure}
-                updated=""
+                updated={readinessUpdated}
                 abstain={readinessAbstain}
             />
             <p class="muted small readiness-note">
