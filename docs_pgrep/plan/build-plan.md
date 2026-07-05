@@ -29,13 +29,13 @@ Everything through the desktop takeover, the visual system, the closeout, and th
 | **L0 Build foundation**          | ✅      | The Anki fork builds from source (`just run`), a trivial Rust change shows up end to end, the shared engine cross-compiles and loads a deck on iOS (`just ios-smoke`), and the dev harness runs (`just smoke`).                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | **L1 Engine seam + data model**  | ✅      | The graded Rust change: `ReviewCardOrder::PointsAtStake` (`rslib/src/scheduler/queue/builder/points_at_stake.rs`), a read-only reorder inside gather-then-limit (never mutates `due`/`interval`/`memory_state`). Two-level topic tags, the Attempt log as immutable notes ("A now, C-ready"), the `pgrep::Problem` and `pgrep::Attempt` notetypes, with Rust and Python tests. Contracts: `[L1-coordination-schema.md](L1-coordination-schema.md)`.                                                                                                                                                                                                            |
 | **L2 Core surfaces (no AI)**     | ✅      | The four desktop surfaces in `ts/routes/pgrep/` (Study, Home, Progress, Diagnostic) on the real FSRS loop, the honest Memory score, the two-door session with commit-before-reveal and the static ladder, and a real macOS installer. Bridge and API: `[L2-api-contract.md](L2-api-contract.md)`.                                                                                                                                                                                                                                                                                                                                                              |
-| **L2.5 Desktop takeover**        | ✅      | `qt/aqt/pgrep_host.py` makes the pgrep SPA the primary surface (`hosted` default), Anki's screens reachable via `Tools > Open Anki screens`. `tools/ios-run.sh` launches the iOS app visibly. Installer rebuilt from the takeover. Plan: `[L2-api-contract.md §6](../contracts/L2-api-contract.md)`.                                                                                                                                                                                                                                                                                                                                                                   |
+| **L2.5 Desktop takeover**        | ✅      | `qt/aqt/pgrep_host.py` makes the pgrep SPA the primary surface (`hosted` default), Anki's screens reachable via `Tools > Open Anki screens`. `tools/ios-run.sh` launches the iOS app visibly. Installer rebuilt from the takeover. Plan: `[L2-api-contract.md §6](../contracts/L2-api-contract.md)`.                                                                                                                                                                                                                                                                                                                                                           |
 | **Visual system**                | ✅      | Design tokens (`ts/lib/sass/_pgrep.scss`), the Svelte primitives (`ts/lib/components/`: `ScoreCard`, `ChoiceList`, `CoverageBar`, `GradeBar`, `HintRung`, `StudyFrame`, `NavRail`, `ReliabilityDiagram`, `Manifold`, `Manifold3D`), the 2D and 3D manifold (`ts/lib/pgrep/manifold.ts`, `manifold3d.ts`), the restyled surfaces plus a Settings surface, and the `ts/routes/pgrep-lab/` gallery. Deps: `three`, `@fontsource-variable/inter` + `jetbrains-mono`, `lucide-static`. The top toolbar now hides while pgrep leads. Spec: `[../../design/ux-foundation.md](../../design/ux-foundation.md)`.                                                         |
 | **L2.7 Closeout (make it ours)** | ✅      | Surface QA across all five surfaces in both themes (single shared `NavRail`, `Manifold3D` degrades to the 2D fallback, tokenized accents, copy-rule fixes, evidence-linked abstain states). The `ts/routes/pgrep-lab/gallery` covers every primitive's states. The exclusive takeover is proven with pure helpers in `pgrep_host.py` (`hosted` stays default), tested in `qt/tests/test_pgrep_host.py`. The dev app carries the pgrep name and icon (desktop titles + window icon, iOS `CFBundleDisplayName` + `AppIcon`).                                                                                                                                     |
 | **L3 Mobile parity + Sync**      | ✅      | The native SwiftUI companion (`mobile/ios/PgrepStudy/`): a Home glance (2D wireframe manifold, native Memory that matches desktop by construction, honest Performance and Readiness abstains), a Study Cards door with full FSRS grading, and Settings sync. Two-way sync reuses Anki's self-hosted server unmodified (`just sync-server`) with the conflict rule in `[L3-sync-conflict-rule.md](L3-sync-conflict-rule.md)`, proven by `pylib/tests/test_pgrep_sync_roundtrip.py` (revlog and Attempt union, newer-mtime, offline-then-sync) and `just ios-sync-proof` (the iOS FFI upload downloaded by a desktop engine). No changes under `rslib/src/sync`. |
 
 
-**What is deliberately not done yet.** L4 (AI) is merged to `main` and off by default, with its provisional gate green on beat-baseline but the absolute cutoffs and the human E4 rating still pending (see the L4 status block in section 4). L5 (Models + evidence) is merged to `main` @ `280621c36`: all three scores are calibrated with held-out evidence and the ablation is reported (see the L5 status block in section 4). What remains is L6 (final packaging, hardening, and the exclusive takeover flip), plus the human E4 deliverables (the results report, model cards, and the Brainlift).
+**What is deliberately not done yet.** L4 (AI) is merged to `main` and off by default, with its provisional gate green on beat-baseline but the absolute cutoffs and the human E4 rating still pending (see the L4 status block in section 4). L5 (Models + evidence) is merged to `main` @ `280621c36`: all three scores are calibrated with held-out evidence and the ablation is reported (see the L5 status block in section 4). What remains is the L5.9 polish-and-completion interlude (human-led: surface fine-tuning, exam mode, real content, the demo/sync harness), then L6 (final packaging, hardening, and the exclusive takeover flip), plus the human E4 deliverables (the results report, model cards, and the Brainlift).
 
 ---
 
@@ -50,12 +50,13 @@ flowchart TD
     L27 --> L4["L4 · AI layer<br/>generation + problems + tutor + evals"]
     L3 --> L5["L5 · Models + evidence ✅"]
     L4 --> L5
-    L5 --> L6["L6 · Ship + harden"]
+    L5 --> LP["L5.9 · Polish + completion<br/>(human-led) · surfaces · exam mode · content · demo harness"]
+    LP --> L6["L6 · Ship + harden"]
 ```
 
 
 
-**Sequential spine:** L2.7 ✅, then **L3 ✅ ∥ L4** (run together, different stacks), then L5, then L6. Parallelism inside each layer is marked ∥.
+**Sequential spine:** L2.7 ✅, then **L3 ✅ ∥ L4** (run together, different stacks), then L5, then the L5.9 polish-and-completion interlude (human-led), then L6. Parallelism inside each layer is marked ∥.
 
 **What each exit gate proves.**
 
@@ -98,7 +99,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 **Tasks.**
 
-- **L2.7.1 ∥ Visual QA pass.** Audit every surface (Home, Study with both doors, Diagnostic, Progress, Settings) and every state (default, abstain, AI-off, loading, empty) against `ux-foundation.md`, in **both light and dark**. Fix drift from the tokens, the reserved color language (amber Memory, blue Performance, lilac Readiness, monochrome interaction), the copy rule, and the 100ms speed rule. Confirm the 2D manifold fallback renders when WebGL is unavailable. Owns: `ts/routes/pgrep/`**, `ts/lib/components/**`, `ts/lib/sass/_pgrep.scss`.
+- **L2.7.1 ∥ Visual QA pass.** Audit every surface (Home, Study with both doors, Diagnostic, Progress, Settings) and every state (default, abstain, AI-off, loading, empty) against `ux-foundation.md`, in **both light and dark**. Fix drift from the tokens, the reserved color language (amber Memory, blue Performance, lilac Readiness, monochrome interaction), the copy rule, and the 100ms speed rule. Confirm the 2D manifold fallback renders when WebGL is unavailable. Owns: `ts/routes/pgrep/`**, `ts/lib/components/`**, `ts/lib/sass/_pgrep.scss`.
 - **L2.7.2 ∥ Gallery coverage.** Ensure `ts/routes/pgrep-lab/` renders each primitive in its key states so reviewers can inspect them without running a full session (the durable gallery workflow). Owns: `ts/routes/pgrep-lab/`**.
 - **L2.7.3 Exclusive-takeover proof.** Verify the A to C flip works end to end without shipping it as the default: hide `toolbarWeb` (already done) plus drop the "Open Anki screens" action and short-circuit `moveToState("deckBrowser")` back to `pgrep` when the mode is `exclusive`, then confirm `hosted` stays the default. Owns: `qt/aqt/pgrep_host.py`, `qt/aqt/main.py`.
 - **L2.7.4 Identity groundwork.** Set the app's display name to the lowercase wordmark `pgrep` (matching the logo and the docs). Desktop: replace the two window titles in `qt/aqt/main.py` (currently `f"{self.pm.name} - Anki"` around line 518 and `"Anki"` around line 1512) so the app reads `pgrep`, and sweep for any other visible "Anki" title strings. iOS: set the shown name to `pgrep` via `CFBundleDisplayName` in `mobile/ios/project.yml` (the `PgrepStudy` target name and bundle id can stay; only the displayed label changes here). Produce the app icon from `design/assets/reference/logo.png` (the `.icns` set for desktop, the icon set for iOS). Final bundle id, menu-bar name, and installer name stay at L6.2. Owns: `qt/aqt/main.py` titles, `mobile/ios/project.yml` display name, icon assets.
@@ -135,7 +136,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 **Tasks.**
 
-- **L3.1 ∥ Mobile surfaces.** Home (readiness glance: manifold thumbnail plus the three score rows with ranges) and Study (a session that mirrors desktop) in the existing SwiftUI app (`mobile/ios/`), driving the shared engine through `rslib/ffi`. The manifold uses native 3D (SceneKit or Metal) or the 2D fallback. Owns: `mobile/ios/`**, `rslib/ffi/**` (only if new FFI entry points are needed), Swift protobuf regen via `tools/gen-swift-protos.sh`.
+- **L3.1 ∥ Mobile surfaces.** Home (readiness glance: manifold thumbnail plus the three score rows with ranges) and Study (a session that mirrors desktop) in the existing SwiftUI app (`mobile/ios/`), driving the shared engine through `rslib/ffi`. The manifold uses native 3D (SceneKit or Metal) or the 2D fallback. Owns: `mobile/ios/`**, `rslib/ffi/`** (only if new FFI entry points are needed), Swift protobuf regen via `tools/gen-swift-protos.sh`.
 - **L3.2 ∥ Sync.** Two-way incremental sync by reusing Anki's Rust sync server, self-hosted (local Mac for the demo, a small VPS optionally). Document the conflict rule (union-by-id on the Attempt log, per K2 in `L1-coordination-schema.md`). Prove offline-then-sync. Owns: sync host config, `docs/syncserver/` usage, no changes under `rslib/src/sync/`**.
 
 **Exit gate.** Review on the phone appears on the desktop and back, with no lost or doubled reviews. Offline works, then syncs. `just ios-run` shows the mobile surfaces on the shared engine.
@@ -168,22 +169,22 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 **Why.** The AI features and their evidence (spec constraints 6 and 7). This is the largest layer and where most grading weight sits. It has an internal 🔒 gate: the eval harness lands first, because everything else is graded against it.
 
-**Status (left off here, 2026-07-03). Merged to `main` @ `7f98989d0` by fast-forward, AI off by default so the installer, ship, and AI-off scoring never depend on the gold or the gate.** The next agent picks up from here.
+**Status (left off here, 2026-07-03). Merged to** `main` **@** `7f98989d0` **by fast-forward, AI off by default so the installer, ship, and AI-off scoring never depend on the gold or the gate.** The next agent picks up from here.
 
-_Built and merged (versioned, under `main`)._
+*Built and merged (versioned, under* `main`*).*
 
 - Shared Collection-free core `anki.pgrep.ai`: `retrieval.py` (local ONNX `bge-small-en-v1.5` via `fastembed`, parity-checked against the index model at cosine 0.99999), `llm.py` (pinned OpenAI client, refuses floating aliases, robust to reasoning-model temperature/seed rejections), `provenance.py` (cite-or-refuse), `verify.py` (dedup, giveaway verifier, SymPy CAS), `generation_core.py` (the confidence route below 0.6 to human review). Every heavy import is lazy, so an AI-off session loads none of it (proven: the core imports with `fastembed`, `openai`, `sympy` all absent).
 - `ai_config.py` (AI on/off in collection config, default off), `generation.py` (L4.1 stylize plus gap-fill) with the Library surface `ts/routes/pgrep/library/`, `problem_gen.py` (L4.2 misconception-first into the `pgrep::Problem` notetype), `tutor.py` (L4.3 AI-on rubric grading, giveaway-verified, AI-off reveal-and-self-compare intact) with the study ladder UI, bridge handlers in `qt/aqt/pgrep.py`. Tests: `pylib/tests/test_pgrep_{ai_core,generation,problem_gen,tutor}.py` (20 pass, 1 CAS test skips without SymPy). `just lint` green (clippy, mypy, ruff, eslint, svelte, typescript).
 
-_Offline eval harness (private, git-ignored `content/`, NOT versioned, lives only in Frank's workspace)._ `content/tools/`: `build_index.py` (index built, 4450 chunks, leakage guard wired into the end of every build), `leakage_check.py` (firewall green), `coverage_report.py` (25 finest units covered), `baselines.py` (keyword FTS5 BM25 plus vector ONNX), `eval_metrics.py` / `eval_splits.py` / `eval_manifest.py` / `eval_judge.py` / `score_batch.py` (scorer, bootstrap CIs, per-area, LLM judge, kappa, run manifest, the section-6 safeguards), `make_gold.py`, `run_batch.py`, `check_parity.py`, `check_gencore.py`.
+*Offline eval harness (private, git-ignored* `content/`*, NOT versioned, lives only in Frank's workspace).* `content/tools/`: `build_index.py` (index built, 4450 chunks, leakage guard wired into the end of every build), `leakage_check.py` (firewall green), `coverage_report.py` (25 finest units covered), `baselines.py` (keyword FTS5 BM25 plus vector ONNX), `eval_metrics.py` / `eval_splits.py` / `eval_manifest.py` / `eval_judge.py` / `score_batch.py` (scorer, bootstrap CIs, per-area, LLM judge, kappa, run manifest, the section-6 safeguards), `make_gold.py`, `run_batch.py`, `check_parity.py`, `check_gencore.py`.
 
-_Provisional L4.0 gate ran (LLM judge only, Frank rating deferred as E4)._ Generator `gpt-5.5-2026-04-23`, judge `gpt-5.4-mini-2026-03-17`, both pinned in `content/run/run_manifest.json`. Batch of 50 cards and 36 problems graded blind against 106 provisional problem gold (GR9677 official keys plus community-70) and 25 finest-unit card anchors; 10 of 86 AI items refused by the safety layer.
+*Provisional L4.0 gate ran (LLM judge only, Frank rating deferred as E4).* Generator `gpt-5.5-2026-04-23`, judge `gpt-5.4-mini-2026-03-17`, both pinned in `content/run/run_manifest.json`. Batch of 50 cards and 36 problems graded blind against 106 provisional problem gold (GR9677 official keys plus community-70) and 25 finest-unit card anchors; 10 of 86 AI items refused by the safety layer.
 
 - Cards (n=50): fact precision 0.920, useful-yield 0.580. Beats keyword by +0.44 and vector by +0.48, CIs exclude zero.
 - Problems (n=36): fact precision 0.750, key correctness 0.722, distractor quality per problem 0.611, useful-yield 0.500. Beats keyword by +0.61 and vector by +0.58, CIs exclude zero.
 - Beat-baseline PASSES for both (the spec's core requirement). The absolute cutoffs are NOT cleared under the strict mini-judge. Naive-distractor comparison (reported, not a gate) is flat: ai minus naive is -0.056 [-0.278, 0.167]. Report at `content/run/score_report.json`, candidates at `content/run/candidates.json`, batch gold at `content/run/batch_gold.json`.
 
-_What remains (for the next agent)._
+*What remains (for the next agent).*
 
 1. **E4 human rating and adjudication.** Frank rates the batch (rater 1), the judge stands as rater 2, Frank adjudicates and kappa is reported. This is the real gate confirmation. Re-score with `score_batch.py --gold content/run/batch_gold.json --candidates content/run/candidates.json --rater1-csv <frank.csv>` (columns `target_id,system,useful,fact_precision,key_correct`).
 2. **Clear the absolute cutoffs.** Under the mini-judge, card useful-yield (0.58 vs 0.80), problem distractor quality (0.611 vs 0.70), and problem key correctness (0.722 vs 0.95) fall short. Likely levers: human adjudication (the mini-judge is harsh and noisy on physics keys), the deferred verification layers (self-consistency, a critic pass, CAS on more items), and stronger generation prompts. A stronger judge is also worth trying.
@@ -193,7 +194,7 @@ _What remains (for the next agent)._
 6. **C4 curated seed bank** (annotated GR8677 and GR9277 few-shot examples) is not staged. Optional; it feeds generation as examples and does not gate.
 7. **Known non-L4 issue.** `qt/tests/test_installer.py` fails in a fresh worktree (empty `qt/installer/mac-template`); it passes on the primary `main` checkout (template populated). Unrelated to L4.
 
-_Resume commands (repo root, conda `pgrep-ai`)._ `python content/tools/make_gold.py` then `python content/tools/run_batch.py --generator-model <snapshot>` then `python content/tools/score_batch.py --gold content/run/batch_gold.json --candidates content/run/candidates.json --judge openai --judge-model <snapshot> --provisional --workers 6`. The AI-off app path needs none of this.
+*Resume commands (repo root, conda* `pgrep-ai`*).* `python content/tools/make_gold.py` then `python content/tools/run_batch.py --generator-model <snapshot>` then `python content/tools/score_batch.py --gold content/run/batch_gold.json --candidates content/run/candidates.json --judge openai --judge-model <snapshot> --provisional --workers 6`. The AI-off app path needs none of this.
 
 **Design refs.** `[../ai/ai-layer.md](../ai/ai-layer.md)` (the AI layer: data, decisions, the file map, the leakage firewall, and the safeguards), `[../research/feature-forced-generation.md](../research/feature-forced-generation.md)` (cards: stylize vs gap-fill, the verification stack, the gen→FSRS bridge), `[../research/feature-problem-generation.md](../research/feature-problem-generation.md)` (MCQ with misconception-first distractors, the MCQ gold set), `[../research/feature-productive-failure.md](../research/feature-productive-failure.md)` (the wrong-answer ladder, stored decomposition, AI-off vs AI-on grading), `design/ux-foundation.md` §7.4 (the Library authoring surface). Content and provenance rules in `[content-and-dependencies.md](../reference/content-and-dependencies.md)`. The locked gate values, gold spec, and leakage rule live in `[../ai/](../ai/)`.
 
@@ -203,6 +204,8 @@ _Resume commands (repo root, conda `pgrep-ai`)._ `python content/tools/make_gold
 - **L4.1 ∥ Forced generation (cards).** The Library authoring surface ("author a seed", `design/ux-foundation.md` §7.4). AI **stylizes** the bundle's cards into the learner's voice where the bundle already covers a subtopic, and **gap-fills** net-new siblings from the corpus only where the user authors a technique the bundle lacks. Core-minimum verification: RAG grounding plus provenance plus the gold-set gate, routing `confidence < 0.6` to human review. CAS, self-consistency, and critic layers deferred. Owns: `ts/routes/pgrep/library/`**, `pylib/anki/pgrep/generation.py`, its bridge handler and tests.
 - **L4.2 ∥ Problem generation.** MCQ with **misconception-first distractors** (name the likely error, derive the trap from it, store the misconception tag and rationale per distractor), plus a stored solution decomposition verified once at creation. Gate against the MCQ gold set: key correct, distractors plausible and grounded, and it beats naive-distractor generation and problem retrieval side by side. Core is misconception-first plus the gate; the student-data distractor ranker is deferred. Owns: `pylib/anki/pgrep/problem_gen.py`, its bridge handler and tests. Reads the `pgrep::Problem` notetype from L1.
 - **L4.3 ∥ Scaffold-fade tutor.** The wrong-answer ladder: L1 nudge, L2 sub-goal decomposition and self-explanation over the **stored** decomposition, L3 sibling worked example, L4 reveal plus explain-back. AI-off is reveal-and-self-compare (required by spec). AI-on is rubric grading with a giveaway verifier so the final answer never leaks. Session-end synthesis from the Attempt log. Owns: `ts/routes/pgrep/study/`** (the ladder UI beyond the L2 static fallback), `pylib/anki/pgrep/tutor.py`, its bridge handler and tests.
+
+
 
 **Exit gate.** Every AI output traces to a named source. The gold-set gate has a cutoff set before results were seen, and generation clears it and beats the baseline side by side. The wrong-answer ladder never leaks the answer (verified). The app still produces a Memory score and runs the static ladder with AI off.
 
@@ -236,7 +239,7 @@ _Resume commands (repo root, conda `pgrep-ai`)._ `python content/tools/make_gold
 
 ### L5 · Models + evidence · entry: L2 + L4 ✅ · done ✅
 
-**Status. Done, merged to `main` @ `280621c36` by fast-forward.** Memory is calibrated on the held-out anki-revlogs-10k (default FSRS Brier 0.234, log-loss 0.743, ECE 0.159; beats the base-rate baseline on the primary Brier; reconstruction pinned to the engine's fsrs-rs 5.2.0 vectors). Performance is the PFA calibrated logistic with beta calibration, validated held-out on seeded synthetic (Brier 0.175 vs 0.268, accuracy 0.775 vs 0.563; the pre-registered beat-baseline rule passes, honest that synthetic validates the pipeline at n=1). Readiness maps expected performance to a 200 to 990 scaled score with an 80% range, coverage-gated at 70% (abstains and names the uncovered exam). The ablation reports negatives: interleaving-as-spacing beats blocked practice robustly, but the full selector does not robustly beat stock Anki (it loses at the scarcest budget) and the K=3 anti-blocking is memory-neutral by construction. The Progress dashboard shows real Memory and Performance reliability diagrams plus Brier, coverage-gated Readiness, and the abstain rule. The calibration and ablation harnesses live in the private `content/tools/`; the shipped models are `pylib/anki/pgrep/{performance,readiness,calibration_evidence}.py`, with the raw-to-scaled table and calibration evidence embedded as constants (no runtime `content/` read, firewall intact). E4 (human spot-check, results report, model cards, Brainlift) remains for L6.
+**Status. Done, merged to** `main` **@** `280621c36` **by fast-forward.** Memory is calibrated on the held-out anki-revlogs-10k (default FSRS Brier 0.234, log-loss 0.743, ECE 0.159; beats the base-rate baseline on the primary Brier; reconstruction pinned to the engine's fsrs-rs 5.2.0 vectors). Performance is the PFA calibrated logistic with beta calibration, validated held-out on seeded synthetic (Brier 0.175 vs 0.268, accuracy 0.775 vs 0.563; the pre-registered beat-baseline rule passes, honest that synthetic validates the pipeline at n=1). Readiness maps expected performance to a 200 to 990 scaled score with an 80% range, coverage-gated at 70% (abstains and names the uncovered exam). The ablation reports negatives: interleaving-as-spacing beats blocked practice robustly, but the full selector does not robustly beat stock Anki (it loses at the scarcest budget) and the K=3 anti-blocking is memory-neutral by construction. The Progress dashboard shows real Memory and Performance reliability diagrams plus Brier, coverage-gated Readiness, and the abstain rule. The calibration and ablation harnesses live in the private `content/tools/`; the shipped models are `pylib/anki/pgrep/{performance,readiness,calibration_evidence}.py`, with the raw-to-scaled table and calibration evidence embedded as constants (no runtime `content/` read, firewall intact). E4 (human spot-check, results report, model cards, Brainlift) remains for L6.
 
 **Why.** The three scores and their held-out evidence (spec constraints 3, 4, 5). This turns the honest dashboard from "Memory only" into all three calibrated scores.
 
@@ -276,7 +279,30 @@ _Resume commands (repo root, conda `pgrep-ai`)._ `python content/tools/make_gold
 
 
 
-### L6 · Ship + harden · entry: all above ✅
+### L5.9 · Polish and completion (human-led) · entry: L5 ✅ · before L6
+
+**Why.** The layers built the engine, the models, the evidence, and the surface wiring, each to a machine-checkable gate. Before shipping (L6), the app needs a human pass that the gates cannot express: look at every page, tune the feel, fill the features that were designed but not yet built, replace placeholder content with the real thing, and make the whole thing hands-on testable end to end. This is Frank-led, with agents assisting on the buildable parts. It has a "done when it feels complete" bar, not a hard automated gate, so it sits between L5 and L6 as an explicit interlude rather than a numbered layer with a proof.
+
+**What already exists (do not rebuild).** Six desktop surfaces render on the real loop: Home, Study (two doors, Cards shows flashcards on the FSRS loop, Problems runs the commit-gate ladder), Progress (coverage, the three scores, calibration), Diagnostic, Library (L4 authoring), Settings. The three scores are live and abstain honestly on thin data. Desktop and mobile share one engine with working two-way sync (L3). The L4 AI generation (cards, problems, tutor) is built and off by default. The `ts/routes/pgrep-lab/gallery` is a component-state gallery. The sample data is a fixed seed (`seed.py` ~28 cards, `problem.py` 6 problems).
+
+**Tasks (checklist).**
+
+- **P1 ∥ Visual and UX fine-tuning.** Walk every surface in both themes and tune the design, copy, and states (default, abstain, AI-off, loading, empty) against `ux-foundation.md`. This is the hands-on version of the L2.7 audit, now over the full L5 surface (calibration, Readiness, the score cards). Owns: `ts/routes/pgrep/`, `ts/lib/components/`, `ts/lib/sass/_pgrep.scss`.
+- **P2 Wire-up gaps.** Close the stubs the L5 review flagged: render a live Performance score card on Progress (the `pgrepPerformanceScore` endpoint exists and is tested but no surface calls it), and sweep for any other wired-but-unshown or placeholder-only elements. Owns: `ts/routes/pgrep/`, `qt/aqt/pgrep.py` if a handler is missing.
+- **P3 Exam mode (designed, not yet built).** Build the timed Exam mode: a full-length or sectioned timed run of Problems under exam conditions, scored on the raw-to-scaled Readiness map, with pace from the logged `response_ms` (the M5 signal in `performance-model.md`). This is where latency and blind-review live, distinct from untimed practice. Owns: `ts/routes/pgrep/` (a new exam surface or a Study mode), `pylib/anki/pgrep/` (an exam-session read model over the attempt log), its bridge handler and tests. Note: wiring `response_ms` into the attempt payload (the deferred M5 half of the L5.2 seam) belongs here.
+- **P4 Real content, using what we generated.** Replace the placeholder sample cards and problems with real, corpus-grounded content, authored through the L4 generation path as originally intended (stylize plus gap-fill for cards, misconception-first for problems), Frank-reviewed before it lands. The goal is a genuine PGRE study set across the nine blueprint areas, not the 34 seed items. Owns: content authoring via the Library surface and `problem_gen`, the seed data, provenance per `content-and-dependencies.md`.
+- **P5 Demo and test harness (hypothetical data to sync demo).** A dev tool to inject hypothetical user data (a review history, a batch of clean attempts, a coverage profile) into a collection so the three scores, calibration, and Readiness light up on demand, then push that account through the self-hosted sync server to show the same data landing on the desktop and the mobile app. This makes the whole system hands-on testable and is the backbone of the sync demo. Prefer extending the durable `pgrep-lab` workflow and the existing seed path over throwaway scripts; keep it out of the shipped user path (dev/demo only). Owns: `ts/routes/pgrep-lab/`, a dev-only seeding/profile module beside `seed.py`, the sync recipes in `dev-harness.md`.
+- **P6 (optional) Repo hygiene.** Clear the pre-existing, non-L5 `just check` debt so the tree is green before L6: the `pgrep/ai/llm.py` mypy nit, the missing copyright header in `prod/video/record.mjs`, and the prettier drift across the pgrep UI. Independent of the above; do it whenever convenient.
+
+**Done when.** Frank has walked every surface and is happy with the feel in both themes; the Performance card and any other wired-but-unshown elements render; exam mode runs end to end and produces a Readiness projection; the placeholder content is replaced with real reviewed content; and a hypothetical profile can be injected, made to score, and shown syncing desktop to mobile. `just lint` and `just test-py` stay green (P6 gets the full `just check` green if taken).
+
+**Agents.** Human-led. P1/P2 as an implementer pass with review; P3 and P5 as their own subagent-built features (spec then quality review each); P4 is content authoring with Frank in the loop; P6 is a small cleanup pass. Reuse the L5 orchestration model where a task is agent-buildable.
+
+---
+
+
+
+### L6 · Ship + harden · entry: L5.9 polish complete
 
 **Why.** Turn the working system into shippable artifacts and make the takeover final (spec constraint 8).
 
@@ -318,17 +344,19 @@ _Resume commands (repo root, conda `pgrep-ai`)._ `python content/tools/make_gold
 
 The engine, UI, sync, and AI plumbing are agent-buildable. A few inputs need a human, recorded here so the division of labor is documented. Sourcing, provenance, and dependency detail is in `[content-and-dependencies.md](../reference/content-and-dependencies.md)`; the AI-layer data and decisions are in `[../ai/ai-layer.md](../ai/ai-layer.md)`.
 
-| Input | What | Needed by | Status |
-|---|---|---|---|
-| Sync server | Self-hosted sync endpoint (local Mac or a small VPS) | L3 | done |
-| Corpus (C1) | The Tier-1 named-source corpus, licensed and bundled | L4 | done |
-| Problem examples (C4) | All of REA as the fed problem examples (no ETS fed to generation) | L4 | done |
-| Gold sets (E1) | Problem gold (GR9677 cleaned + community 70) and card gold (~50 corpus-verified) | L4.0 | built, Frank audit pending |
-| Held-out + leakage (E2) | The held-out splits and the leakage rule | L4.0, L5 | done |
-| Cutoffs (E3) | The gold-set cutoff and the baseline bar, frozen before results | L4, L5 | frozen |
-| Grading + report (E4) | Spot-check AI items, write the results report and model cards | L5, L6 | pending |
-| Readiness constants | The Tier-3 raw-to-scaled conversion table (constants only) | L5.3 | extracted |
-| Packaging (P1) | Sign the desktop installer, produce the phone build, clean-machine test | L6 | pending |
+
+| Input                   | What                                                                             | Needed by | Status                     |
+| ----------------------- | -------------------------------------------------------------------------------- | --------- | -------------------------- |
+| Sync server             | Self-hosted sync endpoint (local Mac or a small VPS)                             | L3        | done                       |
+| Corpus (C1)             | The Tier-1 named-source corpus, licensed and bundled                             | L4        | done                       |
+| Problem examples (C4)   | All of REA as the fed problem examples (no ETS fed to generation)                | L4        | done                       |
+| Gold sets (E1)          | Problem gold (GR9677 cleaned + community 70) and card gold (~50 corpus-verified) | L4.0      | built, Frank audit pending |
+| Held-out + leakage (E2) | The held-out splits and the leakage rule                                         | L4.0, L5  | done                       |
+| Cutoffs (E3)            | The gold-set cutoff and the baseline bar, frozen before results                  | L4, L5    | frozen                     |
+| Grading + report (E4)   | Spot-check AI items, write the results report and model cards                    | L5, L6    | pending                    |
+| Readiness constants     | The Tier-3 raw-to-scaled conversion table (constants only)                       | L5.3      | extracted                  |
+| Packaging (P1)          | Sign the desktop installer, produce the phone build, clean-machine test          | L6        | pending                    |
+
 
 Content and judgment are the scarce inputs. Compute is not the bottleneck.
 
@@ -345,9 +373,9 @@ Content and judgment are the scarce inputs. Compute is not the bottleneck.
 | --- | ---------------------------------------------------------------------------- | -------------------------------------------- |
 | 1   | A real change inside Anki's Rust engine                                      | L1 selector ✅ (`points_at_stake.rs`)         |
 | 2   | Two apps sharing one engine, two-way sync                                    | L3 ✅                                         |
-| 3   | Three separate scores, each with a range and a give-up rule                  | Memory L2 ✅; Performance and Readiness L5 ✅ |
-| 4   | Held-out evaluation for every model, reproducibly                            | L4.0 harness ✅; L5 evidence ✅              |
-| 5   | One study feature built on learning science, ablation-tested                 | L1 interleaving ✅; ablation L5.4 ✅          |
+| 3   | Three separate scores, each with a range and a give-up rule                  | Memory L2 ✅; Performance and Readiness L5 ✅  |
+| 4   | Held-out evaluation for every model, reproducibly                            | L4.0 harness ✅; L5 evidence ✅                |
+| 5   | One study feature built on learning science, ablation-tested                 | L1 interleaving ✅; ablation L5.4 ✅           |
 | 6   | Every AI output traces to a named source, gold-set checked, beats a baseline | L4                                           |
 | 7   | Both apps run with AI off and still score                                    | L2 ✅ (desktop), L3 ✅ (mobile), guarded in L4 |
 | 8   | Ship a desktop installer plus a phone build                                  | Installer L2 and L2.5 ✅; final L6            |
