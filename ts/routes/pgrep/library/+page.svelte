@@ -4,15 +4,18 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
 <!--
 pgrep Library (L4.1 + L5.9), the forced-generation authoring surface
-(design/ux-foundation.md 7.4). Two panels: on the left the learner authors one
-seed card in their own words (the generation-effect act, works AI on or off); on
-the right the AI-conformed siblings appear, each citing a named source and
-carrying a Verified or Needs-review status, with the gold-set gate summarised
-below. With AI off the seed still enters the deck and the right panel says so
-plainly, pointing to Settings to turn AI back on. How the matching cards are
-built (rephrasing a bundle vs drafting net-new siblings) is an internal AI
-decision and is never surfaced as a user choice. Styled with the pgrep tokens;
-card content is plain text until the shared math component lands (P1 owns math).
+(design/ux-foundation.md 7.4). A guided flow: rather than picking a topic, the
+learner is walked through the whole blueprint one card at a time. On the left
+they write one flashcard in their own words for the topic in focus (the
+generation-effect act, works AI on or off); on the right the AI-matched cards
+appear, each citing a named source and carrying a Verified or Needs-review
+status, with the gold-set gate summarised below. A successful add advances to
+the next topic so the flow keeps leading forward. With AI off the card still
+enters the deck and the right panel says so plainly, pointing to Settings to
+turn AI back on. How the matching cards are built (rephrasing a bundle vs
+drafting net-new cards) is an internal AI decision, never a user choice. Styled
+with the pgrep tokens; card content is plain text until the shared math
+component lands (P1 owns math).
 -->
 <script lang="ts">
     import { onMount } from "svelte";
@@ -115,16 +118,25 @@ card content is plain text until the shared math component lands (P1 owns math).
     ];
 
     let status: AiStatus | null = null;
-    let topic = TOPICS[0].tag;
+    // Guided walkthrough: rather than picking from a list, the learner is walked
+    // through the whole blueprint one topic at a time. The current topic is in
+    // focus, the steppers move through the set, and a successful add advances so
+    // the flow keeps leading them forward.
+    let topicIndex = 0;
     let front = "";
     let back = "";
     let busy = false;
     let result: GenerateResult | null = null;
     let error = "";
-    // What the learner submitted, captured at build time so the saved-seed card
-    // keeps showing the authored text even if the editor is edited afterwards.
+    // What the learner submitted, captured at build time so the saved card keeps
+    // showing the authored text even after the editor clears for the next topic.
     let savedFront = "";
 
+    $: current = TOPICS[topicIndex];
+    $: topic = current.tag;
+    $: topicLabel = current.label;
+    $: atFirst = topicIndex === 0;
+    $: atLast = topicIndex === TOPICS.length - 1;
     $: aiOn = status?.enabled ?? false;
     $: added = result?.added ?? [];
     $: review = result?.review ?? [];
@@ -158,6 +170,19 @@ card content is plain text until the shared math component lands (P1 owns math).
         }
     }
 
+    // Walk the blueprint. A topic change starts a fresh card; the matching cards
+    // from the last build stay on the right as a record of what was made.
+    function step(delta: number): void {
+        const next = topicIndex + delta;
+        if (next < 0 || next >= TOPICS.length) {
+            return;
+        }
+        topicIndex = next;
+        front = "";
+        back = "";
+        error = "";
+    }
+
     async function generate(): Promise<void> {
         error = "";
         if (!front.trim() || !back.trim()) {
@@ -178,6 +203,14 @@ card content is plain text until the shared math component lands (P1 owns math).
                 n: 3,
             });
             savedFront = front.trim();
+            // Guide them onward: once a card lands, advance to the next topic and
+            // clear the editor so the next card is ready to write. The matching
+            // set for the card just made stays visible on the right.
+            if (topicIndex < TOPICS.length - 1) {
+                topicIndex += 1;
+            }
+            front = "";
+            back = "";
         } catch {
             // A thrown call (not an AI refusal, which comes back in the result)
             // means the build could not run. Keep it human, not a raw error.
@@ -190,25 +223,68 @@ card content is plain text until the shared math component lands (P1 owns math).
 
 <div class="library">
     <header class="head">
-        <h1>Author a seed</h1>
+        <h1>Make a flashcard</h1>
         <p class="lede">
-            Write one card in your own words. We scale the rest in your style.
+            Write one in your own words. We build a matching set in your style,
+            each card checked against a named source.
         </p>
     </header>
 
     <div class="grid">
-        <!-- Left: the seed editor -->
-        <section class="editor" aria-label="Your seed">
-            <div class="editor-head">
-                <span class="topic-chip">
+        <!-- Left: the guided card editor -->
+        <section class="editor" aria-label="Your flashcard">
+            <div class="guide">
+                <div class="guide-top">
+                    <span class="eyebrow">
+                        Card {topicIndex + 1} of {TOPICS.length}
+                    </span>
+                    <div class="stepper">
+                        <button
+                            type="button"
+                            class="step"
+                            on:click={() => step(-1)}
+                            disabled={atFirst}
+                            aria-label="Previous topic"
+                        >
+                            <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.6"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <polyline points="12,5 7,10 12,15" />
+                            </svg>
+                        </button>
+                        <button
+                            type="button"
+                            class="step"
+                            on:click={() => step(1)}
+                            disabled={atLast}
+                            aria-label="Next topic"
+                        >
+                            <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.6"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <polyline points="8,5 13,10 8,15" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="guide-topic">
                     <span class="dot" aria-hidden="true"></span>
-                    <select bind:value={topic} aria-label="Topic">
-                        {#each TOPICS as t (t.tag)}
-                            <option value={t.tag}>{t.label}</option>
-                        {/each}
-                    </select>
-                </span>
-                <span class="eyebrow">Your seed</span>
+                    <span class="guide-topic-label">{topicLabel}</span>
+                </div>
             </div>
 
             <label class="field">
@@ -236,7 +312,7 @@ card content is plain text until the shared math component lands (P1 owns math).
                     {:else if aiOn}
                         Build matching cards
                     {:else}
-                        Add my flashcard
+                        Add this card
                     {/if}
                 </button>
                 {#if error}
@@ -245,8 +321,8 @@ card content is plain text until the shared math component lands (P1 owns math).
             </div>
         </section>
 
-        <!-- Right: the AI-conformed siblings -->
-        <section class="siblings" aria-label="Siblings">
+        <!-- Right: the AI-matched cards -->
+        <section class="siblings" aria-label="Matching cards">
             <div class="siblings-head">
                 <svg
                     class="spark"
@@ -262,7 +338,7 @@ card content is plain text until the shared math component lands (P1 owns math).
                 >
                     <path d="M10 2.5 L11.8 8.2 L17.5 10 L11.8 11.8 L10 17.5 L8.2 11.8 L2.5 10 L8.2 8.2 Z" />
                 </svg>
-                <h2>Siblings</h2>
+                <h2>Matching cards</h2>
                 {#if !aiOn}
                     <span class="ai-pill">
                         <span class="ai-dot" aria-hidden="true"></span>
@@ -276,16 +352,15 @@ card content is plain text until the shared math component lands (P1 owns math).
                     <article class="sib">
                         <p class="sib-front">{savedFront}</p>
                         <div class="sib-foot">
-                            <span class="src">Your seed, enters the deck as is</span>
+                            <span class="src">You wrote this, added as is</span>
                             <span class="when">Today</span>
                         </div>
                     </article>
                 {/if}
                 <div class="placeholder">
                     <p>
-                        AI conforming is off, so no new siblings are drafted and the
-                        gold set gate stays idle. Write siblings yourself, or turn AI
-                        back on.
+                        AI matching is off, so no new cards are drafted and the gold
+                        set gate stays idle. Write cards yourself, or turn AI back on.
                     </p>
                     <a class="settings-link" href="/pgrep/settings">Open Settings</a>
                 </div>
@@ -304,23 +379,23 @@ card content is plain text until the shared math component lands (P1 owns math).
             {:else if !result}
                 <div class="placeholder">
                     <p>
-                        Write a seed on the left, then build matching cards from named
-                        sources. Each one is checked before it joins your deck.
+                        Write a card on the left, then we build a matching set from
+                        named sources. Each one is checked before it joins your deck.
                     </p>
                 </div>
             {:else if result.ai === "error"}
                 {#if seedSaved}
-                    <p class="saved">Your seed is saved.</p>
+                    <p class="saved">Your card is saved.</p>
                 {/if}
                 <div class="placeholder caution">
                     <p>
-                        Something went wrong building the matching cards. Your seed was
+                        Something went wrong building the matching cards. Your card was
                         still saved, so nothing was lost.
                     </p>
                 </div>
             {:else}
                 {#if seedSaved}
-                    <p class="saved">Your seed is saved.</p>
+                    <p class="saved">Your card is saved.</p>
                 {/if}
 
                 {#each added as c (c.note_id ?? c.front)}
@@ -392,7 +467,7 @@ card content is plain text until the shared math component lands (P1 owns math).
 
                 {#if !added.length && !review.length && !refused.length}
                     <div class="placeholder">
-                        <p>No matching cards were built this time. Try another seed.</p>
+                        <p>No matching cards were built this time. Try another card.</p>
                     </div>
                 {/if}
 
@@ -459,72 +534,78 @@ card content is plain text until the shared math component lands (P1 owns math).
         gap: var(--space-2);
     }
 
-    .editor-head {
+    /* Guided walkthrough header: a card counter and steppers on top, then the
+       topic in focus. The topic carries the reserved amber (Memory), because a
+       card is the memory modality, so the colour is a data language, not decor. */
+    .guide {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-1);
+        margin-bottom: var(--space-1);
+    }
+
+    .guide-top {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: var(--space-2);
-        margin-bottom: var(--space-1);
     }
 
-    /* The seed is a memory card, so its chip carries the reserved amber (Memory),
-       a data language, not decoration. */
-    .topic-chip {
+    .stepper {
+        display: inline-flex;
+        gap: 6px;
+    }
+
+    .step {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: var(--hairline);
+        border-radius: var(--radius-control);
+        background: var(--surface);
+        color: var(--muted);
+        cursor: pointer;
+        transition: var(--transition-calm);
+
+        &:hover:not(:disabled) {
+            color: var(--text);
+            border-color: var(--muted);
+            background: var(--hover-wash);
+        }
+
+        &:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
+    }
+
+    .guide-topic {
         display: inline-flex;
         align-items: center;
         gap: var(--space-1);
-        border: 1px solid var(--memory-tint);
-        border-radius: var(--radius-pill);
-        padding: 4px 12px 4px 12px;
-        max-width: 100%;
         min-width: 0;
 
         .dot {
-            flex: 0 0 6px;
-            width: 6px;
-            height: 6px;
+            flex: 0 0 7px;
+            width: 7px;
+            height: 7px;
             border-radius: var(--radius-pill);
             background: var(--memory);
         }
+    }
 
-        select {
-            appearance: none;
-            border: none;
-            background: none;
-            font-family: var(--font-ui);
-            font-size: var(--text-small);
-            font-weight: 500;
-            color: var(--memory-text);
-            padding: 0;
-            padding-right: 14px;
-            max-width: 100%;
-            min-width: 0;
-            text-overflow: ellipsis;
-            cursor: pointer;
-            /* A small caret so the chip still reads as a control. */
-            background-image: linear-gradient(
-                    45deg,
-                    transparent 50%,
-                    var(--memory-text) 50%
-                ),
-                linear-gradient(135deg, var(--memory-text) 50%, transparent 50%);
-            background-position:
-                right 4px top 55%,
-                right 0 top 55%;
-            background-size:
-                5px 5px,
-                5px 5px;
-            background-repeat: no-repeat;
-
-            &:focus {
-                outline: none;
-            }
-
-            option {
-                color: var(--text);
-                background: var(--surface);
-            }
-        }
+    .guide-topic-label {
+        font-size: var(--text-emphasis);
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: var(--memory-text);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .eyebrow {
