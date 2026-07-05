@@ -10,7 +10,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
      baked in: the app works and still scores with AI off. The shared rail comes
      from +layout.svelte, so this surface renders content only. -->
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onDestroy, onMount } from "svelte";
     import { pgrepCall } from "../lib/bridge";
 
     type Theme = "Light" | "Dark" | "System";
@@ -48,7 +48,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let syncMsg = "";
 
     let exporting = false;
-    let dataMsg = "";
+    let exportMsg = "";
+
+    // Reset is destructive, so it takes two clicks: the first arms the button
+    // (it reads "Confirm reset?"), a second within a few seconds confirms. A
+    // stray single click disarms itself and never touches any data.
+    let resetArmed = false;
+    let resetting = false;
+    let resetMsg = "";
+    let resetTimer: ReturnType<typeof setTimeout> | undefined;
 
     async function loadAiStatus(): Promise<void> {
         try {
@@ -142,18 +150,77 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             return;
         }
         exporting = true;
-        dataMsg = "Exporting\u2026";
+        exportMsg = "Exporting\u2026";
         try {
             const res = await pgrepCall<{ status: string; path: string }>(
                 "pgrepExport",
                 {},
             );
-            dataMsg = `Export running. Saving to ${res.path}`;
+            exportMsg = `Export running. Saving to ${res.path}`;
         } catch (e) {
-            dataMsg = `Export failed: ${e}`;
+            exportMsg = `Export failed: ${e}`;
         } finally {
             exporting = false;
         }
+    }
+
+    function armReset(): void {
+        resetArmed = true;
+        clearTimeout(resetTimer);
+        resetTimer = setTimeout(() => {
+            resetArmed = false;
+        }, 4000);
+    }
+
+    async function confirmReset(): Promise<void> {
+        clearTimeout(resetTimer);
+        resetArmed = false;
+        resetting = true;
+        resetMsg = "Resetting\u2026";
+        try {
+            const res = await pgrepCall<{
+                attempts_deleted: number;
+                cards_reset: number;
+            }>("pgrepReset", {});
+            resetMsg =
+                `Progress reset. Cleared ${res.attempts_deleted} attempts and ` +
+                `reset ${res.cards_reset} sample cards.`;
+        } catch (e) {
+            resetMsg = `Reset failed: ${e}`;
+        } finally {
+            resetting = false;
+        }
+    }
+
+    function onResetClick(): void {
+        if (resetting) {
+            return;
+        }
+        if (resetArmed) {
+            void confirmReset();
+        } else {
+            armReset();
+        }
+    }
+
+    function resetLabel(busy: boolean, armed: boolean): string {
+        if (busy) {
+            return "Resetting\u2026";
+        }
+        if (armed) {
+            return "Confirm reset?";
+        }
+        return "Reset";
+    }
+
+    function resetHint(msg: string, armed: boolean): string {
+        if (msg) {
+            return msg;
+        }
+        if (armed) {
+            return "This clears your attempts and sample progress. Click again to confirm.";
+        }
+        return "Start over. This clears progress, not your cards.";
     }
 
     $: retentionLabel = targetRetention.toFixed(2);
@@ -185,6 +252,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         void loadAiStatus();
         void loadSettings();
     });
+
+    onDestroy(() => clearTimeout(resetTimer));
 </script>
 
 <div class="main">
@@ -323,7 +392,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     <div class="row-text">
                         <div class="row-title">Export</div>
                         <div class="row-sub">
-                            {dataMsg || "Your cards, attempts, and history as a file"}
+                            {exportMsg || "Your cards, attempts, and history as a file"}
                         </div>
                     </div>
                     <button
@@ -338,9 +407,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <div class="row">
                     <div class="row-text">
                         <div class="row-title">Reset</div>
-                        <div class="row-sub">Start over. This cannot be undone.</div>
+                        <div class="row-sub">{resetHint(resetMsg, resetArmed)}</div>
                     </div>
-                    <button class="pill-btn danger" type="button">Reset</button>
+                    <button
+                        class="pill-btn danger"
+                        class:armed={resetArmed}
+                        type="button"
+                        on:click={onResetClick}
+                        disabled={resetting}
+                    >
+                        {resetLabel(resetting, resetArmed)}
+                    </button>
                 </div>
             </div>
         </section>
@@ -521,6 +598,19 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             &:hover {
                 border-color: var(--error-tint-strong);
                 background: var(--error-wash);
+            }
+
+            // Armed (awaiting the confirming second click): a filled red so the
+            // destructive intent is unmistakable.
+            &.armed {
+                color: #fff;
+                background: var(--error);
+                border-color: var(--error);
+
+                &:hover {
+                    background: var(--error);
+                    border-color: var(--error);
+                }
             }
         }
     }

@@ -317,6 +317,18 @@ def pgrep_export() -> bytes:
     return _json({"status": "started", "path": out_path})
 
 
+# Data / Reset. Conservative and scoped: deletes the pgrep attempt notes and
+# forgets the seeded sample cards back to new. Settings, notetypes, decks, and
+# all other content (including AI-generated Library cards and Problems) are left
+# intact; the collection is never wiped. This is a normal collection write, like
+# the study handlers, so it runs on the mediasrv thread. The destructive intent
+# is gated by the two-step confirmation on the Settings surface.
+def pgrep_reset() -> bytes:
+    from anki.pgrep import settings
+
+    return _json(settings.reset_progress(aqt.mw.col))
+
+
 # Registered once into mediasrv's post_handler_list (see qt/aqt/mediasrv.py).
 pgrep_post_handlers = [
     pgrep_seed,
@@ -341,4 +353,5 @@ pgrep_post_handlers = [
     pgrep_settings_get,
     pgrep_settings_set,
     pgrep_export,
+    pgrep_reset,
 ]

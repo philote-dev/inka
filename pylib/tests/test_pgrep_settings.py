@@ -14,8 +14,16 @@ from __future__ import annotations
 
 import os
 
+from anki import cards_pb2
+from anki.consts import CARD_TYPE_NEW, CARD_TYPE_REV, QUEUE_TYPE_NEW, QUEUE_TYPE_REV
 from anki.pgrep import settings
-from anki.pgrep.seed import DECK_CONFIG_NAME, DECK_NAME
+from anki.pgrep.attempt_log import (
+    ATTEMPT_TAG,
+    append_attempt,
+    attempts,
+    get_attempt_notetype,
+)
+from anki.pgrep.seed import DECK_CONFIG_NAME, DECK_NAME, SEEDED_TAG, seed_sample_content
 from tests.shared import getEmptyCol
 
 DEFAULT_DECK_CONFIG_ID = 1
@@ -157,9 +165,7 @@ def test_apply_settings_only_writes_present_keys():
     assert result["theme"] == "Dark"
     assert result["target_retention"] == settings.DEFAULT_RETENTION
 
-    result = settings.apply_settings(
-        col, {"target_retention": 0.8, "theme": "Light"}
-    )
+    result = settings.apply_settings(col, {"target_retention": 0.8, "theme": "Light"})
     assert result["target_retention"] == 0.8
     assert result["theme"] == "Light"
     assert result["test_date"] == "2027-05-01"
@@ -183,3 +189,106 @@ def test_default_export_path_joins_dir_and_name(tmp_path):
     assert os.path.dirname(path) == str(tmp_path)
     assert os.path.basename(path).startswith(settings.EXPORT_PREFIX)
     assert path.endswith(settings.EXPORT_SUFFIX)
+
+
+# Reset progress (conservative scope)
+##########################################################################
+
+
+def test_reset_progress_clears_attempts_and_forgets_sample_cards():
+    col = getEmptyCol()
+    seed_sample_content(col)
+    seeded_cids = list(col.find_cards(f"tag:{SEEDED_TAG}"))
+    # The seed leaves several reviewed sample cards with FSRS memory state.
+    reviewed_before = [
+        col.get_card(cid)
+        for cid in seeded_cids
+        if col.get_card(cid).memory_state is not None
+    ]
+    assert reviewed_before
+
+    append_attempt(
+        col, {"event_id": "a1", "topic": "topic::mechanics", "correct": True}
+    )
+    append_attempt(col, {"event_id": "a2", "topic": "topic::quantum", "correct": False})
+    assert len(attempts(col)) == 2
+
+    result = settings.reset_progress(col)
+
+    assert result["attempts_deleted"] == 2
+    assert result["cards_reset"] == len(seeded_cids)
+
+    # The attempt log is gone: no events, no attempt notes.
+    assert attempts(col) == []
+    assert col.find_notes(f"tag:{ATTEMPT_TAG}") == []
+
+    # Every seeded card is back to new with no memory state, and none were lost.
+    assert list(col.find_cards(f"tag:{SEEDED_TAG}")) == seeded_cids
+    for cid in seeded_cids:
+        card = col.get_card(cid)
+        assert card.type == CARD_TYPE_NEW
+        assert card.queue == QUEUE_TYPE_NEW
+        assert card.memory_state is None
+
+
+def test_reset_progress_keeps_settings_notetypes_and_generated_content():
+    col = getEmptyCol()
+    seed_sample_content(col)
+
+    # Preferences the reset must not disturb.
+    settings.set_target_retention(col, 0.8)
+    settings.set_test_date(col, "2026-10-24")
+    settings.set_theme(col, "Dark")
+
+    # An attempt so the attempt notetype exists (reset removes notes, not types).
+    append_attempt(
+        col, {"event_id": "a1", "topic": "topic::mechanics", "correct": True}
+    )
+    assert get_attempt_notetype(col) is not None
+
+    # A non-seeded "generated" review card (stands in for AI Library/Problem
+    # content): it carries memory state and lives outside the sample deck.
+    basic = col.models.by_name("Basic")
+    assert basic is not None
+    generated = col.new_note(basic)
+    generated["Front"] = "generated q"
+    generated["Back"] = "generated a"
+    generated_did = col.decks.id("PGRE::Library")
+    assert generated_did is not None
+    col.add_note(generated, generated_did)
+    generated_cid = generated.cards()[0].id
+    card = col.get_card(generated_cid)
+    card.type = CARD_TYPE_REV
+    card.queue = QUEUE_TYPE_REV
+    card.memory_state = cards_pb2.FsrsMemoryState(stability=30.0, difficulty=5.0)
+    col.update_cards([card])
+
+    notetypes_before = {nt.name for nt in col.models.all_names_and_ids()}
+    decks_before = {d.name for d in col.decks.all_names_and_ids()}
+
+    settings.reset_progress(col)
+
+    # Settings survive.
+    assert settings.target_retention(col) == 0.8
+    assert settings.test_date(col) == "2026-10-24"
+    assert settings.theme(col) == "Dark"
+
+    # Notetypes (including pgrep::Attempt) and decks survive.
+    assert get_attempt_notetype(col) is not None
+    assert {nt.name for nt in col.models.all_names_and_ids()} == notetypes_before
+    assert {d.name for d in col.decks.all_names_and_ids()} == decks_before
+
+    # The generated card is completely untouched: still a review card, still
+    # holding its FSRS memory state. Reset never forgot it.
+    after = col.get_card(generated_cid)
+    assert after.type == CARD_TYPE_REV
+    assert after.queue == QUEUE_TYPE_REV
+    assert after.memory_state is not None
+    assert after.memory_state.stability == 30.0
+
+
+def test_reset_progress_is_safe_with_nothing_to_reset():
+    col = getEmptyCol()
+    # No seed, no attempts: a no-op that still reports an honest summary and does
+    # not raise or leave an empty undo entry behind.
+    assert settings.reset_progress(col) == {"attempts_deleted": 0, "cards_reset": 0}

@@ -177,9 +177,7 @@ def set_target_retention(col: Collection, value: Any) -> float:
     return cleaned
 
 
-def _ensure_dedicated_config(
-    col: Collection, deck_id: Any, config_name: str
-) -> None:
+def _ensure_dedicated_config(col: Collection, deck_id: Any, config_name: str) -> None:
     """Give the sample deck its own config group before writing retention.
 
     Mirrors ``seed._ensure_points_at_stake_config`` (clone the current config
@@ -217,3 +215,46 @@ def default_export_path(now: float | None = None, base_dir: str | None = None) -
     """A full export path: a timestamped ``.colpkg`` in a user-visible folder."""
     directory = base_dir if base_dir is not None else default_export_dir()
     return os.path.join(directory, export_basename(now))
+
+
+# Reset progress (conservative, scoped; confirmed with Frank)
+##########################################################################
+
+
+def reset_progress(col: Collection) -> dict[str, int]:
+    """Reset pgrep progress and return a summary of what was cleared.
+
+    Exactly two things happen, both scoped to pgrep's own data:
+
+    - Every ``pgrep::Attempt`` note is deleted, which clears the Performance and
+      Readiness history (and removes the suspended attempt cards with them).
+    - The seeded sample cards (tagged ``pgrep::seeded``) are forgotten back to
+      new, so their FSRS memory state is dropped and Memory and mastery start
+      fresh. The cards and their notes are kept.
+
+    Everything else is left untouched: settings (retention, test date, theme),
+    notetypes, decks, and all other content, including AI-generated Library
+    cards and Problems. The collection is never wiped. The two writes are merged
+    into a single action so the reset is one clean unit.
+    """
+    from anki.pgrep.attempt_log import get_attempt_notetype
+    from anki.pgrep.seed import SEEDED_TAG
+
+    attempt_note_ids: list[Any] = []
+    notetype = get_attempt_notetype(col)
+    if notetype is not None:
+        attempt_note_ids = list(col.models.nids(notetype["id"]))
+    seeded_card_ids = list(col.find_cards(f"tag:{SEEDED_TAG}"))
+
+    if attempt_note_ids or seeded_card_ids:
+        undo_id = col.add_custom_undo_entry("Reset pgrep progress")
+        if attempt_note_ids:
+            col.remove_notes(attempt_note_ids)
+        if seeded_card_ids:
+            col.sched.schedule_cards_as_new(seeded_card_ids)
+        col.merge_undo_entries(undo_id)
+
+    return {
+        "attempts_deleted": len(attempt_note_ids),
+        "cards_reset": len(seeded_card_ids),
+    }
