@@ -127,10 +127,11 @@ def assemble_exam(col: Collection, question_count: int) -> list[int]:
 
     Allocates ``question_count`` across categories by blueprint weight (largest
     remainder, capped by how many distinct Problems each category actually has),
-    then round-robins the picks in blueprint order so no run of the same topic
-    blocks the exam (anti-blocking, like the Problems door). No item repeats, and
-    the length is capped by the distinct Problems available, so a thin seed simply
-    yields a shorter mock.
+    then round-robins the picks in blueprint order so consecutive items differ in
+    topic until only one category has picks left (anti-blocking, like the Problems
+    door; the tail of that last category unavoidably runs together). No item
+    repeats, and the length is capped by the distinct Problems available, so a thin
+    seed simply yields a shorter mock.
     """
     notetype = problem.get_problem_notetype(col)
     if notetype is None or question_count <= 0:
@@ -241,9 +242,8 @@ def start_exam(
 
     _SESSIONS[session_id] = {
         "order": order,
-        "started_at": int(time.time()),
-        "duration_s": duration_s,
         "answers": {},  # index -> {"selected", "response_ms", "flagged"}
+        # Flips true at finish so a late submit cannot change the scored result.
         "finished": False,
     }
     return {
@@ -330,7 +330,9 @@ def answer_exam_item(
     attempt log here, so the learner can change an answer or flag any question
     freely. The definitive Attempts are appended once at ``finish_exam``. Returns
     ``{"ok", "answered", "remaining", "flagged"}``. An empty ``selected`` clears the
-    answer (the question returns to unanswered) while keeping any flag.
+    answer (the question returns to unanswered) while keeping any flag. Once the
+    exam is finished, further answers are rejected (``ok`` false) so a late submit
+    cannot change the scored result.
     """
     session = _SESSIONS.get(session_id)
     if session is None:
@@ -338,6 +340,17 @@ def answer_exam_item(
 
     order: list[int] = session["order"]
     answers: dict[int, dict[str, Any]] = session["answers"]
+
+    if session.get("finished"):
+        # The exam is already scored; a late submit must not change the result.
+        answered = sum(1 for a in answers.values() if a.get("selected"))
+        return {
+            "ok": False,
+            "answered": answered,
+            "remaining": len(order) - answered,
+            "flagged": False,
+        }
+
     index = int(index)
     if index < 0 or index >= len(order):
         return {
@@ -508,7 +521,6 @@ def exam_result(
     served = n_served if n_served is not None else n_answered
     skipped = max(0, served - n_answered)
     accuracy = correct / n_answered if n_answered else 0.0
-    raw_actual = _round_half_up(_clamp(correct - incorrect / 4.0, RAW_MIN, RAW_MAX))
 
     # Per-category correct/total from the answered exam questions.
     by_category_counts: dict[str, list[int]] = {}
@@ -517,6 +529,85 @@ def exam_result(
         bucket[0] += 1 if event.correct else 0
         bucket[1] += 1
 
+    contributions, by_topic, tested_topics, untested_topics, coverage_pct = (
+        _topic_contributions(by_category_counts, min_topic_questions, guess_baseline)
+    )
+
+    result: dict[str, Any] = {
+        "session_id": session_id,
+        "total": served,
+        "n_served": served,
+        "n_answered": n_answered,
+        "correct": correct,
+        "incorrect": incorrect,
+        "skipped": skipped,
+        "accuracy": accuracy,
+        "raw_actual": _raw_actual(correct, incorrect),
+        "coverage_pct": coverage_pct,
+        "coverage_gate": coverage_gate,
+        "tested_topics": tested_topics,
+        "untested_topics": untested_topics,
+        "by_topic": by_topic,
+        "pace": _pace_stats(answered),
+        # Always present so the ``review`` type stays honest; the session-gone
+        # path never builds one, and ``finish_exam`` overwrites it with the real
+        # per-question review.
+        "review": [],
+    }
+
+    if n_answered == 0:
+        result.update(_abstain_fields(_REASON_NO_ANSWERS))
+        return result
+    if coverage_pct < coverage_gate:
+        result.update(_abstain_fields(_REASON_ABSTAIN))
+        return result
+
+    projection = project_scaled_score(
+        contributions, n_total=float(SCORED_QUESTION_COUNT)
+    )
+    result.update(
+        {
+            "scaled": projection["scaled"],
+            "low": projection["low"],
+            "high": projection["high"],
+            "raw": projection["raw"],
+            "raw_low": projection["raw_low"],
+            "raw_high": projection["raw_high"],
+            "expected_correct": projection["expected_correct"],
+            "abstain": False,
+            "reason": None,
+        }
+    )
+    return result
+
+
+def _raw_actual(correct: int, incorrect: int) -> int:
+    """The exam's own formula-scored raw over the questions it actually sat.
+
+    ``correct - incorrect/4`` (skips carry no penalty), rounded and clamped to the
+    table's raw domain. This is the honest raw on the answered questions, reported
+    beside the full-length projection rather than mapped to a scaled score (the
+    table's scale assumes all 100 questions).
+    """
+    return _round_half_up(_clamp(correct - incorrect / 4.0, RAW_MIN, RAW_MAX))
+
+
+def _topic_contributions(
+    by_category_counts: dict[str, list[int]],
+    min_topic_questions: int,
+    guess_baseline: float,
+) -> tuple[
+    list[tuple[float, float, float]], list[dict[str, Any]], list[str], list[str], float
+]:
+    """Per-topic projection inputs from the exam's per-category correct/total.
+
+    For each blueprint category, a tested topic's observed accuracy becomes a
+    Jeffreys-Beta estimate (point plus a spread that stays honest at 0 and 1),
+    spread over that topic's share of the 100 scored questions; an untested topic
+    falls back to the guessing baseline. Returns the ``(n, p, p_sd)`` contributions
+    for :func:`readiness.project_scaled_score`, the ``by_topic`` breakdown, the
+    tested and untested topic slugs, and the blueprint-weighted coverage fraction.
+    """
     contributions: list[tuple[float, float, float]] = []
     by_topic: list[dict[str, Any]] = []
     tested_topics: list[str] = []
@@ -557,50 +648,7 @@ def exam_result(
         )
 
     coverage_pct = covered_weight / total_weight if total_weight else 0.0
-    pace = _pace_stats(answered)
-
-    result: dict[str, Any] = {
-        "session_id": session_id,
-        "total": served,
-        "n_served": served,
-        "n_answered": n_answered,
-        "correct": correct,
-        "incorrect": incorrect,
-        "skipped": skipped,
-        "accuracy": accuracy,
-        "raw_actual": raw_actual,
-        "coverage_pct": coverage_pct,
-        "coverage_gate": coverage_gate,
-        "tested_topics": tested_topics,
-        "untested_topics": untested_topics,
-        "by_topic": by_topic,
-        "pace": pace,
-    }
-
-    if n_answered == 0:
-        result.update(_abstain_fields(_REASON_NO_ANSWERS))
-        return result
-    if coverage_pct < coverage_gate:
-        result.update(_abstain_fields(_REASON_ABSTAIN))
-        return result
-
-    projection = project_scaled_score(
-        contributions, n_total=float(SCORED_QUESTION_COUNT)
-    )
-    result.update(
-        {
-            "scaled": projection["scaled"],
-            "low": projection["low"],
-            "high": projection["high"],
-            "raw": projection["raw"],
-            "raw_low": projection["raw_low"],
-            "raw_high": projection["raw_high"],
-            "expected_correct": projection["expected_correct"],
-            "abstain": False,
-            "reason": None,
-        }
-    )
-    return result
+    return contributions, by_topic, tested_topics, untested_topics, coverage_pct
 
 
 def _build_review(col: Collection, session: dict[str, Any]) -> list[dict[str, Any]]:

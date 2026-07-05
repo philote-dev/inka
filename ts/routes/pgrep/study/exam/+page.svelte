@@ -834,7 +834,7 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
         background: var(--surface);
         color: var(--muted);
         font-family: var(--font-mono);
-        font-size: 12px;
+        font-size: var(--text-small);
         cursor: pointer;
         transition: var(--transition-calm);
 

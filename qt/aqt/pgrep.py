@@ -151,12 +151,12 @@ def pgrep_study_commit() -> bytes:
 def pgrep_exam_start() -> bytes:
     from anki.pgrep import exam
 
-    a = _args()
+    args = _args()
     return _json(
         exam.start_exam(
             aqt.mw.col,
-            question_count=a.get("question_count"),
-            section=bool(a.get("section", False)),
+            question_count=args.get("question_count"),
+            section=bool(args.get("section", False)),
         )
     )
 
@@ -164,8 +164,10 @@ def pgrep_exam_start() -> bytes:
 def pgrep_exam_next() -> bytes:
     from anki.pgrep import exam
 
-    a = _args()
-    return _json(exam.next_exam_item(aqt.mw.col, a.get("session_id"), a.get("index")))
+    args = _args()
+    return _json(
+        exam.next_exam_item(aqt.mw.col, args.get("session_id"), args.get("index"))
+    )
 
 
 # Records a selection, its response_ms, and the flag. Blind: nothing is graded or
@@ -173,15 +175,15 @@ def pgrep_exam_next() -> bytes:
 def pgrep_exam_answer() -> bytes:
     from anki.pgrep import exam
 
-    a = _args()
+    args = _args()
     return _json(
         exam.answer_exam_item(
             aqt.mw.col,
-            a.get("session_id"),
-            int(a.get("index", 0)),
-            a.get("selected", ""),
-            response_ms=a.get("response_ms"),
-            flagged=a.get("flagged"),
+            args.get("session_id"),
+            int(args.get("index", 0)),
+            args.get("selected", ""),
+            response_ms=args.get("response_ms"),
+            flagged=args.get("flagged"),
         )
     )
 

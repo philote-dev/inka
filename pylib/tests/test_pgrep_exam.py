@@ -235,6 +235,41 @@ def test_finish_is_idempotent():
     assert len(attempt_log.attempts(col)) == first == len(order)
 
 
+def test_answers_are_rejected_after_finish():
+    # Once scored, the session no longer accepts answers, so a late submit cannot
+    # change the recorded result or append a new attempt.
+    col = getEmptyCol()
+    problem.seed_sample_problems(col)
+    started = exam.start_exam(col)
+    sid = started["session_id"]
+    order = exam._SESSIONS[sid]["order"]
+
+    _sit_exam(col, sid, order, correct=True)
+    before = len(attempt_log.attempts(col))
+
+    # An unanswered index (there is none here since all were answered, but the
+    # guard fires regardless of index).
+    result = exam.answer_exam_item(col, sid, 0, "A", response_ms=5000)
+    assert result["ok"] is False
+    # No new attempt was written by the rejected late answer.
+    assert len(attempt_log.attempts(col)) == before
+
+
+def test_result_always_carries_a_review_list():
+    # The review type is non-optional; the session-gone path (pure read model)
+    # still returns an empty review rather than omitting the key.
+    col = getEmptyCol()
+    problem.seed_sample_problems(col)
+    started = exam.start_exam(col)
+    sid = started["session_id"]
+    order = exam._SESSIONS[sid]["order"]
+    _sit_exam(col, sid, order, correct=True)
+
+    # exam_result is the pure read model (no session): review defaults to [].
+    read_model = exam.exam_result(col, sid)
+    assert read_model["review"] == []
+
+
 def test_exam_attempts_feed_performance_seam():
     # Exam attempts are clean, committed attempts, so the collection-wide fold
     # sees them (an exam sitting is genuine transfer under exam conditions).
@@ -513,7 +548,13 @@ def test_exam_never_touches_scheduling_state():
     before = {}
     for note_id in col.models.nids(notetype["id"]):
         for card in col.get_note(note_id).cards():
-            before[card.id] = (card.due, card.ivl, card.queue, card.type)
+            before[card.id] = (
+                card.due,
+                card.ivl,
+                card.queue,
+                card.type,
+                card.memory_state,
+            )
 
     started = exam.start_exam(col)
     sid = started["session_id"]
@@ -522,4 +563,11 @@ def test_exam_never_touches_scheduling_state():
 
     for note_id in col.models.nids(notetype["id"]):
         for card in col.get_note(note_id).cards():
-            assert (card.due, card.ivl, card.queue, card.type) == before[card.id]
+            after = (
+                card.due,
+                card.ivl,
+                card.queue,
+                card.type,
+                card.memory_state,
+            )
+            assert after == before[card.id]
