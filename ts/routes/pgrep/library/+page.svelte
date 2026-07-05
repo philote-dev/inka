@@ -151,8 +151,10 @@ card content is plain text until the shared math component lands (P1 owns math).
     async function loadStatus(): Promise<void> {
         try {
             status = await pgrepCall<AiStatus>("pgrepAiStatus", {});
-        } catch (e) {
-            error = String(e);
+        } catch {
+            // If the status read fails, stay honest and treat AI as off rather
+            // than surfacing a raw error. The AI-off path always works.
+            status = null;
         }
     }
 
@@ -176,8 +178,10 @@ card content is plain text until the shared math component lands (P1 owns math).
                 n: 3,
             });
             savedFront = front.trim();
-        } catch (e) {
-            error = String(e);
+        } catch {
+            // A thrown call (not an AI refusal, which comes back in the result)
+            // means the build could not run. Keep it human, not a raw error.
+            error = "Could not build cards just now. Try again.";
         } finally {
             busy = false;
         }
