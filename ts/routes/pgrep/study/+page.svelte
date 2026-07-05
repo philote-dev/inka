@@ -126,6 +126,9 @@ the data flow through pgrepCall is unchanged.
     let committed: CommitResult | null = null;
     let revealedRungs = 0;
     let shownSteps: Record<number, boolean> = {};
+    // M5 seam: when the current problem was shown, so commit can log response_ms
+    // (the client-measured think time). Used only to filter rapid guesses.
+    let problemShownAt = 0;
 
     // AI upgrade state (L4). AI is off by default, so the ladder stays the static
     // reveal-and-self-compare unless the learner turns AI on in Settings.
@@ -200,6 +203,8 @@ the data flow through pgrepCall is unchanged.
                 card = item;
             } else if (item.kind === "problem") {
                 problem = item;
+                problemShownAt =
+                    typeof performance !== "undefined" ? performance.now() : Date.now();
             } else {
                 doorEmpty = true;
                 if (screen === "problems" && !startedEmpty) {
@@ -237,11 +242,16 @@ the data flow through pgrepCall is unchanged.
         }
         busy = true;
         errored = false;
+        const nowMs =
+            typeof performance !== "undefined" ? performance.now() : Date.now();
+        const responseMs = problemShownAt ? Math.round(nowMs - problemShownAt) : null;
         try {
             committed = await pgrepCall<CommitResult>("pgrepStudyCommit", {
                 note_id: problem.note_id,
                 session_id: sessionId,
                 selected,
+                // M5 seam: think time from the item being shown to this commit.
+                response_ms: responseMs,
             });
             // On a miss, open the ladder at its first rung. On a hit, keep it
             // closed behind an opt-in toggle.
@@ -382,6 +392,16 @@ the data flow through pgrepCall is unchanged.
             </select>
             <span class="muted small">Pick one topic to drill it on its own.</span>
         </div>
+
+        <a class="exam-launch" href="/pgrep/study/exam">
+            <span class="door-top">
+                <span class="door-name">Exam mode</span>
+                <span class="door-kind">Timed mock</span>
+            </span>
+            <span class="door-desc">
+                A timed run at exam proportions. No hints. Blind review.
+            </span>
+        </a>
 
         {#if loading}
             <p class="muted small">Opening the door.</p>
@@ -672,6 +692,32 @@ the data flow through pgrepCall is unchanged.
         color: var(--muted);
         font-size: var(--text-body);
         line-height: 1.5;
+    }
+
+    .exam-launch {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        text-align: left;
+        padding: 20px;
+        background: var(--surface);
+        border: var(--hairline);
+        border-left-width: 3px;
+        border-left-color: var(--readiness);
+        border-radius: var(--radius-card);
+        box-shadow: var(--shadow-card);
+        cursor: pointer;
+        text-decoration: none;
+        color: var(--text);
+        transition: var(--transition-calm);
+
+        &:hover {
+            border-color: var(--muted);
+        }
+
+        .door-kind {
+            color: var(--readiness-text);
+        }
     }
 
     .drill {

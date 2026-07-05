@@ -141,8 +141,59 @@ def pgrep_study_commit() -> bytes:
             args.get("note_id"),
             args.get("session_id"),
             args.get("selected"),
+            # M5 seam: the client-measured time from item shown to commit.
+            response_ms=args.get("response_ms"),
         )
     )
+
+
+# L5.9 Exam mode (timed mock over Problems) -> anki.pgrep.exam
+def pgrep_exam_start() -> bytes:
+    from anki.pgrep import exam
+
+    args = _args()
+    return _json(
+        exam.start_exam(
+            aqt.mw.col,
+            question_count=args.get("question_count"),
+            section=bool(args.get("section", False)),
+        )
+    )
+
+
+def pgrep_exam_next() -> bytes:
+    from anki.pgrep import exam
+
+    args = _args()
+    return _json(
+        exam.next_exam_item(aqt.mw.col, args.get("session_id"), args.get("index"))
+    )
+
+
+# Records a selection, its response_ms, and the flag. Blind: nothing is graded or
+# revealed here, and nothing hits the attempt log until pgrep_exam_result finishes.
+def pgrep_exam_answer() -> bytes:
+    from anki.pgrep import exam
+
+    args = _args()
+    return _json(
+        exam.answer_exam_item(
+            aqt.mw.col,
+            args.get("session_id"),
+            int(args.get("index", 0)),
+            args.get("selected", ""),
+            response_ms=args.get("response_ms"),
+            flagged=args.get("flagged"),
+        )
+    )
+
+
+# Finishes the exam: appends one clean, committed, timed Attempt per answered item
+# (idempotent), then returns the projected scaled Readiness score + range + pace.
+def pgrep_exam_result() -> bytes:
+    from anki.pgrep import exam
+
+    return _json(exam.finish_exam(aqt.mw.col, _args().get("session_id")))
 
 
 # L4 AI (upgrade only; AI off by default). Handlers lazily import the AI modules,
@@ -364,6 +415,10 @@ pgrep_post_handlers = [
     pgrep_study_next,
     pgrep_study_answer_card,
     pgrep_study_commit,
+    pgrep_exam_start,
+    pgrep_exam_next,
+    pgrep_exam_answer,
+    pgrep_exam_result,
     pgrep_ai_status,
     pgrep_ai_set_enabled,
     pgrep_library_generate,

@@ -72,6 +72,42 @@ def test_handlers_reachable_at_the_frontend_endpoints():
         assert endpoint in mediasrv.post_handlers
 
 
+def test_exam_handlers_are_registered():
+    # The four L5.9 Exam-mode handlers the exam surface calls via pgrepCall.
+    for handler in (
+        pgrep.pgrep_exam_start,
+        pgrep.pgrep_exam_next,
+        pgrep.pgrep_exam_answer,
+        pgrep.pgrep_exam_result,
+    ):
+        assert handler in pgrep.pgrep_post_handlers
+
+
+def test_exam_endpoints_reachable_at_the_frontend_endpoints():
+    for endpoint in (
+        "pgrepExamStart",
+        "pgrepExamNext",
+        "pgrepExamAnswer",
+        "pgrepExamResult",
+    ):
+        assert endpoint in mediasrv.post_handlers
+
+
+def test_exam_start_handler_returns_expected_shape(bridge):
+    data = json.loads(pgrep.pgrep_exam_start())
+
+    for key in (
+        "session_id",
+        "total",
+        "duration_s",
+        "seconds_per_question",
+        "no_help_line",
+    ):
+        assert key in data, f"missing key: {key}"
+    # Empty collection: no Problems to assemble, so the mock has length 0.
+    assert data["total"] == 0
+
+
 # --- handler payloads (shape + honest n=1 state) -----------------------------
 
 
