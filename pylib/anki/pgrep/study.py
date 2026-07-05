@@ -277,19 +277,24 @@ def commit_problem(
     category = category_for(note.tags)
 
     # Commit gate: exactly one immutable Attempt per commit (no confidence).
-    attempt_log.append_attempt(
-        col,
-        {
-            "item_note_id": note_id,
-            "topic": topic,
-            "category": category,
-            "correct": is_correct,
-            "selected_option": selected_letter,
-            "session_id": session_id,
-            "answered_at": int(time.time()),
-            "ladder_depth": 0,
-        },
-    )
+    event: dict[str, Any] = {
+        "item_note_id": note_id,
+        "topic": topic,
+        "category": category,
+        "correct": is_correct,
+        "selected_option": selected_letter,
+        "session_id": session_id,
+        "answered_at": int(time.time()),
+        "ladder_depth": 0,
+    }
+    # M2: carry the authored item difficulty into the attempt payload so the
+    # Performance model can read it live (performance._attempt_difficulty maps a
+    # word or a 1..5 number to its scale). Passed through as authored. An empty
+    # field is omitted, and Performance falls back to a neutral difficulty.
+    difficulty = note[problem.FIELD_DIFFICULTY]
+    if difficulty:
+        event["difficulty"] = difficulty
+    attempt_log.append_attempt(col, event)
 
     return {
         "correct": is_correct,

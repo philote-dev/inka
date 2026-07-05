@@ -208,3 +208,62 @@ def test_next_item_on_empty_problem_session_is_empty():
     started = study.start_session(col, "problems")
     assert started["remaining"] == 0
     assert study.next_item(col, started["session_id"]) == {"kind": "empty"}
+
+
+# Committed attempts carry the authored item difficulty (M2 seam)
+##########################################################################
+
+
+def _add_problem(
+    col,
+    *,
+    difficulty: str,
+    correct: str = "A",
+    topic: str = "topic::mechanics",
+) -> int:
+    """Add one pgrep::Problem note with a chosen difficulty; return its note id.
+
+    A focused fixture for the commit seam: the shared sample problems all fix
+    difficulty to "medium", so we build a single note when a specific authored
+    difficulty (or an empty one) is what is under test.
+    """
+    notetype = problem.ensure_problem_notetype(col)
+    note = col.new_note(notetype)
+    note[problem.FIELD_STEM] = "A falling-body problem."
+    note[problem.FIELD_CHOICES] = json.dumps(["A", "B", "C", "D", "E"])
+    note[problem.FIELD_CORRECT] = correct
+    note[problem.FIELD_DISTRACTOR_RATIONALES] = json.dumps({})
+    note[problem.FIELD_SOLUTION_DECOMPOSITION] = json.dumps([])
+    note[problem.FIELD_DIFFICULTY] = difficulty
+    note[problem.FIELD_SOURCE_REF] = "test"
+    note.tags = [topic]
+    col.add_note(note, col.decks.id(problem.PROBLEM_DECK_NAME))
+    return int(note.id)
+
+
+def test_commit_persists_item_difficulty_onto_attempt():
+    col = getEmptyCol()
+    note_id = _add_problem(col, difficulty="hard", correct="A")
+
+    study.commit_problem(col, note_id, "sess-diff", "A")
+
+    events = attempt_log.attempts(col)
+    assert len(events) == 1
+    # The authored item difficulty rides into the attempt payload (M2) so the
+    # Performance model reads it live (performance._attempt_difficulty maps the
+    # word to the 1..5 scale). It is passed through as authored, not normalized
+    # in the study path.
+    assert events[0].payload["difficulty"] == "hard"
+
+
+def test_commit_omits_difficulty_when_field_is_empty():
+    col = getEmptyCol()
+    note_id = _add_problem(col, difficulty="", correct="A")
+
+    study.commit_problem(col, note_id, "sess-diff", "A")
+
+    events = attempt_log.attempts(col)
+    assert len(events) == 1
+    # An empty authored difficulty is left off the payload. Performance already
+    # falls back to a neutral difficulty when the key is absent.
+    assert "difficulty" not in events[0].payload
