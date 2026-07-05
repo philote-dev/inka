@@ -121,7 +121,18 @@ ATTEMPTS_PER_CATEGORY = 10
 
 # Attempt latencies (ms), all well above the rapid-guess floor (2000ms) so every
 # injected attempt counts as clean. Cycled across a category's attempts.
-_RESPONSE_MS: tuple[int, ...] = (4200, 8700, 3100, 12000, 5600, 2600, 9500, 3800, 15000, 6400)
+_RESPONSE_MS: tuple[int, ...] = (
+    4200,
+    8700,
+    3100,
+    12000,
+    5600,
+    2600,
+    9500,
+    3800,
+    15000,
+    6400,
+)
 
 # Authored item difficulty (1..5) cycled across a category's attempts, so the
 # Performance model sees a real spread rather than a single value.
@@ -311,9 +322,7 @@ def demo_status(col: Collection) -> dict[str, Any]:
     return {
         "injected": injected,
         "profile": col.get_config(_ACTIVE_PROFILE_KEY, None) if injected else None,
-        "profiles": [
-            {"key": p.key, "label": p.label} for p in PROFILES.values()
-        ],
+        "profiles": [{"key": p.key, "label": p.label} for p in PROFILES.values()],
         "demo_cards": len(col.find_notes(f"tag:{DEMO_TAG}")),
         "demo_attempts": len(_demo_attempt_note_ids(col)),
         "covered_categories": list(COVERED_CATEGORIES),
@@ -397,9 +406,9 @@ def _apply_review_state(
     area reads as higher Memory. The caller persists the batch via
     ``col.update_cards``; the scheduler is untouched.
     """
-    stability = (
-        prof.stability_days[index % len(prof.stability_days)] * _stability_scale(skill)
-    )
+    stability = prof.stability_days[
+        index % len(prof.stability_days)
+    ] * _stability_scale(skill)
     difficulty = prof.fsrs_difficulty[index % len(prof.fsrs_difficulty)]
     days_ago = prof.last_review_days_ago[index % len(prof.last_review_days_ago)]
 

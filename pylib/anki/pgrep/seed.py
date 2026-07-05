@@ -149,9 +149,7 @@ def _interleaved_by_category(
     return out
 
 
-def _new_note(
-    col: Collection, notetype: NotetypeDict, card: dict[str, Any]
-) -> Note:
+def _new_note(col: Collection, notetype: NotetypeDict, card: dict[str, Any]) -> Note:
     note = col.new_note(notetype)
     note["Front"] = card["front"]
     back = card["back"]

@@ -118,7 +118,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     </button>
                 {/each}
             </div>
-            <button class="btn strong" disabled={busy} on:click={() => refresh("inject")}>
+            <button
+                class="btn strong"
+                disabled={busy}
+                on:click={() => refresh("inject")}
+            >
                 Inject profile
             </button>
             <button class="btn" disabled={busy} on:click={() => refresh("clear")}>
@@ -144,7 +148,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     </span>
                 {:else}
                     <span class="dot"></span>
-                    <span>No demo injected. The scores below abstain, as a real account would.</span>
+                    <span>
+                        No demo injected. The scores below abstain, as a real account
+                        would.
+                    </span>
                 {/if}
             </div>
         </section>
@@ -158,7 +165,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 {:else}
                     <div class="score-value">{pct(status.scores.memory.point)}</div>
                     <div class="score-sub">
-                        {pct(status.scores.memory.low)} to {pct(status.scores.memory.high)}
+                        {pct(status.scores.memory.low)} to {pct(
+                            status.scores.memory.high,
+                        )}
                     </div>
                 {/if}
             </div>
@@ -169,7 +178,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     <div class="score-value abstain">Abstains</div>
                     <div class="score-sub">{status.scores.performance.reason}</div>
                 {:else}
-                    <div class="score-value">{pct(status.scores.performance.point)}</div>
+                    <div class="score-value">
+                        {pct(status.scores.performance.point)}
+                    </div>
                     <div class="score-sub">
                         {pct(status.scores.performance.low)} to {pct(
                             status.scores.performance.high,
@@ -184,7 +195,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     <div class="score-value abstain">Abstains</div>
                     <div class="score-sub">{status.scores.readiness.reason}</div>
                 {:else}
-                    <div class="score-value">{scaled(status.scores.readiness.scaled)}</div>
+                    <div class="score-value">
+                        {scaled(status.scores.readiness.scaled)}
+                    </div>
                     <div class="score-sub">
                         {scaled(status.scores.readiness.low)} to {scaled(
                             status.scores.readiness.high,
@@ -204,13 +217,19 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 </span>
             </div>
             <div class="bar">
-                <div class="bar-fill" style="width: {status.coverage_pct * 100}%;"></div>
-                <div class="bar-gate" style="left: {status.coverage_gate * 100}%;"></div>
+                <div
+                    class="bar-fill"
+                    style="width: {status.coverage_pct * 100}%;"
+                ></div>
+                <div
+                    class="bar-gate"
+                    style="left: {status.coverage_gate * 100}%;"
+                ></div>
             </div>
             <p class="caption">
-                Readiness needs {Math.round(status.coverage_gate * 100)}% of the blueprint
-                weight covered by scored topics. The demo covers {status.covered_categories
-                    .length} areas and leaves the rest an honest gap.
+                Readiness needs {Math.round(status.coverage_gate * 100)}% of the
+                blueprint weight covered by scored topics. The demo covers {status
+                    .covered_categories.length} areas and leaves the rest an honest gap.
             </p>
         </section>
     {/if}
