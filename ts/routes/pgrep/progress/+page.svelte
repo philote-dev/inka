@@ -286,7 +286,7 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
                 {segments}
                 coveredPct={pct(data.overall_pct)}
                 threshold={pct(data.gate)}
-                note={data.abstain_note}
+                note="Reviewed coverage. Readiness gates separately on questions attempted, not cards reviewed."
             />
 
             <ul class="topics">
@@ -331,8 +331,8 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
                 abstain={readinessAbstain}
             />
             <p class="muted small readiness-note">
-                Readiness leans on Performance under exam conditions, gated on coverage. It abstains until at least
-                {pct(readiness?.coverage_gate ?? 0.7)} percent of the exam is covered.
+                Readiness leans on Performance under exam conditions, gated on questions attempted (not cards reviewed).
+                It abstains until at least {pct(readiness?.coverage_gate ?? 0.7)} percent of the exam has been attempted.
             </p>
         </div>
 
