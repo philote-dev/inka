@@ -27,6 +27,7 @@ from anki.pgrep.demo_profile import (
     COVERAGE_WEIGHT,
     COVERED_CATEGORIES,
     DEFAULT_PROFILE,
+    DEMO_DECK_NAME,
     DEMO_TAG,
     clear_demo_profile,
     demo_status,
@@ -34,7 +35,12 @@ from anki.pgrep.demo_profile import (
     is_demo_injected,
 )
 from anki.pgrep.memory import K_MEM_DEFAULT, memory_score
-from anki.pgrep.performance import K_PERF_DEFAULT, MIN_RESPONSE_MS_DEFAULT, performance_score
+from anki.pgrep.performance import (
+    K_PERF_DEFAULT,
+    MIN_RESPONSE_MS_DEFAULT,
+    RECENCY_WINDOW_DEFAULT,
+    performance_score,
+)
 from anki.pgrep.readiness import readiness_score
 from tests.shared import getEmptyCol
 
@@ -185,6 +191,18 @@ def test_clear_only_touches_demo_data():
     assert is_demo_injected(col) is False
 
 
+def test_clear_removes_the_empty_demo_deck():
+    # A leftover empty demo deck would otherwise ride to mobile on the next sync.
+    col = getEmptyCol()
+    inject_demo_profile(col)
+    assert col.decks.id_for_name(DEMO_DECK_NAME) is not None
+
+    result = clear_demo_profile(col)
+
+    assert result["deck_removed"] is True
+    assert col.decks.id_for_name(DEMO_DECK_NAME) is None
+
+
 def test_inject_after_clear_creates_a_fresh_profile():
     col = getEmptyCol()
     inject_demo_profile(col)
@@ -215,6 +233,30 @@ def test_injected_attempts_are_clean_and_marked():
 
 
 # --- profiles ----------------------------------------------------------------
+
+
+def test_strong_profile_has_varied_correctness_and_recent_failures():
+    # The strong learner must feed a real recent-failure term, not a hidden miss
+    # front-loaded outside the recency window. Every covered area has varied
+    # correctness (neither a perfect run nor an all-miss run), and most feed a
+    # non-zero recent-failure count over the last RECENCY_WINDOW attempts.
+    col = getEmptyCol()
+    inject_demo_profile(col, "strong")
+
+    topics_with_recent_miss = 0
+    for category in COVERED_CATEGORIES:
+        events = attempts(col, topic=f"topic::{category}")  # oldest first
+        assert len(events) == ATTEMPTS_PER_CATEGORY
+        n_correct = sum(1 for event in events if event.correct)
+        assert 0 < n_correct < ATTEMPTS_PER_CATEGORY, category
+        window = events[-RECENCY_WINDOW_DEFAULT:]
+        if any(not event.correct for event in window):
+            topics_with_recent_miss += 1
+
+    # Most covered areas (here, all of them) exercise the recency-failure term.
+    assert topics_with_recent_miss >= len(COVERED_CATEGORIES) - 1
+    # It still reads as a strong learner overall.
+    assert performance_score(col)["overall"]["point"] > 0.7
 
 
 def test_strong_scores_higher_than_rusty_but_both_clear_gates():

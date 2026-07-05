@@ -106,6 +106,13 @@ _ACCURACY_SPREAD = 0.4
 _STABILITY_SCALE_MIN = 0.6
 _STABILITY_SCALE_MAX = 1.4
 
+# Per-area accuracy is capped below a perfect run so every covered area keeps at
+# least one miss. With the misses spread into the recency window (see _outcomes),
+# that makes even a strong learner feed a non-zero recent-failure term into the
+# Performance model rather than a hidden, front-loaded miss. It sits below 0.95 so
+# a 10-attempt area rounds to at most 9 correct.
+_MAX_ACCURACY = 0.9
+
 # Reviewed cards per category (>= memory.K_MEM_DEFAULT so Memory scores it) and
 # clean attempts per category (>= performance.K_PERF_DEFAULT so Performance
 # scores it and the weight counts toward Readiness coverage). Chosen with margin.
@@ -147,7 +154,7 @@ PROFILES: dict[str, DemoProfile] = {
     "strong": DemoProfile(
         key="strong",
         label="Strong learner",
-        accuracy=0.9,
+        accuracy=0.8,
         stability_days=(90.0, 140.0, 200.0, 110.0, 160.0, 130.0),
         fsrs_difficulty=(3.0, 4.0, 3.0, 5.0, 4.0, 3.0),
         last_review_days_ago=(2, 5, 8, 3, 6, 4),
@@ -181,8 +188,12 @@ def _clamp(value: float, lo: float, hi: float) -> float:
 
 
 def _category_accuracy(base: float, skill: float) -> float:
-    """Attempt accuracy for an area, its skill pulling around the profile base."""
-    return _clamp(base + (skill - 0.5) * _ACCURACY_SPREAD, 0.1, 1.0)
+    """Attempt accuracy for an area, its skill pulling around the profile base.
+
+    Capped at :data:`_MAX_ACCURACY` so no area is a perfect run and every covered
+    area keeps at least one miss for the recency-failure term.
+    """
+    return _clamp(base + (skill - 0.5) * _ACCURACY_SPREAD, 0.1, _MAX_ACCURACY)
 
 
 def _stability_scale(skill: float) -> float:
@@ -195,20 +206,29 @@ def is_demo_injected(col: Collection) -> bool:
     return bool(col.find_notes(f"tag:{DEMO_TAG}"))
 
 
-def _spread_true(n: int, k: int) -> list[bool]:
-    """``k`` True values spread evenly across ``n`` slots (deterministic).
+def _outcomes(n: int, correct: int) -> list[bool]:
+    """``correct`` wins and ``n - correct`` misses, oldest first (deterministic).
 
-    Even spreading (rather than a run of wins then losses) keeps the recency
-    window representative of the target accuracy, so the Performance recency
-    features are not skewed by ordering.
+    The misses are placed at evenly spaced positions across the run rather than
+    bunched at the oldest end, so whenever there is at least one miss, at least
+    one lands inside the recent tail that the Performance recency window reads
+    (the last ``RECENCY_WINDOW`` attempts). That makes even a strong profile feed
+    a non-zero recent-failure term, instead of hiding a single front-loaded miss
+    outside the window. The order matches the ``answered_at`` order the attempts
+    are given (oldest first).
     """
-    out: list[bool] = []
-    prev = 0
-    for i in range(1, n + 1):
-        cur = (i * k) // n
-        out.append(cur > prev)
-        prev = cur
-    return out
+    outcomes = [True] * n
+    misses = n - correct
+    if misses <= 0:
+        return outcomes
+    step = n / misses
+    for j in range(misses):
+        index = min(n - 1, int((j + 0.5) * step))
+        # Guard a rare rounding collision so the miss count stays exact.
+        while not outcomes[index]:
+            index = (index + 1) % n
+        outcomes[index] = False
+    return outcomes
 
 
 def inject_demo_profile(
@@ -261,6 +281,7 @@ def clear_demo_profile(col: Collection) -> dict[str, Any]:
         col.remove_notes(card_note_ids)
     if attempt_note_ids:
         col.remove_notes(attempt_note_ids)
+    deck_removed = _remove_demo_deck_if_empty(col)
     col.merge_undo_entries(undo_id)
     col.remove_config(_ACTIVE_PROFILE_KEY)
 
@@ -268,6 +289,7 @@ def clear_demo_profile(col: Collection) -> dict[str, Any]:
         "cleared": bool(card_note_ids or attempt_note_ids),
         "cards_removed": len(card_note_ids),
         "attempts_removed": len(attempt_note_ids),
+        "deck_removed": deck_removed,
     }
 
 
@@ -408,7 +430,7 @@ def _inject_attempts(col: Collection, prof: DemoProfile) -> int:
         item_base = (cat_index + 1) * 100000
         accuracy = _category_accuracy(prof.accuracy, skill)
         correct_count = int(accuracy * ATTEMPTS_PER_CATEGORY + 0.5)
-        outcomes = _spread_true(ATTEMPTS_PER_CATEGORY, correct_count)
+        outcomes = _outcomes(ATTEMPTS_PER_CATEGORY, correct_count)
         for i, correct in enumerate(outcomes):
             answered_at = _answered_at(now, cat_index, i, ATTEMPTS_PER_CATEGORY)
             append_attempt(
@@ -437,6 +459,17 @@ def _answered_at(now: int, cat_index: int, i: int, n: int) -> int:
     days_ago = _ATTEMPT_WINDOW_DAYS * (1.0 - frac)
     # Stagger topics by a few hours so timestamps do not collide across topics.
     return now - int(days_ago * 86400) - cat_index * 3600
+
+
+def _remove_demo_deck_if_empty(col: Collection) -> bool:
+    """Remove the demo deck once it holds no cards, so no empty deck rides to sync."""
+    deck_id = col.decks.id_for_name(DEMO_DECK_NAME)
+    if deck_id is None:
+        return False
+    if col.decks.card_count(deck_id, include_subdecks=True):
+        return False
+    col.decks.remove([deck_id])
+    return True
 
 
 def _demo_attempt_note_ids(col: Collection) -> list[NoteId]:
