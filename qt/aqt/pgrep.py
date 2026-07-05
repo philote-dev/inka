@@ -66,6 +66,29 @@ def pgrep_coverage() -> bytes:
     return _json(coverage.coverage(aqt.mw.col))
 
 
+# L5.2 Progress / Performance -> anki.pgrep.performance.performance_score
+def pgrep_performance_score() -> bytes:
+    from anki.pgrep import performance
+
+    return _json(
+        performance.performance_score(aqt.mw.col, deck_id=_args().get("deck_id"))
+    )
+
+
+# L5.3 Progress / Readiness -> anki.pgrep.readiness.readiness_score
+def pgrep_readiness_score() -> bytes:
+    from anki.pgrep import readiness
+
+    return _json(readiness.readiness_score(aqt.mw.col))
+
+
+# L5.5 Progress / Calibration -> anki.pgrep.calibration_evidence (embedded, no col)
+def pgrep_calibration() -> bytes:
+    from anki.pgrep import calibration_evidence
+
+    return _json(calibration_evidence.calibration_evidence())
+
+
 # L2.3 Diagnostic -> anki.pgrep.diagnostic.topics
 def pgrep_diagnostic_topics() -> bytes:
     from anki.pgrep import diagnostic
@@ -239,6 +262,9 @@ pgrep_post_handlers = [
     pgrep_seed,
     pgrep_memory_score,
     pgrep_coverage,
+    pgrep_performance_score,
+    pgrep_readiness_score,
+    pgrep_calibration,
     pgrep_diagnostic_topics,
     pgrep_diagnostic_place,
     pgrep_study_start,

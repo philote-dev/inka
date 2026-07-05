@@ -37,6 +37,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         { id: "grade-bar", label: "Grade bar" },
         { id: "coverage-bar", label: "Coverage bar" },
         { id: "reliability", label: "Reliability diagram" },
+        { id: "calibration-panel", label: "Calibration panel" },
         { id: "study-frame", label: "Study frame" },
         { id: "nav-rail", label: "Nav rail" },
         { id: "manifold", label: "Manifold" },
@@ -167,6 +168,44 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         { p: 0.7, o: 0.82 },
         { p: 0.9, o: 0.95 },
     ];
+
+    // Calibration panel (Progress, L5.5): the wired pair the surface renders from
+    // the embedded offline evidence. These points/Brier mirror
+    // anki.pgrep.calibration_evidence (aggregate statistics, safe to show), so a
+    // reviewer sees the real curves without a backend. Memory is the default FSRS
+    // curve (slightly overconfident); Performance is the held-out synthetic run.
+    const calibMemory: { p: number; o: number }[] = [
+        { p: 0.554, o: 0.31 },
+        { p: 0.682, o: 0.545 },
+        { p: 0.748, o: 0.597 },
+        { p: 0.803, o: 0.708 },
+        { p: 0.838, o: 0.765 },
+        { p: 0.865, o: 0.755 },
+        { p: 0.888, o: 0.756 },
+        { p: 0.911, o: 0.779 },
+        { p: 0.939, o: 0.739 },
+        { p: 0.98, o: 0.668 },
+    ];
+    const calibMemoryBrier = 0.234;
+    const calibPerformance: { p: number; o: number }[] = [
+        { p: 0.42, o: 0.313 },
+        { p: 0.642, o: 0.75 },
+        { p: 0.755, o: 0.625 },
+        { p: 0.818, o: 0.75 },
+        { p: 0.863, o: 0.813 },
+        { p: 0.89, o: 0.938 },
+        { p: 0.918, o: 0.938 },
+        { p: 0.933, o: 0.75 },
+        { p: 0.946, o: 0.688 },
+        { p: 0.96, o: 0.875 },
+    ];
+    const calibPerformanceBrier = 0.175;
+
+    // Readiness on the Progress surface: the honest abstain at n=1 (empty attempt
+    // log, coverage below the gate, so the exam is named) and, for contrast, a
+    // covered read with a point and an 80% range.
+    const readinessUncovered =
+        "Cover Mechanics, Electromagnetism, Quantum, Thermodynamics, Atomic physics, Optics and waves, Special relativity, Lab methods, Specialized to unlock Readiness.";
 
     // StudyFrame: a compact problem stem for the Problems door preview.
     const frameChoices: { key: string; html: string }[] = [
@@ -418,6 +457,72 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                             tone="performance"
                                             size={200}
                                         />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {/each}
+                </div>
+            </section>
+
+            <!-- Calibration panel -->
+            <section id="calibration-panel" class="section">
+                <div class="section-head">
+                    <h2>Calibration panel</h2>
+                    <p>
+                        The wired Progress surface (L5.5). Readiness is coverage gated, so at n equals one it
+                        abstains and names the uncovered exam. Calibration shows each model layer with its evidence,
+                        a reliability diagram plus Brier for Memory and for Performance, from the embedded offline
+                        runs. The reserved hues stay data only, amber for Memory, blue for Performance, lilac for
+                        Readiness.
+                    </p>
+                </div>
+                <div class="split">
+                    {#each THEMES as t (t.id)}
+                        <div class="pane pgrep {t.cls}">
+                            <span class="pane-label">{t.label}</span>
+                            <div class="stage stack">
+                                <span class="state-label">Readiness, abstain at n = 1</span>
+                                <ScoreCard
+                                    kind="readiness"
+                                    abstain={{
+                                        message: "Not enough of the exam is covered yet",
+                                        missing: readinessUncovered,
+                                    }}
+                                />
+                                <span class="state-label">Readiness, covered with a range</span>
+                                <ScoreCard
+                                    kind="readiness"
+                                    value={620}
+                                    range={[590, 660]}
+                                    howSure="74 percent covered"
+                                    updated=""
+                                />
+                                <span class="state-label">Calibration evidence, Memory and Performance</span>
+                                <div class="rel-row">
+                                    <div class="rel-cell">
+                                        <span class="calib-tone" style="color: var(--memory-text);">Memory</span>
+                                        <ReliabilityDiagram
+                                            points={calibMemory}
+                                            brier={calibMemoryBrier}
+                                            read="Held-out reviews"
+                                            tone="memory"
+                                            size={200}
+                                        />
+                                        <p class="calib-caption">Validated on held-out reviews. Default FSRS, slightly overconfident.</p>
+                                        <p class="calib-meta">n 7,503 · 2026-07-05</p>
+                                    </div>
+                                    <div class="rel-cell">
+                                        <span class="calib-tone" style="color: var(--performance-text);">Performance</span>
+                                        <ReliabilityDiagram
+                                            points={calibPerformance}
+                                            brier={calibPerformanceBrier}
+                                            read="Held-out synthetic"
+                                            tone="performance"
+                                            size={200}
+                                        />
+                                        <p class="calib-caption">Methodology validated on held-out synthetic (n = 1 cohort).</p>
+                                        <p class="calib-meta">n 160 · 2026-07-05</p>
                                     </div>
                                 </div>
                             </div>
@@ -728,6 +833,25 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         display: flex;
         flex-direction: column;
         gap: var(--space-0);
+    }
+
+    .calib-tone {
+        font-size: var(--text-small);
+        font-weight: 600;
+    }
+
+    .calib-caption {
+        margin: var(--space-0) 0 0;
+        font-size: var(--text-small);
+        line-height: 1.5;
+        color: var(--muted);
+    }
+
+    .calib-meta {
+        margin: 2px 0 0;
+        font-size: var(--text-caption);
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
     }
 
     .frame-preview {

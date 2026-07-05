@@ -2,19 +2,23 @@
 Copyright: Ankitects Pty Ltd and contributors
 License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
-pgrep Progress (L2.4). The coverage ledger: how much of the blueprint you have
-started on (a segmented bar, one segment per category weighted by the blueprint,
-filled when covered), the overall fraction against the Readiness gate, and a
-per-category list that reuses each topic's Memory point. Calibration lives here
-too, but abstains until the model has enough graded predictions to plot. Pure
-math over FSRS state and tags, no AI. Styled with the pgrep design system
-(CoverageBar, ReliabilityDiagram); the pgrepCall data flow is unchanged.
+pgrep Progress (L2.4 + L5.5). The coverage ledger: how much of the blueprint you
+have started on (a segmented bar, one segment per category weighted by the
+blueprint, filled when covered), the overall fraction against the Readiness gate,
+and a per-category list that reuses each topic's Memory point. It then shows the
+coverage-gated Readiness score (point + 80% range when covered, an honest abstain
+that names the uncovered exam otherwise) and the Calibration evidence: a
+reliability diagram plus Brier for Memory and for Performance, from the embedded
+offline evaluations (never the private content/ tree). Pure math over FSRS state,
+tags, and embedded constants, no AI. Styled with the pgrep design system
+(CoverageBar, ReliabilityDiagram, ScoreCard); the pgrepCall data flow is unchanged.
 -->
 <script lang="ts">
     import { onMount } from "svelte";
 
     import CoverageBar from "$lib/components/CoverageBar.svelte";
     import ReliabilityDiagram from "$lib/components/ReliabilityDiagram.svelte";
+    import ScoreCard from "$lib/components/ScoreCard.svelte";
 
     import { pgrepCall } from "../lib/bridge";
 
@@ -33,6 +37,38 @@ math over FSRS state and tags, no AI. Styled with the pgrep design system
         abstain_note: string;
     }
 
+    interface RelPoint {
+        p: number;
+        o: number;
+    }
+
+    interface CalibrationLayer {
+        points: RelPoint[];
+        brier: number | null;
+        n: number;
+        note: string;
+        source: string;
+        method: string;
+        date: string;
+    }
+
+    interface CalibrationData {
+        memory: CalibrationLayer;
+        performance: CalibrationLayer;
+    }
+
+    interface ReadinessData {
+        scaled: number | null;
+        low: number | null;
+        high: number | null;
+        coverage_pct: number;
+        coverage_gate: number;
+        abstain: boolean;
+        reason: string | null;
+        uncovered_topics: string[];
+        last_updated: number | null;
+    }
+
     const CATEGORY_LABELS: Record<string, string> = {
         mechanics: "Mechanics",
         electromagnetism: "Electromagnetism",
@@ -46,6 +82,8 @@ math over FSRS state and tags, no AI. Styled with the pgrep design system
     };
 
     let data: CoverageData | null = null;
+    let calibration: CalibrationData | null = null;
+    let readiness: ReadinessData | null = null;
     let loading = true;
     let seeding = false;
     let errored = false;
@@ -54,7 +92,18 @@ math over FSRS state and tags, no AI. Styled with the pgrep design system
         loading = true;
         errored = false;
         try {
-            data = await pgrepCall<CoverageData>("pgrepCoverage", {});
+            // Coverage is the primary read; calibration (embedded evidence) and
+            // Readiness are secondary, so a hiccup on either abstains its panel
+            // rather than failing the whole surface. All three are pure math and
+            // return well within the 100ms feel.
+            const [coverage, calib, ready] = await Promise.all([
+                pgrepCall<CoverageData>("pgrepCoverage", {}),
+                pgrepCall<CalibrationData>("pgrepCalibration", {}).catch(() => null),
+                pgrepCall<ReadinessData>("pgrepReadinessScore", {}).catch(() => null),
+            ]);
+            data = coverage;
+            calibration = calib;
+            readiness = ready;
         } catch {
             errored = true;
         } finally {
@@ -81,6 +130,14 @@ math over FSRS state and tags, no AI. Styled with the pgrep design system
         return Math.round(value * 100);
     }
 
+    function round3(value: number): number {
+        return Math.round(value * 1000) / 1000;
+    }
+
+    function formatN(value: number): string {
+        return value.toLocaleString("en-US");
+    }
+
     function label(slug: string): string {
         return CATEGORY_LABELS[slug] ?? slug.replace(/_/g, " ");
     }
@@ -89,10 +146,82 @@ math over FSRS state and tags, no AI. Styled with the pgrep design system
         return `${n} ${n === 1 ? "card" : "cards"}`;
     }
 
+    // One reliability view per model layer. Honors the abstain rule: a layer with
+    // no evidence draws the empty frame and names why. Both layers ship evidence,
+    // so both draw their curve with a rounded Brier and an honest caption.
+    interface CalibView {
+        kind: "memory" | "performance";
+        title: string;
+        read: string;
+        caption: string;
+        points: RelPoint[];
+        brier: number | null;
+        meta: string;
+    }
+
+    function calibView(
+        kind: "memory" | "performance",
+        title: string,
+        read: string,
+        layer: CalibrationLayer | undefined,
+    ): CalibView {
+        if (!layer || layer.points.length === 0) {
+            return {
+                kind,
+                title,
+                read: "Not enough graded evidence yet",
+                caption: "No calibration evidence for this layer yet.",
+                points: [],
+                brier: null,
+                meta: "",
+            };
+        }
+        return {
+            kind,
+            title,
+            read,
+            caption: layer.note,
+            points: layer.points,
+            brier: layer.brier != null ? round3(layer.brier) : null,
+            meta: `n ${formatN(layer.n)} · ${layer.date}`,
+        };
+    }
+
+    function readinessAbstainState(
+        r: ReadinessData | null,
+    ): { message: string; missing?: string } | undefined {
+        if (!r) {
+            return { message: "Readiness is unavailable right now." };
+        }
+        if (!r.abstain) {
+            return undefined;
+        }
+        const names = r.uncovered_topics.map(label).join(", ");
+        return {
+            message: r.reason ?? "Not enough of the exam is covered yet",
+            missing: names ? `Cover ${names} to unlock Readiness.` : undefined,
+        };
+    }
+
     $: topics = data ? data.by_topic : [];
     $: coveredCount = topics.filter((t) => t.covered).length;
     $: anyCards = topics.some((t) => t.n_cards > 0);
     $: segments = topics.map((t) => ({ topic: label(t.category), weight: t.blueprint, covered: t.covered ? 1 : 0 }));
+
+    $: calibViews = [
+        calibView("memory", "Memory", "Held-out reviews", calibration?.memory),
+        calibView("performance", "Performance", "Held-out synthetic", calibration?.performance),
+    ];
+
+    // Coverage-gated Readiness: a scaled point + 80% range when covered, an honest
+    // abstain that names the uncovered exam otherwise (the n=1 reality today).
+    $: readinessCovered = !!readiness && !readiness.abstain && readiness.scaled != null;
+    $: readinessRange =
+        readinessCovered && readiness
+            ? ([readiness.low, readiness.high] as [number, number])
+            : undefined;
+    $: readinessHowSure = readinessCovered && readiness ? `${pct(readiness.coverage_pct)} percent covered` : "";
+    $: readinessAbstain = readinessAbstainState(readiness);
 </script>
 
 <section class="progress">
@@ -162,19 +291,48 @@ math over FSRS state and tags, no AI. Styled with the pgrep design system
             </div>
         </div>
 
+        <div class="readiness-block">
+            <ScoreCard
+                kind="readiness"
+                value={readiness?.scaled ?? undefined}
+                range={readinessRange}
+                howSure={readinessHowSure}
+                updated=""
+                abstain={readinessAbstain}
+            />
+            <p class="muted small readiness-note">
+                Readiness leans on Performance under exam conditions, gated on coverage. It abstains until at least
+                {pct(readiness?.coverage_gate ?? 0.7)} percent of the exam is covered.
+            </p>
+        </div>
+
         <div class="panel">
             <div class="panel-head">
                 <h2>Calibration</h2>
-                <span class="count">Performance model</span>
+                <span class="count">How honest the model is</span>
             </div>
             <div class="calib">
-                <ReliabilityDiagram points={[]} read="Not enough graded reviews yet" tone="performance" />
-                <p class="muted small calib-note">
-                    Calibration compares the model's predicted chance of a correct answer against what actually
-                    happened. The closer the line sits to the diagonal, the more honest the model. It appears once
-                    you have enough graded reviews.
-                </p>
+                {#each calibViews as view (view.kind)}
+                    <div class="calib-cell">
+                        <span class="calib-tone" style="color: var(--{view.kind}-text);">{view.title}</span>
+                        <ReliabilityDiagram
+                            points={view.points}
+                            brier={view.brier}
+                            read={view.read}
+                            tone={view.kind}
+                            size={200}
+                        />
+                        <p class="muted small calib-cell-note">{view.caption}</p>
+                        {#if view.meta}
+                            <p class="muted calib-meta">{view.meta}</p>
+                        {/if}
+                    </div>
+                {/each}
             </div>
+            <p class="muted small calib-note">
+                Calibration compares each model's predicted chance against what actually happened on held-out data.
+                The closer the line sits to the diagonal, the more honest the model.
+            </p>
         </div>
     {/if}
 </section>
@@ -320,16 +478,51 @@ math over FSRS state and tags, no AI. Styled with the pgrep design system
         }
     }
 
-    .calib {
+    .readiness-block {
         display: flex;
+        flex-direction: column;
+        gap: var(--space-1);
+    }
+
+    .readiness-note {
+        margin: 0;
+        line-height: 1.55;
+        max-width: 62ch;
+    }
+
+    .calib {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
         gap: var(--space-3);
-        align-items: center;
-        flex-wrap: wrap;
+        align-items: start;
+    }
+
+    .calib-cell {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-0);
+        min-width: 0;
+    }
+
+    .calib-tone {
+        font-size: var(--text-small);
+        font-weight: 600;
+        letter-spacing: 0.01em;
+    }
+
+    .calib-cell-note {
+        margin: var(--space-0) 0 0;
+        line-height: 1.5;
+    }
+
+    .calib-meta {
+        margin: 2px 0 0;
+        font-size: var(--text-caption);
+        font-variant-numeric: tabular-nums;
     }
 
     .calib-note {
-        flex: 1 1 240px;
-        min-width: 220px;
+        margin: var(--space-2) 0 0;
         line-height: 1.55;
     }
 
