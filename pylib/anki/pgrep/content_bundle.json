@@ -18,7 +18,7 @@
         "p4-prob-0108"
       ]
     },
-    "notes": "Corpus-grounded; no held-out/gold items. Choice letter prefixes normalized off; three garbled citation labels fixed. difficulty is the authored 0..1 fraction (higher is harder); the seeder maps it to the 1..5 Performance scale. A small set of triage-KEEP problems (conservative-verifier false positives) carry no corpus citation (source_ref null); their physics was re-derived in triage."
+    "notes": "Corpus-grounded; no held-out/gold items. Choice letter prefixes normalized off; three garbled citation labels fixed. difficulty is the authored 0..1 fraction (higher is harder); the seeder maps it to the 1..5 Performance scale. The 15 triage-KEEP problems the generator left uncited (conservative-verifier false positives) were re-grounded against the corpus index in the L5.9 P4b provenance pass. All 15 cleared the cite-or-refuse floor and earned a real corpus citation, so every bundled problem now carries a source_ref and none were dropped."
   },
   "counts": {
     "cards": 342,
@@ -2866,7 +2866,7 @@
         }
       ],
       "difficulty": 0.42,
-      "source_ref": null
+      "source_ref": "OpenStax University Physics Volume 1, pp. 352-353, §7.4 Power"
     },
     {
       "id": "p4-prob-0003",
@@ -3438,7 +3438,7 @@
         }
       ],
       "difficulty": 0.35,
-      "source_ref": null
+      "source_ref": "OpenStax University Physics Volume 1, pp. 482-483, §10.4 Moment of Inertia and Rotational Kinetic Energy"
     },
     {
       "id": "p4-prob-0015",
@@ -3598,7 +3598,7 @@
         }
       ],
       "difficulty": 0.25,
-      "source_ref": null
+      "source_ref": "OpenStax University Physics Volume 1, pp. 561-562, §11.4 Precession of a Gyroscope"
     },
     {
       "id": "p4-prob-0018",
@@ -3646,7 +3646,7 @@
         }
       ],
       "difficulty": 0.32,
-      "source_ref": null
+      "source_ref": "OpenStax University Physics Volume 1, p. 490, §10.5 Calculating Moments of Inertia"
     },
     {
       "id": "p4-prob-0019",
@@ -4018,7 +4018,7 @@
         }
       ],
       "difficulty": 0.45,
-      "source_ref": null
+      "source_ref": "Fitzpatrick: Newtonian Dynamics, p. 130, §9.5 Motion in a Central Potential"
     },
     {
       "id": "p4-prob-0026",
@@ -4222,7 +4222,7 @@
         }
       ],
       "difficulty": 0.28,
-      "source_ref": null
+      "source_ref": "OpenStax University Physics Volume 2, pp. 242-243, §6.2 Explaining Gauss’s Law"
     },
     {
       "id": "p4-prob-0030",
@@ -4438,7 +4438,7 @@
         }
       ],
       "difficulty": 0.45,
-      "source_ref": null
+      "source_ref": "OpenStax University Physics Volume 2, pp. 317-318, §7.5 Equipotential Surfaces and Conductors"
     },
     {
       "id": "p4-prob-0034",
@@ -5630,7 +5630,7 @@
         }
       ],
       "difficulty": 0.35,
-      "source_ref": null
+      "source_ref": "OpenStax University Physics Volume 3, p. 341, §7.6 The Quantum Tunneling of Particles through"
     },
     {
       "id": "p4-prob-0057",
@@ -5990,7 +5990,7 @@
         }
       ],
       "difficulty": 0.35,
-      "source_ref": null
+      "source_ref": "Fitzpatrick: Quantum Mechanics, pp. 81-82, §Simple Harmonic Oscillator"
     },
     {
       "id": "p4-prob-0064",
@@ -6146,7 +6146,7 @@
         }
       ],
       "difficulty": 0.25,
-      "source_ref": null
+      "source_ref": "OpenStax University Physics Volume 1, pp. 538-539, §11.2 Angular Momentum"
     },
     {
       "id": "p4-prob-0068",
@@ -6306,7 +6306,7 @@
         }
       ],
       "difficulty": 0.42,
-      "source_ref": null
+      "source_ref": "Fitzpatrick: Quantum Mechanics, pp. 171-172, §Hyperfine Structure"
     },
     {
       "id": "p4-prob-0071",
@@ -6886,7 +6886,7 @@
         }
       ],
       "difficulty": 0.18,
-      "source_ref": null
+      "source_ref": "Fitzpatrick: Thermodynamics and Statistical Mechanics, pp. 5-6, §The need for a statistical approach"
     },
     {
       "id": "p4-prob-0082",
@@ -7238,7 +7238,7 @@
         }
       ],
       "difficulty": 0.32,
-      "source_ref": null
+      "source_ref": "Fitzpatrick: Quantum Mechanics, p. 192, §2P1S Transitions in Hydrogen"
     },
     {
       "id": "p4-prob-0089",
@@ -9726,7 +9726,7 @@
         }
       ],
       "difficulty": 0.68,
-      "source_ref": null
+      "source_ref": "Fitzpatrick: Newtonian Dynamics, pp. 220-221, §14.2 Preliminary Analysis"
     },
     {
       "id": "p4-prob-0138",
@@ -9882,7 +9882,7 @@
         }
       ],
       "difficulty": 0.35,
-      "source_ref": null
+      "source_ref": "Fitzpatrick: Newtonian Dynamics, pp. 19-20, §2.8 Exercises"
     }
   ]
 }

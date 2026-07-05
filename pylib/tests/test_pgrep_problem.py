@@ -102,15 +102,16 @@ def test_seeded_problems_carry_real_source_ref():
         ref = note[problem.FIELD_SOURCE_REF]
         # The "pgrep-sample" placeholder is retired.
         assert ref != "pgrep-sample"
-        if ref:
-            with_ref += 1
+        # Every seeded Problem now carries a real corpus citation. The L5.9 P4b
+        # provenance pass re-grounded the last uncited triage-KEEP items against
+        # the corpus index (cite-or-refuse) and dropped any it could not ground,
+        # so no Problem ships without a named source.
+        assert ref, f"note {note_id} shipped with an empty source_ref"
+        with_ref += 1
 
-    # Every bundle item that has provenance carries it onto the note, and the
-    # overwhelming majority of problems are cited (a small handful of triage-KEEP
-    # items were left uncited by the generator; their physics was re-derived).
-    expected = sum(1 for p in problem.BUNDLE_PROBLEMS if p.get("source_ref"))
-    assert with_ref == expected
-    assert with_ref >= 0.8 * len(problem.BUNDLE_PROBLEMS)
+    # Provenance reaches every note, and no bundled Problem is uncited.
+    assert with_ref == len(problem.BUNDLE_PROBLEMS)
+    assert all(p.get("source_ref") for p in problem.BUNDLE_PROBLEMS)
 
 
 def test_seeded_problem_cards_live_in_problems_deck():
