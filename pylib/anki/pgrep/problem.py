@@ -1,7 +1,7 @@
 # Copyright: Ankitects Pty Ltd and contributors
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
-"""The ``pgrep::Problem`` notetype and sample problems (L2.1 Study).
+"""The ``pgrep::Problem`` notetype and bundled problems (L2.1 Study).
 
 A Problem is a five-choice practice question with everything the wrong-answer
 ladder needs stored *with the item* (``feature-productive-failure.md`` §L2): the
@@ -21,14 +21,17 @@ Field order (fixed by the L2 API contract §3):
 The topic lives on the note's tags (``topic::<category>``), mirroring the rest of
 pgrep, so the selector / Memory / Coverage see Problems the same way as cards.
 
-:func:`seed_sample_problems` idempotently seeds a handful of real problems spread
-across categories into a ``PGRE::Problems`` deck; a marker tag makes repeat calls
-a no-op. The scaffolding ``pgrep_seed`` handler calls it opportunistically.
+:func:`seed_sample_problems` idempotently seeds the curated, corpus-grounded
+problems from the committed content bundle (:data:`BUNDLE_PROBLEMS`, built from
+the P4 triage-approved set) into a ``PGRE::Problems`` deck; a marker tag makes
+repeat calls a no-op. New notes cold-start FSRS; scheduling state is never
+touched. The scaffolding ``pgrep_seed`` handler calls it opportunistically.
 """
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -64,6 +67,23 @@ PROBLEM_FIELDS: tuple[str, ...] = (
 
 # The option letters a Problem may use, in order.
 CHOICE_LETTERS: tuple[str, ...] = ("A", "B", "C", "D", "E")
+
+# The committed content bundle lives next to this module.
+_BUNDLE_PATH = Path(__file__).with_name("content_bundle.json")
+
+# Middle of the 1..5 authored scale, used when a bundle item lacks a difficulty.
+_NEUTRAL_DIFFICULTY = "3.0"
+
+
+def _load_bundle_problems() -> list[dict[str, Any]]:
+    with _BUNDLE_PATH.open(encoding="utf-8") as handle:
+        return json.load(handle)["problems"]
+
+
+# The curated default problems (P4 triage-approved, corpus-grounded). Each record
+# is ``{"id", "topic", "kind", "stem", "choices", "correct", "distractors",
+# "solution_decomposition", "difficulty", "source_ref"}``.
+BUNDLE_PROBLEMS: tuple[dict[str, Any], ...] = tuple(_load_bundle_problems())
 
 
 # Notetype bootstrap
@@ -103,199 +123,42 @@ def ensure_problem_notetype(col: Collection) -> NotetypeDict:
     return created
 
 
-# Sample problems (the AI-off ladder data)
+# Bundled problems (the AI-off ladder data)
 ##########################################################################
 
-# (category, stem, choices A..E, correct letter, {distractor letter: why it is
-# wrong}, [(subgoal, rubric), ...]). The distractor rationales never name the
-# correct option, and no sub-goal/rubric states the final answer, so the final
-# answer only ever appears in the reveal rung that ``study.commit_problem``
-# builds. Real physics, text only (unicode, no media, no MathJax required).
-_SAMPLE_PROBLEMS: tuple[
-    tuple[
-        str,
-        str,
-        tuple[str, str, str, str, str],
-        str,
-        dict[str, str],
-        tuple[tuple[str, str], ...],
-    ],
-    ...,
-] = (
-    (
-        "mechanics",
-        "A ball is dropped from rest and falls freely for 3.0 s near Earth's "
-        "surface. Ignoring air resistance and taking g \u2248 10 m/s\u00b2, "
-        "how far does it fall?",
-        ("5 m", "15 m", "30 m", "45 m", "90 m"),
-        "D",
-        {
-            "A": "Dropped g and used only \u00bd t\u00b2. The acceleration has "
-            "to appear in the displacement.",
-            "B": "Used \u00bd g t, so the time was not squared. Free-fall "
-            "distance grows with t\u00b2.",
-            "C": "That is the speed g t reached after 3.0 s, not the distance "
-            "travelled.",
-            "E": "Used g t\u00b2 but dropped the factor of \u00bd.",
-        },
-        (
-            (
-                "Pick the right kinematics relation",
-                "Chooses d = \u00bd g t\u00b2 for motion from rest (initial "
-                "speed zero).",
-            ),
-            (
-                "Substitute the given values",
-                "Uses g \u2248 10 m/s\u00b2 and t = 3.0 s, and squares the time.",
-            ),
-        ),
-    ),
-    (
-        "electromagnetism",
-        "Two point charges of +2 \u03bcC each are held 1.0 m apart in vacuum. "
-        "With k \u2248 9\u00d710\u2079 N\u00b7m\u00b2/C\u00b2, the magnitude of "
-        "the force between them is closest to",
-        ("0.018 N", "0.036 N", "0.072 N", "3.6 N", "36 N"),
-        "B",
-        {
-            "A": "Halved the result, as if only one charge entered the "
-            "numerator. Both charge magnitudes multiply.",
-            "C": "Doubled the force, as if the charges added instead of "
-            "multiplying in Coulomb's law.",
-            "D": "Mishandled the micro prefix, since (10\u207b\u2076)\u00b2 is "
-            "10\u207b\u00b9\u00b2, not 10\u207b\u2076.",
-            "E": "Kept only one factor of 10\u207b\u2076 instead of squaring it.",
-        },
-        (
-            (
-                "Choose the force law",
-                "Writes Coulomb's law F = k q\u2081 q\u2082 / r\u00b2.",
-            ),
-            (
-                "Convert the charges",
-                "Uses q = 2\u00d710\u207b\u2076 C for each charge and r = 1.0 m.",
-            ),
-            (
-                "Handle the powers of ten",
-                "Combines 9\u00d710\u2079 with (2\u00d710\u207b\u2076)\u00b2 = "
-                "4\u00d710\u207b\u00b9\u00b2.",
-            ),
-        ),
-    ),
-    (
-        "quantum",
-        "An electron is confined to a one-dimensional infinite square well. Its "
-        "ground-state energy is E\u2081. What is the energy of the n = 3 level?",
-        ("3 E\u2081", "4 E\u2081", "6 E\u2081", "9 E\u2081", "27 E\u2081"),
-        "D",
-        {
-            "A": "Took energy proportional to n. The infinite-well levels grow "
-            "with n\u00b2, not n.",
-            "B": "Squared the wrong level (n = 2 gives 4 E\u2081).",
-            "C": "Used 2n or added levels instead of squaring n.",
-            "E": "Used n\u00b3; the infinite-well spectrum goes as n\u00b2.",
-        },
-        (
-            (
-                "Recall the spectrum",
-                "States E_n = n\u00b2 E\u2081 for the infinite square well.",
-            ),
-            (
-                "Insert the level",
-                "Sets n = 3 and squares it before multiplying by E\u2081.",
-            ),
-        ),
-    ),
-    (
-        "thermodynamics",
-        "A Carnot engine runs between reservoirs at 400 K and 300 K. Its maximum "
-        "theoretical efficiency is closest to",
-        ("25%", "33%", "57%", "75%", "133%"),
-        "A",
-        {
-            "B": "Divided the temperature difference by the cold reservoir "
-            "(\u0394T/T_c) instead of the hot one.",
-            "C": "Mixed Celsius and Kelvin in the ratio.",
-            "D": "This is T_c/T_h; the efficiency is one minus that ratio.",
-            "E": "Inverted the ratio to T_h/T_c, which cannot be an efficiency.",
-        },
-        (
-            (
-                "Recall Carnot efficiency",
-                "Writes \u03b7 = 1 \u2212 T_c/T_h with absolute temperatures.",
-            ),
-            (
-                "Substitute in Kelvin",
-                "Uses T_c = 300 K and T_h = 400 K (no Celsius).",
-            ),
-        ),
-    ),
-    (
-        "optics_waves",
-        "In a double-slit experiment with slit separation d, light of "
-        "wavelength \u03bb gives first-order maxima at angle \u03b8. If the "
-        "wavelength is doubled at fixed d, sin \u03b8 for the first order",
-        (
-            "is halved",
-            "is unchanged",
-            "doubles",
-            "quadruples",
-            "falls to zero",
-        ),
-        "C",
-        {
-            "A": "Treated sin \u03b8 as proportional to 1/\u03bb, which is "
-            "backwards for the maxima condition.",
-            "B": "Assumed the angle does not depend on wavelength, but it does.",
-            "D": "Used a \u03bb\u00b2 dependence; the relation is linear in \u03bb.",
-            "E": "Confused the bright-fringe condition with a dark-fringe one.",
-        },
-        (
-            (
-                "Write the maxima condition",
-                "States d sin \u03b8 = m \u03bb for bright fringes.",
-            ),
-            (
-                "Isolate the wavelength",
-                "Rearranges to sin \u03b8 = m \u03bb / d, so sin \u03b8 \u221d "
-                "\u03bb at fixed d and m.",
-            ),
-        ),
-    ),
-    (
-        "atomic",
-        "A photon has wavelength 500 nm. Using h c \u2248 1240 eV\u00b7nm, its "
-        "energy is closest to",
-        ("0.40 eV", "1.24 eV", "2.48 eV", "4.96 eV", "620 eV"),
-        "C",
-        {
-            "A": "Computed \u03bb / (h c), inverting the ratio.",
-            "B": "Divided by the wrong wavelength (used ~1000 nm).",
-            "D": "Halved the wavelength (used 250 nm).",
-            "E": "Multiplied h c by \u03bb instead of dividing.",
-        },
-        (
-            (
-                "Choose the photon relation",
-                "Writes E = h c / \u03bb.",
-            ),
-            (
-                "Use the handy constant",
-                "Uses h c \u2248 1240 eV\u00b7nm with \u03bb in nm.",
-            ),
-        ),
-    ),
-)
+
+def _difficulty_field(fraction: Any) -> str:
+    """Authored 0..1 difficulty fraction (higher is harder) -> the 1..5 scale.
+
+    The Performance model reads the stored difficulty via
+    ``performance._attempt_difficulty`` on the 1..5 authored scale (normalized
+    internally by ``(d-1)/4``). Mapping the bundle's 0..1 fraction with
+    ``1 + 4*f`` lets each curated problem feed the score at its real difficulty
+    instead of clamping to the floor.
+    """
+    if isinstance(fraction, bool) or not isinstance(fraction, (int, float)):
+        return _NEUTRAL_DIFFICULTY
+    return f"{1.0 + 4.0 * float(fraction):.2f}"
+
+
+def _rationale_map(distractors: list[dict[str, Any]]) -> dict[str, str]:
+    """The ``{letter: rationale}`` map the Study surface consumes.
+
+    The bundle keeps each distractor's misconception tag alongside its rationale;
+    the note field only needs the letter->text map (the misconception tags stay
+    in the bundle as review provenance). Never includes the correct letter.
+    """
+    return {d["label"]: d["rationale"] for d in distractors}
 
 
 def seed_sample_problems(col: Collection) -> int:
-    """Idempotently seed the sample Problems; return how many were created.
+    """Idempotently seed the bundled Problems; return how many were created.
 
     Creates the ``pgrep::Problem`` notetype (if missing) and one Problem per
-    entry in :data:`_SAMPLE_PROBLEMS`, each tagged ``pgrep::problem-seed`` plus
+    entry in :data:`BUNDLE_PROBLEMS`, each tagged ``pgrep::problem-seed`` plus
     its ``topic::<category>`` tag, with its cards in the ``PGRE::Problems`` deck.
     A marker tag makes repeat calls a no-op (returns ``0``). The whole seed is
-    one undoable action.
+    one undoable action; new notes cold-start FSRS.
     """
     from anki.collection import AddNoteRequest
 
@@ -310,25 +173,23 @@ def seed_sample_problems(col: Collection) -> int:
     undo_id = col.add_custom_undo_entry("Seed pgrep sample problems")
 
     requests: list[AddNoteRequest] = []
-    for category, stem, choices, correct, rationales, decomposition in _SAMPLE_PROBLEMS:
+    for item in BUNDLE_PROBLEMS:
         note = col.new_note(notetype)
-        note[FIELD_STEM] = stem
-        note[FIELD_CHOICES] = json.dumps(list(choices), ensure_ascii=False)
-        note[FIELD_CORRECT] = correct
+        note[FIELD_STEM] = item["stem"]
+        note[FIELD_CHOICES] = json.dumps(list(item["choices"]), ensure_ascii=False)
+        note[FIELD_CORRECT] = item["correct"]
         note[FIELD_DISTRACTOR_RATIONALES] = json.dumps(
-            rationales, ensure_ascii=False, sort_keys=True
+            _rationale_map(item["distractors"]), ensure_ascii=False, sort_keys=True
         )
         note[FIELD_SOLUTION_DECOMPOSITION] = json.dumps(
-            [
-                {"subgoal": subgoal, "rubric": rubric}
-                for subgoal, rubric in decomposition
-            ],
-            ensure_ascii=False,
+            item["solution_decomposition"], ensure_ascii=False
         )
-        note[FIELD_DIFFICULTY] = "medium"
-        note[FIELD_SOURCE_REF] = "pgrep-sample"
+        note[FIELD_DIFFICULTY] = _difficulty_field(item.get("difficulty"))
+        # Real provenance where the corpus supplied it; empty for the handful of
+        # triage-KEEP items the generator left uncited (physics re-derived in P4).
+        note[FIELD_SOURCE_REF] = item.get("source_ref") or ""
         # Marker tag first (idempotency); the topic tag is the only topic:: tag.
-        note.tags = [PROBLEM_SEED_TAG, f"{TOPIC_PREFIX}{category}"]
+        note.tags = [PROBLEM_SEED_TAG, item["topic"]]
         requests.append(AddNoteRequest(note=note, deck_id=deck_id))
 
     col.add_notes(requests)

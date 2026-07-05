@@ -1,15 +1,20 @@
 # Copyright: Ankitects Pty Ltd and contributors
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
-"""Tests for the pgrep sample-content seed (L2 scaffolding).
+"""Tests for the pgrep bundled-content seed (L2 scaffolding).
 
-Seeding must create topic-tagged, due review cards, point the sample deck at the
-points-at-stake review order, and be idempotent (a second call adds no cards).
+Seeding loads the committed content bundle and creates topic-tagged ``Basic``
+cards that land **cold** (ordinary new cards, no fabricated FSRS state), points
+the sample deck at the points-at-stake review order on its own config group, and
+is idempotent (a second call adds no cards).
 """
 
 from anki import deck_config_pb2
-from anki.consts import QUEUE_TYPE_REV
+from anki.consts import QUEUE_TYPE_NEW
+from anki.pgrep import seed
+from anki.pgrep.blueprint import CATEGORY_SLUGS
 from anki.pgrep.seed import DECK_NAME, SEEDED_TAG, seed_sample_content
+from anki.pgrep.tags import category_for, topic_tags
 from tests.shared import getEmptyCol
 
 POINTS_AT_STAKE = (
@@ -17,32 +22,44 @@ POINTS_AT_STAKE = (
 )
 
 
-def test_seed_creates_due_topic_cards_sets_order_and_is_idempotent():
+def test_seed_creates_cold_topic_cards_sets_order_and_is_idempotent():
     col = getEmptyCol()
 
     summary = seed_sample_content(col)
 
-    # It created cards and reported a summary.
+    # It created the whole bundle and reported a summary.
     assert summary["already_seeded"] is False
-    assert summary["cards_created"] > 0
+    assert summary["cards_created"] == len(seed.BUNDLE_CARDS)
     assert summary["cards_created"] == col.card_count()
     deck_id = summary["deck_id"]
     assert "mechanics" in summary["categories"]
 
-    # Every seeded card carries the idempotency marker and a topic tag.
     seeded = col.find_notes(f"tag:{SEEDED_TAG}")
     assert len(seeded) == summary["cards_created"]
+    # Finest-topic tagging: the big-3 carry subtopic tags.
     assert col.find_cards("tag:topic::mechanics::*")
 
-    # Most cards are due review cards with FSRS memory state.
-    review_cards = [
-        col.get_card(cid)
-        for cid in col.find_cards(f'deck:"{DECK_NAME}"')
-        if col.get_card(cid).queue == QUEUE_TYPE_REV
-    ]
-    assert len(review_cards) >= 10
-    assert all(card.memory_state is not None for card in review_cards)
-    assert col.find_cards(f'deck:"{DECK_NAME}" is:due')
+    categories = set()
+    for note_id in seeded:
+        note = col.get_note(note_id)
+        # Exactly one topic tag, plus the authored conceptual/computational kind.
+        assert len(topic_tags(note.tags)) == 1
+        assert any(tag.startswith(seed.KIND_TAG_PREFIX) for tag in note.tags)
+        # Real provenance rides on the answer (no "pgrep-sample" placeholder).
+        assert "Source:" in note["Back"]
+        assert "pgrep-sample" not in note["Back"]
+        categories.add(category_for(note.tags))
+
+    # Coverage: all nine blueprint categories are represented.
+    assert categories == set(CATEGORY_SLUGS)
+
+    # Cards land COLD: ordinary new cards, no fabricated FSRS memory state. A
+    # freshly seeded collection is honest (Memory abstains until studied).
+    all_cards = [col.get_card(cid) for cid in col.find_cards(f'deck:"{DECK_NAME}"')]
+    assert all_cards
+    assert all(card.queue == QUEUE_TYPE_NEW for card in all_cards)
+    assert all(card.memory_state is None for card in all_cards)
+    assert not col.find_cards(f'deck:"{DECK_NAME}" is:review')
 
     # The sample deck uses the points-at-stake review order, on its own config
     # group (the default config is left untouched).
@@ -50,12 +67,6 @@ def test_seed_creates_due_topic_cards_sets_order_and_is_idempotent():
     assert conf["reviewOrder"] == POINTS_AT_STAKE
     default_conf = col.decks.config_dict_for_deck_id(1)
     assert default_conf["reviewOrder"] != POINTS_AT_STAKE
-
-    # A sparse category (lab) has a card left as new (unreviewed) to drive
-    # abstain; the review promotion did not touch it.
-    lab_cards = [col.get_card(cid) for cid in col.find_cards("tag:topic::lab")]
-    assert lab_cards
-    assert all(card.memory_state is None for card in lab_cards)
 
     # Idempotent: a second call adds nothing and does not duplicate cards.
     before = col.card_count()
