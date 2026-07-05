@@ -8,6 +8,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
      (Library returns at L4). Diagnostic is a first-run and re-runnable flow, so
      it is reached from Home and Progress rather than a permanent tab. -->
 <script lang="ts">
+    import { afterNavigate } from "$app/navigation";
     import { page } from "$app/state";
 
     import NavRail from "$lib/components/NavRail.svelte";
@@ -16,10 +17,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import "@fontsource-variable/jetbrains-mono/index.css";
     import "./pgrep.scss";
 
-    $: pathname = page.url.pathname;
-
     // Map the route to a rail destination. Diagnostic is a flow, not a tab, so
-    // it leaves no item active (the rail simply has no highlight there).
+    // it leaves no item active (the rail simply has no highlight there). Nested
+    // routes highlight their parent (for example /pgrep/study/exam -> Study).
     function activeFor(current: string): string {
         if (current.startsWith("/pgrep/study")) {
             return "Study";
@@ -39,7 +39,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         return "Home";
     }
 
-    $: active = activeFor(pathname);
+    // Recompute the active rail item on every route change. afterNavigate also
+    // fires on first mount, so the initial value and later client navigations
+    // both track the real pathname instead of sticking on Home.
+    let active = activeFor(page.url.pathname);
+    afterNavigate(() => {
+        active = activeFor(page.url.pathname);
+    });
 </script>
 
 <div class="pgrep">

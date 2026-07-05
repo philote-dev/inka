@@ -7,6 +7,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
      pgrepReadinessScore) and abstain honestly on thin data, naming what is
      missing. No mock scores. The shared nav lives in +layout.svelte. -->
 <script lang="ts">
+    import { goto } from "$app/navigation";
     import { onMount } from "svelte";
 
     import Manifold from "$lib/components/Manifold.svelte";
@@ -16,6 +17,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import { supportsWebGL } from "$lib/pgrep/manifold3d";
 
     import { pgrepCall } from "./lib/bridge";
+
+    // Tapping a manifold topic (label or region) opens the Study focus drill
+    // scoped to it (ux-foundation 5). Study reads the topic from the query and
+    // the learner then picks the Cards or Problems door.
+    function openFocusDrill(topic: string): void {
+        void goto(`/pgrep/study?topic=${encodeURIComponent(topic)}`);
+    }
 
     interface OverallScore {
         point: number | null;
@@ -73,6 +81,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     // the learner prefers reduced motion. Both draw the same FULL_SURFACE.
     let use3d = false;
 
+    // Diagnostic is first-run and re-runnable (ux-foundation 7.6). Show the
+    // prompt only until it has been completed once. null while unknown so a
+    // completed learner never sees a flash of the prompt; a failed read falls
+    // open to showing it, so a first-run learner always has the entry.
+    let diagnosticDone: boolean | null = null;
+
     // Each card owns its own loading/error/data so one slow or failed call
     // abstains its own card rather than blocking the surface. All three scores
     // are pure AI-off math and return well within the 100ms feel.
@@ -123,11 +137,24 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         ]);
     }
 
+    async function loadDiagnosticStatus(): Promise<void> {
+        try {
+            const status = await pgrepCall<{ completed: boolean }>(
+                "pgrepDiagnosticStatus",
+                {},
+            );
+            diagnosticDone = status.completed;
+        } catch {
+            diagnosticDone = false;
+        }
+    }
+
     onMount(() => {
         const reduce =
             window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
         use3d = supportsWebGL() && !reduce;
         void loadScores();
+        void loadDiagnosticStatus();
     });
 
     function pct(value: number): number {
@@ -281,21 +308,23 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <h1>Your knowledge map</h1>
             <p>Memory, performance, and readiness, shown honestly.</p>
         </div>
-        <a class="diag-link" href="/pgrep/diagnostic">
-            <svg
-                width="16"
-                height="16"
-                viewBox="0 0 20 20"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-            >
-                <polyline points="2,10 5.5,10 8,4.5 12,15.5 14.5,10 18,10" />
-            </svg>
-            Run the diagnostic
-        </a>
+        {#if diagnosticDone === false}
+            <a class="diag-link" href="/pgrep/diagnostic">
+                <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <polyline points="2,10 5.5,10 8,4.5 12,15.5 14.5,10 18,10" />
+                </svg>
+                Run the diagnostic
+            </a>
+        {/if}
     </header>
 
     <div class="hero">
@@ -306,6 +335,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 grid={84}
                 heightScale={1.2}
                 surface={FULL_SURFACE}
+                onTopic={openFocusDrill}
             />
         {:else}
             <Manifold
@@ -314,6 +344,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 scale={156}
                 grid={90}
                 surface={FULL_SURFACE}
+                onTopic={openFocusDrill}
             />
         {/if}
     </div>

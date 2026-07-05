@@ -1494,6 +1494,11 @@ title="{}" {}>{}</button>""".format(
         qconnect(pgrep_action.triggered, self.on_pgrep)
         pgrep_seed_action = m.menuTools.addAction("pgrep: seed sample content")
         qconnect(pgrep_seed_action.triggered, self.on_pgrep_seed_sample)
+        # Dev-only entry to the pgrep component gallery (the dev lab). Gated
+        # behind ANKIDEV so it never shows in a normal build.
+        if dev_mode:
+            pgrep_lab_action = m.menuTools.addAction("pgrep: open dev lab")
+            qconnect(pgrep_lab_action.triggered, self.on_pgrep_dev_lab)
         # Option A only. In exclusive mode (Option C) Anki's screens are hidden,
         # so the fallback action is not created.
         from aqt import pgrep_host
@@ -1793,6 +1798,19 @@ title="{}" {}>{}</button>""".format(
         import aqt.pgrep_window
 
         aqt.pgrep_window.open_pgrep_window()
+
+    def on_pgrep_dev_lab(self) -> None:
+        # Dev-only entry to the pgrep component gallery, reusing the same pgrep
+        # webview window the app uses for its own routes. The menu action is
+        # gated behind ANKIDEV (see setupMenus), so this never ships to users.
+        # The window is parented to the main window, so it stays alive without a
+        # held reference (matching how the pgrep window is created).
+        import aqt.pgrep_window
+
+        window = aqt.pgrep_window.PgrepWindow(self)
+        window.setWindowTitle("pgrep dev lab")
+        if window.web:
+            window.web.load_sveltekit_page("pgrep-lab/gallery")
 
     def on_open_anki_screens(self) -> None:
         # pgrep host fallback (Option A): reach Anki's own screens from the

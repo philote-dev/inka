@@ -35,9 +35,19 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     export let autoRotate = false;
     export let interactive = true;
     export let showLabels = true;
+    // When set, topic labels and surface taps launch a focus drill scoped to the
+    // topic (ux-foundation 5). Threaded to the renderer for raycast taps and to
+    // the 2D fallback so both paths reach the same drill.
+    export let onTopic: ((slug: string) => void) | undefined = undefined;
     // Projection scale for the 2D fallback. Defaults to a width-proportional
     // value that matches the 3D framing closely enough for the fallback.
     export let fallbackScale: number | undefined = undefined;
+
+    function launch(topic: string | undefined): void {
+        if (onTopic && topic) {
+            onTopic(topic);
+        }
+    }
 
     let stage: HTMLDivElement | undefined;
     let handle: Manifold3DHandle | undefined;
@@ -74,6 +84,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 onLabels: (next) => {
                     labels = next;
                 },
+                onTopic,
             });
         } catch {
             // A no-WebGL context (or a lost GPU) throws here; degrade to 2D.
@@ -106,7 +117,16 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 {#if use2d}
-    <Manifold {width} {height} scale={scale2d} {glow} {grid} {surface} {showLabels} />
+    <Manifold
+        {width}
+        {height}
+        scale={scale2d}
+        {glow}
+        {grid}
+        {surface}
+        {showLabels}
+        {onTopic}
+    />
 {:else}
     <div class="manifold3d" style="width: {width}px; height: {height}px;">
         <div class="stage" bind:this={stage}></div>
@@ -131,12 +151,23 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             </svg>
             {#each labels as l (l.name)}
                 {#if l.visible}
-                    <div
-                        class="label"
-                        style="left: {l.lx}px; top: {l.ly}px; transform: {l.tf}; color: {l.c};"
-                    >
-                        {l.name}
-                    </div>
+                    {#if onTopic && l.topic}
+                        <button
+                            type="button"
+                            class="label label-btn"
+                            style="left: {l.lx}px; top: {l.ly}px; transform: {l.tf}; color: {l.c};"
+                            on:click={() => launch(l.topic)}
+                        >
+                            {l.name}
+                        </button>
+                    {:else}
+                        <div
+                            class="label"
+                            style="left: {l.lx}px; top: {l.ly}px; transform: {l.tf}; color: {l.c};"
+                        >
+                            {l.name}
+                        </div>
+                    {/if}
                 {/if}
             {/each}
         {/if}
@@ -172,5 +203,26 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         white-space: nowrap;
         padding: 2px 6px;
         pointer-events: none;
+    }
+
+    /* Topic labels wired to a focus drill become quiet buttons: same look as a
+       label, a calm hover underline, and a keyboard focus ring. */
+    .label-btn {
+        pointer-events: auto;
+        border: 0;
+        background: none;
+        font-family: var(--font-ui);
+        cursor: pointer;
+        border-radius: var(--radius-control, 8px);
+        transition: var(--transition-calm);
+
+        &:hover {
+            text-decoration: underline;
+        }
+
+        &:focus-visible {
+            outline: 2px solid var(--muted);
+            outline-offset: 2px;
+        }
     }
 </style>

@@ -46,6 +46,10 @@ export interface Manifold3DOpts {
     /** Called each frame the camera or surface moves, with topic label anchors
      *  projected to pixel space so an HTML overlay can track them. */
     onLabels?: (labels: ProjectedLabel3D[]) => void;
+    /** Called with a blueprint category slug when the learner taps a topic
+     *  region on the surface (ux-foundation 5, the focus-drill entry). A drag to
+     *  orbit never fires this; only a genuine tap does. */
+    onTopic?: (slug: string) => void;
 }
 
 export interface ManifoldShapeOpts {
@@ -68,6 +72,8 @@ export interface ProjectedLabel3D {
     c: string;
     /** False when the anchor is behind the camera or off screen. */
     visible: boolean;
+    /** Blueprint category slug, so a clicked label can launch its focus drill. */
+    topic?: string;
 }
 
 export interface Manifold3DHandle {
@@ -133,6 +139,7 @@ export function createManifold3D(container: HTMLElement, opts: Manifold3DOpts = 
     let glow = opts.glow ?? 0.7;
     const interactive = opts.interactive ?? true;
     const onLabels = opts.onLabels;
+    const onTopic = opts.onTopic;
     let width = opts.width ?? container.clientWidth ?? 640;
     let height0 = opts.height ?? container.clientHeight ?? 420;
 
@@ -183,6 +190,8 @@ export function createManifold3D(container: HTMLElement, opts: Manifold3DOpts = 
     // Everything data-driven lives in one group we swap out on rebuild.
     let group = new THREE.Group();
     let version = 0;
+    // The translucent shell mesh, kept so a tap can raycast the surface body.
+    let pickMesh: THREE.Mesh | undefined;
 
     // rgb (sRGB 0..255) -> linear, scaled by brightness, appended to `out`.
     function pushRGB(out: number[], x: number, y: number, z: number, boost: number): void {
@@ -225,6 +234,7 @@ export function createManifold3D(container: HTMLElement, opts: Manifold3DOpts = 
 
     function build(): void {
         group = new THREE.Group();
+        pickMesh = undefined;
         const lim = domainLimit(surface);
         const n = grid;
 
@@ -268,6 +278,7 @@ export function createManifold3D(container: HTMLElement, opts: Manifold3DOpts = 
             const fillMesh = new THREE.Mesh(fg, fillMat);
             fillMesh.renderOrder = 0;
             group.add(fillMesh);
+            pickMesh = fillMesh;
         }
 
         // Wireframe: an edge exists only if both endpoints are on the surface.
@@ -403,7 +414,7 @@ export function createManifold3D(container: HTMLElement, opts: Manifold3DOpts = 
             }
 
             const cc = colorAt(surface, l.x, l.y, theme).map((v, i) => Math.round(v + (ink[i] - v) * mixK));
-            return { name: l.name, ax, ay, lx, ly, tf: l.tf, c: `rgb(${cc.join(",")})`, visible };
+            return { name: l.name, ax, ay, lx, ly, tf: l.tf, c: `rgb(${cc.join(",")})`, visible, topic: l.topic };
         });
     }
 
@@ -422,6 +433,80 @@ export function createManifold3D(container: HTMLElement, opts: Manifold3DOpts = 
         }
         lastLabelHash = hash;
         onLabels(computeLabels());
+    }
+
+    // Tap-to-drill (ux-foundation 5). A pointer that presses and releases near
+    // the same spot in a short window is a tap, not an orbit drag, so we raycast
+    // the surface shell and launch the nearest topic's focus drill. A drag to
+    // orbit moves too far to count, so it never fires.
+    const raycaster = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    let downX = 0;
+    let downY = 0;
+    let downT = 0;
+    let downId = -1;
+
+    function nearestTopic(sx: number, sy: number): string | undefined {
+        let best: string | undefined;
+        let bestD = Infinity;
+        for (const l of surface.labels) {
+            if (!l.topic) {
+                continue;
+            }
+            const d = (l.x - sx) * (l.x - sx) + (l.y - sy) * (l.y - sy);
+            if (d < bestD) {
+                bestD = d;
+                best = l.topic;
+            }
+        }
+        return best;
+    }
+
+    function pickTopic(clientX: number, clientY: number): void {
+        if (!onTopic || !pickMesh) {
+            return;
+        }
+        const rect = renderer.domElement.getBoundingClientRect();
+        if (!rect.width || !rect.height) {
+            return;
+        }
+        ndc.set(
+            ((clientX - rect.left) / rect.width) * 2 - 1,
+            -((clientY - rect.top) / rect.height) * 2 + 1,
+        );
+        raycaster.setFromCamera(ndc, camera);
+        const hit = raycaster.intersectObject(pickMesh, false)[0];
+        if (!hit) {
+            return;
+        }
+        // World (x, z) map back to surface (x, y); world y carries the height.
+        const slug = nearestTopic(hit.point.x, hit.point.z);
+        if (slug) {
+            onTopic(slug);
+        }
+    }
+
+    function onPointerDown(e: PointerEvent): void {
+        downX = e.clientX;
+        downY = e.clientY;
+        downT = performance.now();
+        downId = e.pointerId;
+    }
+
+    function onPointerUp(e: PointerEvent): void {
+        if (e.pointerId !== downId) {
+            return;
+        }
+        downId = -1;
+        const moved = Math.hypot(e.clientX - downX, e.clientY - downY);
+        if (moved <= 5 && performance.now() - downT <= 500) {
+            pickTopic(e.clientX, e.clientY);
+        }
+    }
+
+    if (onTopic && interactive) {
+        renderer.domElement.addEventListener("pointerdown", onPointerDown);
+        renderer.domElement.addEventListener("pointerup", onPointerUp);
     }
 
     build();
@@ -481,6 +566,10 @@ export function createManifold3D(container: HTMLElement, opts: Manifold3DOpts = 
         dispose(): void {
             running = false;
             renderer.setAnimationLoop(null);
+            if (onTopic && interactive) {
+                renderer.domElement.removeEventListener("pointerdown", onPointerDown);
+                renderer.domElement.removeEventListener("pointerup", onPointerUp);
+            }
             disposeGroup();
             controls.dispose();
             fillMat.dispose();

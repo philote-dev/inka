@@ -36,6 +36,9 @@ export interface ManifoldLabel {
     dx: number;
     dy: number;
     tf: string;
+    /** Blueprint category slug for the focus-drill entry (ux-foundation 5).
+     *  When set, the label becomes a launcher into a topic-scoped Study drill. */
+    topic?: string;
 }
 
 export interface Surface {
@@ -70,6 +73,9 @@ export interface ProjectedLabel {
     ly: number;
     tf: string;
     c: string;
+    /** Blueprint category slug, carried through so the overlay label can launch
+     *  a topic-scoped focus drill when clicked. */
+    topic?: string;
 }
 
 interface ProjectOpts {
@@ -101,10 +107,18 @@ export const DEFAULT_SURFACE: Surface = {
         { x: -0.05, y: 0.45, c: "196,167,214" },
     ],
     labels: [
-        { name: "Mechanics", x: -0.62, y: 0.38, dx: -48, dy: -52, tf: "translate(-100%, -100%)" },
-        { name: "E and M", x: 0.55, y: 0.02, dx: 56, dy: -66, tf: "translate(0, -100%)" },
-        { name: "Thermodynamics", x: -0.3, y: 0.55, dx: -60, dy: 56, tf: "translate(-100%, 0)" },
-        { name: "Quantum", x: 0.5, y: 0.55, dx: 44, dy: 60, tf: "translate(0, 0)" },
+        { name: "Mechanics", x: -0.62, y: 0.38, dx: -48, dy: -52, tf: "translate(-100%, -100%)", topic: "mechanics" },
+        { name: "E and M", x: 0.55, y: 0.02, dx: 56, dy: -66, tf: "translate(0, -100%)", topic: "electromagnetism" },
+        {
+            name: "Thermodynamics",
+            x: -0.3,
+            y: 0.55,
+            dx: -60,
+            dy: 56,
+            tf: "translate(-100%, 0)",
+            topic: "thermodynamics",
+        },
+        { name: "Quantum", x: 0.5, y: 0.55, dx: 44, dy: 60, tf: "translate(0, 0)", topic: "quantum" },
     ],
 };
 
@@ -138,15 +152,47 @@ export const FULL_SURFACE: Surface = {
         { x: -0.85, y: 0.4, c: "196,167,214" },
     ],
     labels: [
-        { name: "Classical Mechanics", x: -0.6, y: -0.5, dx: -60, dy: -44, tf: "translate(-100%, -100%)" },
-        { name: "Electromagnetism", x: 0.56, y: -0.48, dx: 30, dy: -60, tf: "translate(0, -100%)" },
-        { name: "Optics & Waves", x: 1.0, y: -0.14, dx: 54, dy: -22, tf: "translate(0, -100%)" },
-        { name: "Thermo & Stat Mech", x: -1.05, y: 0.14, dx: -54, dy: 26, tf: "translate(-100%, 0)" },
-        { name: "Quantum Mechanics", x: 0.16, y: 0.6, dx: -60, dy: 190, tf: "translate(-100%, 0)" },
-        { name: "Atomic Physics", x: 0.72, y: 0.4, dx: 64, dy: 46, tf: "translate(0, 0)" },
-        { name: "Special Relativity", x: -0.56, y: 0.62, dx: -50, dy: 62, tf: "translate(-100%, 0)" },
-        { name: "Laboratory Methods", x: -0.05, y: -0.62, dx: 10, dy: -60, tf: "translate(-50%, -100%)" },
-        { name: "Specialized Topics", x: 0.16, y: 0.04, dx: 30, dy: 195, tf: "translate(0, 0)" },
+        {
+            name: "Classical Mechanics",
+            x: -0.6,
+            y: -0.5,
+            dx: -60,
+            dy: -44,
+            tf: "translate(-100%, -100%)",
+            topic: "mechanics",
+        },
+        {
+            name: "Electromagnetism",
+            x: 0.56,
+            y: -0.48,
+            dx: 30,
+            dy: -60,
+            tf: "translate(0, -100%)",
+            topic: "electromagnetism",
+        },
+        { name: "Optics & Waves", x: 1.0, y: -0.14, dx: 54, dy: -22, tf: "translate(0, -100%)", topic: "optics_waves" },
+        {
+            name: "Thermo & Stat Mech",
+            x: -1.05,
+            y: 0.14,
+            dx: -54,
+            dy: 26,
+            tf: "translate(-100%, 0)",
+            topic: "thermodynamics",
+        },
+        { name: "Quantum Mechanics", x: 0.16, y: 0.6, dx: -60, dy: 190, tf: "translate(-100%, 0)", topic: "quantum" },
+        { name: "Atomic Physics", x: 0.72, y: 0.4, dx: 64, dy: 46, tf: "translate(0, 0)", topic: "atomic" },
+        {
+            name: "Special Relativity",
+            x: -0.56,
+            y: 0.62,
+            dx: -50,
+            dy: 62,
+            tf: "translate(-100%, 0)",
+            topic: "special_relativity",
+        },
+        { name: "Laboratory Methods", x: -0.05, y: -0.62, dx: 10, dy: -60, tf: "translate(-50%, -100%)", topic: "lab" },
+        { name: "Specialized Topics", x: 0.16, y: 0.04, dx: 30, dy: 195, tf: "translate(0, 0)", topic: "specialized" },
     ],
 };
 
@@ -489,6 +535,7 @@ export function drawManifold(canvas: HTMLCanvasElement, opts: ManifoldOpts = {})
             ly: p.Y + l.dy,
             tf: l.tf,
             c: "rgb(" + cc.join(",") + ")",
+            topic: l.topic,
         };
     });
 }
@@ -508,6 +555,8 @@ export interface TopicStat {
     dx: number;
     dy: number;
     tf: string;
+    /** Blueprint category slug, so a built region can launch its focus drill. */
+    topic?: string;
 }
 
 // Turn live per-topic stats into a Surface. This is the data link:
@@ -523,7 +572,7 @@ export function buildSurface(topics: TopicStat[], coverageThreshold = 0.4): Surf
     for (const t of topics) {
         const footprint = 0.22 + t.weight * 0.9;
         glows.push({ x: t.x, y: t.y, c: SCORE_COLORS[t.lead] });
-        labels.push({ name: t.name, x: t.x, y: t.y, dx: t.dx, dy: t.dy, tf: t.tf });
+        labels.push({ name: t.name, x: t.x, y: t.y, dx: t.dx, dy: t.dy, tf: t.tf, topic: t.topic });
         if (t.coverage < coverageThreshold) {
             const rr = 0.1 + t.weight * 0.55;
             holes.push({ x: t.x, y: t.y, rx: rr, ry: rr * 0.7 });

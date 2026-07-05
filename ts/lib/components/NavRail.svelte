@@ -31,7 +31,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <nav class="rail">
-    <div class="brand">
+    <a class="brand" href="/pgrep" aria-label="pgrep home">
         <svg
             width="30"
             height="30"
@@ -56,7 +56,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             />
         </svg>
         <span>pgrep</span>
-    </div>
+    </a>
 
     <div class="nav">
         {#each items as item (item.name)}
@@ -145,11 +145,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         padding: 0 12px;
         margin-bottom: 36px;
         color: var(--text);
+        text-decoration: none;
+        transition: var(--transition-calm);
 
         span {
             font-size: 15px;
             font-weight: 600;
             letter-spacing: -0.01em;
+        }
+
+        &:hover {
+            opacity: 0.7;
         }
     }
 

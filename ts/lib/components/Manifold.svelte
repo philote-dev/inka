@@ -26,9 +26,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     export let lineWidth = 0.8;
     export let surface: Surface = FULL_SURFACE;
     export let showLabels = true;
+    // When set, topic labels become focus-drill launchers (ux-foundation 5).
+    export let onTopic: ((slug: string) => void) | undefined = undefined;
 
     let canvas: HTMLCanvasElement | undefined;
     let labels: ProjectedLabel[] = [];
+
+    function launch(topic: string | undefined): void {
+        if (onTopic && topic) {
+            onTopic(topic);
+        }
+    }
 
     function currentTheme(): "light" | "dark" {
         const dark =
@@ -90,12 +98,23 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             {/each}
         </svg>
         {#each labels as l (l.name)}
-            <div
-                class="label"
-                style="left: {l.lx}px; top: {l.ly}px; transform: {l.tf}; color: {l.c};"
-            >
-                {l.name}
-            </div>
+            {#if onTopic && l.topic}
+                <button
+                    type="button"
+                    class="label label-btn"
+                    style="left: {l.lx}px; top: {l.ly}px; transform: {l.tf}; color: {l.c};"
+                    on:click={() => launch(l.topic)}
+                >
+                    {l.name}
+                </button>
+            {:else}
+                <div
+                    class="label"
+                    style="left: {l.lx}px; top: {l.ly}px; transform: {l.tf}; color: {l.c};"
+                >
+                    {l.name}
+                </div>
+            {/if}
         {/each}
     {/if}
 </div>
@@ -118,5 +137,26 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         white-space: nowrap;
         padding: 2px 6px;
         pointer-events: none;
+    }
+
+    /* Topic labels wired to a focus drill become quiet buttons: same look as a
+       label, a calm hover underline, and a keyboard focus ring. */
+    .label-btn {
+        pointer-events: auto;
+        border: 0;
+        background: none;
+        font-family: var(--font-ui);
+        cursor: pointer;
+        border-radius: var(--radius-control, 8px);
+        transition: var(--transition-calm);
+
+        &:hover {
+            text-decoration: underline;
+        }
+
+        &:focus-visible {
+            outline: 2px solid var(--muted);
+            outline-offset: 2px;
+        }
     }
 </style>
