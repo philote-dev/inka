@@ -251,7 +251,11 @@ def answer_card(col: Collection, card_id: int, rating: int) -> dict:
 
 
 def commit_problem(
-    col: Collection, note_id: int, session_id: str, selected: str
+    col: Collection,
+    note_id: int,
+    session_id: str,
+    selected: str,
+    response_ms: float | None = None,
 ) -> dict:
     """Record a committed Problems answer (before any help) and return feedback.
 
@@ -260,6 +264,12 @@ def commit_problem(
     returns correctness plus the static wrong-answer ladder built from the
     stored ``solution_decomposition``. The final answer appears only in the
     reveal rung.
+
+    ``response_ms`` is the client-measured time from the item being shown to the
+    commit. It rides into the attempt payload as the M5 data-quality signal so the
+    Performance model can drop rapid guesses (``performance._is_clean``). It is the
+    deferred M5 half of the L5.2 seam; an absent or invalid value is simply left
+    off, matching the pre-M5 behavior.
     """
     from anki.notes import NoteId
 
@@ -294,6 +304,11 @@ def commit_problem(
     difficulty = note[problem.FIELD_DIFFICULTY]
     if difficulty:
         event["difficulty"] = difficulty
+    # M5 seam: carry the client-measured response time so Performance can filter
+    # rapid guesses. Left off when absent or unparseable (the pre-M5 default).
+    ms = _response_ms(response_ms)
+    if ms is not None:
+        event["response_ms"] = ms
     attempt_log.append_attempt(col, event)
 
     return {
@@ -445,6 +460,21 @@ def _requested_category(topic: str | None) -> str | None:
 
 # Parsing helpers (Problem fields hold JSON)
 ##########################################################################
+
+
+def _response_ms(value: float | None) -> int | None:
+    """Coerce a client-supplied ``response_ms`` to a non-negative int, or ``None``.
+
+    A missing, non-numeric, or negative value returns ``None`` so it is left off
+    the attempt payload rather than storing a nonsensical latency.
+    """
+    if value is None:
+        return None
+    try:
+        ms = int(round(float(value)))
+    except (TypeError, ValueError):
+        return None
+    return ms if ms >= 0 else None
 
 
 def _parse_choices(raw: str | None) -> list[str]:
