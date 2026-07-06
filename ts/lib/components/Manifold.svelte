@@ -133,6 +133,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <style lang="scss">
     .manifold {
         position: relative;
+        max-width: 100%;
         font-family: var(--font-ui);
     }
 

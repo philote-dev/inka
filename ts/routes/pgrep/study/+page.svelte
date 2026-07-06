@@ -11,7 +11,7 @@ the data flow through pgrepCall is unchanged.
 -->
 <script lang="ts">
     import { page } from "$app/state";
-    import { onMount } from "svelte";
+    import { onDestroy, onMount } from "svelte";
 
     import CardFace from "$lib/components/CardFace.svelte";
     import ChoiceList from "$lib/components/ChoiceList.svelte";
@@ -19,6 +19,7 @@ the data flow through pgrepCall is unchanged.
     import HintRung from "$lib/components/HintRung.svelte";
     import StudyFrame from "$lib/components/StudyFrame.svelte";
     import { renderMath } from "$lib/pgrep/math";
+    import { setLearning } from "$lib/pgrep/nav";
 
     import { pgrepCall } from "../lib/bridge";
 
@@ -156,6 +157,11 @@ the data flow through pgrepCall is unchanged.
         } catch {
             aiOn = false;
         }
+    });
+
+    onDestroy(() => {
+        // Leaving the surface entirely (client nav) restores the rail.
+        setLearning(false);
     });
 
     function topicArg(): string | null {
@@ -348,6 +354,10 @@ the data flow through pgrepCall is unchanged.
     // View helpers (presentation only, no data changes).
     let topicTone: "memory" | "performance" = "performance";
     $: topicTone = screen === "cards" ? "memory" : "performance";
+
+    // A study session (cards or problems) is a focus surface, so the rail
+    // collapses while one runs and restores at the launcher (ts/lib/pgrep/nav.ts).
+    $: setLearning(screen !== "launcher");
     $: currentTopic = (card?.topic ?? problem?.topic ?? "").trim();
     $: remainingCount = card?.remaining ?? problem?.remaining ?? null;
     $: countLabel = remainingCount === null ? "" : `${remainingCount} left`;

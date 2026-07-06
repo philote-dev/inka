@@ -18,6 +18,7 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
     import ChoiceList from "$lib/components/ChoiceList.svelte";
     import ScoreCard from "$lib/components/ScoreCard.svelte";
     import { renderMath } from "$lib/pgrep/math";
+    import { setLearning } from "$lib/pgrep/nav";
 
     import { pgrepCall } from "../../lib/bridge";
 
@@ -192,6 +193,7 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
     onDestroy(() => {
         stopTimer();
         clearTimeout(leaveTimer);
+        setLearning(false);
     });
 
     async function startExam(): Promise<void> {
@@ -453,6 +455,10 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
     $: answeredCount = cells.filter((c) => c.answered).length;
     $: flaggedCount = cells.filter((c) => c.flagged).length;
     $: lowOnTime = phase === "running" && durationS > 0 && remainingS <= 60;
+
+    // The rail collapses while the exam is running, then restores at intro and
+    // review (ts/lib/pgrep/nav.ts). A running exam is the focus surface.
+    $: setLearning(phase === "running");
 
     // Navigator pagination: one page of NAV_CHUNK cells, kept aligned with the
     // current question, with a derived window the arrows can page through.
@@ -1332,6 +1338,14 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
         &.ghost {
             background: none;
             border-color: var(--muted);
+        }
+    }
+
+    /* The exam result score row stacks on narrow widths so the ScoreCard and the
+       tallies never collide. */
+    @media (max-width: 640px) {
+        .score-row {
+            grid-template-columns: 1fr;
         }
     }
 </style>

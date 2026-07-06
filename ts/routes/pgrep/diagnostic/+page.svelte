@@ -10,9 +10,10 @@ there is no cold bucket. No AI, no confidence or self-rating. Styled with the
 pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
 -->
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onDestroy, onMount } from "svelte";
 
     import ChoiceList from "$lib/components/ChoiceList.svelte";
+    import { setLearning } from "$lib/pgrep/nav";
 
     import { pgrepCall } from "../lib/bridge";
 
@@ -148,6 +149,10 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
 
     onMount(loadTopics);
 
+    onDestroy(() => {
+        setLearning(false);
+    });
+
     function label(slug: string): string {
         return CATEGORY_LABELS[slug] ?? slug.replace(/_/g, " ");
     }
@@ -243,6 +248,10 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
     $: strongCount = placeData
         ? placeData.topics.filter((t) => t.placement === "strong").length
         : 0;
+
+    // The quick-check step is the focus surface, so the rail collapses during it
+    // and restores at intro and results (ts/lib/pgrep/nav.ts).
+    $: setLearning(screen === "check");
 </script>
 
 <section class="diagnostic">

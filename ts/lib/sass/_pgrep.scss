@@ -83,6 +83,9 @@
     --radius-pill: 999px;
     --hairline: 1px solid var(--border);
 
+    /* layout */
+    --rail-width: 216px;
+
     /* motion */
     --duration-calm: 240ms;
     --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
@@ -120,6 +123,19 @@
 
     --hover-wash: #2b2a27;
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25), 0 12px 40px rgba(0, 0, 0, 0.2);
+}
+
+/* Responsive breakpoints. Applied per surface with plain media queries at these
+   widths: phone <= 640px, tablet <= 900px. The rail collapse is a focus-mode
+   behavior (see ts/lib/pgrep/nav.ts), not width-driven, so these are only for
+   narrow-width layout. At phone width the largest type steps down so scores and
+   headings do not crowd; everything above 640px is unchanged. */
+@media (max-width: 640px) {
+    .pgrep {
+        --text-score: 32px;
+        --text-greeting: 22px;
+        --text-title: 21px;
+    }
 }
 
 /* MathJax SVG output (see ts/lib/pgrep/math.ts). Inline math keeps the baseline

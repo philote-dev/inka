@@ -177,6 +177,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <style lang="scss">
     .manifold3d {
         position: relative;
+        max-width: 100%;
         touch-action: none;
         font-family: var(--font-ui);
     }

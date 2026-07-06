@@ -57,6 +57,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         display: flex;
         align-items: baseline;
         justify-content: space-between;
+        flex-wrap: wrap;
         gap: 12px;
         margin-bottom: 10px;
 

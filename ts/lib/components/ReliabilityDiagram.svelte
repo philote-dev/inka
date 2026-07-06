@@ -30,7 +30,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <div class="reliability">
-    <svg width={size} height={size} class="chart">
+    <svg
+        width={size}
+        height={size}
+        viewBox="0 0 {size} {size}"
+        class="chart"
+    >
         <line
             x1={px(0)}
             y1={py(0)}
@@ -105,6 +110,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     .chart {
         display: block;
+        max-width: 100%;
+        height: auto;
     }
 
     .foot {

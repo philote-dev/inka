@@ -13,6 +13,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import { onMount } from "svelte";
 
     import NavRail from "$lib/components/NavRail.svelte";
+    import { openRail, railOpen } from "$lib/pgrep/nav";
+
     import { pgrepCall } from "./lib/bridge";
 
     import "@fontsource-variable/inter/index.css";
@@ -74,8 +76,42 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <div class="pgrep">
-    <div class="shell">
-        <NavRail {active} />
+    <div class="shell" class:rail-collapsed={!$railOpen}>
+        <NavRail {active} collapsed={!$railOpen} />
+
+        {#if !$railOpen}
+            <!-- Restore affordances, shown only while the rail is collapsed. The
+                 left-edge handle appears on hover; the top-left button is always
+                 there. Both bring the rail back. -->
+            <button
+                class="rail-edge"
+                type="button"
+                on:click={openRail}
+                aria-label="Show sidebar"
+            >
+                <span class="handle" aria-hidden="true"></span>
+            </button>
+            <button
+                class="rail-burger"
+                type="button"
+                on:click={openRail}
+                aria-label="Show sidebar"
+            >
+                <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                >
+                    <line x1="3" y1="6" x2="17" y2="6" />
+                    <line x1="3" y1="10" x2="17" y2="10" />
+                    <line x1="3" y1="14" x2="17" y2="14" />
+                </svg>
+            </button>
+        {/if}
 
         <main class="page">
             <slot />
@@ -102,5 +138,71 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     .page {
         flex: 1 1 auto;
         min-width: 0;
+    }
+
+    /* Restore affordances, shown only while the rail is collapsed. */
+    .rail-burger {
+        position: fixed;
+        top: 14px;
+        left: 14px;
+        z-index: 30;
+        width: 40px;
+        height: 40px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: var(--hairline);
+        border-radius: var(--radius-control);
+        background: var(--surface);
+        color: var(--muted);
+        cursor: pointer;
+        box-shadow: var(--shadow-card);
+        transition: var(--transition-calm);
+    }
+
+    .rail-burger:hover {
+        color: var(--text);
+        border-color: var(--muted);
+    }
+
+    /* A thin left-edge zone that reveals a small centred handle on hover. */
+    .rail-edge {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        z-index: 25;
+        width: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 0;
+        border: none;
+        background: none;
+        cursor: pointer;
+    }
+
+    .rail-edge .handle {
+        width: 4px;
+        height: 48px;
+        border-radius: var(--radius-pill);
+        background: var(--border);
+        opacity: 0;
+        transition: opacity var(--duration-calm) var(--ease-spring),
+            width var(--duration-calm) var(--ease-spring),
+            background var(--duration-calm) var(--ease-spring);
+    }
+
+    .rail-edge:hover .handle,
+    .rail-edge:focus-visible .handle {
+        opacity: 1;
+        width: 5px;
+        background: var(--muted);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .rail-edge .handle {
+            transition: opacity 0s;
+        }
     }
 </style>
