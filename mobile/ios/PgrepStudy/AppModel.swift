@@ -87,6 +87,13 @@ final class AppModel: ObservableObject {
         dataVersion &+= 1
     }
 
+    /// Recompute the derived scores on the next surface appearance. Called after
+    /// writing new attempts on-device (a phone exam or ladder), so Home and
+    /// Progress reflect them immediately, without waiting for a sync.
+    func refreshScores() {
+        dataVersion &+= 1
+    }
+
     /// The endpoint with a guaranteed trailing slash (the engine joins "./").
     var normalizedEndpoint: String {
         serverURL.hasSuffix("/") ? serverURL : serverURL + "/"

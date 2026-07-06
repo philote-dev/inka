@@ -51,6 +51,13 @@ enum Topic {
         }
         return "unknown"
     }
+
+    /// The finest topic tag: the first `topic::…` tag verbatim, or nil if the
+    /// item carries none. Mirrors tags.finest_topic; used to stamp an attempt's
+    /// `topic` payload/tag so an iOS-written attempt matches a desktop one.
+    static func finest(forTags tags: [String]) -> String? {
+        tags.first { $0.lowercased().hasPrefix(prefix) }
+    }
 }
 
 /// z for the 80% two-sided central interval (10th/90th normal percentiles).

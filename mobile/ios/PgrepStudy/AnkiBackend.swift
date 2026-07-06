@@ -28,18 +28,25 @@ public struct RpcId: Sendable {
     public static let closeCollection = RpcId(3, 1)
     public static let pgrepSeamCheck = RpcId(3, 16)
     // DecksService (service 7)
+    public static let newDeck = RpcId(7, 0)
+    public static let addDeck = RpcId(7, 1)
     public static let getDeckIdByName = RpcId(7, 7)
     public static let setCurrentDeck = RpcId(7, 22)
     // SchedulerService (service 13)
     public static let getQueuedCards = RpcId(13, 3)
     public static let answerCard = RpcId(13, 4)
+    public static let buryOrSuspendCards = RpcId(13, 14)
+    // NotetypesService (service 23)
+    public static let addNotetype = RpcId(23, 0)
+    public static let getNotetypeIdByName = RpcId(23, 10)
+    // NotesService (service 25)
+    public static let addNote = RpcId(25, 1)
+    public static let getNote = RpcId(25, 6)
     // SearchService (service 29)
     public static let searchCards = RpcId(29, 1)
     public static let searchNotes = RpcId(29, 2)
     // StatsService (service 43)
     public static let cardStats = RpcId(43, 0)
-    // NotesService (service 25)
-    public static let getNote = RpcId(25, 6)
 }
 
 /// Errors surfaced by the engine bridge.
@@ -156,12 +163,18 @@ public final class AnkiBackend {
     }
 
     /// Resolve a deck id from its human-readable name (use "Parent::Child" for
-    /// sub-decks). Returns 0 when no deck matches.
+    /// sub-decks). Returns 0 when no deck matches. The id-by-name RPC raises a
+    /// NotFound error for a missing name (mirroring desktop's id_for_name, which
+    /// catches it and returns None), so that case is mapped to 0 here.
     public func deckId(forName name: String) throws -> Int64 {
         var req = Anki_Generic_String()
         req.val = name
-        let res: Anki_Decks_DeckId = try call(.getDeckIdByName, req)
-        return res.did
+        do {
+            let res: Anki_Decks_DeckId = try call(.getDeckIdByName, req)
+            return res.did
+        } catch let AnkiBackendError.backend(err) where err.kind == .notFoundError {
+            return 0
+        }
     }
 
     /// Make `deckId` the current deck. The scheduler builds its queue from the
@@ -236,5 +249,63 @@ public final class AnkiBackend {
         var req = Anki_Cards_CardId()
         req.cid = cardId
         return try call(.cardStats, req)
+    }
+
+    // MARK: - Write path (notetype/deck bootstrap + note add)
+
+    /// Resolve a notetype id from its name, or 0 when no notetype matches. The
+    /// write path uses this to prefer the *synced* notetype before creating one.
+    /// Like `deckId(forName:)`, the RPC raises NotFound for a missing name, which
+    /// is mapped to 0 here (matching desktop's id_for_name -> None).
+    public func notetypeId(forName name: String) throws -> Int64 {
+        var req = Anki_Generic_String()
+        req.val = name
+        do {
+            let res: Anki_Notetypes_NotetypeId = try call(.getNotetypeIdByName, req)
+            return res.ntid
+        } catch let AnkiBackendError.backend(err) where err.kind == .notFoundError {
+            return 0
+        }
+    }
+
+    /// Add a new notetype; the backend assigns its id, fills card requirements,
+    /// and rejects a malformed schema. Returns the new notetype id.
+    @discardableResult
+    public func addNotetype(_ notetype: Anki_Notetypes_Notetype) throws -> Int64 {
+        let res: Anki_Collection_OpChangesWithId = try call(.addNotetype, notetype)
+        return res.id
+    }
+
+    /// A blank deck with engine defaults (name unset), ready to name and add.
+    public func newDeck() throws -> Anki_Decks_Deck {
+        return try call(.newDeck, Anki_Generic_Empty())
+    }
+
+    /// Add a deck (its parents are created as needed). Returns the new deck id.
+    @discardableResult
+    public func addDeck(_ deck: Anki_Decks_Deck) throws -> Int64 {
+        let res: Anki_Collection_OpChangesWithId = try call(.addDeck, deck)
+        return res.id
+    }
+
+    /// Add a note to `deckId`, generating its cards. A caller-supplied `guid` on
+    /// `note` is preserved (the backend keeps it on add), so callers can force
+    /// note identity. Returns the response (carrying the new note id).
+    @discardableResult
+    public func addNote(_ note: Anki_Notes_Note, deckId: Int64) throws -> Anki_Notes_AddNoteResponse {
+        var req = Anki_Notes_AddNoteRequest()
+        req.note = note
+        req.deckID = deckId
+        return try call(.addNote, req)
+    }
+
+    /// Suspend every card of the given notes, so they never enter the study
+    /// queue (used to keep attempt-log cards inert, exactly like desktop).
+    @discardableResult
+    public func suspendCards(noteIds: [Int64]) throws -> Anki_Collection_OpChangesWithCount {
+        var req = Anki_Scheduler_BuryOrSuspendCardsRequest()
+        req.noteIds = noteIds
+        req.mode = .suspend
+        return try call(.buryOrSuspendCards, req)
     }
 }

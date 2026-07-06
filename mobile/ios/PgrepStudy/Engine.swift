@@ -251,10 +251,72 @@ final class Engine: @unchecked Sendable {
                     choices: choices,
                     correctLetter: correct,
                     category: Topic.category(forTags: note.tags),
+                    topic: Topic.finest(forTags: note.tags),
                     difficulty: difficulty
                 ))
             }
             return problems
+        }
+    }
+
+    // MARK: Attempts (Problems, write path)
+
+    /// Persist a batch of clean, committed attempts as immutable notes, creating
+    /// the attempt notetype + deck (schema-identical to desktop) on first use.
+    /// This is the write half that closes the loop: after it runs,
+    /// `computeScoreboard` reads the SAME notes back through the fold, so a
+    /// phone-run exam or ladder moves Performance/Readiness off abstain on-device
+    /// exactly like desktop (once a topic crosses its evidence gate). Only clean,
+    /// real attempts are ever passed in; nothing here fabricates a number.
+    func logAttempts(_ drafts: [AttemptDraft]) async throws {
+        guard !drafts.isEmpty else { return }
+        try await perform { backend in
+            _ = try backend.appendAttempts(drafts)
+        }
+    }
+
+    /// Load the seeded Problems as `LadderProblem`s for the wrong-answer ladder,
+    /// in the desktop rotation order (unseen lead, then last-wrong, then
+    /// last-correct; least-recently-touched first), round-robined across
+    /// categories (anti-blocking) and capped to a sitting. Unlike Exam (blind),
+    /// the ladder carries each item's stored rationales + solution decomposition
+    /// so the reveal-and-self-compare rungs are AI-off by construction. The order
+    /// reads the attempt log through the same seam Performance uses.
+    func loadLadderProblems(limit: Int = LadderSession.problemsPerSession) async throws -> [LadderProblem] {
+        try await perform { backend in
+            var lastByItem: [Int64: (correct: Bool, answeredAt: Int)] = [:]
+            for event in try Engine.attemptEvents(backend) {
+                if let nid = event.itemNoteId {
+                    lastByItem[nid] = (event.correct, event.answeredAt)
+                }
+            }
+
+            let noteIds = try backend.searchNotes(matching: ProblemNote.search)
+            var problems: [LadderProblem] = []
+            problems.reserveCapacity(noteIds.count)
+            for nid in noteIds {
+                let note = try backend.getNote(noteId: nid)
+                guard note.fields.count > ProblemNote.solutionDecompositionIndex else { continue }
+                let choices = ProblemNote.parseChoices(note.fields[ProblemNote.choicesIndex])
+                guard !choices.isEmpty else { continue }
+                let correct = note.fields[ProblemNote.correctIndex]
+                    .trimmingCharacters(in: .whitespaces).uppercased()
+                let difficulty = note.fields.count > ProblemNote.difficultyIndex
+                    ? ProblemNote.parseDifficulty(note.fields[ProblemNote.difficultyIndex])
+                    : nil
+                problems.append(LadderProblem(
+                    noteId: note.id,
+                    stem: note.fields[ProblemNote.stemIndex],
+                    choices: choices,
+                    correctLetter: correct,
+                    category: Topic.category(forTags: note.tags),
+                    topic: Topic.finest(forTags: note.tags),
+                    difficulty: difficulty,
+                    rationales: ProblemNote.parseRationales(note.fields[ProblemNote.rationalesIndex]),
+                    decomposition: ProblemNote.parseDecomposition(note.fields[ProblemNote.solutionDecompositionIndex])
+                ))
+            }
+            return LadderSession.arrange(problems: problems, lastByItem: lastByItem, limit: limit)
         }
     }
 

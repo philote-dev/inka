@@ -8,12 +8,13 @@
 // synced notes, the phone can read exactly what desktop wrote once it syncs, and
 // fold them into Performance and Readiness with no custom SQL, proto, or Rust.
 //
-// This file is the read side only: it parses an attempt note's `event_json`
-// blob into the typed fields the Performance fold needs. The phone does not yet
-// WRITE attempts (that needs the note-add + notetype-bootstrap write path over
-// FFI); until then, and on a phone that has never synced problem work, the
-// attempt log is empty and Performance/Readiness abstain honestly for the right
-// reason (insufficient attempt data), never a fabricated number.
+// This file is the read side: it parses an attempt note's `event_json` blob into
+// the typed fields the Performance fold needs. The WRITE side now lives in
+// AttemptWriter.swift (note-add + notetype/deck bootstrap over FFI), so a
+// phone-run exam or ladder persists attempts here that then sync to desktop. On
+// a phone that has never recorded or synced problem work the attempt log is
+// simply empty, and Performance/Readiness abstain honestly for the right reason
+// (insufficient attempt data), never a fabricated number.
 
 import Foundation
 

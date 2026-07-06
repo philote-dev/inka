@@ -13,12 +13,11 @@
 //     desktop uses (ReadinessTable.projectScaledScore) with a per-topic
 //     Jeffreys-Beta estimate that stays honest at 0 and 1.
 //
-// Honesty note: this iOS build SCORES an exam in memory but does not yet WRITE
-// the resulting Attempt notes back to the collection (that needs the note-add +
-// notetype-bootstrap write path over FFI, a follow-up). So an exam here reports
-// its own result honestly, but does not yet feed Home's Performance/Readiness.
-// TODO: append clean Attempts on finish (exam.finish_exam) once the FFI write
-// path lands, closing the loop so a phone exam lights up the three scores.
+// Honesty note: this file SCORES an exam in memory (its own sitting result). The
+// separate write path (AttemptWriter.swift + Engine.logAttempts) now persists a
+// clean Attempt per answered question on finish (see ExamView), closing the loop
+// so a phone exam feeds Home's Performance/Readiness through the same fold as
+// desktop, once a topic crosses its evidence gate.
 
 import Foundation
 
@@ -41,6 +40,8 @@ enum ProblemNote {
     static let stemIndex = 0
     static let choicesIndex = 1
     static let correctIndex = 2
+    static let rationalesIndex = 3
+    static let solutionDecompositionIndex = 4
     static let difficultyIndex = 5
 
     /// Parse the `choices` JSON array field into a list of strings.
@@ -60,6 +61,34 @@ enum ProblemNote {
         guard let value = Double(trimmed) else { return nil }
         return min(max(value, 1.0), 5.0)
     }
+
+    /// Parse the `distractor_rationales` field (a letter->text JSON map) into an
+    /// uppercased-letter dictionary. Mirrors study._parse_json_map. Empty/bad
+    /// input yields an empty map (the ladder then shows a generic nudge).
+    static func parseRationales(_ raw: String) -> [String: String] {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [:] }
+        var map: [String: String] = [:]
+        for (key, value) in object {
+            map[key.uppercased()] = value as? String ?? String(describing: value)
+        }
+        return map
+    }
+
+    /// Parse the `solution_decomposition` field (an ordered list of
+    /// {subgoal, rubric}) into ladder steps. Mirrors study._parse_decomposition.
+    static func parseDecomposition(_ raw: String) -> [LadderStep] {
+        guard let data = raw.data(using: .utf8),
+              let array = try? JSONSerialization.jsonObject(with: data) as? [Any]
+        else { return [] }
+        return array.compactMap { element in
+            guard let dict = element as? [String: Any] else { return nil }
+            let subgoal = dict["subgoal"] as? String ?? ""
+            let rubric = dict["rubric"] as? String ?? ""
+            return LadderStep(subgoal: subgoal, rubric: rubric)
+        }
+    }
 }
 
 /// One exam problem, read from a `pgrep::Problem` note. The correct answer is
@@ -72,6 +101,9 @@ struct ExamProblem: Sendable, Equatable, Identifiable {
     var choices: [String]
     var correctLetter: String
     var category: String
+    /// The finest topic tag verbatim (e.g. "topic::mechanics"), for the attempt
+    /// payload the write path persists on finish; nil if the note is untagged.
+    var topic: String?
     var difficulty: Double?
 }
 

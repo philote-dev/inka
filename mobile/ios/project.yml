@@ -36,6 +36,7 @@ targets:
         embed: false
       - sdk: Security.framework
       - sdk: SystemConfiguration.framework
+      - sdk: WebKit.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: net.ankiweb.pgrep.PgrepStudy
@@ -73,6 +74,7 @@ targets:
     sources:
       - path: PgrepStudyTests
       - path: PgrepStudy/AnkiBackend.swift
+      - path: PgrepStudy/AttemptWriter.swift
       - path: PgrepStudy/SyncRpc.swift
       - path: PgrepStudy/StudySandbox.swift
       - path: PgrepStudy/Generated

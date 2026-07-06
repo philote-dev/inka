@@ -36,6 +36,7 @@ struct HomeView: View {
     @StateObject private var model = HomeModel()
     @Binding var selectedTab: RootTab
     @State private var showExam = false
+    @State private var showLadder = false
 
     var body: some View {
         ScrollView {
@@ -53,6 +54,9 @@ struct HomeView: View {
         .task(id: app.dataVersion) { await model.load(engine: app.engine) }
         .fullScreenCover(isPresented: $showExam) {
             ExamView().environmentObject(app)
+        }
+        .fullScreenCover(isPresented: $showLadder) {
+            LadderView().environmentObject(app)
         }
     }
 
@@ -135,6 +139,19 @@ struct HomeView: View {
                     .background(Theme.actionBg)
                     .foregroundStyle(Theme.actionFg)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            }
+            Button {
+                showLadder = true
+            } label: {
+                Text("Practice problems")
+                    .font(Theme.Typography.emphasis)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Theme.Space.m)
+                    .foregroundStyle(Theme.text)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                            .stroke(Theme.border, lineWidth: 1)
+                    )
             }
             Button {
                 showExam = true

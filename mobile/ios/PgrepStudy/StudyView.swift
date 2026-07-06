@@ -99,16 +99,12 @@ struct StudyView: View {
             }
 
             VStack(spacing: Theme.Space.m) {
-                Text(HTMLText.plain(from: card.front))
-                    .font(Theme.Typography.title)
-                    .foregroundStyle(Theme.text)
-                    .multilineTextAlignment(.center)
+                MathText(html: card.front, fontSize: 24, weight: .semibold, centered: true)
+                    .frame(maxWidth: .infinity)
                 if model.showBack {
                     Divider().background(Theme.border)
-                    Text(HTMLText.plain(from: card.back))
-                        .font(Theme.Typography.content)
-                        .foregroundStyle(Theme.muted)
-                        .multilineTextAlignment(.center)
+                    MathText(html: card.back, fontSize: 17, centered: true)
+                        .frame(maxWidth: .infinity)
                 }
             }
             .frame(maxWidth: .infinity)

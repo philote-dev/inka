@@ -9,9 +9,11 @@
 // honestly below the coverage gate. The projection reuses the same readiness
 // math the desktop uses, so an exam here reads like the desktop's.
 //
-// Read-only for now: the exam reports its own result but does not yet persist
-// Attempt notes back to the collection, so it does not feed Home's
-// Performance/Readiness (see the TODO in ExamScore.swift for the write path).
+// On finish, the exam persists one clean Attempt per answered question through
+// the write path (AttemptWriter / Engine.logAttempts) and asks Home/Progress to
+// recompute, so a phone-run exam feeds Performance/Readiness through the same
+// fold as desktop (once a topic crosses its evidence gate). The in-memory result
+// is still the sitting's own projection, shown immediately regardless.
 
 import SwiftUI
 
@@ -35,6 +37,12 @@ final class ExamModel: ObservableObject {
     @Published private(set) var result: ExamResult?
 
     private var ticker: Task<Void, Never>?
+    // Set at start so finish() can persist attempts on the shared engine and
+    // ask Home/Progress to recompute once they land.
+    private var engine: Engine?
+    private var onPersisted: (() -> Void)?
+    // Groups this sitting's attempts (a fresh id per run), for the payload.
+    private var sessionId = UUID().uuidString
 
     var current: ExamProblem? {
         guard problems.indices.contains(index) else { return nil }
@@ -43,7 +51,10 @@ final class ExamModel: ObservableObject {
 
     var answeredCount: Int { selections.values.filter { !$0.isEmpty }.count }
 
-    func start(engine: Engine, section: Bool) async {
+    func start(engine: Engine, section: Bool, onPersisted: @escaping () -> Void) async {
+        self.engine = engine
+        self.onPersisted = onPersisted
+        self.sessionId = UUID().uuidString
         phase = .loading
         do {
             let bank = try await engine.loadProblems()
@@ -98,6 +109,43 @@ final class ExamModel: ObservableObject {
         }
         result = ExamScore.score(answered: answered, served: problems.count)
         phase = .finished
+        persistAttempts()
+    }
+
+    /// Persist one clean Attempt per answered question (skipped ones are not
+    /// attempts), then ask Home/Progress to recompute. Timed, no help, committed
+    /// first-try answers, so every attempt is ladder_depth 0 and honest. Failure
+    /// to persist never disturbs the on-screen result; the sitting still reports.
+    private func persistAttempts() {
+        guard let engine else { return }
+        let drafts = attemptDrafts()
+        guard !drafts.isEmpty else { return }
+        Task { @MainActor [weak self] in
+            try? await engine.logAttempts(drafts)
+            self?.onPersisted?()
+        }
+    }
+
+    /// One draft per answered question. Exam mode allows revisiting questions, so
+    /// per-item think time is not measured; `responseMs` is left off (which the
+    /// clean rule treats as clean) rather than inventing a latency.
+    private func attemptDrafts() -> [AttemptDraft] {
+        let now = Int(Date().timeIntervalSince1970)
+        return problems.compactMap { problem in
+            guard let letter = selections[problem.noteId], !letter.isEmpty else { return nil }
+            return AttemptDraft(
+                itemNoteId: problem.noteId,
+                topic: problem.topic,
+                category: problem.category,
+                correct: letter == problem.correctLetter,
+                selectedOption: letter,
+                sessionId: sessionId,
+                answeredAt: now,
+                ladderDepth: 0,
+                difficulty: problem.difficulty,
+                responseMs: nil
+            )
+        }
     }
 
     func stop() {
@@ -199,7 +247,7 @@ struct ExamView: View {
 
     private func examOptionButton(title: String, subtitle: String, section: Bool) -> some View {
         Button {
-            Task { await model.start(engine: app.engine, section: section) }
+            Task { await model.start(engine: app.engine, section: section, onPersisted: { app.refreshScores() }) }
         } label: {
             VStack(alignment: .leading, spacing: Theme.Space.xs) {
                 Text(title)
@@ -229,9 +277,7 @@ struct ExamView: View {
                 runningHeader
                 ScrollView {
                     VStack(alignment: .leading, spacing: Theme.Space.l) {
-                        Text(HTMLText.plain(from: problem.stem))
-                            .font(Theme.Typography.content)
-                            .foregroundStyle(Theme.text)
+                        MathText(html: problem.stem, fontSize: 17)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         choiceList(problem)
                     }
@@ -287,9 +333,7 @@ struct ExamView: View {
                             .background(selected ? Theme.actionBg : Color.clear)
                             .clipShape(Circle())
                             .overlay(Circle().stroke(Theme.border, lineWidth: selected ? 0 : 1))
-                        Text(HTMLText.plain(from: pair.element))
-                            .font(Theme.Typography.body)
-                            .foregroundStyle(Theme.text)
+                        MathText(html: pair.element, fontSize: 14)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(Theme.Space.m)
