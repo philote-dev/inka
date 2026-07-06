@@ -29,6 +29,7 @@ import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_BUNDLE = REPO / "pylib" / "anki" / "pgrep" / "content_bundle.json"
@@ -132,7 +133,7 @@ class Converter:
     def convert(self, text: str) -> str:
         messages = self._base + [{"role": "user", "content": text}]
         temp = {} if self._reasoning else {"temperature": 0}
-        attempts = [
+        attempts: list[dict[str, Any]] = [
             dict(response_format={"type": "json_object"}, **temp),
             dict(**temp),
             dict(),
@@ -140,8 +141,12 @@ class Converter:
         last = None
         for extra in attempts:
             try:
+                # The bundle builds plain-dict messages; OpenAI's param type is a
+                # stricter union that still accepts these at runtime.
                 resp = self.client.chat.completions.create(
-                    model=self.model, messages=messages, **extra
+                    model=self.model,
+                    messages=messages,  # type: ignore[arg-type]
+                    **extra,
                 )
                 return self._parse(resp.choices[0].message.content, text)
             except Exception as e:  # noqa: BLE001 - try the next, simpler param set
