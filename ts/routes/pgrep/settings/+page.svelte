@@ -10,6 +10,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
      baked in: the app works and still scores with AI off. The shared rail comes
      from +layout.svelte, so this surface renders content only. -->
 <script lang="ts">
+    import { goto } from "$app/navigation";
     import { onDestroy, onMount } from "svelte";
     import { pgrepCall } from "../lib/bridge";
 
@@ -297,6 +298,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         on:change={saveTestDate}
                         aria-label="Test date"
                     />
+                </div>
+                <div class="row">
+                    <div class="row-text">
+                        <div class="row-title">Diagnostic</div>
+                        <div class="row-sub">
+                            Re-place your topics with a fresh quick check
+                        </div>
+                    </div>
+                    <button
+                        class="pill-btn strong"
+                        type="button"
+                        on:click={() => goto("/pgrep/diagnostic")}
+                    >
+                        Re-run
+                    </button>
                 </div>
             </div>
         </section>

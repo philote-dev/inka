@@ -89,12 +89,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     $: heroHeight = Math.max(240, Math.round(heroWidth * 0.5));
     $: heroScale = Math.round(heroWidth * 0.217);
 
-    // Diagnostic is first-run and re-runnable (ux-foundation 7.6). Show the
-    // prompt only until it has been completed once. null while unknown so a
-    // completed learner never sees a flash of the prompt; a failed read falls
-    // open to showing it, so a first-run learner always has the entry.
-    let diagnosticDone: boolean | null = null;
-
     // Each card owns its own loading/error/data so one slow or failed call
     // abstains its own card rather than blocking the surface. All three scores
     // are pure AI-off math and return well within the 100ms feel.
@@ -145,24 +139,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         ]);
     }
 
-    async function loadDiagnosticStatus(): Promise<void> {
-        try {
-            const status = await pgrepCall<{ completed: boolean }>(
-                "pgrepDiagnosticStatus",
-                {},
-            );
-            diagnosticDone = status.completed;
-        } catch {
-            diagnosticDone = false;
-        }
-    }
-
     onMount(() => {
         const reduce =
             window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
         use3d = supportsWebGL() && !reduce;
         void loadScores();
-        void loadDiagnosticStatus();
     });
 
     function pct(value: number): number {
@@ -316,23 +297,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <h1>Your knowledge map</h1>
             <p>Memory, performance, and readiness, shown honestly.</p>
         </div>
-        {#if diagnosticDone === false}
-            <a class="diag-link" href="/pgrep/diagnostic">
-                <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 20 20"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <polyline points="2,10 5.5,10 8,4.5 12,15.5 14.5,10 18,10" />
-                </svg>
-                Run the diagnostic
-            </a>
-        {/if}
     </header>
 
     <div class="hero" bind:clientWidth={heroWidth}>
@@ -464,30 +428,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             margin: 6px 0 0;
             font-size: var(--text-body);
             color: var(--muted);
-        }
-    }
-
-    /* Diagnostic is a re-runnable flow, not a rail tab, so Home offers a quiet
-       monochrome entry into it. It seeds the manifold above. */
-    .diag-link {
-        flex: 0 0 auto;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 14px;
-        border: var(--hairline);
-        border-radius: var(--radius-control);
-        color: var(--muted);
-        text-decoration: none;
-        font-size: var(--text-body);
-        font-weight: 500;
-        white-space: nowrap;
-        transition: var(--transition-calm);
-
-        &:hover {
-            color: var(--text);
-            background: var(--hover-wash);
-            border-color: var(--muted);
         }
     }
 

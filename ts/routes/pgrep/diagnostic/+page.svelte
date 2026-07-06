@@ -10,6 +10,7 @@ there is no cold bucket. No AI, no confidence or self-rating. Styled with the
 pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
 -->
 <script lang="ts">
+    import { goto } from "$app/navigation";
     import { onDestroy, onMount } from "svelte";
 
     import ChoiceList from "$lib/components/ChoiceList.svelte";
@@ -373,7 +374,7 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
         </div>
 
         <div class="actions">
-            <button class="btn primary" on:click={startCheck}>Run again</button>
+            <button class="btn primary" on:click={() => goto("/pgrep")}>Done</button>
         </div>
     {/if}
 </section>
