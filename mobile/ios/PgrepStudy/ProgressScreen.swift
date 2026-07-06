@@ -60,25 +60,12 @@ struct ProgressScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.l) {
-                header
                 content
             }
             .padding(Theme.Space.l)
         }
         .background(Theme.canvas.ignoresSafeArea())
         .task(id: app.dataVersion) { await model.load(engine: app.engine) }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.xs) {
-            Text("Progress")
-                .font(Theme.Typography.greeting)
-                .foregroundStyle(Theme.text)
-            Text("Coverage gates Readiness. Each score abstains until the evidence is there.")
-                .font(Theme.Typography.body)
-                .foregroundStyle(Theme.muted)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder

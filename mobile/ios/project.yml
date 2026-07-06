@@ -28,6 +28,12 @@ targets:
     platform: iOS
     sources:
       - path: PgrepStudy
+        excludes:
+          - "Resources/**"
+      # The bundled 3D manifold renderer (manifold.html + manifold.bundle.js,
+      # produced by tools/build-manifold-webview.sh) shipped as app resources.
+      - path: PgrepStudy/Resources
+        buildPhase: resources
       - path: ../sample-deck/collection.anki2
         buildPhase: resources
     dependencies:

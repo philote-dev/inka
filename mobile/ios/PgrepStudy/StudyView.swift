@@ -51,15 +51,50 @@ final class StudyModel: ObservableObject {
 struct StudyView: View {
     @EnvironmentObject private var app: AppModel
     @StateObject private var model = StudyModel()
+    @State private var showExam = false
+    @State private var showLadder = false
 
     var body: some View {
         VStack(spacing: Theme.Space.l) {
+            modesBar
             content
         }
         .padding(Theme.Space.l)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Theme.canvas.ignoresSafeArea())
         .task(id: app.dataVersion) { await model.loadNext(engine: app.engine) }
+        .fullScreenCover(isPresented: $showExam) {
+            ExamView().environmentObject(app)
+        }
+        .fullScreenCover(isPresented: $showLadder) {
+            LadderView().environmentObject(app)
+        }
+    }
+
+    /// The other two doors, alongside the interleaved Cards session: the
+    /// wrong-answer ladder (Practice problems) and the timed mock (Exam). They
+    /// live here on Study, matching the desktop Home that offers only the session.
+    private var modesBar: some View {
+        HStack(spacing: Theme.Space.s) {
+            modeButton("Practice problems", systemImage: "list.bullet.rectangle") { showLadder = true }
+            modeButton("Take a timed exam", systemImage: "timer") { showExam = true }
+        }
+    }
+
+    private func modeButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(Theme.Typography.body)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Theme.Space.s + Theme.Space.xs)
+                .foregroundStyle(Theme.text)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                        .stroke(Theme.border, lineWidth: 1)
+                )
+        }
     }
 
     @ViewBuilder

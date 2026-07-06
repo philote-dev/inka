@@ -87,6 +87,11 @@ smoke:
 ios-xcframework:
     ./tools/build-xcframework.sh
 
+# Bundle the 3D knowledge manifold (Three.js + shared renderer) for the native
+# Home's WKWebView, committed as an app resource. Re-run on manifold/three changes.
+ios-manifold:
+    ./tools/build-manifold-webview.sh
+
 # Build xcframework, regenerate the Xcode project, and run the iOS Simulator XCTest; macOS-only
 ios-smoke:
     ./tools/ios-smoke.sh

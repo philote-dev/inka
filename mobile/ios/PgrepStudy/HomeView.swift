@@ -2,12 +2,14 @@
 // License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 //
 // Home: the readiness glance (design/ux-foundation.md §7.1, mobile subset §9).
-// The manifold thumbnail, a Today action, and the three score cards. All three
-// are computed natively over the shared engine: Memory from FSRS retrievability,
-// Performance from the synced attempt log with Memory as the mastery bridge, and
-// Readiness projected from Performance. When there is no attempt data yet (a
-// phone that has not synced problem work), Performance and Readiness abstain
-// honestly for the right reason, never a fabricated number, exactly like desktop.
+// The real 3D knowledge manifold (the same WebGL/Three.js hero as desktop, hosted
+// in a WKWebView over the synced Memory), the single Today action, and the three
+// scores in one compact above-the-fold row. Practice and Exam live on Study, and
+// the full score cards on Progress, matching the desktop Home information model.
+// All three scores are computed natively over the shared engine: Memory from FSRS
+// retrievability, Performance from the synced attempt log with Memory as the
+// mastery bridge, and Readiness projected from Performance. With no attempt data
+// yet, Performance and Readiness abstain honestly, never a fabricated number.
 
 import SwiftUI
 
@@ -33,56 +35,55 @@ final class HomeModel: ObservableObject {
 
 struct HomeView: View {
     @EnvironmentObject private var app: AppModel
+    @Environment(\.colorScheme) private var colorScheme
     @StateObject private var model = HomeModel()
     @Binding var selectedTab: RootTab
-    @State private var showExam = false
-    @State private var showLadder = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.l) {
                 greeting
-                ManifoldThumbnail()
-                    .frame(height: 190)
+                ManifoldWebView(surface: manifoldSurface, colorScheme: colorScheme)
+                    .frame(height: 200)
                 today
-                scoreCards
+                scoreRow
                 progressLink
             }
             .padding(Theme.Space.l)
         }
         .background(Theme.canvas.ignoresSafeArea())
         .task(id: app.dataVersion) { await model.load(engine: app.engine) }
-        .fullScreenCover(isPresented: $showExam) {
-            ExamView().environmentObject(app)
-        }
-        .fullScreenCover(isPresented: $showLadder) {
-            LadderView().environmentObject(app)
-        }
     }
 
+    /// The live 3D manifold reads the same synced Memory the score cards do: an
+    /// area lights and rises as it is studied, a weak one opens a gap. Before the
+    /// first read it shows the honest unlit syllabus, so the hero is never blank.
+    private var manifoldSurface: ManifoldSurface {
+        if case let .loaded(board) = model.state {
+            return ManifoldSurface.build(memory: board.memory)
+        }
+        return .baseline
+    }
+
+    /// The three scores in one compact row so all three read above the fold on a
+    /// standard device, no scrolling. The full cards live on Progress.
     @ViewBuilder
-    private var scoreCards: some View {
-        switch model.state {
-        case .loading:
-            loadingCard
-        case let .loaded(board):
-            ScoreCardView(kind: .memory, value: board.memory.overall, updated: board.memory.lastUpdated)
-            ScoreCardView(
-                kind: .performance,
-                value: board.performance.overall,
-                updated: board.performance.lastUpdated
-            )
-            ScoreCardView(
-                kind: .readiness,
-                value: board.readiness.scoreValue,
-                updated: board.readiness.lastUpdated,
-                scale: .scaled,
-                howSureDetail: board.readiness.howSureDetail
-            )
-        case let .failed(message):
-            ScoreCardView(kind: .memory, value: .abstaining("Could not read the collection"), updated: nil)
-            ScoreCardView(kind: .performance, value: .abstaining(message), updated: nil)
-            ScoreCardView(kind: .readiness, value: .abstaining(message), updated: nil, scale: .scaled)
+    private var scoreRow: some View {
+        HStack(alignment: .top, spacing: Theme.Space.s) {
+            switch model.state {
+            case .loading:
+                CompactScoreCard(kind: .memory, value: .abstaining(""), loading: true)
+                CompactScoreCard(kind: .performance, value: .abstaining(""), loading: true)
+                CompactScoreCard(kind: .readiness, value: .abstaining(""), scale: .scaled, loading: true)
+            case let .loaded(board):
+                CompactScoreCard(kind: .memory, value: board.memory.overall)
+                CompactScoreCard(kind: .performance, value: board.performance.overall)
+                CompactScoreCard(kind: .readiness, value: board.readiness.scoreValue, scale: .scaled)
+            case .failed:
+                CompactScoreCard(kind: .memory, value: .abstaining("--"))
+                CompactScoreCard(kind: .performance, value: .abstaining("--"))
+                CompactScoreCard(kind: .readiness, value: .abstaining("--"), scale: .scaled)
+            }
         }
     }
 
@@ -140,52 +141,8 @@ struct HomeView: View {
                     .foregroundStyle(Theme.actionFg)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
             }
-            Button {
-                showLadder = true
-            } label: {
-                Text("Practice problems")
-                    .font(Theme.Typography.emphasis)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, Theme.Space.m)
-                    .foregroundStyle(Theme.text)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                            .stroke(Theme.border, lineWidth: 1)
-                    )
-            }
-            Button {
-                showExam = true
-            } label: {
-                Text("Take a timed exam")
-                    .font(Theme.Typography.emphasis)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, Theme.Space.m)
-                    .foregroundStyle(Theme.text)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                            .stroke(Theme.border, lineWidth: 1)
-                    )
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Theme.Space.l)
-        .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                .stroke(Theme.border, lineWidth: 1)
-        )
-    }
-
-    private var loadingCard: some View {
-        HStack(spacing: Theme.Space.m) {
-            Circle().fill(Theme.memory).frame(width: 10, height: 10)
-            Text("Reading your collection")
-                .font(Theme.Typography.emphasis)
-                .foregroundStyle(Theme.text)
-            Spacer()
-            ProgressView()
-        }
         .padding(Theme.Space.l)
         .background(Theme.surface)
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))

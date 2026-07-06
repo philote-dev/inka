@@ -32,16 +32,23 @@ public struct RpcId: Sendable {
     public static let addDeck = RpcId(7, 1)
     public static let getDeckIdByName = RpcId(7, 7)
     public static let setCurrentDeck = RpcId(7, 22)
+    // ConfigService (service 9)
+    public static let getConfigJson = RpcId(9, 0)
+    public static let setConfigJson = RpcId(9, 1)
+    // DeckConfigService (service 11)
+    public static let getDeckConfigsForUpdate = RpcId(11, 6)
     // SchedulerService (service 13)
     public static let getQueuedCards = RpcId(13, 3)
     public static let answerCard = RpcId(13, 4)
     public static let buryOrSuspendCards = RpcId(13, 14)
+    public static let scheduleCardsAsNew = RpcId(13, 17)
     // NotetypesService (service 23)
     public static let addNotetype = RpcId(23, 0)
     public static let getNotetypeIdByName = RpcId(23, 10)
     // NotesService (service 25)
     public static let addNote = RpcId(25, 1)
     public static let getNote = RpcId(25, 6)
+    public static let removeNotes = RpcId(25, 7)
     // SearchService (service 29)
     public static let searchCards = RpcId(29, 1)
     public static let searchNotes = RpcId(29, 2)
@@ -307,5 +314,57 @@ public final class AnkiBackend {
         req.noteIds = noteIds
         req.mode = .suspend
         return try call(.buryOrSuspendCards, req)
+    }
+
+    // MARK: - pgrep Settings (config blob, deck config, reset)
+
+    /// Read a collection-config JSON value by key, or nil when the key is unset.
+    /// The backend raises NotFound for a missing key (like id_for_name does), so
+    /// that case is mapped to nil here and callers treat it as an empty value.
+    public func getConfigJson(key: String) throws -> Data? {
+        var req = Anki_Generic_String()
+        req.val = key
+        do {
+            let res: Anki_Generic_Json = try call(.getConfigJson, req)
+            return res.json
+        } catch let AnkiBackendError.backend(err) where err.kind == .notFoundError {
+            return nil
+        }
+    }
+
+    /// Write a collection-config JSON value by key. Non-undoable, matching the
+    /// desktop pgrep settings writes; the value is raw JSON bytes.
+    public func setConfigJson(key: String, valueJson: Data) throws {
+        var req = Anki_Config_SetConfigJsonRequest()
+        req.key = key
+        req.valueJson = valueJson
+        req.undoable = false
+        let _: Anki_Collection_OpChanges = try call(.setConfigJson, req)
+    }
+
+    /// The deck-config bundle for a deck, used to read the sample deck's target
+    /// retention (desiredRetention) for the read-only Settings display.
+    public func deckConfigsForUpdate(deckId: Int64) throws -> Anki_DeckConfig_DeckConfigsForUpdate {
+        var req = Anki_Decks_DeckId()
+        req.did = deckId
+        return try call(.getDeckConfigsForUpdate, req)
+    }
+
+    /// Delete notes by id (used by Reset to clear the immutable attempt log; the
+    /// suspended attempt cards go with them).
+    @discardableResult
+    public func removeNotes(noteIds: [Int64]) throws -> Anki_Collection_OpChangesWithCount {
+        var req = Anki_Notes_RemoveNotesRequest()
+        req.noteIds = noteIds
+        return try call(.removeNotes, req)
+    }
+
+    /// Forget cards back to new (used by Reset to drop the seeded FSRS memory
+    /// state so Memory and mastery start fresh; the cards themselves are kept).
+    @discardableResult
+    public func scheduleCardsAsNew(cardIds: [Int64]) throws -> Anki_Collection_OpChanges {
+        var req = Anki_Scheduler_ScheduleCardsAsNewRequest()
+        req.cardIds = cardIds
+        return try call(.scheduleCardsAsNew, req)
     }
 }
