@@ -120,13 +120,13 @@ struct HomeView: View {
                     .font(Theme.Typography.emphasis)
                     .foregroundStyle(Theme.text)
             }
-            Text("One interleaved session, in points-at-stake order.")
+            Text("Cards and problems, interleaved")
                 .font(Theme.Typography.body)
                 .foregroundStyle(Theme.muted)
             Button {
                 selectedTab = .study
             } label: {
-                Text("Start today's session")
+                Text("Start session")
                     .font(Theme.Typography.emphasis)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, Theme.Space.m)

@@ -214,8 +214,8 @@ struct CompactScoreCard: View {
     private var range: String {
         guard let low = value.low, let high = value.high else { return " " }
         switch scale {
-        case .fraction: return "\(ScoreCardView.pct(low))-\(ScoreCardView.pct(high))"
-        case .scaled: return "\(ScoreCardView.whole(low))-\(ScoreCardView.whole(high))"
+        case .fraction: return "\(ScoreCardView.pct(low)) to \(ScoreCardView.pct(high))"
+        case .scaled: return "\(ScoreCardView.whole(low)) to \(ScoreCardView.whole(high))"
         }
     }
 }
