@@ -225,8 +225,8 @@ component lands (P1 owns math).
     <header class="head">
         <h1>Make a flashcard</h1>
         <p class="lede">
-            Write one in your own words. We build a matching set in your style,
-            each card checked against a named source.
+            Write one in your own words. We build a matching set in your style, each
+            card checked against a named source.
         </p>
     </header>
 
@@ -336,7 +336,9 @@ component lands (P1 owns math).
                     stroke-linecap="round"
                     stroke-linejoin="round"
                 >
-                    <path d="M10 2.5 L11.8 8.2 L17.5 10 L11.8 11.8 L10 17.5 L8.2 11.8 L2.5 10 L8.2 8.2 Z" />
+                    <path
+                        d="M10 2.5 L11.8 8.2 L17.5 10 L11.8 11.8 L10 17.5 L8.2 11.8 L2.5 10 L8.2 8.2 Z"
+                    />
                 </svg>
                 <h2>Matching cards</h2>
                 {#if !aiOn}
@@ -359,8 +361,8 @@ component lands (P1 owns math).
                 {/if}
                 <div class="placeholder">
                     <p>
-                        AI matching is off, so no new cards are drafted and the gold
-                        set gate stays idle. Write cards yourself, or turn AI back on.
+                        AI matching is off, so no new cards are drafted and the gold set
+                        gate stays idle. Write cards yourself, or turn AI back on.
                     </p>
                     <a class="settings-link" href="/pgrep/settings">Open Settings</a>
                 </div>
@@ -403,7 +405,8 @@ component lands (P1 owns math).
                         <p class="sib-front">{c.front}</p>
                         <div class="sib-foot">
                             <span class="src">
-                                {#if c.source_ref}Cited from {c.source_ref}{:else}Source pending{/if}
+                                {#if c.source_ref}Cited from {c.source_ref}{:else}Source
+                                    pending{/if}
                             </span>
                             <span class="status-pill verified">
                                 <svg
@@ -429,7 +432,8 @@ component lands (P1 owns math).
                         <p class="sib-front">{c.front}</p>
                         <div class="sib-foot">
                             <span class="src">
-                                {#if c.source_ref}Cited from {c.source_ref}{:else}Source pending{/if}
+                                {#if c.source_ref}Cited from {c.source_ref}{:else}Source
+                                    pending{/if}
                             </span>
                             <span class="status-pill needs-review">
                                 <svg
@@ -460,8 +464,8 @@ component lands (P1 owns math).
                     <p class="left-out">
                         {refused.length}
                         {refused.length === 1 ? "card" : "cards"} left out. pgrep could not
-                        ground {refused.length === 1 ? "it" : "them"} in a named source,
-                        so {refused.length === 1 ? "it stays" : "they stay"} out of your deck.
+                        ground {refused.length === 1 ? "it" : "them"} in a named source, so
+                        {refused.length === 1 ? "it stays" : "they stay"} out of your deck.
                     </p>
                 {/if}
 
