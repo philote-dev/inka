@@ -98,6 +98,37 @@ ios-run:
 ios-sync-proof:
     ./tools/ios-sync-proof.sh
 
+# Prime + verify the shared demo account on a running sync server (real content +
+# made-up stats + settings), then sync it down on desktop and iOS. Needs a server
+# from `just sync-server` first. macOS/Linux. See docs_pgrep/reference/dev-harness.md.
+pgrep-demo-sync:
+    ./tools/pgrep-demo-sync.sh
+
+# Install the optional AI runtime deps into out/pyenv so live generation and the
+# tutor work when AI is toggled on. Not part of the default build; the app scores
+# and studies with AI off and these absent. macOS/Linux.
+pgrep-ai-deps:
+    {{ ninja }} pyenv
+    {{ uv }} pip install --python out/pyenv/bin/python fastembed openai sympy sqlite-vec numpy
+
+# Build + run with the AI key loaded from the environment (or content/.env if
+# present), so the in-app AI toggle can grade the ladder and generate live. Run
+# `just pgrep-ai-deps` once first. macOS/Linux.
+[unix]
+run-ai *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
+    if [ -z "${OPENAI_API_KEY:-}" ]; then
+        echo "Set OPENAI_API_KEY (export it or add it to content/.env) to run with AI." >&2
+        exit 1
+    fi
+    # Pin a known-good dated chat snapshot. Without this the auto-picker can land
+    # on a non-chat gpt-5 model on some accounts. Override with PGREP_AI_MODEL.
+    export PGREP_AI_MODEL="${PGREP_AI_MODEL:-gpt-5.5-2026-04-23}"
+    echo ">>> Launching pgrep with AI available (model ${PGREP_AI_MODEL}). Toggle it on in Settings."
+    ./run {{ args }}
+
 [private]
 _test:
     {{ ninja }} check:rust_test check:pytest check:vitest

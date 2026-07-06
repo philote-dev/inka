@@ -1810,7 +1810,7 @@ title="{}" {}>{}</button>""".format(
         window = aqt.pgrep_window.PgrepWindow(self)
         window.setWindowTitle("pgrep dev lab")
         if window.web:
-            window.web.load_sveltekit_page("pgrep-lab/gallery")
+            window.web.load_sveltekit_page("pgrep-lab")
 
     def on_open_anki_screens(self) -> None:
         # pgrep host fallback (Option A): reach Anki's own screens from the
