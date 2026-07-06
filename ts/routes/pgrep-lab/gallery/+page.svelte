@@ -762,8 +762,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         The end-of-exam read reuses the readiness ScoreCard, either a
                         covered scaled score with its likely range or an honest abstain
                         that names the uncovered topics. The question navigator marks
-                        each question as answered, flagged, or current, so a reviewer can
-                        read the running state without sitting a timed mock.
+                        each question as answered, flagged, or current, so a reviewer
+                        can read the running state without sitting a timed mock.
                     </p>
                 </div>
                 <div class="split">

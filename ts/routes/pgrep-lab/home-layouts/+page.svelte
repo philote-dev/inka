@@ -50,9 +50,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <div class="pgrep night-mode shell">
-<div>
-    <header class="head">
-        <h1>Home card-row layouts</h1>
+    <div>
+        <header class="head">
+            <h1>Home card-row layouts</h1>
             <p>
                 Today plus the three score cards, shown three ways. Each row is a size
                 container, so it reflows by its own width just as it will on Home. Pick
@@ -150,7 +150,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                             <span class="today-chip">High impact</span>
                         </div>
                         <div class="today-title">Thermodynamics focus drill</div>
-                        <div class="today-meta">Cards and problems, topics interleaved. About 25 min.</div>
+                        <div class="today-meta">
+                            Cards and problems, topics interleaved. About 25 min.
+                        </div>
                     </div>
                     <button class="start">Start session</button>
                 </section>

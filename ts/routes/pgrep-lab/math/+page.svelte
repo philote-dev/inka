@@ -33,9 +33,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <div class="pgrep night-mode shell">
-<div>
-    <header class="head">
-        <h1>Math rendering</h1>
+    <div>
+        <header class="head">
+            <h1>Math rendering</h1>
             <p>
                 Real MathJax typesetting, the same engine Anki's reviewer uses. Once the
                 content carries delimited LaTeX, this is how the math renders across

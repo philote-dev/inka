@@ -32,14 +32,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <div class="pgrep night-mode shell">
-<div>
-    <header class="head">
-        <h1>Flashcard face and math</h1>
+    <div>
+        <header class="head">
+            <h1>Flashcard face and math</h1>
             <p>
-                The Cards-door review card with math-rich content, plus a raw-versus-rendered
-                check of the MathJax renderer. Card content carries delimited LaTeX, so the
-                \( ... \) spans typeset through CardFace while the surrounding prose stays
-                plain.
+                The Cards-door review card with math-rich content, plus a
+                raw-versus-rendered check of the MathJax renderer. Card content carries
+                delimited LaTeX, so the \( ... \) spans typeset through CardFace while
+                the surrounding prose stays plain.
             </p>
         </header>
 

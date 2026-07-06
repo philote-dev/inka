@@ -531,9 +531,7 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
                 <button
                     class="leave"
                     class:armed={leaveArmed}
-                    aria-label={leaveArmed
-                        ? "Leave without scoring"
-                        : "Leave exam"}
+                    aria-label={leaveArmed ? "Leave without scoring" : "Leave exam"}
                     on:click={onLeaveClick}
                 >
                     {leaveArmed ? "Leave without scoring?" : "Leave"}
