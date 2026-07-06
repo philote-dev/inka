@@ -278,6 +278,42 @@ def pgrep_tutor_synthesis() -> bytes:
     return _json(tutor.session_synthesis(aqt.mw.col, _args().get("session_id", "")))
 
 
+# Decomposition tutor (Problems miss) -> anki.pgrep.decomposition.check_mcq.
+# Grades one subproblem's MCQ pick; withholds the key on a wrong pick (unlimited
+# retries), reveals the model rationale on a correct one. No API call.
+def pgrep_tutor_mcq() -> bytes:
+    from anki.pgrep import decomposition
+
+    a = _args()
+    return _json(
+        decomposition.check_mcq(
+            aqt.mw.col,
+            a.get("note_id"),
+            int(a.get("subgoal_index", 0)),
+            int(a.get("variant_index", 0)),
+            a.get("selected", ""),
+        )
+    )
+
+
+# Decomposition tutor (Problems miss) -> anki.pgrep.decomposition.grade_explanation.
+# AI-on only: lenient "good enough" pass/fail on the free-text "explain why", with
+# a giveaway guard so feedback never leaks the parent answer. AI off never calls it.
+def pgrep_tutor_explain() -> bytes:
+    from anki.pgrep import decomposition
+
+    a = _args()
+    return _json(
+        decomposition.grade_explanation(
+            aqt.mw.col,
+            a.get("note_id"),
+            int(a.get("subgoal_index", 0)),
+            int(a.get("variant_index", 0)),
+            a.get("learner_text", ""),
+        )
+    )
+
+
 # Desktop sync. Reuses Anki's own main-thread sync flow (aqt.sync) against the
 # self-hosted server, so progress and the full-sync direction dialog are handled
 # for us and nothing on the mediasrv thread touches the open collection unsafely.
@@ -451,6 +487,8 @@ pgrep_post_handlers = [
     pgrep_problem_generate,
     pgrep_tutor_grade,
     pgrep_tutor_synthesis,
+    pgrep_tutor_mcq,
+    pgrep_tutor_explain,
     pgrep_sync,
     pgrep_demo_profile,
     pgrep_settings_get,

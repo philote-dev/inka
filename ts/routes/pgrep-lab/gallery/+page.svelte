@@ -18,6 +18,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import ReliabilityDiagram from "$lib/components/ReliabilityDiagram.svelte";
     import ScoreCard from "$lib/components/ScoreCard.svelte";
     import StudyFrame from "$lib/components/StudyFrame.svelte";
+    import SubproblemCard from "$lib/components/SubproblemCard.svelte";
     import { FULL_SURFACE } from "$lib/pgrep/manifold";
 
     type Hue = "memory" | "performance" | "readiness";
@@ -34,6 +35,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         { id: "score-card", label: "Score card" },
         { id: "choice-list", label: "Choice list" },
         { id: "hint-rung", label: "Hint rung" },
+        { id: "subproblem", label: "Decomposition tutor" },
         { id: "grade-bar", label: "Grade bar" },
         { id: "coverage-bar", label: "Coverage bar" },
         { id: "reliability", label: "Reliability diagram" },
@@ -123,6 +125,24 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         { key: "D", html: "It quadruples" },
         { key: "E", html: "It falls by half" },
     ];
+
+    // SubproblemCard: one gated decomposition step in each of its states. The
+    // parent problem's answer never appears here; each step is its own mini MCQ
+    // plus, with AI on, a lenient "explain why". Doubling speed raises kinetic
+    // energy fourfold, so the step's own key is D.
+    const subChoices: { key: string; html: string }[] = [
+        { key: "A", html: "\\( \\tfrac12 m v^2 \\) is unchanged" },
+        { key: "B", html: "It doubles" },
+        { key: "C", html: "It triples" },
+        { key: "D", html: "It rises by a factor of four" },
+        { key: "E", html: "It halves" },
+    ];
+    const subPrompt =
+        "First, pin down how kinetic energy depends on speed before you touch the numbers.";
+    const subStem =
+        "For a nonrelativistic particle, how does kinetic energy scale with speed \\( v \\)?";
+    const subExplainWhy =
+        "Kinetic energy goes as \\( v^2 \\), so scaling the speed by \\( k \\) scales the energy by \\( k^2 \\).";
 
     // GradeBar: the four FSRS grades with their next intervals.
     const grades: { label: string; value: number; interval: string }[] = [
@@ -400,6 +420,92 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                     revealHtml="Mechanical energy is conserved because the ramp is frictionless. Equate the potential energy at the top with the kinetic energy at the bottom, then isolate the speed."
                                     shown={true}
                                     onShow={noop}
+                                />
+                            </div>
+                        </div>
+                    {/each}
+                </div>
+            </section>
+
+            <!-- Decomposition tutor -->
+            <section id="subproblem" class="section">
+                <div class="section-head">
+                    <h2>Decomposition tutor</h2>
+                    <p>
+                        The gated step a miss opens instead of a hint ladder. Each
+                        subproblem is its own multiple-choice question that must be
+                        answered correctly to advance, with unlimited retries. A wrong
+                        pick shows only that distractor's rationale, never the key, and
+                        stays calm blue. With AI on, a lenient "explain why" is then
+                        graded and must pass; with AI off that step is skipped. There is
+                        no skip control, and the parent problem's answer is never shown.
+                    </p>
+                </div>
+                <div class="split">
+                    {#each THEMES as t (t.id)}
+                        <div class="pane pgrep {t.cls}">
+                            <span class="pane-label">{t.label}</span>
+                            <div class="stage stack">
+                                <span class="state-label">MCQ open, before a pick</span>
+                                <SubproblemCard
+                                    index={1}
+                                    total={2}
+                                    prompt={subPrompt}
+                                    stemHtml={subStem}
+                                    choices={subChoices}
+                                    selected=""
+                                    phase="mcq"
+                                    onSelect={noop}
+                                    onCheck={noop}
+                                />
+                                <span class="state-label">
+                                    Wrong pick, rationale only (retry, never red)
+                                </span>
+                                <SubproblemCard
+                                    index={1}
+                                    total={2}
+                                    prompt={subPrompt}
+                                    stemHtml={subStem}
+                                    choices={subChoices}
+                                    selected="B"
+                                    phase="mcq"
+                                    mcqRationaleHtml="Doubling multiplies energy by the square of the ratio, not the ratio itself. Look again at the power of v."
+                                    onSelect={noop}
+                                    onCheck={noop}
+                                />
+                                <span class="state-label">
+                                    Correct, AI on: the explain-why gate
+                                </span>
+                                <SubproblemCard
+                                    index={1}
+                                    total={2}
+                                    prompt={subPrompt}
+                                    stemHtml={subStem}
+                                    choices={subChoices}
+                                    selected="D"
+                                    phase="explain"
+                                    correctKey="D"
+                                    aiOn={true}
+                                    explanation="Energy depends on v squared, so it scales with the square of the speed ratio."
+                                    onGrade={noop}
+                                />
+                                <span class="state-label">
+                                    Satisfied: model rationale, then continue
+                                </span>
+                                <SubproblemCard
+                                    index={2}
+                                    total={2}
+                                    prompt={subPrompt}
+                                    stemHtml={subStem}
+                                    choices={subChoices}
+                                    selected="D"
+                                    phase="done"
+                                    correctKey="D"
+                                    explainWhyHtml={subExplainWhy}
+                                    feedback="Good enough, you named the v-squared dependence."
+                                    explanationOutcome="pass"
+                                    isLast={true}
+                                    onContinue={noop}
                                 />
                             </div>
                         </div>

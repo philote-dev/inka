@@ -151,19 +151,78 @@ forward-compat but not computed in L2.
   - req: `{ "card_id":N, "rating": 1|2|3|4 }` (Again/Hard/Good/Easy).
   - Uses `col.sched.answer_card`. res: `{ "ok": true }`.
 - `POST /_anki/pgrepStudyCommit` (Problems door) -> commit before any help.
-  - req: `{ "note_id":N, "session_id":"..", "selected":"A".."E" }`.
-  - res: `{ "correct": bool, "correct_choice":"C",
-    "rationale_html":"...", "ladder": [ { "rung":"nudge"|"decompose"|
-    "sibling"|"reveal", "prompt_html":"...", "reveal_html":"..." } ] }`.
-    The ladder rungs come from the stored `solution_decomposition` (static, AI
-    off; reveal-and-self-compare). Commit appends one Attempt note via
-    `append_attempt` (topic, correct, selected_option, session_id, answered_at).
-    The final answer only appears at the `reveal` rung.
+  - req: `{ "note_id":N, "session_id":"..", "selected":"A".."E",
+    "response_ms":<int|null> }`.
+  - res on a **hit**: `{ "correct": true, "correct_choice":"C" }` (the answer the
+    learner picked). res on a **miss**: `{ "correct": false, "tutor": {...} }`
+    (the gated decomposition tutor to work; see §3.1). **The parent answer is
+    never revealed on a miss** (no `correct_choice`, no reveal rung). Commit
+    appends one Attempt note via `append_attempt` (topic, correct,
+    selected_option, session_id, answered_at, difficulty, response_ms). A
+    first-try commit carries `ladder_depth: 0` (a clean first-try attempt); a
+    re-served miss (a tutor retry) carries `ladder_depth: <round> >= 1` and
+    `tutor_retry: true`, so `performance._is_clean` excludes it. On a miss the
+    note is re-queued in the same session and recurs later with the next numeric
+    variant.
 - **Problem notetype** `pgrep::Problem` (created here): fields `stem`, `choices`
   (JSON array), `correct` (letter), `distractor_rationales` (JSON),
   `solution_decomposition` (JSON: ordered sub-goals + a short rubric each),
-  `difficulty`, `source_ref`, `topic` mirror on tags. Generates one schedulable
-  card. No confidence field.
+  `difficulty`, `source_ref`, `decomposition_tutor` (JSON: the gated tutor data,
+  §3.1), `topic` mirror on tags. Generates one schedulable card. No confidence
+  field. The `decomposition_tutor` field is appended after the original contract
+  fields, so their ordinals never move and an older notetype is migrated forward.
+
+### 3.1 Decomposition tutor (Problems miss; owner of `anki.pgrep.decomposition`)
+
+A miss opens a gated tutor of 2 to 3 pre-generated subproblems instead of the old
+static ladder. The data lives in the `decomposition_tutor` field, pre-generated in
+a batch (`content/tools/generate_decompositions.py`), so study time never calls
+the API to fetch it. Field shape:
+
+```json
+{
+    "subproblems": [
+        {
+            "prompt": "...",
+            "variants": [
+                {
+                    "stem": "...",
+                    "choices": ["..5.."],
+                    "key": "C",
+                    "distractor_rationales": { "A": "..", "B": ".." },
+                    "explain_why": "...",
+                    "source_ref": "..."
+                }
+            ]
+        }
+    ],
+    "parent_variants": [{ "stem": "...", "choices": ["..5.."], "key": "D" }]
+}
+```
+
+Each subproblem carries several numeric variants (so a repeat never reuses the
+same numbers); `parent_variants` (optional) renumbers the parent stem for a
+re-served miss. `commit_problem` returns the next tutor state on a miss:
+
+- `tutor`: `{ "note_id":N, "variant_round":R, "count":K, "subproblems": [
+  { "index":i, "variant_index":vi, "prompt":"...", "stem_html":"...",
+  "choices":["..5.."] } ] }`. The key, distractor rationales, and model
+  `explain_why` are **withheld** until the MCQ is answered.
+
+The two gates are graded over Channel B:
+
+- `POST /_anki/pgrepTutorMcq` -> grade one subproblem's MCQ pick (unlimited
+  retries). req: `{ "note_id":N, "subgoal_index":i, "variant_index":vi,
+  "selected":"A".."E" }`. res on a wrong pick: `{ "correct": false,
+  "rationale_html":"..." }` (that distractor's rationale; the key stays hidden).
+  res on a correct pick: `{ "correct": true, "correct_choice":"C",
+  "explain_why_html":"...", "needs_explanation": <bool = AI on> }`.
+- `POST /_anki/pgrepTutorExplain` -> grade the lenient "explain why" (AI on
+  only; AI off skips this gate). req: `{ "note_id":N, "subgoal_index":i,
+  "variant_index":vi, "learner_text":"..." }`. res: `{ "ai":"on"|"off"|"error",
+  "pass": bool, "feedback":"...", "explain_why_html":"..." (on pass) }`. Feedback
+  is run through the giveaway verifier against the parent answer, so it never
+  leaks it.
 
 ### L2.3 Diagnostic v0 (owner of `anki.pgrep.diagnostic`, Diagnostic flow)
 

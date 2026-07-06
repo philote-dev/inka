@@ -21,6 +21,16 @@ Field order (fixed by the L2 API contract §3):
 The topic lives on the note's tags (``topic::<category>``), mirroring the rest of
 pgrep, so the selector / Memory / Coverage see Problems the same way as cards.
 
+``decomposition_tutor`` (field 7, added for the gated decomposition tutor that
+replaces the static wrong-answer ladder) holds JSON with a ``subproblems`` list,
+each carrying several pre-generated numeric variants so a repeat never reuses the
+same numbers. Each variant is a full mini multiple-choice question (``stem``,
+``choices`` of five, ``key``, per-distractor ``distractor_rationales``, a model
+``explain_why`` rationale, and a named ``source_ref``). An optional
+``parent_variants`` list holds renumbered forms of the parent stem, so a missed
+problem can recur in the same session with different numbers. It is deliberately
+pre-generated in a batch, so study time never calls the API to fetch it.
+
 :func:`seed_sample_problems` idempotently seeds the curated, corpus-grounded
 problems from the committed content bundle (:data:`BUNDLE_PROBLEMS`, built from
 the P4 triage-approved set) into a ``PGRE::Problems`` deck; a marker tag makes
@@ -55,6 +65,9 @@ FIELD_DISTRACTOR_RATIONALES = "distractor_rationales"
 FIELD_SOLUTION_DECOMPOSITION = "solution_decomposition"
 FIELD_DIFFICULTY = "difficulty"
 FIELD_SOURCE_REF = "source_ref"
+# Field 7: the pre-generated, gated decomposition tutor data (JSON). Appended
+# after the original contract fields so their ordinals never move.
+FIELD_DECOMPOSITION_TUTOR = "decomposition_tutor"
 PROBLEM_FIELDS: tuple[str, ...] = (
     FIELD_STEM,
     FIELD_CHOICES,
@@ -63,6 +76,7 @@ PROBLEM_FIELDS: tuple[str, ...] = (
     FIELD_SOLUTION_DECOMPOSITION,
     FIELD_DIFFICULTY,
     FIELD_SOURCE_REF,
+    FIELD_DECOMPOSITION_TUTOR,
 )
 
 # The option letters a Problem may use, in order.
@@ -98,14 +112,16 @@ def get_problem_notetype(col: Collection) -> NotetypeDict | None:
 def ensure_problem_notetype(col: Collection) -> NotetypeDict:
     """Return the ``pgrep::Problem`` notetype, creating it if missing.
 
-    Mirrors ``attempt_log.ensure_attempt_notetype``: seven fields in the
-    contract order, ``stem`` as the sort field, and a single trivial card
-    template (Problems are rendered by the Study surface from their fields, not
-    by Anki's card templates, but Anki requires at least one template).
+    Mirrors ``attempt_log.ensure_attempt_notetype``: the contract fields in
+    order, ``stem`` as the sort field, and a single trivial card template
+    (Problems are rendered by the Study surface from their fields, not by Anki's
+    card templates, but Anki requires at least one template). An already-created
+    notetype from before ``decomposition_tutor`` was added is migrated forward by
+    appending the missing field.
     """
     existing = get_problem_notetype(col)
     if existing:
-        return existing
+        return _migrate_fields(col, existing)
 
     mm = col.models
     notetype = mm.new(PROBLEM_NOTETYPE_NAME)
@@ -121,6 +137,26 @@ def ensure_problem_notetype(col: Collection) -> NotetypeDict:
     created = get_problem_notetype(col)
     assert created is not None
     return created
+
+
+def _migrate_fields(col: Collection, notetype: NotetypeDict) -> NotetypeDict:
+    """Append any contract field a pre-existing notetype is missing.
+
+    Only ever adds fields (never reorders or drops), so existing Problem notes
+    and their cards are untouched; a collection made before the tutor field
+    existed simply gains an empty ``decomposition_tutor`` to fill.
+    """
+    mm = col.models
+    have = {field["name"] for field in notetype["flds"]}
+    missing = [name for name in PROBLEM_FIELDS if name not in have]
+    if not missing:
+        return notetype
+    for field_name in missing:
+        mm.add_field(notetype, mm.new_field(field_name))
+    mm.update_dict(notetype)
+    refreshed = get_problem_notetype(col)
+    assert refreshed is not None
+    return refreshed
 
 
 # Bundled problems (the AI-off ladder data)
@@ -153,6 +189,28 @@ def _rationale_map(distractors: list[dict[str, Any]]) -> dict[str, str]:
     in the bundle as review provenance). Never includes the correct letter.
     """
     return {d["label"]: d["rationale"] for d in distractors}
+
+
+def tutor_field(item: dict[str, Any]) -> str:
+    """The JSON string stored in ``decomposition_tutor`` for a bundle item.
+
+    Normalizes a bundle record's ``decomposition_tutor`` (or its absence) to the
+    ``{"subproblems": [...], "parent_variants": [...]}`` shape the runtime reads,
+    so a problem without generated decompositions stores a well-formed empty blob
+    rather than nothing. Both the seed path and the generation path go through
+    here, so a curated and a generated problem carry the tutor data the same way.
+    """
+    tutor = item.get("decomposition_tutor")
+    if not isinstance(tutor, dict):
+        tutor = {}
+    subproblems = tutor.get("subproblems")
+    parent_variants = tutor.get("parent_variants")
+    normalized: dict[str, Any] = {
+        "subproblems": subproblems if isinstance(subproblems, list) else [],
+    }
+    if isinstance(parent_variants, list) and parent_variants:
+        normalized["parent_variants"] = parent_variants
+    return json.dumps(normalized, ensure_ascii=False)
 
 
 def seed_sample_problems(col: Collection) -> int:
@@ -192,6 +250,8 @@ def seed_sample_problems(col: Collection) -> int:
         # Real provenance where the corpus supplied it; empty for the handful of
         # triage-KEEP items the generator left uncited (physics re-derived in P4).
         note[FIELD_SOURCE_REF] = item.get("source_ref") or ""
+        # Pre-generated gated tutor data (empty blob when the item has none yet).
+        note[FIELD_DECOMPOSITION_TUTOR] = tutor_field(item)
         # Marker tag first (idempotency); the topic tag is the only topic:: tag.
         note.tags = [PROBLEM_SEED_TAG, item["topic"]]
         requests.append(AddNoteRequest(note=note, deck_id=deck_id))

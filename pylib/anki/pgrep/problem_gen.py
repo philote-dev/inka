@@ -77,6 +77,9 @@ def _add_problem(col: Collection, item: dict, topic: str) -> int:
     # the model, pinning every generated problem to "easiest".
     note[problem.FIELD_DIFFICULTY] = problem.difficulty_field(item.get("difficulty"))
     note[problem.FIELD_SOURCE_REF] = item.get("source_ref") or ""
+    # Carry any pre-generated decomposition tutor data the same way the seed path
+    # does (an empty blob when the generated item has none).
+    note[problem.FIELD_DECOMPOSITION_TUTOR] = problem.tutor_field(item)
     note.tags = [GENERATED_TAG, _topic_tag(topic)]
     deck_id = col.decks.id(problem.PROBLEM_DECK_NAME)
     col.add_note(note, deck_id)

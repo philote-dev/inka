@@ -25,6 +25,8 @@ def test_problem_notetype_has_contract_fields_in_order():
         "solution_decomposition",
         "difficulty",
         "source_ref",
+        # Appended after the original contract fields (their ordinals never move).
+        "decomposition_tutor",
     ]
     assert field_names == list(problem.PROBLEM_FIELDS)
     # exactly one card template, and no confidence field anywhere.
@@ -55,6 +57,39 @@ def test_bundle_problems_are_misconception_first():
             assert d["label"] != key, item["id"]
             assert d.get("misconception", "").strip(), (item["id"], d["label"])
             assert d.get("rationale", "").strip(), (item["id"], d["label"])
+
+
+def test_tutor_field_normalizes_to_the_stored_shape():
+    # A bundle item with no tutor data stores a well-formed empty blob, not junk.
+    empty = json.loads(problem.tutor_field({"id": "x"}))
+    assert empty == {"subproblems": []}
+    # A full record round-trips, keeping subproblems and optional parent_variants.
+    record = {
+        "decomposition_tutor": {
+            "subproblems": [{"prompt": "p", "variants": [{"stem": "s"}]}],
+            "parent_variants": [{"stem": "pv", "choices": [1, 2, 3, 4, 5], "key": "A"}],
+        }
+    }
+    stored = json.loads(problem.tutor_field(record))
+    assert len(stored["subproblems"]) == 1
+    assert len(stored["parent_variants"]) == 1
+    # An absent parent_variants list is simply omitted, never stored empty.
+    no_parents = json.loads(
+        problem.tutor_field({"decomposition_tutor": {"subproblems": []}})
+    )
+    assert "parent_variants" not in no_parents
+
+
+def test_seed_stores_decomposition_tutor_field():
+    col = getEmptyCol()
+    problem.seed_sample_problems(col)
+    for note_id in col.find_notes(f"tag:{problem.PROBLEM_SEED_TAG}"):
+        note = col.get_note(note_id)
+        # Every seeded Problem carries a parseable tutor blob with a subproblems
+        # list (empty for items no decomposition has been generated for yet).
+        blob = json.loads(note[problem.FIELD_DECOMPOSITION_TUTOR])
+        assert isinstance(blob, dict)
+        assert isinstance(blob["subproblems"], list)
 
 
 def test_difficulty_field_maps_fraction_to_authored_scale():
