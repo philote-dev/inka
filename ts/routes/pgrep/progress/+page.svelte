@@ -114,6 +114,16 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
     // is uncalibrated when it simply could not be loaded.
     let calibrationErrored = false;
 
+    // Progress is split into tabs so each facet of the evidence lives in its own
+    // home and the graphs are one click away, not a long scroll down the page.
+    type Tab = "coverage" | "scores" | "calibration";
+    let activeTab: Tab = "coverage";
+    const TABS: { id: Tab; label: string }[] = [
+        { id: "coverage", label: "Coverage" },
+        { id: "scores", label: "Scores" },
+        { id: "calibration", label: "Calibration" },
+    ];
+
     async function load(): Promise<void> {
         loading = true;
         errored = false;
@@ -196,6 +206,32 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
 
     function formatN(value: number): string {
         return value.toLocaleString("en-US");
+    }
+
+    // Last-updated read for the score cards, from an epoch-seconds timestamp
+    // (performance.py writes int(time.time())). Empty when there is nothing to
+    // date yet, so the card never invents a freshness it does not have.
+    function formatUpdated(ts: number | null | undefined): string {
+        if (ts == null) {
+            return "";
+        }
+        const seconds = Math.floor(Date.now() / 1000 - ts);
+        if (!Number.isFinite(seconds) || seconds < 0) {
+            return "";
+        }
+        if (seconds < 90) {
+            return "Updated just now";
+        }
+        const minutes = Math.round(seconds / 60);
+        if (minutes < 60) {
+            return `Updated ${minutes}m ago`;
+        }
+        const hours = Math.round(minutes / 60);
+        if (hours < 24) {
+            return `Updated ${hours}h ago`;
+        }
+        const days = Math.round(hours / 24);
+        return `Updated ${days}d ago`;
     }
 
     function label(slug: string): string {
@@ -360,6 +396,9 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
             ? howSure(performance.overall.low, performance.overall.high)
             : "";
     $: performanceAbstain = performanceAbstainState(performance);
+    $: performanceUpdated = performanceCovered
+        ? formatUpdated(performance?.last_updated)
+        : "";
 
     // Coverage-gated Readiness: a scaled point + 80% range when covered, an honest
     // abstain that names the uncovered exam otherwise (the n=1 reality today).
@@ -373,6 +412,9 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
             ? `${pct(readiness.coverage_pct)} percent covered`
             : "";
     $: readinessAbstain = readinessAbstainState(readiness);
+    $: readinessUpdated = readinessCovered
+        ? formatUpdated(readiness?.last_updated)
+        : "";
 </script>
 
 <section class="progress">
@@ -405,138 +447,171 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
     </header>
 
     {#if loading}
-        <p class="muted">Loading coverage.</p>
+        <div class="panel skel" aria-hidden="true">
+            <div class="skel-head">
+                <span class="skel-block title"></span>
+                <span class="skel-block count"></span>
+            </div>
+            <span class="skel-block bar"></span>
+            <div class="skel-rows">
+                <span class="skel-block row"></span>
+                <span class="skel-block row"></span>
+                <span class="skel-block row"></span>
+                <span class="skel-block row"></span>
+            </div>
+        </div>
+        <p class="muted small skel-note">Reading your coverage.</p>
     {:else if errored}
         <div class="panel notice">
             <p class="lead">Could not load coverage.</p>
             <button class="btn" on:click={load}>Try again</button>
         </div>
     {:else if data}
-        <div class="panel">
-            <div class="panel-head">
-                <h2>Coverage</h2>
-                <span class="count">
-                    {coveredCount} of {topics.length} categories started
-                </span>
+        <div class="tabs" role="tablist" aria-label="Progress sections">
+            {#each TABS as t (t.id)}
+                <button
+                    class="tab"
+                    class:on={activeTab === t.id}
+                    role="tab"
+                    aria-selected={activeTab === t.id}
+                    on:click={() => (activeTab = t.id)}
+                >
+                    {t.label}
+                </button>
+            {/each}
+        </div>
+
+        {#if activeTab === "coverage"}
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>Coverage</h2>
+                    <span class="count">
+                        {coveredCount} of {topics.length} categories started
+                    </span>
+                </div>
+
+                <CoverageBar
+                    {segments}
+                    coveredPct={pct(data.overall_pct)}
+                    threshold={pct(data.gate)}
+                    note="Reviewed coverage. Readiness gates separately on questions attempted, not cards reviewed."
+                />
+
+                <ul class="topics">
+                    {#each topics as topic (topic.category)}
+                        <li class="topic" class:uncovered={!topic.covered}>
+                            <div class="row">
+                                <span class="name">{label(topic.category)}</span>
+                                <span class="status" class:on={topic.covered}>
+                                    {topic.covered ? "Covered" : "Not covered"}
+                                </span>
+                            </div>
+                            <div class="rowsub">
+                                <span>Blueprint {pct(topic.blueprint)} percent</span>
+                                <span>{cardCount(topic.n_cards)}</span>
+                                {#if topic.memory_point !== null}
+                                    <span class="mem">
+                                        Memory {pct(topic.memory_point)} percent
+                                    </span>
+                                {/if}
+                            </div>
+                        </li>
+                    {/each}
+                </ul>
+
+                {#if !anyCards}
+                    <p class="muted small seed-hint">
+                        Seed sample content to see your coverage.
+                    </p>
+                {/if}
+
+                <div class="actions">
+                    <button class="btn" on:click={seed} disabled={seeding}>
+                        {seeding ? "Seeding sample content" : "Seed sample content"}
+                    </button>
+                    <span class="muted small">
+                        A category counts once it has one reviewed card.
+                    </span>
+                </div>
+            </div>
+        {/if}
+
+        {#if activeTab === "scores"}
+            <div class="performance-block">
+                <ScoreCard
+                    kind="performance"
+                    value={performanceValue}
+                    range={performanceRange}
+                    howSure={performanceHowSure}
+                    updated={performanceUpdated}
+                    abstain={performanceAbstain}
+                />
+                <p class="muted small performance-note">
+                    Performance is your chance on a new, unseen problem, read from the
+                    problems you attempt (not cards reviewed). It abstains until a topic
+                    has at least {performance?.k_perf ?? 8} attempts.
+                </p>
             </div>
 
-            <CoverageBar
-                {segments}
-                coveredPct={pct(data.overall_pct)}
-                threshold={pct(data.gate)}
-                note="Reviewed coverage. Readiness gates separately on questions attempted, not cards reviewed."
-            />
+            <div class="readiness-block">
+                <ScoreCard
+                    kind="readiness"
+                    value={readiness?.scaled ?? undefined}
+                    range={readinessRange}
+                    howSure={readinessHowSure}
+                    updated={readinessUpdated}
+                    abstain={readinessAbstain}
+                />
+                <p class="muted small readiness-note">
+                    Readiness leans on Performance under exam conditions, gated on
+                    questions attempted (not cards reviewed). It abstains until at least {pct(
+                        readiness?.coverage_gate ?? 0.7,
+                    )} percent of the exam has been attempted.
+                </p>
+            </div>
+        {/if}
 
-            <ul class="topics">
-                {#each topics as topic (topic.category)}
-                    <li class="topic" class:uncovered={!topic.covered}>
-                        <div class="row">
-                            <span class="name">{label(topic.category)}</span>
-                            <span class="status" class:on={topic.covered}>
-                                {topic.covered ? "Covered" : "Not covered"}
+        {#if activeTab === "calibration"}
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>Calibration</h2>
+                    <span class="count">How honest the model is</span>
+                </div>
+                <div class="calib">
+                    {#each calibViews as view (view.kind)}
+                        <div class="calib-cell">
+                            <span
+                                class="calib-tone"
+                                style="color: var(--{view.kind}-text);"
+                            >
+                                {view.title}
                             </span>
-                        </div>
-                        <div class="rowsub">
-                            <span>Blueprint {pct(topic.blueprint)} percent</span>
-                            <span>{cardCount(topic.n_cards)}</span>
-                            {#if topic.memory_point !== null}
-                                <span class="mem">
-                                    Memory {pct(topic.memory_point)} percent
-                                </span>
+                            <ReliabilityDiagram
+                                points={view.points}
+                                brier={view.brier}
+                                read={view.read}
+                                tone={view.kind}
+                                size={200}
+                            />
+                            <p class="muted small calib-cell-note">{view.caption}</p>
+                            {#if view.meta}
+                                <p class="muted calib-meta">{view.meta}</p>
+                            {/if}
+                            {#if view.source}
+                                <p class="muted calib-prov" title={view.method}>
+                                    {view.source}
+                                </p>
                             {/if}
                         </div>
-                    </li>
-                {/each}
-            </ul>
-
-            {#if !anyCards}
-                <p class="muted small seed-hint">
-                    Seed sample content to see your coverage.
+                    {/each}
+                </div>
+                <p class="muted small calib-note">
+                    Calibration compares each model's predicted chance against what
+                    actually happened on held-out data. The closer the line sits to the
+                    diagonal, the more honest the model.
                 </p>
-            {/if}
-
-            <div class="actions">
-                <button class="btn" on:click={seed} disabled={seeding}>
-                    {seeding ? "Seeding sample content" : "Seed sample content"}
-                </button>
-                <span class="muted small">
-                    A category counts once it has one reviewed card.
-                </span>
             </div>
-        </div>
-
-        <div class="performance-block">
-            <ScoreCard
-                kind="performance"
-                value={performanceValue}
-                range={performanceRange}
-                howSure={performanceHowSure}
-                updated=""
-                abstain={performanceAbstain}
-            />
-            <p class="muted small performance-note">
-                Performance is your chance on a new, unseen problem, read from the
-                problems you attempt (not cards reviewed). It abstains until a topic has
-                at least {performance?.k_perf ?? 8} attempts.
-            </p>
-        </div>
-
-        <div class="readiness-block">
-            <ScoreCard
-                kind="readiness"
-                value={readiness?.scaled ?? undefined}
-                range={readinessRange}
-                howSure={readinessHowSure}
-                updated=""
-                abstain={readinessAbstain}
-            />
-            <p class="muted small readiness-note">
-                Readiness leans on Performance under exam conditions, gated on questions
-                attempted (not cards reviewed). It abstains until at least {pct(
-                    readiness?.coverage_gate ?? 0.7,
-                )} percent of the exam has been attempted.
-            </p>
-        </div>
-
-        <div class="panel">
-            <div class="panel-head">
-                <h2>Calibration</h2>
-                <span class="count">How honest the model is</span>
-            </div>
-            <div class="calib">
-                {#each calibViews as view (view.kind)}
-                    <div class="calib-cell">
-                        <span
-                            class="calib-tone"
-                            style="color: var(--{view.kind}-text);"
-                        >
-                            {view.title}
-                        </span>
-                        <ReliabilityDiagram
-                            points={view.points}
-                            brier={view.brier}
-                            read={view.read}
-                            tone={view.kind}
-                            size={200}
-                        />
-                        <p class="muted small calib-cell-note">{view.caption}</p>
-                        {#if view.meta}
-                            <p class="muted calib-meta">{view.meta}</p>
-                        {/if}
-                        {#if view.source}
-                            <p class="muted calib-prov" title={view.method}>
-                                {view.source}
-                            </p>
-                        {/if}
-                    </div>
-                {/each}
-            </div>
-            <p class="muted small calib-note">
-                Calibration compares each model's predicted chance against what actually
-                happened on held-out data. The closer the line sits to the diagonal, the
-                more honest the model.
-            </p>
-        </div>
+        {/if}
     {/if}
 </section>
 
@@ -611,6 +686,102 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         &:hover {
             color: var(--text);
             text-decoration: underline;
+        }
+    }
+
+    /* Section tabs: monochrome chrome (not score data). An underline marks the
+       active section, so the graphs are one click away, not a long scroll. */
+    .tabs {
+        display: flex;
+        gap: var(--space-3);
+        border-bottom: var(--hairline);
+        margin-bottom: var(--space-1);
+    }
+
+    .tab {
+        appearance: none;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+        padding: 0 0 10px;
+        font-family: var(--font-ui);
+        font-size: var(--text-body);
+        font-weight: 500;
+        color: var(--muted);
+        cursor: pointer;
+        transition: var(--transition-calm);
+
+        &:hover:not(.on) {
+            color: var(--text);
+        }
+
+        &.on {
+            color: var(--text);
+            border-bottom-color: var(--text);
+        }
+    }
+
+    /* Loading skeleton, mirroring the coverage panel's shape. */
+    .skel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: var(--space-2);
+    }
+
+    .skel-block {
+        display: block;
+        background: var(--elevated);
+        border-radius: 6px;
+        animation: pgrep-skel 2.4s ease-in-out infinite;
+
+        &.title {
+            width: 120px;
+            height: 18px;
+        }
+
+        &.count {
+            width: 96px;
+            height: 12px;
+        }
+
+        &.bar {
+            width: 100%;
+            height: 10px;
+            border-radius: 4px;
+            margin-bottom: var(--space-3);
+        }
+
+        &.row {
+            height: 46px;
+            border-radius: var(--radius-row);
+        }
+    }
+
+    .skel-rows {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-1);
+    }
+
+    .skel-note {
+        margin: var(--space-2) 0 0;
+    }
+
+    @keyframes pgrep-skel {
+        0%,
+        100% {
+            opacity: 0.5;
+        }
+        50% {
+            opacity: 0.85;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .skel-block {
+            animation: none;
         }
     }
 
