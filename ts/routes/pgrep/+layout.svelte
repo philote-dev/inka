@@ -10,8 +10,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <script lang="ts">
     import { afterNavigate } from "$app/navigation";
     import { page } from "$app/state";
+    import { onMount } from "svelte";
 
     import NavRail from "$lib/components/NavRail.svelte";
+    import { pgrepCall } from "./lib/bridge";
 
     import "@fontsource-variable/inter/index.css";
     import "@fontsource-variable/jetbrains-mono/index.css";
@@ -45,6 +47,29 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let active = activeFor(page.url.pathname);
     afterNavigate(() => {
         active = activeFor(page.url.pathname);
+    });
+
+    // Apply the saved theme on every surface, not just Settings. Without this a
+    // stored Dark preference reverts to Light on a fresh webview load of Home,
+    // Study, Progress, or Library (only the document persists across client nav).
+    onMount(async () => {
+        try {
+            const s = await pgrepCall<{ theme: string | null }>("pgrepSettingsGet", {});
+            if (s.theme) {
+                const el = document.documentElement;
+                if (s.theme === "Light") {
+                    el.classList.remove("night-mode");
+                } else if (s.theme === "Dark") {
+                    el.classList.add("night-mode");
+                } else {
+                    const prefersDark =
+                        window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+                    el.classList.toggle("night-mode", prefersDark);
+                }
+            }
+        } catch {
+            // Leave whatever the app already shows if the read fails.
+        }
     });
 </script>
 

@@ -13,10 +13,12 @@ the data flow through pgrepCall is unchanged.
     import { page } from "$app/state";
     import { onMount } from "svelte";
 
+    import CardFace from "$lib/components/CardFace.svelte";
     import ChoiceList from "$lib/components/ChoiceList.svelte";
     import GradeBar from "$lib/components/GradeBar.svelte";
     import HintRung from "$lib/components/HintRung.svelte";
     import StudyFrame from "$lib/components/StudyFrame.svelte";
+    import { renderMath } from "$lib/pgrep/math";
 
     import { pgrepCall } from "../lib/bridge";
 
@@ -352,6 +354,9 @@ the data flow through pgrepCall is unchanged.
     $: choiceItems = problem
         ? problem.choices.map((html, i) => ({ key: letterOf(i), html }))
         : [];
+    // Typeset delimited LaTeX in the stem and rationale (no-op on plain text).
+    $: renderedStem = problem ? renderMath(problem.stem_html) : "";
+    $: renderedRationale = committed ? renderMath(committed.rationale_html) : "";
 </script>
 
 {#if screen === "launcher"}
@@ -472,20 +477,23 @@ the data flow through pgrepCall is unchanged.
                 {/if}
             </div>
         {:else if screen === "cards" && card}
-            <div class="prompt">{@html card.question_html}</div>
+            <CardFace
+                questionHtml={card.question_html}
+                answerHtml={card.answer_html}
+                {answerShown}
+            />
             {#if answerShown}
-                <div class="answer">{@html card.answer_html}</div>
                 <div class="grade-label">How well did you recall it?</div>
                 <GradeBar grades={RATINGS} disabled={busy} onGrade={grade} />
             {:else}
-                <div class="actions">
+                <div class="actions center">
                     <button class="btn primary" on:click={() => (answerShown = true)}>
                         Show answer
                     </button>
                 </div>
             {/if}
         {:else if screen === "problems" && problem}
-            <div class="stem">{@html problem.stem_html}</div>
+            <div class="stem">{@html renderedStem}</div>
 
             <ChoiceList
                 choices={choiceItems}
@@ -514,7 +522,7 @@ the data flow through pgrepCall is unchanged.
                 >
                     {committed.correct ? "Correct." : "Your answer, not correct."}
                 </div>
-                <div class="rationale">{@html committed.rationale_html}</div>
+                <div class="rationale">{@html renderedRationale}</div>
 
                 {#if committed.correct && revealedRungs === 0}
                     <div class="actions">
@@ -750,7 +758,6 @@ the data flow through pgrepCall is unchanged.
         }
     }
 
-    .prompt,
     .stem {
         font-size: var(--text-content);
         line-height: 1.6;
@@ -761,22 +768,11 @@ the data flow through pgrepCall is unchanged.
         }
     }
 
-    .answer {
-        margin-top: var(--space-2);
-        padding-top: var(--space-2);
-        border-top: var(--hairline);
-        font-size: var(--text-content);
-        line-height: 1.6;
-
-        :global(p) {
-            margin: 0 0 0.6em;
-        }
-    }
-
     .grade-label {
         margin: var(--space-3) 0 var(--space-1);
         font-size: var(--text-small);
         color: var(--muted);
+        text-align: center;
     }
 
     .stem {
@@ -913,6 +909,10 @@ the data flow through pgrepCall is unchanged.
         gap: var(--space-2);
         flex-wrap: wrap;
         margin-top: var(--space-2);
+
+        &.center {
+            justify-content: center;
+        }
 
         &.next {
             margin-top: var(--space-3);

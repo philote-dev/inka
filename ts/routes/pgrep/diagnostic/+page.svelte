@@ -206,11 +206,6 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
         return item.choices.map((c, i) => ({ key: letterFor(i), html: c }));
     }
 
-    function selectedKey(category: string): string {
-        const idx = answers[category];
-        return idx === undefined ? "" : letterFor(idx);
-    }
-
     $: checks = (() => {
         const out: CheckItem[] = [];
         for (const t of topicsData?.topics ?? []) {
@@ -221,6 +216,17 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
         }
         return out;
     })();
+
+    // The selected letter per category, derived from answers so the highlight
+    // stays reactive. A template expression that only calls a helper would track
+    // the helper, not answers, so the selection must come from a value that
+    // references answers directly.
+    $: selectedKeys = Object.fromEntries(
+        checks.map((c) => [
+            c.category,
+            answers[c.category] === undefined ? "" : letterFor(answers[c.category]),
+        ]),
+    );
 
     $: batches = (() => {
         const out: CheckItem[][] = [];
@@ -296,7 +302,7 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
                     <div class="qprompt">{item.prompt}</div>
                     <ChoiceList
                         choices={choiceItems(item)}
-                        selected={selectedKey(item.category)}
+                        selected={selectedKeys[item.category] ?? ""}
                         committed={false}
                         correctKey={null}
                         onSelect={(key) =>

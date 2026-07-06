@@ -121,3 +121,36 @@
     --hover-wash: #2b2a27;
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25), 0 12px 40px rgba(0, 0, 0, 0.2);
 }
+
+/* MathJax SVG output (see ts/lib/pgrep/math.ts). Inline math keeps the baseline
+   offset MathJax sets on each SVG; display math centres on its own line. MathJax
+   glyphs take currentColor, so the math follows the text in both themes. */
+.pgrep {
+    .m-inline svg,
+    .m-block svg {
+        fill: currentColor;
+    }
+
+    .m-block {
+        display: block;
+        text-align: center;
+        margin: 0.7em 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+    }
+
+    /* Embedded problem figures (see tools/pgrep_figure_gen.py). Line-art SVG in
+       currentColor, so the diagram follows the text in both themes. */
+    .pg-figure {
+        display: flex;
+        justify-content: center;
+        margin: 1.25rem 0;
+    }
+
+    .pg-figure svg {
+        max-width: 340px;
+        width: 100%;
+        height: auto;
+    }
+}
+

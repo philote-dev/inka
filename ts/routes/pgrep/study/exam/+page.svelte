@@ -17,6 +17,7 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
 
     import ChoiceList from "$lib/components/ChoiceList.svelte";
     import ScoreCard from "$lib/components/ScoreCard.svelte";
+    import { renderMath } from "$lib/pgrep/math";
 
     import { pgrepCall } from "../../lib/bridge";
 
@@ -39,6 +40,9 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
         answered: number;
         selected: string;
         flagged: boolean;
+        // Optional per-question figure markup (diagrams). Absent until the
+        // backend serves it, so the figure slot stays empty for now.
+        figure?: string;
     }
 
     interface EmptyItem {
@@ -100,6 +104,8 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
         specialized: "Specialized",
     };
     const CHOICE_LETTERS = ["A", "B", "C", "D", "E"];
+    // The navigator shows one page of this many question cells at a time.
+    const NAV_CHUNK = 10;
 
     type Phase = "intro" | "running" | "review";
 
@@ -114,6 +120,10 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
 
     let loading = false;
     let busy = false;
+    // Scoring is its own flag because busy is also raised during navigation, and
+    // only the finish/scoring pass should take over the running view.
+    let scoring = false;
+    let timeUp = false; // the countdown, not the user, ended the exam
     let errored = false;
     let startedEmpty = false;
 
@@ -129,6 +139,16 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
     let activeSince: number | null = null;
 
     let timer: ReturnType<typeof setInterval> | null = null;
+
+    // Leaving a running exam discards an uncommitted session, so the running-phase
+    // Leave takes two clicks: the first arms it, a second within a few seconds
+    // confirms, and a stray single click disarms itself.
+    let leaveArmed = false;
+    let leaveTimer: ReturnType<typeof setTimeout> | undefined;
+
+    // Which navigator page is visible. It follows the current question but can
+    // be paged on its own to preview other ranges without jumping there.
+    let navChunk = 0;
 
     function label(slug: string | null): string {
         if (!slug) {
@@ -163,17 +183,22 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
             remainingS -= 1;
             if (remainingS <= 0) {
                 remainingS = 0;
+                timeUp = true;
                 finish();
             }
         }, 1000);
     }
 
-    onDestroy(stopTimer);
+    onDestroy(() => {
+        stopTimer();
+        clearTimeout(leaveTimer);
+    });
 
     async function startExam(): Promise<void> {
         loading = true;
         errored = false;
         startedEmpty = false;
+        timeUp = false;
         answers = {};
         elapsedMs = {};
         result = null;
@@ -336,6 +361,7 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
         stopTimer();
         flushElapsed();
         busy = true;
+        scoring = true;
         errored = false;
         try {
             result = await pgrepCall<ResultData>("pgrepExamResult", {
@@ -346,12 +372,44 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
             errored = true;
         } finally {
             busy = false;
+            scoring = false;
         }
     }
 
     function leave(): void {
         stopTimer();
         void goto("/pgrep/study");
+    }
+
+    function armLeave(): void {
+        leaveArmed = true;
+        clearTimeout(leaveTimer);
+        leaveTimer = setTimeout(() => {
+            leaveArmed = false;
+        }, 4000);
+    }
+
+    // Running-phase Leave only: intro and review leave directly via leave().
+    function onLeaveClick(): void {
+        if (leaveArmed) {
+            clearTimeout(leaveTimer);
+            leaveArmed = false;
+            leave();
+        } else {
+            armLeave();
+        }
+    }
+
+    function navPageBack(): void {
+        if (navChunk > 0) {
+            navChunk -= 1;
+        }
+    }
+
+    function navPageForward(): void {
+        if (navChunk < chunkCount - 1) {
+            navChunk += 1;
+        }
     }
 
     function choiceItems(choices: string[]): Array<{ key: string; html: string }> {
@@ -382,6 +440,9 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
         return item.answered ? "Not correct" : "Skipped";
     }
 
+    // Typeset delimited LaTeX in the running-question stem (no-op on plain text).
+    $: renderedStem = current ? renderMath(current.stem_html) : "";
+
     // Navigator cells: number, answered, flagged, current.
     $: cells = Array.from({ length: total }, (_, i) => ({
         index: i,
@@ -392,6 +453,17 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
     $: answeredCount = cells.filter((c) => c.answered).length;
     $: flaggedCount = cells.filter((c) => c.flagged).length;
     $: lowOnTime = phase === "running" && durationS > 0 && remainingS <= 60;
+
+    // Navigator pagination: one page of NAV_CHUNK cells, kept aligned with the
+    // current question, with a derived window the arrows can page through.
+    $: chunkCount = Math.max(1, Math.ceil(total / NAV_CHUNK));
+    $: if (current) {
+        navChunk = Math.floor(current.index / NAV_CHUNK);
+    }
+    $: visibleCells = cells.slice(
+        navChunk * NAV_CHUNK,
+        navChunk * NAV_CHUNK + NAV_CHUNK,
+    );
 
     // Readiness result read for the ScoreCard.
     $: resultCovered = !!result && !result.abstain && result.scaled != null;
@@ -454,24 +526,44 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
     </section>
 {:else if phase === "running"}
     <section class="exam">
-        <header class="bar">
-            <div class="clock" class:low={lowOnTime} aria-label="Time remaining">
+        <header class="hero">
+            <div class="hero-top">
+                <button
+                    class="leave"
+                    class:armed={leaveArmed}
+                    aria-label={leaveArmed
+                        ? "Leave without scoring"
+                        : "Leave exam"}
+                    on:click={onLeaveClick}
+                >
+                    {leaveArmed ? "Leave without scoring?" : "Leave"}
+                </button>
+            </div>
+            <div class="timer" class:low={lowOnTime} aria-label="Time remaining">
                 {fmtClock(remainingS)}
             </div>
-            <div class="progress-read">
-                {answeredCount} of {total} answered
-                {#if flaggedCount}<span class="flag-count">
-                        {flaggedCount} flagged
-                    </span>{/if}
-            </div>
-            <button class="close" aria-label="Leave exam" on:click={leave}>
-                Leave
-            </button>
+            {#if current}
+                <div
+                    class="hero-pos"
+                    aria-label="Question {current.index + 1} of {total}"
+                >
+                    {current.index + 1} / {total}
+                </div>
+            {/if}
         </header>
 
         <p class="no-help-strip">{noHelpLine}</p>
 
-        {#if startedEmpty}
+        {#if scoring}
+            <div class="notice">
+                <p class="lead">Scoring your exam</p>
+                <p class="muted">
+                    {timeUp
+                        ? "Time is up. Tallying your answers."
+                        : "Tallying your answers."}
+                </p>
+            </div>
+        {:else if startedEmpty}
             <div class="notice">
                 <p class="lead">No problems to sit yet.</p>
                 <p class="muted">Seed sample content to try a timed mock.</p>
@@ -480,27 +572,7 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
                 </button>
             </div>
         {:else if current}
-            <nav class="navigator" aria-label="Question navigator">
-                {#each cells as cell (cell.index)}
-                    <button
-                        class="cell"
-                        class:answered={cell.answered}
-                        class:flagged={cell.flagged}
-                        class:current={cell.current}
-                        on:click={() => loadIndex(cell.index)}
-                        aria-current={cell.current ? "true" : undefined}
-                    >
-                        {cell.index + 1}
-                        {#if cell.flagged}<span
-                                class="cell-flag"
-                                aria-hidden="true"
-                            ></span>{/if}
-                    </button>
-                {/each}
-            </nav>
-
             <div class="qhead">
-                <span class="qnum">Question {current.index + 1} of {total}</span>
                 {#if current.topic}<span class="qtopic">
                         {label(current.topic)}
                     </span>{/if}
@@ -515,7 +587,11 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
                 </button>
             </div>
 
-            <div class="stem">{@html current.stem_html}</div>
+            <div class="stem">{@html renderedStem}</div>
+
+            {#if current.figure}
+                <div class="figure">{@html current.figure}</div>
+            {/if}
 
             <ChoiceList
                 choices={choiceItems(current.choices)}
@@ -526,18 +602,72 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
             />
 
             <div class="controls">
-                <button
-                    class="btn ghost"
-                    on:click={prev}
-                    disabled={current.index === 0}
-                >
-                    Back
-                </button>
-                <button class="btn" on:click={next}>Next</button>
+                <div class="nudge">
+                    <button
+                        class="btn small ghost"
+                        on:click={prev}
+                        disabled={current.index === 0}
+                    >
+                        Prev
+                    </button>
+                    <button
+                        class="btn small"
+                        on:click={next}
+                        disabled={current.index + 1 >= total}
+                    >
+                        Next
+                    </button>
+                </div>
                 <button class="btn primary" on:click={finish} disabled={busy}>
                     Finish exam
                 </button>
             </div>
+
+            <div class="nav-area">
+                <div class="nav-summary">
+                    {answeredCount} of {total} answered
+                    {#if flaggedCount}<span class="flag-count">
+                            {flaggedCount} flagged
+                        </span>{/if}
+                </div>
+                <div class="nav-row">
+                    <button
+                        class="nav-arrow"
+                        on:click={navPageBack}
+                        disabled={navChunk === 0}
+                        aria-label="Earlier questions"
+                    >
+                        &lsaquo;
+                    </button>
+                    <nav class="navigator" aria-label="Question navigator">
+                        {#each visibleCells as cell (cell.index)}
+                            <button
+                                class="cell"
+                                class:answered={cell.answered}
+                                class:flagged={cell.flagged}
+                                class:current={cell.current}
+                                on:click={() => loadIndex(cell.index)}
+                                aria-current={cell.current ? "true" : undefined}
+                            >
+                                {cell.index + 1}
+                                {#if cell.flagged}<span
+                                        class="cell-flag"
+                                        aria-hidden="true"
+                                    ></span>{/if}
+                            </button>
+                        {/each}
+                    </nav>
+                    <button
+                        class="nav-arrow"
+                        on:click={navPageForward}
+                        disabled={navChunk >= chunkCount - 1}
+                        aria-label="Later questions"
+                    >
+                        &rsaquo;
+                    </button>
+                </div>
+            </div>
+
             <p class="muted small hint">
                 Answer in any order. Flag to revisit. Finish when you are ready.
             </p>
@@ -563,7 +693,7 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
                 howSure={resultCovered
                     ? `${Math.round(result.coverage_pct * 100)} percent covered`
                     : ""}
-                updated=""
+                updated="Just now"
                 abstain={readinessAbstain}
             />
             <div class="tallies">
@@ -618,7 +748,7 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
                             {verdictLabel(item)}
                         </span>
                     </div>
-                    <div class="stem">{@html item.stem_html}</div>
+                    <div class="stem">{@html renderMath(item.stem_html)}</div>
                     <ChoiceList
                         choices={choiceItems(item.choices)}
                         selected={item.selected}
@@ -755,46 +885,26 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
     }
 
     /* Running exam */
-    .bar {
-        display: grid;
-        grid-template-columns: 1fr auto 1fr;
+    .hero {
+        display: flex;
+        flex-direction: column;
         align-items: center;
-        gap: var(--space-2);
+        gap: 4px;
     }
 
-    .clock {
-        font-family: var(--font-mono);
-        font-size: 34px;
-        font-weight: 500;
-        font-variant-numeric: tabular-nums;
-        letter-spacing: 0.02em;
-        color: var(--text);
-
-        &.low {
-            color: var(--caution);
-        }
+    .hero-top {
+        align-self: stretch;
+        display: flex;
+        justify-content: flex-end;
     }
 
-    .progress-read {
-        justify-self: center;
-        font-size: var(--text-small);
-        color: var(--muted);
-        font-variant-numeric: tabular-nums;
-        white-space: nowrap;
-    }
-
-    .flag-count {
-        margin-left: 10px;
-        color: var(--caution);
-    }
-
-    .close {
-        justify-self: end;
+    .leave {
         background: none;
         border: var(--hairline);
         border-radius: var(--radius-control);
         color: var(--muted);
         padding: 6px 12px;
+        font-family: var(--font-ui);
         font-size: var(--text-small);
         cursor: pointer;
         transition: var(--transition-calm);
@@ -803,6 +913,36 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
             color: var(--text);
             background: var(--hover-wash);
         }
+
+        &.armed {
+            color: var(--caution);
+            border-color: var(--caution);
+
+            &:hover {
+                color: var(--caution);
+            }
+        }
+    }
+
+    .timer {
+        font-family: var(--font-mono);
+        font-size: 56px;
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.02em;
+        line-height: 1.05;
+        color: var(--text);
+
+        &.low {
+            color: var(--caution);
+        }
+    }
+
+    .hero-pos {
+        font-family: var(--font-mono);
+        font-size: var(--text-body);
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
     }
 
     .no-help-strip {
@@ -811,15 +951,145 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
         color: var(--muted);
         text-transform: uppercase;
         letter-spacing: 0.06em;
+        text-align: center;
+    }
+
+    .qhead {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-top: var(--space-1);
+    }
+
+    .qtopic {
+        font-size: var(--text-caption);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--performance-text);
+    }
+
+    .flag {
+        margin-left: auto;
+        background: none;
+        border: var(--hairline);
+        border-radius: var(--radius-pill);
+        padding: 4px 14px;
+        font-size: var(--text-small);
+        color: var(--muted);
+        cursor: pointer;
+        transition: var(--transition-calm);
+
+        &:hover {
+            border-color: var(--muted);
+            color: var(--text);
+        }
+
+        &.on {
+            color: var(--caution);
+            border-color: var(--caution);
+        }
+    }
+
+    .stem {
+        font-size: var(--text-content);
+        line-height: 1.6;
+        margin: var(--space-1) 0 var(--space-2);
+
+        :global(p) {
+            margin: 0 0 0.6em;
+        }
+    }
+
+    .figure {
+        display: flex;
+        justify-content: center;
+        margin: 0 0 var(--space-2);
+
+        :global(svg),
+        :global(img) {
+            max-width: 100%;
+            height: auto;
+        }
+    }
+
+    .controls {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-top: var(--space-2);
+        flex-wrap: wrap;
+
+        .primary {
+            margin-left: auto;
+        }
+    }
+
+    .nudge {
+        display: flex;
+        gap: var(--space-1);
+    }
+
+    .nav-area {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-1);
+        margin-top: var(--space-2);
+        padding-top: var(--space-2);
+        border-top: var(--hairline);
+    }
+
+    .nav-summary {
+        text-align: center;
+        font-size: var(--text-small);
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .flag-count {
+        margin-left: 10px;
+        color: var(--caution);
+    }
+
+    .nav-row {
+        display: flex;
+        align-items: center;
+        gap: var(--space-1);
+    }
+
+    .nav-arrow {
+        flex: none;
+        width: 34px;
+        height: 34px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: var(--hairline);
+        border-radius: 8px;
+        background: var(--surface);
+        color: var(--muted);
+        font-family: var(--font-mono);
+        font-size: var(--text-body);
+        line-height: 1;
+        cursor: pointer;
+        transition: var(--transition-calm);
+
+        &:hover:not(:disabled) {
+            border-color: var(--muted);
+            color: var(--text);
+        }
+
+        &:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
     }
 
     .navigator {
         display: flex;
         flex-wrap: wrap;
+        justify-content: center;
         gap: 6px;
-        padding: var(--space-1) 0;
-        border-top: var(--hairline);
-        border-bottom: var(--hairline);
+        flex: 1;
     }
 
     .cell {
@@ -865,72 +1135,9 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
         background: var(--caution);
     }
 
-    .qhead {
-        display: flex;
-        align-items: center;
-        gap: var(--space-2);
-        margin-top: var(--space-1);
-    }
-
-    .qnum {
-        font-size: var(--text-small);
-        color: var(--muted);
-        font-variant-numeric: tabular-nums;
-    }
-
-    .qtopic {
-        font-size: var(--text-caption);
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: var(--performance-text);
-    }
-
-    .flag {
-        margin-left: auto;
-        background: none;
-        border: var(--hairline);
-        border-radius: var(--radius-pill);
-        padding: 4px 14px;
-        font-size: var(--text-small);
-        color: var(--muted);
-        cursor: pointer;
-        transition: var(--transition-calm);
-
-        &:hover {
-            border-color: var(--muted);
-            color: var(--text);
-        }
-
-        &.on {
-            color: var(--caution);
-            border-color: var(--caution);
-        }
-    }
-
-    .stem {
-        font-size: var(--text-content);
-        line-height: 1.6;
-        margin: var(--space-1) 0 var(--space-2);
-
-        :global(p) {
-            margin: 0 0 0.6em;
-        }
-    }
-
-    .controls {
-        display: flex;
-        align-items: center;
-        gap: var(--space-1);
-        margin-top: var(--space-2);
-        flex-wrap: wrap;
-
-        .primary {
-            margin-left: auto;
-        }
-    }
-
     .hint {
         margin: var(--space-1) 0 0;
+        text-align: center;
     }
 
     /* Result */
@@ -1105,6 +1312,11 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
         &:disabled {
             cursor: default;
             opacity: 0.55;
+        }
+
+        &.small {
+            padding: 7px 12px;
+            font-size: var(--text-small);
         }
 
         &.primary {

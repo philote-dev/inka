@@ -81,6 +81,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     // the learner prefers reduced motion. Both draw the same FULL_SURFACE.
     let use3d = false;
 
+    // The hero fills the content column (bound to its measured width), so it never
+    // sits as a fixed island beside a wider card row. Height tracks width at the
+    // reference's roughly 2:1 framing, and the 2D projection scale matches the
+    // design ratio (S 250 at 1152 wide) so the surface looks right at any width.
+    let heroWidth = 960;
+    $: heroHeight = Math.max(240, Math.round(heroWidth * 0.5));
+    $: heroScale = Math.round(heroWidth * 0.217);
+
     // Diagnostic is first-run and re-runnable (ux-foundation 7.6). Show the
     // prompt only until it has been completed once. null while unknown so a
     // completed learner never sees a flash of the prompt; a failed read falls
@@ -327,11 +335,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         {/if}
     </header>
 
-    <div class="hero">
+    <div class="hero" bind:clientWidth={heroWidth}>
         {#if use3d}
             <Manifold3D
-                width={720}
-                height={380}
+                width={heroWidth}
+                height={heroHeight}
                 grid={84}
                 heightScale={1.2}
                 surface={FULL_SURFACE}
@@ -339,9 +347,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             />
         {:else}
             <Manifold
-                width={720}
-                height={360}
-                scale={156}
+                width={heroWidth}
+                height={heroHeight}
+                scale={heroScale}
                 grid={90}
                 surface={FULL_SURFACE}
                 onTopic={openFocusDrill}
@@ -349,45 +357,45 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         {/if}
     </div>
 
-    <section class="cards">
-        <section class="today">
-            <div class="today-head">
-                <div class="today-label">
-                    <svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 20 20"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <polyline points="2,10 5.5,10 8,4.5 12,15.5 14.5,10 18,10" />
-                    </svg>
-                    <span>Today</span>
-                </div>
-            </div>
-            <div class="today-title">Start today's session</div>
-            <div class="today-meta">Cards and problems, topics interleaved</div>
-            <a class="start" href="/pgrep/study">
-                Start session
+    <section class="today band">
+        <div class="band-text">
+            <div class="today-label">
                 <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 16 16"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 20 20"
                     fill="none"
                     stroke="currentColor"
                     stroke-width="1.5"
                     stroke-linecap="round"
                     stroke-linejoin="round"
                 >
-                    <line x1="2" y1="8" x2="13" y2="8" />
-                    <polyline points="9,4 13,8 9,12" />
+                    <polyline points="2,10 5.5,10 8,4.5 12,15.5 14.5,10 18,10" />
                 </svg>
-            </a>
-        </section>
+                <span>Today</span>
+            </div>
+            <div class="today-title">Start today's session</div>
+            <div class="today-meta">Cards and problems, topics interleaved</div>
+        </div>
+        <a class="start" href="/pgrep/study">
+            Start session
+            <svg
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
+                <line x1="2" y1="8" x2="13" y2="8" />
+                <polyline points="9,4 13,8 9,12" />
+            </svg>
+        </a>
+    </section>
 
+    <section class="scores">
         {#if memAbstain}
             <ScoreCard kind="memory" abstain={memAbstainProps} />
         {:else}
@@ -432,6 +440,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         padding: 32px 36px 36px;
         display: flex;
         flex-direction: column;
+        /* Cap and left-anchor the content next to the rail, matching the mockup's
+           ~1150px column, so nothing stretches on wide windows. The column is a
+           size container, so the score row reflows by its own width. */
+        max-width: 1150px;
+        container-type: inline-size;
     }
 
     .head {
@@ -480,14 +493,23 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     .hero {
         flex: 0 0 auto;
+        width: 100%;
         margin: 8px 0 16px;
     }
 
-    .cards {
+    /* The three score cards share one honest row, wrapping to a single column
+       only when the content column gets genuinely narrow. */
+    .scores {
         display: grid;
-        grid-template-columns: 1.4fr 1fr 1fr 1fr;
+        grid-template-columns: 1fr;
         gap: var(--space-2);
         align-items: stretch;
+    }
+
+    @container (min-width: 620px) {
+        .scores {
+            grid-template-columns: repeat(3, 1fr);
+        }
     }
 
     .today {
@@ -500,11 +522,28 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         box-shadow: var(--shadow-card);
     }
 
-    .today-head {
-        display: flex;
+    /* Option C: Today leads as a full-width band, the session action on the right.
+       Stacks the action under the text when the column is narrow. */
+    .today.band {
+        flex-direction: row;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 14px;
+        gap: var(--space-2);
+        margin-bottom: var(--space-2);
+    }
+
+    .band-text {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+    }
+
+    @container (max-width: 520px) {
+        .today.band {
+            flex-direction: column;
+            align-items: flex-start;
+        }
     }
 
     .today-label {
@@ -530,6 +569,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         font-size: 13px;
         color: var(--muted);
         margin-top: 6px;
+    }
+
+    .today.band .start {
+        margin-top: 0;
+        align-self: center;
     }
 
     .start {
