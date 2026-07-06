@@ -174,6 +174,17 @@ The data flow through pgrepCall is unchanged.
         } catch {
             aiOn = false;
         }
+        // A door preselected from the demo launcher arrives as ?door=cards|problems.
+        // Jump straight into that door of today's session (used by the dev lab's
+        // Flashcards and Practice tabs); falls back to the launcher on error.
+        const doorParam = page.url.searchParams.get("door") ?? "";
+        if (doorParam === "cards" || doorParam === "problems") {
+            mode = "today";
+            stage = "today";
+            await loadDoors(null);
+            enterDoor(doorParam);
+            return;
+        }
         // A topic preselected from the manifold focus-drill entry arrives as
         // ?topic=<slug>. Land straight in that topic's focus drill so the learner
         // can pick the Cards or Problems door for it.
