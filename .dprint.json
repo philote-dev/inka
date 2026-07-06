@@ -27,7 +27,9 @@
         "extra",
         "ts/.svelte-kit",
         "ts/vite.config.ts.timestamp*",
-        "qt/installer/*-template"
+        "qt/installer/*-template",
+        ".worktrees",
+        "mobile/ios/PgrepStudy/Resources/**"
     ],
     "plugins": [
         "https://plugins.dprint.dev/typescript-0.91.6.wasm",

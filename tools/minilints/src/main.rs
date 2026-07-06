@@ -42,6 +42,7 @@ const IGNORED_FOLDERS: &[&str] = &[
     "./mobile/ios/build",
     "./.understand-anything",
     "./content",
+    "./.worktrees",
 ];
 
 fn main() -> Result<()> {

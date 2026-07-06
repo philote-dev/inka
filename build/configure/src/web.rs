@@ -308,7 +308,10 @@ fn build_and_check_reviewer(build: &mut Build) -> Result<()> {
 }
 
 fn check_web(build: &mut Build) -> Result<()> {
-    let fmt_excluded = "{target,extra,.mypy_cache,ts/.svelte-kit,node_modules,.venv}/**";
+    // The iOS manifold web bundle (generated, minified Three.js shipped as an app
+    // resource) is not formatted source, so keep it out of the format check.
+    let fmt_excluded =
+        "{target,extra,.mypy_cache,ts/.svelte-kit,node_modules,.venv,mobile/ios/PgrepStudy/Resources}/**";
     let dprint_files = inputs![glob!["**/*.{ts,mjs,js,md,json,toml,scss}", fmt_excluded]];
     let prettier_pattern = "{**/*.svelte,docs-site/**/*.mdx}";
     let prettier_files = inputs![

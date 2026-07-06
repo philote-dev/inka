@@ -10,8 +10,8 @@
 // into a single classic script (no ES-module imports, so file:// loading in
 // WKWebView never trips CORS); see tools/build-manifold-webview.sh.
 
-import { createManifold3D, type Manifold3DHandle } from "./manifold3d";
 import { FULL_SURFACE, type Surface } from "./manifold";
+import { createManifold3D, type Manifold3DHandle } from "./manifold3d";
 
 type Theme = "light" | "dark";
 
