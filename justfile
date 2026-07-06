@@ -19,10 +19,11 @@ run-optimized *args:
     {{ if os() == "windows" { "$env:RELEASE='1'; .\\run.bat" } else { "RELEASE=1 ./run" } }} {{ args }}
 
 # Run a self-hosted Anki sync server for pgrep (reuses Anki's sync unmodified). macOS/Linux.
-# Auth via the user arg (SYNC_USER1); SYNC_HOST/SYNC_PORT/SYNC_BASE via env. See docs_pgrep/reference/dev-harness.md.
+# Defaults to port 8090 (8080 is taken by `just run`'s Qt remote-debug/hot-reload
+# server). Auth via the user arg (SYNC_USER1); SYNC_HOST/SYNC_PORT/SYNC_BASE via env.
 sync-server user="pgrep:pgrep":
     {{ ninja }} pylib
-    SYNC_USER1={{ user }} out/pyenv/bin/python tools/sync-server.py
+    SYNC_USER1={{ user }} SYNC_PORT="${SYNC_PORT:-8090}" out/pyenv/bin/python tools/sync-server.py
 
 # Watch web sources and rebuild/reload Anki's web stack on change (macOS/Linux)
 web-watch:
@@ -97,6 +98,37 @@ ios-run:
 # Prove the iOS FFI sync path end to end (phone -> server -> desktop); macOS-only
 ios-sync-proof:
     ./tools/ios-sync-proof.sh
+
+# Prime + verify the shared demo account on a running sync server (real content +
+# made-up stats + settings), then sync it down on desktop and iOS. Needs a server
+# from `just sync-server` first. macOS/Linux. See docs_pgrep/reference/dev-harness.md.
+pgrep-demo-sync:
+    ./tools/pgrep-demo-sync.sh
+
+# Install the optional AI runtime deps into out/pyenv so live generation and the
+# tutor work when AI is toggled on. Not part of the default build; the app scores
+# and studies with AI off and these absent. macOS/Linux.
+pgrep-ai-deps:
+    {{ ninja }} pyenv
+    {{ uv }} pip install --python out/pyenv/bin/python fastembed openai sympy sqlite-vec numpy
+
+# Build + run with the AI key loaded from the environment (or content/.env if
+# present), so the in-app AI toggle can grade the ladder and generate live. Run
+# `just pgrep-ai-deps` once first. macOS/Linux.
+[unix]
+run-ai *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
+    if [ -z "${OPENAI_API_KEY:-}" ]; then
+        echo "Set OPENAI_API_KEY (export it or add it to content/.env) to run with AI." >&2
+        exit 1
+    fi
+    # Pin a known-good dated chat snapshot. Without this the auto-picker can land
+    # on a non-chat gpt-5 model on some accounts. Override with PGREP_AI_MODEL.
+    export PGREP_AI_MODEL="${PGREP_AI_MODEL:-gpt-5.5-2026-04-23}"
+    echo ">>> Launching pgrep with AI available (model ${PGREP_AI_MODEL}). Toggle it on in Settings."
+    ./run {{ args }}
 
 [private]
 _test:

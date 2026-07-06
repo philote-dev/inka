@@ -14,15 +14,14 @@ the next topic so the flow keeps leading forward. With AI off the card still
 enters the deck and the right panel says so plainly, pointing to Settings to
 turn AI back on. How the matching cards are built (rephrasing a bundle vs
 drafting net-new cards) is an internal AI decision, never a user choice. Styled
-with the pgrep tokens; card content is typeset through the shared renderMath
-helper (the same MathJax path Study and CardFace use), so LaTeX renders.
+with the pgrep tokens; card fronts are typeset through the shared renderMath
+helper, so delimited LaTeX in a matched card shows as math (never forked here).
 -->
 <script lang="ts">
     import { onMount } from "svelte";
 
-    import { renderMath } from "$lib/pgrep/math";
-
     import { pgrepCall } from "../lib/bridge";
+    import { renderMath } from "$lib/pgrep/math";
 
     interface AiStatus {
         enabled: boolean;
@@ -118,21 +117,6 @@ helper (the same MathJax path Study and CardFace use), so LaTeX renders.
         { tag: "topic::lab", label: "Laboratory methods" },
         { tag: "topic::specialized", label: "Specialized topics" },
     ];
-
-    // A generated or authored card may carry delimited LaTeX (\( ... \) inline,
-    // \[ ... \] display). Escape the prose first so raw text is inert as HTML,
-    // then typeset the math spans through the shared MathJax helper, matching how
-    // Study and CardFace render their content.
-    function escapeHtml(value: string): string {
-        return value
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;");
-    }
-
-    function renderText(value: string | null | undefined): string {
-        return renderMath(escapeHtml(value ?? ""));
-    }
 
     let status: AiStatus | null = null;
     // Guided walkthrough: rather than picking from a list, the learner is walked
@@ -369,7 +353,7 @@ helper (the same MathJax path Study and CardFace use), so LaTeX renders.
             {#if !aiOn}
                 {#if seedSaved}
                     <article class="sib">
-                        <p class="sib-front">{savedFront}</p>
+                        <p class="sib-front">{@html renderMath(savedFront)}</p>
                         <div class="sib-foot">
                             <span class="src">You wrote this, added as is</span>
                             <span class="when">Today</span>
@@ -419,7 +403,7 @@ helper (the same MathJax path Study and CardFace use), so LaTeX renders.
 
                 {#each added as c (c.note_id ?? c.front)}
                     <article class="sib">
-                        <p class="sib-front">{@html renderText(c.front)}</p>
+                        <p class="sib-front">{@html renderMath(c.front)}</p>
                         <div class="sib-foot">
                             <span class="src">
                                 {#if c.source_ref}Cited from {c.source_ref}{:else}Source
@@ -446,7 +430,7 @@ helper (the same MathJax path Study and CardFace use), so LaTeX renders.
 
                 {#each review as c (c.note_id ?? c.front)}
                     <article class="sib review">
-                        <p class="sib-front">{@html renderText(c.front)}</p>
+                        <p class="sib-front">{@html renderMath(c.front)}</p>
                         <div class="sib-foot">
                             <span class="src">
                                 {#if c.source_ref}Cited from {c.source_ref}{:else}Source

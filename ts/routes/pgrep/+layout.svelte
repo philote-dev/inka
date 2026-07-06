@@ -12,7 +12,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import { page } from "$app/state";
     import { onMount } from "svelte";
 
+    import Landing from "$lib/components/Landing.svelte";
     import NavRail from "$lib/components/NavRail.svelte";
+    import SplashScreen from "$lib/components/SplashScreen.svelte";
     import { openRail, railOpen } from "$lib/pgrep/nav";
 
     import { pgrepCall } from "./lib/bridge";
@@ -43,12 +45,47 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         return "Home";
     }
 
+    let active = activeFor(page.url.pathname);
+    let isHome = page.url.pathname === "/pgrep";
+
+    // The opening splash plays once per app load. This layout mounts once per
+    // webview load, not on client navigation, so it does not replay as the
+    // learner moves between surfaces. It is skippable inside the component.
+    let showSplash = true;
+
+    // First-run onboarding. Until the diagnostic has been completed, Home shows a
+    // landing that asks for it. null while unknown so a completed learner never
+    // sees a flash, and a failed read falls open to showing it. "Maybe later"
+    // hides it for the session; after that the only way in is Settings.
+    let diagnosticDone: boolean | null = null;
+    let landingDismissed = false;
+    $: showLanding =
+        !showSplash && isHome && diagnosticDone === false && !landingDismissed;
+
+    async function loadDiagnosticStatus(): Promise<void> {
+        try {
+            const status = await pgrepCall<{ completed: boolean }>(
+                "pgrepDiagnosticStatus",
+                {},
+            );
+            diagnosticDone = status.completed;
+        } catch {
+            diagnosticDone = false;
+        }
+    }
+
     // Recompute the active rail item on every route change. afterNavigate also
     // fires on first mount, so the initial value and later client navigations
-    // both track the real pathname instead of sticking on Home.
-    let active = activeFor(page.url.pathname);
+    // both track the real pathname. Entering Home re-checks the diagnostic, so
+    // completing it and returning reflects at once. null while the check runs
+    // keeps the landing from flashing over the real Home.
     afterNavigate(() => {
         active = activeFor(page.url.pathname);
+        isHome = page.url.pathname === "/pgrep";
+        if (isHome) {
+            diagnosticDone = null;
+            void loadDiagnosticStatus();
+        }
     });
 
     // Apply the saved theme on every surface, not just Settings. Without this a
@@ -77,6 +114,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <div class="pgrep">
+    {#if showSplash}
+        <SplashScreen onDone={() => (showSplash = false)} />
+    {/if}
     <div class="shell" class:rail-collapsed={!$railOpen}>
         <NavRail {active} collapsed={!$railOpen} />
 
@@ -115,7 +155,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         {/if}
 
         <main class="page">
-            <slot />
+            {#if showLanding}
+                <Landing onLater={() => (landingDismissed = true)} />
+            {:else}
+                <slot />
+            {/if}
         </main>
     </div>
 </div>

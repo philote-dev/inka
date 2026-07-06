@@ -111,10 +111,6 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
     let loading = true;
     let seeding = false;
     let errored = false;
-    // Diagnostic is first-run and re-runnable (ux-foundation 7.6). Before it has
-    // been completed we show the prompt; after, a quiet re-run link takes its
-    // place. null while unknown so a completed learner never sees a prompt flash.
-    let diagnosticDone: boolean | null = null;
     // A calibration fetch that FAILS is distinct from a layer that genuinely has
     // no evidence: the former says "unavailable" (honest about the fetch), the
     // latter says "no evidence yet". Tracked so the panel never implies the model
@@ -175,21 +171,8 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         }
     }
 
-    async function loadDiagnosticStatus(): Promise<void> {
-        try {
-            const status = await pgrepCall<{ completed: boolean }>(
-                "pgrepDiagnosticStatus",
-                {},
-            );
-            diagnosticDone = status.completed;
-        } catch {
-            diagnosticDone = false;
-        }
-    }
-
     onMount(() => {
         void load();
-        void loadDiagnosticStatus();
     });
 
     function pct(value: number): number {
@@ -481,25 +464,6 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
                 Coverage gates Readiness. Calibration shows how honest the model is.
             </p>
         </div>
-        {#if diagnosticDone === false}
-            <a class="diag-link" href="/pgrep/diagnostic">
-                <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 20 20"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <polyline points="2,10 5.5,10 8,4.5 12,15.5 14.5,10 18,10" />
-                </svg>
-                Run the diagnostic
-            </a>
-        {:else if diagnosticDone === true}
-            <a class="diag-rerun" href="/pgrep/diagnostic">Re-run the diagnostic</a>
-        {/if}
     </header>
 
     {#if loading}
@@ -719,66 +683,33 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         }
     }
 
-    /* Diagnostic is a re-runnable flow, not a rail tab. Progress hosts a quiet
-       monochrome re-run entry beside the coverage it informs. */
-    .diag-link {
-        flex: 0 0 auto;
+    /* Section switch: a monochrome segmented control (chrome, not score data).
+       The three evidence views read as one control; the active facet lifts onto
+       a surface pill inside the warm inset track. Host buttons inherit a faint
+       rounded box-shadow and radius from Anki's base CSS, so every chrome
+       property is reset here explicitly, or the pills render as ghost boxes. */
+    .tabs {
         display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 14px;
+        align-self: flex-start;
+        gap: var(--space-0);
+        padding: var(--space-0);
+        background: var(--elevated);
         border: var(--hairline);
         border-radius: var(--radius-control);
-        color: var(--muted);
-        text-decoration: none;
-        font-size: var(--text-body);
-        font-weight: 500;
-        white-space: nowrap;
-        transition: var(--transition-calm);
-
-        &:hover {
-            color: var(--text);
-            background: var(--hover-wash);
-            border-color: var(--muted);
-        }
-    }
-
-    /* After the diagnostic has been completed the prompt retires to a quiet,
-       borderless re-run link, so the flow stays reachable without nagging. */
-    .diag-rerun {
-        flex: 0 0 auto;
-        align-self: center;
-        color: var(--muted);
-        text-decoration: none;
-        font-size: var(--text-small);
-        white-space: nowrap;
-        transition: var(--transition-calm);
-
-        &:hover {
-            color: var(--text);
-            text-decoration: underline;
-        }
-    }
-
-    /* Section tabs: monochrome chrome (not score data). An underline marks the
-       active section, so the graphs are one click away, not a long scroll. */
-    .tabs {
-        display: flex;
-        gap: var(--space-3);
-        border-bottom: var(--hairline);
         margin-bottom: var(--space-1);
     }
 
     .tab {
         appearance: none;
-        background: none;
         border: none;
-        border-bottom: 2px solid transparent;
-        margin-bottom: -1px;
-        padding: 0 0 10px;
+        box-shadow: none;
+        background: transparent;
+        border-radius: calc(var(--radius-control) - var(--space-0));
+        padding: 7px 16px;
         font-family: var(--font-ui);
         font-size: var(--text-body);
         font-weight: 500;
+        line-height: 1;
         color: var(--muted);
         cursor: pointer;
         transition: var(--transition-calm);
@@ -789,7 +720,25 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
 
         &.on {
             color: var(--text);
-            border-bottom-color: var(--text);
+            background: var(--surface);
+            box-shadow: var(--shadow-card);
+        }
+
+        &:focus-visible {
+            outline: 2px solid var(--focus-ring);
+            outline-offset: 2px;
+        }
+    }
+
+    /* Phone: let the control span the column so the three facets stay tappable. */
+    @media (max-width: 640px) {
+        .tabs {
+            align-self: stretch;
+        }
+
+        .tab {
+            flex: 1 1 0;
+            text-align: center;
         }
     }
 

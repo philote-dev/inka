@@ -141,8 +141,13 @@ sync code. The conflict rule it enforces is documented in
 
 | Command                             | What it does                                                         |
 | ----------------------------------- | -------------------------------------------------------------------- |
-| `just sync-server`                  | Build pylib, then run the server on `0.0.0.0:8080` as `pgrep:pgrep`. |
+| `just sync-server`                  | Build pylib, then run the server on `0.0.0.0:8090` as `pgrep:pgrep`. |
 | `just sync-server user="me:secret"` | Same, with a custom account.                                         |
+
+The sync server uses port `8090`, not `8080`, because `just run` already binds
+`8080` for the Qt remote-debug and hot-reload server (`tools/reload_webviews.py`).
+The desktop and iOS clients default to `8090` to match, so no address needs
+typing.
 
 The recipe runs `tools/sync-server.py`, which mirrors `tools/run.py`'s path
 setup and calls `anki.syncserver.run_sync_server()` (the same `SimpleServer` the
@@ -152,19 +157,18 @@ Environment (read by the server):
 
 - `SYNC_USER1=user:pass` is set from the recipe's `user` arg. Add more accounts
   with `SYNC_USER2=...` in the environment.
-- `SYNC_HOST` (default `0.0.0.0`), `SYNC_PORT` (default `8080`), and `SYNC_BASE`
-  (default `~/.syncserver`, one folder per user).
+- `SYNC_HOST` (default `0.0.0.0`), `SYNC_PORT` (the `just sync-server` recipe sets
+  `8090`), and `SYNC_BASE` (default `~/.syncserver`, one folder per user).
 
-Point clients at it with a custom sync URL:
+The clients need no address typed (both default to `8090`), but for reference:
 
-- **Desktop:** Preferences, then set a self-hosted sync server URL of
-  `http://<mac-ip>:8080/` (the trailing slash matters). Log in with the
-  `SYNC_USER1` credentials, then Sync.
-- **iOS:** the Settings tab in the app. Set the same URL, log in, then Sync.
+- **Desktop:** the pgrep **Settings** Sync section (or Preferences) already points
+  at `http://127.0.0.1:8090/`. Log in with the `SYNC_USER1` credentials, then Sync.
+- **iOS:** the Settings tab in the app, also defaulted to `8090`.
 
-The iOS Simulator shares the Mac's network, so `http://127.0.0.1:8080/` works
+The iOS Simulator shares the Mac's network, so `http://127.0.0.1:8090/` works
 from the Simulator. A physical device needs the Mac's LAN IP. Health check:
-`curl http://127.0.0.1:8080/health` returns `200`.
+`curl http://127.0.0.1:8090/health` returns `200`.
 
 ## Demo profile and the sync walkthrough
 
@@ -190,13 +194,16 @@ flag, so injection is idempotent and `Clear demo` removes exactly the demo data.
 
 ### Inject on the desktop
 
-The demo control lives at the `/pgrep-lab/demo` route, alongside the manifold lab
-and the component gallery (linked from the shared lab nav). It is a dev surface
-with no link from the shipped Home / Study / Progress flow, so reach it one of
-two ways.
+The dev lab (`/pgrep-lab`, opened from **Tools -> pgrep: open dev lab** in an
+`ANKIDEV` build) is split into two groups so it reads clearly on camera: **Design
+decisions** (the manifold, component gallery, home layouts, flashcard face, and
+math sandboxes, which show how the look and behavior were chosen) and **Demo
+control** (the injector at `/pgrep-lab/demo`). It is a dev surface with no link
+from the shipped Home / Study / Progress flow, so reach it one of two ways.
 
 - Inside the running app (no flags). Run `just run`. The `just run` log prints a
-  remote debugging URL (for example `http://127.0.0.1:8080`). Open it in Chrome,
+  remote debugging URL (for example `http://127.0.0.1:8080`, the Qt debug port,
+  distinct from the sync port `8090`). Open it in Chrome,
   pick the pgrep page, and run `location.assign('/pgrep-lab/demo')` in the
   console. The page loads inside the app's webview, which injects the bridge
   auth header, so its buttons work.
@@ -217,26 +224,63 @@ Then the click path is the same:
 
 ### Push it desktop to mobile
 
-1. Start the self-hosted server: `just sync-server` (serves `pgrep:pgrep` on
-   `0.0.0.0:8080`). Health check: `curl http://127.0.0.1:8080/health` returns
-   `200`.
-2. On the desktop, inject the profile (above), then sync up. Either use the
-   **Sync now** button on the pgrep **Settings** surface with the server URL set
-   to `http://127.0.0.1:8080/`, or open **Preferences** and set the self-hosted
-   sync URL there, then Sync. Log in with `pgrep` / `pgrep`. The reviewed cards
-   and the Attempt notes ride Anki's normal note sync, so nothing custom is
-   needed.
-3. On iOS: `just ios-run` to launch the app in the Simulator. Open the
-   **Settings** tab, set the same URL (`http://127.0.0.1:8080/` works from the
-   Simulator, which shares the Mac network), log in with `pgrep` / `pgrep`, and
-   Sync.
-4. The phone's Home glance now shows the same lit-up Memory, Performance, and
-   Readiness that the desktop shows, computed on the shared engine from the
-   synced cards and attempts. Record it for the demo reel with
+The clients need no setup: the desktop Settings surface and the iOS app both
+default to `http://127.0.0.1:8090/` and the account `pgrep`, so syncing is a
+one-click, no-address-to-type experience once the server is up. The only reason
+that address exists at all is that pgrep self-hosts the sync server (constraint
+2) instead of AnkiWeb; baking the default in makes it behave like a normal
+account sign-in.
+
+**One-command path (recommended).** Prime the whole account off-camera, then
+just sync down on each device:
+
+1. Start the server: `just sync-server` (serves `pgrep:pgrep` on `0.0.0.0:8090`).
+2. `just pgrep-demo-sync`. This seeds the real cards and problems, injects the
+   made-up stats and a couple of settings, uploads it as `pgrep`, then verifies a
+   second engine downloads it and recomputes the same scores. Pass a profile with
+   `PGREP_DEMO_PROFILE=rusty just pgrep-demo-sync`.
+3. Desktop: pgrep **Settings** -> **Sync** (server and account are pre-filled).
+4. iOS: `just ios-run`, then **Settings** -> **Sync** (also pre-filled). The
+   Simulator shares the Mac network, so `127.0.0.1:8090` works.
+
+Both ends now show the same lit-up Memory, Performance, and Readiness, computed
+on the shared engine from the synced account.
+
+**In-app path (shows the injection live).** If you want the injection on camera:
+
+1. Start the server: `just sync-server`.
+2. On the desktop, open **Demo control** (`/pgrep-lab/demo` from the lab hub),
+   pick a profile, **Inject profile**, then **Sync now** right there on the page
+   (it reuses the same sign-in as Settings). The three score cards switch from
+   "Abstains" to real numbers first.
+3. On iOS: `just ios-run`, open **Settings**, and Sync. Record it with
    `xcrun simctl io booted recordVideo pgrep-ios.mp4`.
 
 To reset, click **Clear demo** on the desktop lab page and sync both ends again,
 or sync a fresh account.
+
+## Live AI (optional)
+
+The app scores and studies with AI off, and AI stays off by default. To demo the
+live upgrades (the tutor grading a typed sub-goal on the wrong-answer ladder, and
+Library generation), turn it on:
+
+1. Install the optional AI runtime once: `just pgrep-ai-deps` (adds `openai`,
+   `sympy`, `fastembed`, `sqlite-vec`, and `numpy` to `out/pyenv`, outside the
+   default build).
+2. Launch with the key in the environment: `just run-ai` loads `OPENAI_API_KEY`
+   from your shell or from `content/.env`, then runs. It also pins a known-good
+   dated chat snapshot in `PGREP_AI_MODEL` (default `gpt-5.5-2026-04-23`, override
+   as needed), because the auto-picker can otherwise land on a non-chat `gpt-5`
+   model on some accounts. The chosen model is cached in the collection config on
+   first use.
+3. In **Settings**, toggle **AI** on. The status turns ready only when the key is
+   present, so the toggle never claims AI is on when it cannot run.
+
+With AI on, a miss on a Problem opens the ladder and the "break it down" rung
+grades the learner's typed sub-goal live, with the giveaway verifier guarding the
+final answer. The tutor path needs only `openai` and the key; live Library
+generation additionally needs the private corpus index in `content/`.
 
 ## CI (follow-up)
 

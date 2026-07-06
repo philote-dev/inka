@@ -2,12 +2,22 @@
 Copyright: Ankitects Pty Ltd and contributors
 License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
-pgrep Study (L2.1). Two doors, never one shuffled queue. Cards is retrieval
-(memory, amber) and runs the real FSRS review loop. Problems is practice
-(performance, blue) with a commit gate before any help and a static wrong-answer
-ladder that only shows the final answer at the reveal rung. No AI, no confidence.
-Styled with the pgrep design system (StudyFrame, ChoiceList, HintRung, GradeBar);
-the data flow through pgrepCall is unchanged.
+pgrep Study. A layered launcher (design/claude-design/Study Entry.dc.html):
+
+  Layer 1  Launcher      Start today's session, Focus drill, Exam mode.
+  Layer 2  Door choice   Cards or Problems live inside a session and inside a
+                         focus drill (the locked two-door model: topics mix
+                         within a door, never a card<->problem shuffle). The
+                         focus drill first picks a topic (chips), then shows the
+                         doors, or a calm "nothing due" state.
+  Layer 3  In session    Cards run the real FSRS review loop (memory, amber) via
+                         CardFace. Problems gate help behind Commit, then a static
+                         wrong-answer ladder (performance, blue). Math is real
+                         MathJax through renderMath.
+
+Honesty rule: every count on screen is real (from the engine) or omitted; no
+number is invented. Exam mode is the timed instrument at ts/routes/pgrep/study/exam.
+The data flow through pgrepCall is unchanged.
 -->
 <script lang="ts">
     import { page } from "$app/state";
@@ -95,22 +105,6 @@ the data flow through pgrepCall is unchanged.
     };
     const CATEGORY_SLUGS = Object.keys(CATEGORY_LABELS);
     const CHOICE_LETTERS = ["A", "B", "C", "D", "E"];
-
-    // Turn a finest-topic tag ("topic::mechanics::dynamics_energy") into a human
-    // chip label ("Mechanics · Dynamics energy"). A category-only tag shows just
-    // the area, matching how the other surfaces label the reserved score areas.
-    function topicLabel(tag: string): string {
-        const segs = tag.split("::").filter((s) => s && s !== "topic");
-        if (segs.length === 0) {
-            return "";
-        }
-        const area = CATEGORY_LABELS[segs[0]] ?? segs[0].replace(/_/g, " ");
-        if (segs.length === 1) {
-            return area;
-        }
-        const sub = segs[1].replace(/_/g, " ");
-        return `${area} · ${sub.charAt(0).toUpperCase()}${sub.slice(1)}`;
-    }
     const RATINGS = [
         { label: "Again", value: 1 },
         { label: "Hard", value: 2 },
@@ -124,13 +118,27 @@ the data flow through pgrepCall is unchanged.
         reveal: "Reveal and explain back",
     };
 
-    type Screen = "launcher" | "cards" | "problems";
+    type Door = "cards" | "problems";
+    type Stage = "launcher" | "today" | "drill" | "session";
 
-    let screen: Screen = "launcher";
-    let drillTopic = ""; // "" means all topics (cross-topic interleaving on)
+    let stage: Stage = "launcher";
+    let mode: "today" | "drill" = "today";
+    let drillTopic = ""; // "" means no topic picked yet (drill only)
 
+    // Layer 2, the two doors. Each is a pre-started session so we can show an
+    // honest remaining count and continue straight into it on click.
+    interface DoorInfo {
+        sessionId: string;
+        remaining: number;
+    }
+    let cardsDoor: DoorInfo | null = null;
+    let problemsDoor: DoorInfo | null = null;
+    let doorsLoading = false;
+    let doorsError = false;
+
+    // Layer 3, the running session.
+    let door: Door = "problems";
     let sessionId = "";
-    let loading = false;
     let busy = false;
     let errored = false;
     let doorEmpty = false;
@@ -160,18 +168,35 @@ the data flow through pgrepCall is unchanged.
     let synthesis: Synthesis | null = null;
 
     onMount(async () => {
-        // A topic preselected from the manifold focus-drill entry arrives as
-        // ?topic=<slug>. Scope the drill to it so the learner lands on the
-        // launcher ready to pick the Cards or Problems door for that topic.
-        const preset = page.url.searchParams.get("topic") ?? "";
-        if (CATEGORY_SLUGS.includes(preset)) {
-            drillTopic = preset;
-        }
         try {
             const status = await pgrepCall<{ enabled: boolean }>("pgrepAiStatus", {});
             aiOn = status.enabled;
         } catch {
             aiOn = false;
+        }
+        // A door preselected from the demo launcher arrives as ?door=cards|problems.
+        // Jump straight into that door of today's session (used by the dev lab's
+        // Flashcards and Practice tabs); falls back to the launcher on error.
+        const doorParam = page.url.searchParams.get("door") ?? "";
+        if (doorParam === "cards" || doorParam === "problems") {
+            mode = "today";
+            stage = "today";
+            await loadDoors(null);
+            enterDoor(doorParam);
+            return;
+        }
+        // A topic preselected from the manifold focus-drill entry arrives as
+        // ?topic=<slug>. Land straight in that topic's focus drill so the learner
+        // can pick the Cards or Problems door for it.
+        const preset = page.url.searchParams.get("topic") ?? "";
+        if (CATEGORY_SLUGS.includes(preset)) {
+            mode = "drill";
+            drillTopic = preset;
+            stage = "drill";
+            void loadDoors(topicArg());
+        } else {
+            // Preload today's counts so the launcher can show them honestly.
+            void loadDoors(null);
         }
     });
 
@@ -198,29 +223,61 @@ the data flow through pgrepCall is unchanged.
         gradeResult = null;
     }
 
-    async function startDoor(door: Screen): Promise<void> {
-        if (door === "launcher") {
+    // Start both doors for the current scope (all topics, or one drill topic) so
+    // we can show real due counts before the learner commits to a door.
+    async function loadDoors(topic: string | null): Promise<void> {
+        doorsLoading = true;
+        doorsError = false;
+        cardsDoor = null;
+        problemsDoor = null;
+        try {
+            const [cards, problems] = await Promise.all([
+                pgrepCall<StartResult>("pgrepStudyStart", { door: "cards", topic }),
+                pgrepCall<StartResult>("pgrepStudyStart", { door: "problems", topic }),
+            ]);
+            cardsDoor = { sessionId: cards.session_id, remaining: cards.remaining };
+            problemsDoor = {
+                sessionId: problems.session_id,
+                remaining: problems.remaining,
+            };
+        } catch {
+            doorsError = true;
+        } finally {
+            doorsLoading = false;
+        }
+    }
+
+    function openToday(): void {
+        mode = "today";
+        drillTopic = "";
+        stage = "today";
+        void loadDoors(null);
+    }
+
+    function openDrill(): void {
+        mode = "drill";
+        drillTopic = "";
+        cardsDoor = null;
+        problemsDoor = null;
+        doorsError = false;
+        stage = "drill";
+    }
+
+    function selectTopic(slug: string): void {
+        drillTopic = slug;
+        void loadDoors(topicArg());
+    }
+
+    function enterDoor(which: Door): void {
+        const info = which === "cards" ? cardsDoor : problemsDoor;
+        if (!info) {
             return;
         }
-        loading = true;
-        errored = false;
-        startedEmpty = false;
-        resetItemState();
-        try {
-            const res = await pgrepCall<StartResult>("pgrepStudyStart", {
-                door,
-                topic: topicArg(),
-            });
-            sessionId = res.session_id;
-            screen = door;
-            // Nothing to study usually means nothing seeded yet, so offer to seed.
-            startedEmpty = res.remaining === 0;
-            await loadNext();
-        } catch {
-            errored = true;
-        } finally {
-            loading = false;
-        }
+        door = which;
+        sessionId = info.sessionId;
+        startedEmpty = info.remaining === 0;
+        stage = "session";
+        void loadNext();
     }
 
     async function loadNext(): Promise<void> {
@@ -239,7 +296,7 @@ the data flow through pgrepCall is unchanged.
                     typeof performance !== "undefined" ? performance.now() : Date.now();
             } else {
                 doorEmpty = true;
-                if (screen === "problems" && !startedEmpty) {
+                if (door === "problems" && !startedEmpty) {
                     await fetchSynthesis();
                 }
             }
@@ -325,17 +382,35 @@ the data flow through pgrepCall is unchanged.
         }
     }
 
+    // Seed sample content, then reload the doors for the current scope so the
+    // just-seeded items are ready to study.
     async function seedContent(): Promise<void> {
         busy = true;
         errored = false;
         try {
             await pgrepCall("pgrepSeed", {});
-            await startDoor(screen === "launcher" ? "problems" : screen);
+            await loadDoors(topicArg());
+            const info = door === "cards" ? cardsDoor : problemsDoor;
+            if (info) {
+                sessionId = info.sessionId;
+                startedEmpty = info.remaining === 0;
+            }
+            await loadNext();
         } catch {
             errored = true;
         } finally {
             busy = false;
         }
+    }
+
+    async function seedFromLayer(): Promise<void> {
+        try {
+            await pgrepCall("pgrepSeed", {});
+        } catch {
+            doorsError = true;
+            return;
+        }
+        await loadDoors(topicArg());
     }
 
     function showStep(index: number): void {
@@ -358,24 +433,56 @@ the data flow through pgrepCall is unchanged.
         }
     }
 
-    function toLauncher(): void {
-        screen = "launcher";
+    // Close from a running session drops back to the layer it launched from, so
+    // the learner can pick the other door without starting over.
+    function endSession(): void {
         resetItemState();
+        if (mode === "drill") {
+            stage = "drill";
+            void loadDoors(topicArg());
+        } else {
+            stage = "today";
+            void loadDoors(null);
+        }
+    }
+
+    function backToLauncher(): void {
+        stage = "launcher";
+        mode = "today";
+        drillTopic = "";
+        resetItemState();
+        void loadDoors(null);
     }
 
     function letterOf(index: number): string {
         return CHOICE_LETTERS[index] ?? String(index + 1);
     }
 
+    function prettyTopic(raw: string): string {
+        const slug = (raw || "").replace(/^topic::/, "").split("::")[0];
+        return (
+            CATEGORY_LABELS[slug] ??
+            slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+        );
+    }
+
+    function doorCountLabel(key: Door, remaining: number): string {
+        if (key === "cards") {
+            return remaining > 0 ? `${remaining} due` : "Nothing due";
+        }
+        return remaining > 0
+            ? `${remaining} ${remaining === 1 ? "problem" : "problems"}`
+            : "None right now";
+    }
+
     // View helpers (presentation only, no data changes).
     let topicTone: "memory" | "performance" = "performance";
-    $: topicTone = screen === "cards" ? "memory" : "performance";
+    $: topicTone = door === "cards" ? "memory" : "performance";
 
-    // A study session (cards or problems) is a focus surface, so the rail
-    // collapses while one runs and restores at the launcher (ts/lib/pgrep/nav.ts).
-    $: setLearning(screen !== "launcher");
+    // A running session is a focus surface, so the rail collapses while one runs
+    // and restores on the launcher and pickers (ts/lib/pgrep/nav.ts).
+    $: setLearning(stage === "session");
     $: currentTopic = (card?.topic ?? problem?.topic ?? "").trim();
-    $: currentTopicLabel = topicLabel(currentTopic);
     $: remainingCount = card?.remaining ?? problem?.remaining ?? null;
     $: countLabel = remainingCount === null ? "" : `${remainingCount} left`;
     $: choiceItems = problem
@@ -384,80 +491,338 @@ the data flow through pgrepCall is unchanged.
     // Typeset delimited LaTeX in the stem and rationale (no-op on plain text).
     $: renderedStem = problem ? renderMath(problem.stem_html) : "";
     $: renderedRationale = committed ? renderMath(committed.rationale_html) : "";
+    $: doorList = [
+        {
+            key: "cards" as Door,
+            name: "Cards",
+            kind: "Memory",
+            desc: "Retrieval that primes the problems. Real reviews.",
+            info: cardsDoor,
+        },
+        {
+            key: "problems" as Door,
+            name: "Problems",
+            kind: "Performance",
+            desc: "Commit first, then work the ladder on a miss.",
+            info: problemsDoor,
+        },
+    ];
+    $: doorsReady =
+        !doorsLoading && !doorsError && cardsDoor !== null && problemsDoor !== null;
+    $: bothEmpty =
+        doorsReady && cardsDoor?.remaining === 0 && problemsDoor?.remaining === 0;
 </script>
 
-{#if screen === "launcher"}
-    <section class="launcher">
+{#if stage === "launcher"}
+    <section class="wrap">
         <header class="head">
             <h1>Study</h1>
+            <p class="sub">Pick how you want to train today.</p>
+        </header>
+
+        <section class="option today">
+            <div class="option-body">
+                <div class="eyebrow">Recommended</div>
+                <div class="option-title">Start today's session</div>
+                <p class="option-desc">
+                    Cards and problems, with your topics mixed inside each door and
+                    ordered to what moves your score.
+                </p>
+                {#if cardsDoor || problemsDoor}
+                    <div class="meta">
+                        {#if cardsDoor}
+                            <span class="metric">
+                                <span class="dot memory"></span>
+                                {cardsDoor.remaining} cards
+                            </span>
+                        {/if}
+                        {#if problemsDoor}
+                            <span class="metric">
+                                <span class="dot performance"></span>
+                                {problemsDoor.remaining} problems
+                            </span>
+                        {/if}
+                    </div>
+                {/if}
+            </div>
+            <button class="btn primary" on:click={openToday}>Start session</button>
+        </section>
+
+        <button class="option row" on:click={openDrill}>
+            <div class="option-body">
+                <div class="option-title">Focus drill</div>
+                <p class="option-desc">
+                    One topic at a time. Pick it here or tap a region on your map.
+                </p>
+            </div>
+            <svg
+                class="chev"
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
+                <polyline points="6,3.5 11,8 6,12.5" />
+            </svg>
+        </button>
+
+        <a class="option row" href="/pgrep/study/exam">
+            <div class="option-body">
+                <div class="option-title">Exam mode</div>
+                <p class="option-desc">
+                    A timed mock at real PGRE proportions, zero help. Blind review at
+                    the end.
+                </p>
+            </div>
+            <svg
+                class="chev"
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
+                <polyline points="6,3.5 11,8 6,12.5" />
+            </svg>
+        </a>
+    </section>
+{:else if stage === "today"}
+    <section class="wrap">
+        <header class="head">
+            <button class="back" on:click={backToLauncher}>
+                <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <polyline points="10,3.5 5,8 10,12.5" />
+                </svg>
+                Study
+            </button>
+            <h1>Today's session</h1>
             <p class="sub">Two doors. Topics mix inside each one.</p>
         </header>
 
-        <div class="doors">
-            <button
-                class="door cards"
-                on:click={() => startDoor("cards")}
-                disabled={loading}
-            >
-                <span class="door-top">
-                    <span class="door-name">Cards</span>
-                    <span class="door-kind">Memory</span>
-                </span>
-                <span class="door-desc">
-                    Retrieval that primes the problems. Real reviews.
-                </span>
-            </button>
-            <button
-                class="door problems"
-                on:click={() => startDoor("problems")}
-                disabled={loading}
-            >
-                <span class="door-top">
-                    <span class="door-name">Problems</span>
-                    <span class="door-kind">Performance</span>
-                </span>
-                <span class="door-desc">
-                    Commit first, then work the ladder on a miss.
-                </span>
-            </button>
-        </div>
-
-        <div class="drill">
-            <label for="drill-topic">Focus drill</label>
-            <select id="drill-topic" bind:value={drillTopic}>
-                <option value="">All topics</option>
-                {#each CATEGORY_SLUGS as slug (slug)}
-                    <option value={slug}>{CATEGORY_LABELS[slug]}</option>
+        {#if doorsLoading}
+            <p class="muted center">Reading what's due.</p>
+        {:else if doorsError}
+            <div class="notice">
+                <p class="lead">Could not read your session.</p>
+                <button class="btn" on:click={() => void loadDoors(null)}>
+                    Try again
+                </button>
+            </div>
+        {:else if bothEmpty}
+            <div class="notice">
+                <p class="lead">No items here yet.</p>
+                <p class="muted">Seed sample content to try a session.</p>
+                <button class="btn primary" on:click={seedFromLayer}>
+                    Seed sample content
+                </button>
+            </div>
+        {:else}
+            <div class="doors">
+                {#each doorList as d (d.key)}
+                    <button
+                        class="door {d.key}"
+                        on:click={() => enterDoor(d.key)}
+                        disabled={!d.info || d.info.remaining === 0}
+                    >
+                        <span class="door-head">
+                            <span class="glyph">
+                                {#if d.key === "cards"}
+                                    <svg
+                                        width="20"
+                                        height="20"
+                                        viewBox="0 0 20 20"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="1.5"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    >
+                                        <polyline points="3,10 10,6.5 17,10" />
+                                        <polyline points="3,13.5 10,10 17,13.5" />
+                                        <polygon points="10,3 14,5.2 10,7.4 6,5.2" />
+                                    </svg>
+                                {:else}
+                                    <svg
+                                        width="20"
+                                        height="20"
+                                        viewBox="0 0 20 20"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="1.5"
+                                    >
+                                        <circle cx="10" cy="10" r="7" />
+                                        <circle cx="10" cy="10" r="3.5" />
+                                        <circle
+                                            cx="10"
+                                            cy="10"
+                                            r="0.8"
+                                            fill="currentColor"
+                                            stroke="none"
+                                        />
+                                    </svg>
+                                {/if}
+                            </span>
+                            <span class="door-kind">{d.kind}</span>
+                        </span>
+                        <span class="door-name">{d.name}</span>
+                        <span class="door-desc">{d.desc}</span>
+                        <span class="door-count">
+                            {d.info ? doorCountLabel(d.key, d.info.remaining) : ""}
+                        </span>
+                    </button>
                 {/each}
-            </select>
-            <span class="muted small">Pick one topic to drill it on its own.</span>
+            </div>
+        {/if}
+    </section>
+{:else if stage === "drill"}
+    <section class="wrap drill">
+        <header class="head center">
+            <button class="back" on:click={backToLauncher}>
+                <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <polyline points="10,3.5 5,8 10,12.5" />
+                </svg>
+                Study
+            </button>
+            <h1>Focus drill</h1>
+            <p class="sub">
+                One topic, measured the same way. You can also tap a region on your map.
+            </p>
+        </header>
+
+        <div class="chips">
+            {#each CATEGORY_SLUGS as slug (slug)}
+                <button
+                    class="chip"
+                    class:selected={slug === drillTopic}
+                    on:click={() => selectTopic(slug)}
+                >
+                    {CATEGORY_LABELS[slug]}
+                </button>
+            {/each}
         </div>
 
-        <a class="exam-launch" href="/pgrep/study/exam">
-            <span class="door-top">
-                <span class="door-name">Exam mode</span>
-                <span class="door-kind">Timed mock</span>
-            </span>
-            <span class="door-desc">
-                A timed run at exam proportions. No hints. Blind review.
-            </span>
-        </a>
-
-        {#if loading}
-            <p class="muted small">Opening the door.</p>
-        {/if}
-        {#if errored}
-            <p class="muted small">Something went wrong. Try a door again.</p>
+        {#if drillTopic}
+            {#if doorsLoading}
+                <p class="muted center">Reading what's due.</p>
+            {:else if doorsError}
+                <div class="notice">
+                    <p class="lead">Could not read this topic.</p>
+                    <button class="btn" on:click={() => void loadDoors(topicArg())}>
+                        Try again
+                    </button>
+                </div>
+            {:else if bothEmpty}
+                <section class="empty-card">
+                    <div class="empty-title">
+                        Nothing due in {CATEGORY_LABELS[drillTopic]}
+                    </div>
+                    <p class="muted">
+                        You are ahead of schedule here. Reviews return as memory fades,
+                        so resting is fine too.
+                    </p>
+                    <div class="empty-actions">
+                        <button class="btn" on:click={openToday}>
+                            Practice a mixed set
+                        </button>
+                        <a class="btn" href="/pgrep/library">
+                            Add or generate problems
+                        </a>
+                    </div>
+                </section>
+            {:else}
+                <div class="doors">
+                    {#each doorList as d (d.key)}
+                        <button
+                            class="door {d.key}"
+                            on:click={() => enterDoor(d.key)}
+                            disabled={!d.info || d.info.remaining === 0}
+                        >
+                            <span class="door-head">
+                                <span class="glyph">
+                                    {#if d.key === "cards"}
+                                        <svg
+                                            width="20"
+                                            height="20"
+                                            viewBox="0 0 20 20"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="1.5"
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                        >
+                                            <polyline points="3,10 10,6.5 17,10" />
+                                            <polyline points="3,13.5 10,10 17,13.5" />
+                                            <polygon
+                                                points="10,3 14,5.2 10,7.4 6,5.2"
+                                            />
+                                        </svg>
+                                    {:else}
+                                        <svg
+                                            width="20"
+                                            height="20"
+                                            viewBox="0 0 20 20"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="1.5"
+                                        >
+                                            <circle cx="10" cy="10" r="7" />
+                                            <circle cx="10" cy="10" r="3.5" />
+                                            <circle
+                                                cx="10"
+                                                cy="10"
+                                                r="0.8"
+                                                fill="currentColor"
+                                                stroke="none"
+                                            />
+                                        </svg>
+                                    {/if}
+                                </span>
+                                <span class="door-kind">{d.kind}</span>
+                            </span>
+                            <span class="door-name">{d.name}</span>
+                            <span class="door-desc">{d.desc}</span>
+                            <span class="door-count">
+                                {d.info ? doorCountLabel(d.key, d.info.remaining) : ""}
+                            </span>
+                        </button>
+                    {/each}
+                </div>
+            {/if}
         {/if}
     </section>
 {:else}
     <StudyFrame
         count={countLabel}
-        topic={currentTopicLabel}
+        topic={prettyTopic(currentTopic)}
         {topicTone}
-        onClose={toLauncher}
+        onClose={endSession}
     >
-        {#if loading || busy}
+        {#if busy}
             <p class="muted center">Working.</p>
         {:else if errored}
             <div class="notice">
@@ -469,7 +834,7 @@ the data flow through pgrepCall is unchanged.
                 {#if startedEmpty}
                     <p class="lead">No items here yet.</p>
                     <p class="muted">Seed sample content to try this door.</p>
-                    <button class="btn" on:click={seedContent} disabled={busy}>
+                    <button class="btn primary" on:click={seedContent} disabled={busy}>
                         {busy ? "Seeding sample content" : "Seed sample content"}
                     </button>
                 {:else}
@@ -500,10 +865,10 @@ the data flow through pgrepCall is unchanged.
                             {/if}
                         </div>
                     {/if}
-                    <button class="btn" on:click={toLauncher}>Back to doors</button>
+                    <button class="btn" on:click={endSession}>Back</button>
                 {/if}
             </div>
-        {:else if screen === "cards" && card}
+        {:else if door === "cards" && card}
             <CardFace
                 questionHtml={card.question_html}
                 answerHtml={card.answer_html}
@@ -519,7 +884,7 @@ the data flow through pgrepCall is unchanged.
                     </button>
                 </div>
             {/if}
-        {:else if screen === "problems" && problem}
+        {:else if door === "problems" && problem}
             <div class="stem">{@html renderedStem}</div>
 
             <ChoiceList
@@ -638,18 +1003,20 @@ the data flow through pgrepCall is unchanged.
 {/if}
 
 <style lang="scss">
-    .launcher {
-        max-width: 640px;
+    .wrap {
+        max-width: 680px;
         margin: 0 auto;
         padding: 64px 24px;
         display: flex;
         flex-direction: column;
-        gap: var(--space-3);
+        gap: var(--space-2);
         font-family: var(--font-ui);
         color: var(--text);
     }
 
     .head {
+        margin-bottom: var(--space-1);
+
         h1 {
             margin: 0;
             font-size: var(--text-title);
@@ -658,12 +1025,132 @@ the data flow through pgrepCall is unchanged.
         }
 
         .sub {
-            margin: 6px 0 0;
+            margin: 8px 0 0;
             color: var(--muted);
             font-size: var(--text-body);
         }
+
+        &.center {
+            text-align: center;
+        }
     }
 
+    .back {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: var(--space-2);
+        padding: 0;
+        background: none;
+        border: none;
+        color: var(--muted);
+        font-family: var(--font-ui);
+        font-size: var(--text-body);
+        font-weight: 500;
+        cursor: pointer;
+        transition: var(--transition-calm);
+
+        &:hover {
+            color: var(--text);
+        }
+    }
+
+    .head.center .back {
+        align-self: center;
+    }
+
+    /* Layer 1, the three training options. */
+    .option {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        width: 100%;
+        text-align: left;
+        background: var(--surface);
+        border: var(--hairline);
+        border-radius: var(--radius-card);
+        padding: 24px 28px;
+        box-shadow: var(--shadow-card);
+        color: var(--text);
+        font-family: var(--font-ui);
+        text-decoration: none;
+    }
+
+    button.option,
+    a.option {
+        cursor: pointer;
+        transition: var(--transition-calm);
+
+        &:hover:not(:disabled) {
+            border-color: var(--muted);
+        }
+    }
+
+    .option-body {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .eyebrow {
+        font-size: var(--text-caption);
+        font-weight: 500;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 6px;
+    }
+
+    .option-title {
+        font-size: var(--text-emphasis);
+        font-weight: 600;
+        letter-spacing: -0.01em;
+    }
+
+    .option-desc {
+        margin: 6px 0 0;
+        font-size: 13px;
+        color: var(--muted);
+        line-height: 1.5;
+    }
+
+    .meta {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-top: 12px;
+        flex-wrap: wrap;
+    }
+
+    .metric {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-family: var(--font-mono);
+        font-size: var(--text-small);
+        color: var(--muted);
+        white-space: nowrap;
+    }
+
+    .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: var(--radius-pill);
+
+        &.memory {
+            background: var(--memory);
+        }
+
+        &.performance {
+            background: var(--performance);
+        }
+    }
+
+    .chev {
+        flex: 0 0 auto;
+        color: var(--muted);
+    }
+
+    /* Layer 2, the two doors. */
     .doors {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -673,17 +1160,18 @@ the data flow through pgrepCall is unchanged.
     .door {
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: 8px;
         text-align: left;
         padding: 20px;
+        min-height: 168px;
         background: var(--surface);
         border: var(--hairline);
-        border-left-width: 3px;
         border-radius: var(--radius-card);
         box-shadow: var(--shadow-card);
         cursor: pointer;
         transition: var(--transition-calm);
         color: var(--text);
+        font-family: var(--font-ui);
 
         &:hover:not(:disabled) {
             border-color: var(--muted);
@@ -691,23 +1179,35 @@ the data flow through pgrepCall is unchanged.
 
         &:disabled {
             cursor: default;
-            opacity: 0.6;
-        }
-
-        &.cards {
-            border-left-color: var(--memory);
-        }
-
-        &.problems {
-            border-left-color: var(--performance);
+            opacity: 0.55;
         }
     }
 
-    .door-top {
+    .door-head {
         display: flex;
-        align-items: baseline;
+        align-items: center;
         justify-content: space-between;
-        gap: 8px;
+        margin-bottom: 2px;
+    }
+
+    .glyph {
+        display: inline-flex;
+    }
+
+    .cards .glyph {
+        color: var(--memory-text);
+    }
+
+    .problems .glyph {
+        color: var(--performance-text);
+    }
+
+    .door-kind {
+        font-size: var(--text-caption);
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
     }
 
     .door-name {
@@ -716,79 +1216,87 @@ the data flow through pgrepCall is unchanged.
         letter-spacing: -0.01em;
     }
 
-    .door-kind {
-        font-size: var(--text-caption);
-        font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-    }
-
-    .cards .door-kind {
-        color: var(--memory-text);
-    }
-
-    .problems .door-kind {
-        color: var(--performance-text);
-    }
-
     .door-desc {
         color: var(--muted);
-        font-size: var(--text-body);
+        font-size: 13px;
         line-height: 1.5;
     }
 
-    .exam-launch {
+    .door-count {
+        margin-top: auto;
+        padding-top: var(--space-1);
+        font-family: var(--font-mono);
+        font-size: var(--text-small);
+        color: var(--muted);
+    }
+
+    /* Focus drill picker. */
+    .chips {
         display: flex;
-        flex-direction: column;
-        gap: 10px;
-        text-align: left;
-        padding: 20px;
-        background: var(--surface);
+        flex-wrap: wrap;
+        gap: var(--space-1);
+        justify-content: center;
+        margin-bottom: var(--space-2);
+    }
+
+    .chip {
+        font-size: var(--text-small);
+        font-weight: 500;
+        color: var(--muted);
+        background: none;
         border: var(--hairline);
-        border-left-width: 3px;
-        border-left-color: var(--readiness);
-        border-radius: var(--radius-card);
-        box-shadow: var(--shadow-card);
+        border-radius: var(--radius-pill);
+        padding: 6px 14px;
         cursor: pointer;
-        text-decoration: none;
-        color: var(--text);
+        font-family: var(--font-ui);
         transition: var(--transition-calm);
 
         &:hover {
+            color: var(--text);
             border-color: var(--muted);
         }
 
-        .door-kind {
-            color: var(--readiness-text);
-        }
-    }
-
-    .drill {
-        display: flex;
-        align-items: center;
-        gap: var(--space-1);
-        flex-wrap: wrap;
-
-        label {
-            font-weight: 500;
-            font-size: var(--text-body);
-        }
-
-        select {
-            padding: 8px 10px;
+        &.selected {
             color: var(--text);
-            background: var(--surface);
-            border: var(--hairline);
-            border-radius: var(--radius-control);
-            font-family: var(--font-ui);
-            font-size: var(--text-body);
+            background: var(--elevated);
+            border-color: var(--text);
         }
     }
 
+    .empty-card {
+        background: var(--surface);
+        border: var(--hairline);
+        border-radius: var(--radius-frame);
+        padding: 36px;
+        box-shadow: var(--shadow-card);
+        text-align: center;
+    }
+
+    .empty-title {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+    }
+
+    .empty-card .muted {
+        margin: 10px 0 0;
+        font-size: var(--text-body);
+        line-height: 1.6;
+    }
+
+    .empty-actions {
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        margin-top: var(--space-3);
+        flex-wrap: wrap;
+    }
+
+    /* Layer 3, the running session. */
     .stem {
         font-size: var(--text-content);
         line-height: 1.6;
-        margin-bottom: var(--space-3);
+        margin-bottom: var(--space-2);
 
         :global(p) {
             margin: 0 0 0.6em;
@@ -800,10 +1308,6 @@ the data flow through pgrepCall is unchanged.
         font-size: var(--text-small);
         color: var(--muted);
         text-align: center;
-    }
-
-    .stem {
-        margin-bottom: var(--space-2);
     }
 
     .verdict {
@@ -886,7 +1390,7 @@ the data flow through pgrepCall is unchanged.
             text-transform: uppercase;
             letter-spacing: 0.04em;
             padding: 2px 8px;
-            border-radius: 999px;
+            border-radius: var(--radius-pill);
             border: var(--hairline);
             color: var(--muted);
         }
@@ -991,6 +1495,7 @@ the data flow through pgrepCall is unchanged.
         background: var(--surface);
         color: var(--text);
         cursor: pointer;
+        text-decoration: none;
         transition: var(--transition-calm);
 
         &:hover:not(:disabled) {

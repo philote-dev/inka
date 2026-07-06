@@ -10,6 +10,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
      baked in: the app works and still scores with AI off. The shared rail comes
      from +layout.svelte, so this surface renders content only. -->
 <script lang="ts">
+    import { goto } from "$app/navigation";
     import { onDestroy, onMount } from "svelte";
     import { pgrepCall } from "../lib/bridge";
 
@@ -44,7 +45,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     // An ISO YYYY-MM-DD string, or empty when the learner has set no test date.
     let testDate = "";
 
-    let serverURL = "http://127.0.0.1:8080/";
+    // 8090, not 8080: `just run` uses 8080 for the Qt remote-debug/hot-reload
+    // server, so the sync stack gets its own port to avoid the collision.
+    let serverURL = "http://127.0.0.1:8090/";
     let syncing = false;
     let syncMsg = "";
 
@@ -312,6 +315,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         on:change={saveTestDate}
                         aria-label="Test date"
                     />
+                </div>
+                <div class="row">
+                    <div class="row-text">
+                        <div class="row-title">Diagnostic</div>
+                        <div class="row-sub">
+                            Re-place your topics with a fresh quick check
+                        </div>
+                    </div>
+                    <button
+                        class="pill-btn strong"
+                        type="button"
+                        on:click={() => goto("/pgrep/diagnostic")}
+                    >
+                        Re-run
+                    </button>
                 </div>
             </div>
         </section>
