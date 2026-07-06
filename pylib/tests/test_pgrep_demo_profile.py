@@ -155,6 +155,24 @@ def test_inject_is_idempotent():
     assert len(col.find_notes(f"tag:{DEMO_TAG}")) == _EXPECTED_CARDS
 
 
+def test_inject_switches_profiles_without_a_manual_clear():
+    # Injecting a different profile over an existing one switches to it, instead
+    # of the old silent no-op that stranded the lab on the first profile.
+    col = getEmptyCol()
+    inject_demo_profile(col, "strong")
+    strong_scaled = readiness_score(col)["scaled"]
+
+    switched = inject_demo_profile(col, "rusty")
+
+    assert switched["already_injected"] is False
+    assert switched["profile"] == "rusty"
+    assert demo_status(col)["profile"] == "rusty"
+    # No duplicate data: exactly one profile's worth of demo cards after the switch.
+    assert len(col.find_notes(f"tag:{DEMO_TAG}")) == _EXPECTED_CARDS
+    # The scores now read as the rusty learner, lower than the strong projection.
+    assert readiness_score(col)["scaled"] < strong_scaled
+
+
 # --- reversibility -----------------------------------------------------------
 
 

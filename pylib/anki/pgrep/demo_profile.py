@@ -247,22 +247,30 @@ def inject_demo_profile(
 ) -> dict[str, Any]:
     """Inject the hypothetical profile so Memory, Performance and Readiness score.
 
-    Idempotent: if a demo is already present this is a no-op that reports
-    ``already_injected``. Returns a summary dict with the profile key, whether it
+    Idempotent for the same profile: if that profile is already present this is a
+    no-op that reports ``already_injected``. Switching to a different profile
+    clears the current one first, so the lab can move between "strong" and "rusty"
+    without a manual clear. Returns a summary dict with the profile key, whether it
     was already present, the number of reviewed cards and attempts created, the
     covered categories, and their summed blueprint coverage weight.
     """
     prof = _resolve_profile(profile)
 
     if is_demo_injected(col):
-        return {
-            "profile": col.get_config(_ACTIVE_PROFILE_KEY, prof.key),
-            "already_injected": True,
-            "cards_created": 0,
-            "attempts_created": 0,
-            "covered_categories": list(COVERED_CATEGORIES),
-            "coverage_weight": COVERAGE_WEIGHT,
-        }
+        active = col.get_config(_ACTIVE_PROFILE_KEY, None)
+        if active == prof.key:
+            # Same profile already present: keep the idempotent no-op.
+            return {
+                "profile": prof.key,
+                "already_injected": True,
+                "cards_created": 0,
+                "attempts_created": 0,
+                "covered_categories": list(COVERED_CATEGORIES),
+                "coverage_weight": COVERAGE_WEIGHT,
+            }
+        # A different profile is active: clear it first so the lab can switch
+        # between profiles (strong to rusty and back) without a manual clear.
+        clear_demo_profile(col)
 
     cards_created = _inject_reviewed_cards(col, prof)
     attempts_created = _inject_attempts(col, prof)
