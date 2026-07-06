@@ -111,6 +111,80 @@ def test_problems_session_withholds_the_answer():
     assert "solution_decomposition" not in item
 
 
+def test_problems_session_is_capped_to_a_sitting():
+    col = getEmptyCol()
+    problem.seed_sample_problems(col)  # seeds the full bundle, well over one sitting
+
+    # Sanity: the bank really is larger than a single session, so the cap bites.
+    assert len(problem.BUNDLE_PROBLEMS) > study.PROBLEMS_PER_SESSION
+
+    started = study.start_session(col, "problems")
+    # The session hands over a bounded batch, not every seeded problem.
+    assert started["remaining"] == study.PROBLEMS_PER_SESSION
+
+    # And it exhausts exactly at the cap (no extra items hiding past the count).
+    seen = 0
+    while study.next_item(col, started["session_id"])["kind"] != "empty":
+        seen += 1
+    assert seen == study.PROBLEMS_PER_SESSION
+
+
+def test_problems_rotate_through_the_bank_across_sessions():
+    col = getEmptyCol()
+    problem.seed_sample_problems(col)
+
+    # Session 1: work the whole sitting and commit every item, so each gains a
+    # recent attempt and drops below the still-unseen problems.
+    first = study.start_session(col, "problems")
+    seen_first: list[int] = []
+    while True:
+        item = study.next_item(col, first["session_id"])
+        if item["kind"] == "empty":
+            break
+        seen_first.append(item["note_id"])
+        note = col.get_note(NoteId(item["note_id"]))
+        study.commit_problem(
+            col, item["note_id"], first["session_id"], note[problem.FIELD_CORRECT]
+        )
+
+    # Session 2: unseen problems lead, so the next sitting is a fresh batch, not
+    # the same twenty again.
+    second = study.start_session(col, "problems")
+    seen_second: list[int] = []
+    while True:
+        item = study.next_item(col, second["session_id"])
+        if item["kind"] == "empty":
+            break
+        seen_second.append(item["note_id"])
+
+    assert len(seen_second) == study.PROBLEMS_PER_SESSION
+    assert set(seen_first).isdisjoint(seen_second)
+
+
+def test_wrong_problems_return_before_correct_within_a_topic():
+    col = getEmptyCol()
+    problem.seed_sample_problems(col)
+
+    # A single-category drill makes the round-robin trivial, so the order is just
+    # the rotation key: unseen first, then last-wrong, then last-correct.
+    drill = study._problem_order(col, "topic::mechanics")
+    assert len(drill) >= 3
+    correct_one, wrong_one = drill[0], drill[1]
+
+    for note_id, was_correct in ((correct_one, True), (wrong_one, False)):
+        attempt_log.append_attempt(
+            col,
+            {"item_note_id": int(note_id), "correct": was_correct, "answered_at": 1000},
+        )
+
+    reordered = study._problem_order(col, "topic::mechanics")
+    unseen = [n for n in reordered if n not in (correct_one, wrong_one)]
+    # The still-unseen problems lead the rotation.
+    assert reordered.index(unseen[0]) < reordered.index(wrong_one)
+    # A last-wrong item returns before a last-correct one revisits.
+    assert reordered.index(wrong_one) < reordered.index(correct_one)
+
+
 def test_commit_logs_exactly_one_attempt_and_builds_the_ladder():
     col = getEmptyCol()
     problem.seed_sample_problems(col)
@@ -181,7 +255,8 @@ def test_problems_interleave_by_topic_and_exhaust():
         seen_notes.append(item["note_id"])
         seen_categories.append(item["topic"])
 
-    # every seeded problem shown exactly once.
+    # every problem in the session shown exactly once (the session is a capped
+    # batch, not the whole bank).
     assert len(seen_notes) == len(set(seen_notes))
     assert len(seen_notes) == started["remaining"]
     # anti-blocking: no three of the same category in a row.
