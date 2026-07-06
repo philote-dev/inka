@@ -18,7 +18,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     streak, so the rail stays honest on every surface.
 -->
 <script lang="ts">
-    import { closeRail, learning, narrow } from "$lib/pgrep/nav";
+    import { page } from "$app/state";
+
+    import { closeRail, narrow, requestReset } from "$lib/pgrep/nav";
 
     export let active = "Home";
     export let streak: number | undefined = undefined;
@@ -31,6 +33,25 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         { name: "Library", href: "/pgrep/library" },
         { name: "Settings", href: "/pgrep/settings" },
     ];
+
+    // A plain link to the current URL is a no-op, so an in-progress surface never
+    // resets. Turn a click on the exact current destination into a reset signal
+    // instead. Compare against the real pathname (not just the active section) so
+    // a nested route like /pgrep/study/exam still navigates up to Study rather
+    // than resetting in place. Modified clicks are left to the browser.
+    function onNavClick(event: MouseEvent, href: string): void {
+        if (href !== page.url.pathname) {
+            return;
+        }
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+            return;
+        }
+        event.preventDefault();
+        requestReset();
+        if ($narrow) {
+            closeRail();
+        }
+    }
 </script>
 
 <nav class="rail" class:collapsed aria-hidden={collapsed}>
@@ -61,28 +82,26 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             </svg>
             <span>pgrep</span>
         </a>
-        {#if $learning || $narrow}
-            <button
-                class="collapse"
-                type="button"
-                on:click={closeRail}
-                aria-label="Collapse sidebar"
-                title="Collapse sidebar"
+        <button
+            class="collapse"
+            type="button"
+            on:click={closeRail}
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
+        >
+            <svg
+                width="18"
+                height="18"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
             >
-                <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 20 20"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <polyline points="12,5 7,10 12,15" />
-                </svg>
-            </button>
-        {/if}
+                <polyline points="12,5 7,10 12,15" />
+            </svg>
+        </button>
     </div>
 
     <div class="nav">
@@ -92,6 +111,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 class="item"
                 class:active={item.name === active}
                 aria-current={item.name === active ? "page" : undefined}
+                on:click={(event) => onNavClick(event, item.href)}
             >
                 <svg
                     width="18"

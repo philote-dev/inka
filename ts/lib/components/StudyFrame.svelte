@@ -8,6 +8,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     from the Claude Design export (design/ux-foundation.md).
 -->
 <script lang="ts">
+    import { railOpen } from "$lib/pgrep/nav";
+
     export let count = "";
     export let topic = "";
     export let topicTone: "neutral" | "memory" | "performance" = "neutral";
@@ -16,7 +18,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <div class="frame">
-    <div class="bar">
+    <!-- When the rail is collapsed the layout shows a fixed top-left restore
+         control; reserve room so it never sits on top of the count. -->
+    <div class="bar" class:rail-collapsed={!$railOpen}>
         <span class="count">{count}</span>
         {#if topic}
             <span class="chip tone-{topicTone}">
@@ -73,6 +77,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         color: var(--muted);
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
+    }
+
+    /* Clear the fixed restore control (top:14/left:14, 40px wide) plus a gap, so
+       the count and the burger never collide at any width. */
+    .bar.rail-collapsed .count {
+        padding-left: 40px;
     }
 
     .chip {

@@ -66,3 +66,16 @@ export function closeRail(): void {
 export function toggleRail(): void {
     railOverride.set(!get(railOpen));
 }
+
+// A surface-reset signal. Re-clicking the already-active rail destination is
+// otherwise a dead click, so instead it bumps this counter. Only the current
+// surface is mounted, so it is the one that reacts: a running Study session
+// returns to its launcher, and so on. A monotonic counter (not a boolean) so
+// every re-click is a distinct change a page can watch. Kept general on purpose;
+// any surface can subscribe.
+export const resetSignal = writable(0);
+
+// Ask the current surface to reset to its default state.
+export function requestReset(): void {
+    resetSignal.update((n) => n + 1);
+}
