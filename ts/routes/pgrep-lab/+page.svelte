@@ -23,9 +23,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         <p>
             A dev-only workspace, separate from the app itself. It holds two kinds of
             page. Design decisions are read-only sandboxes that show how the look and
-            behavior were chosen. Demo control drives a live demo of the real app: inject
-            a hypothetical account so the scores light up, then sync it. The actual
-            product features stay in the app window.
+            behavior were chosen. Demo control drives a live demo of the real app:
+            inject a hypothetical account so the scores light up, then sync it. The
+            actual product features stay in the app window.
         </p>
     </header>
 

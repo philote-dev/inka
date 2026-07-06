@@ -41,7 +41,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         </div>
     {/if}
     <div class="bar" role="img" aria-label={barLabel}>
-
         {#each segments as s (s.topic)}
             <div class="seg" style="flex: {s.weight};" title={s.topic}>
                 <div class="fill" style="width: {Math.round(s.covered * 100)}%;"></div>

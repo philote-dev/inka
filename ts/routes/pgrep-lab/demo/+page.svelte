@@ -260,7 +260,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <p class="caption">
                 One click, no login form. The demo account and the self-hosted server
                 are the defaults, so this behaves like a normal account sign-in. Start
-                the server first with <code>just sync-server</code>.
+                the server first with <code>just sync-server</code>
+                .
             </p>
             <div class="sync-row">
                 <button class="btn strong" disabled={syncing} on:click={syncNow}>
@@ -276,7 +277,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     On the phone, open pgrep Settings, keep the same server and account,
                     and sync down.
                 </li>
-                <li>The same lit-up scores appear on the phone. Clear to reset both.</li>
+                <li>
+                    The same lit-up scores appear on the phone. Clear to reset both.
+                </li>
             </ol>
         </section>
     {/if}

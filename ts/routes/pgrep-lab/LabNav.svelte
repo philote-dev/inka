@@ -171,7 +171,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         class="lab-nav__link"
                         class:is-active={normalize(p.href) === current}
                         href={p.href}
-                        aria-current={normalize(p.href) === current ? "page" : undefined}
+                        aria-current={normalize(p.href) === current
+                            ? "page"
+                            : undefined}
                     >
                         {p.label}
                     </a>
@@ -192,7 +194,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     aria-current={normalize(p.href) === current ? "page" : undefined}
                 >
                     {p.label}
-                    {#if p.app}<span class="lab-nav__ext" aria-hidden="true">↗</span>{/if}
+                    {#if p.app}<span class="lab-nav__ext" aria-hidden="true">
+                            ↗
+                        </span>{/if}
                 </a>
             {/each}
         </div>
