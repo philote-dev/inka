@@ -41,10 +41,9 @@ struct HomeView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Theme.Space.l) {
-                greeting
+            VStack(alignment: .leading, spacing: Theme.Space.m) {
                 ManifoldWebView(surface: manifoldSurface, colorScheme: colorScheme)
-                    .frame(height: 200)
+                    .frame(height: 160)
                 today
                 scoreRow
                 progressLink
@@ -110,23 +109,17 @@ struct HomeView: View {
         }
     }
 
-    private var greeting: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.xs) {
-            Text("pgrep")
-                .font(Theme.Typography.greeting)
-                .foregroundStyle(Theme.text)
-            Text("Your readiness at a glance.")
-                .font(Theme.Typography.body)
-                .foregroundStyle(Theme.muted)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
     private var today: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
-            Text("Today")
-                .font(Theme.Typography.emphasis)
-                .foregroundStyle(Theme.text)
+            HStack(spacing: Theme.Space.s) {
+                Image(systemName: "play")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.text)
+                    .accessibilityHidden(true)
+                Text("Today")
+                    .font(Theme.Typography.emphasis)
+                    .foregroundStyle(Theme.text)
+            }
             Text("One interleaved session, in points-at-stake order.")
                 .font(Theme.Typography.body)
                 .foregroundStyle(Theme.muted)
