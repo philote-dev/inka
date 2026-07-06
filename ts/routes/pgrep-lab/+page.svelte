@@ -52,8 +52,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         <div class="group-head">
             <h2 id="group-demo">Demo control</h2>
             <p>
-                Drive a live demo of the real app. This is where a hypothetical account
-                gets injected and synced, so the scores are earned data, not decoration.
+                Drive a live demo of the real app: inject a hypothetical account so the
+                scores are earned data, jump straight into the flashcards or the
+                wrong-answer ladder, and sync it across devices.
             </p>
         </div>
         <div class="cards">
@@ -61,7 +62,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <a class="card card--demo" href={p.href}>
                     <span class="card-title">{p.label}</span>
                     <span class="card-blurb">{p.blurb}</span>
-                    <span class="card-go">Open</span>
+                    <span class="card-go">{p.app ? "Open in app \u2197" : "Open"}</span>
                 </a>
             {/each}
         </div>
