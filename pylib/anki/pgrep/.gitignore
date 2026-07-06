@@ -1,0 +1,3 @@
+# Local content backups and intermediate conversion output (not for commit).
+content_bundle.pre_*.json
+content_bundle.converted.json

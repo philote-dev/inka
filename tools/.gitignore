@@ -1,0 +1,4 @@
+# Local figure and math generation artifacts (reproducible via the *.py tools).
+figure_*.json
+figure_*.html
+mathconv_*

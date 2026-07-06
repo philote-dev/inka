@@ -10,6 +10,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     committed static ladder (a prompt and an optional revealed step).
 -->
 <script lang="ts">
+    import { renderMath } from "$lib/pgrep/math";
+
     export let title = "Break it down";
     export let index = 1;
     export let total = 3;
@@ -17,6 +19,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     export let revealHtml: string | undefined = undefined;
     export let shown = false;
     export let onShow: (() => void) | undefined = undefined;
+
+    // Typeset delimited LaTeX in the rung copy (no-op on plain text).
+    $: renderedPrompt = renderMath(prompt);
+    $: renderedReveal = revealHtml === undefined ? undefined : renderMath(revealHtml);
 </script>
 
 <section class="rung">
@@ -33,11 +39,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     </div>
     <div class="step">Step {index} of {total}</div>
     {#if prompt}
-        <div class="prompt">{@html prompt}</div>
+        <div class="prompt">{@html renderedPrompt}</div>
     {/if}
     {#if revealHtml !== undefined}
         {#if shown}
-            <div class="reveal">{@html revealHtml}</div>
+            <div class="reveal">{@html renderedReveal}</div>
         {:else}
             <div class="reveal-action">
                 <button type="button" class="ghost" on:click={onShow}>

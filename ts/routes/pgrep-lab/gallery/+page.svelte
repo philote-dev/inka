@@ -20,6 +20,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import StudyFrame from "$lib/components/StudyFrame.svelte";
     import { FULL_SURFACE } from "$lib/pgrep/manifold";
 
+    import LabNav from "../LabNav.svelte";
+
     type Hue = "memory" | "performance" | "readiness";
 
     // Each demo is rendered once per theme so both are visible together. The
@@ -39,6 +41,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         { id: "reliability", label: "Reliability diagram" },
         { id: "calibration-panel", label: "Calibration panel" },
         { id: "study-frame", label: "Study frame" },
+        { id: "exam", label: "Exam" },
         { id: "nav-rail", label: "Nav rail" },
         { id: "manifold", label: "Manifold" },
     ];
@@ -220,23 +223,42 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         { key: "C", html: "A damped oscillation that decays within one period" },
     ];
 
+    // Exam: the question navigator, mid-run. Each cell is answered, flagged, or the
+    // current question. Mirrors the states the exam surface tracks per index.
+    const examCells: {
+        n: number;
+        answered: boolean;
+        flagged: boolean;
+        current: boolean;
+    }[] = [
+        { n: 1, answered: true, flagged: false, current: false },
+        { n: 2, answered: true, flagged: false, current: false },
+        { n: 3, answered: true, flagged: true, current: false },
+        { n: 4, answered: true, flagged: false, current: false },
+        { n: 5, answered: false, flagged: false, current: true },
+        { n: 6, answered: false, flagged: true, current: false },
+        { n: 7, answered: false, flagged: false, current: false },
+        { n: 8, answered: true, flagged: false, current: false },
+        { n: 9, answered: false, flagged: false, current: false },
+        { n: 10, answered: false, flagged: false, current: false },
+    ];
+
+    // Exam result: the readiness ScoreCard reused at the end of a mock, either a
+    // covered scaled score with its likely range or an honest abstain that names
+    // the uncovered topics.
+    const examAbstain = {
+        message: "Not enough of the exam is covered yet",
+        missing:
+            "Cover Quantum Mechanics and Laboratory Methods to project a readiness score.",
+    };
+
     function noop(): void {
         // Read-only gallery. Interactions are shown as fixed snapshots.
     }
 </script>
 
 <div class="gallery">
-    <nav class="lab-nav" aria-label="Lab pages">
-        <a class="lab-nav__link" href="/pgrep-lab">Manifold lab</a>
-        <a
-            class="lab-nav__link is-active"
-            href="/pgrep-lab/gallery"
-            aria-current="page"
-        >
-            Component gallery
-        </a>
-        <a class="lab-nav__link" href="/pgrep-lab/demo">Demo profile</a>
-    </nav>
+    <LabNav />
 
     <header class="head">
         <h1>Component gallery</h1>
@@ -736,6 +758,73 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 </div>
             </section>
 
+            <!-- Exam -->
+            <section id="exam" class="section">
+                <div class="section-head">
+                    <h2>Exam</h2>
+                    <p>
+                        The end-of-exam read reuses the readiness ScoreCard, either a
+                        covered scaled score with its likely range or an honest abstain
+                        that names the uncovered topics. The question navigator marks
+                        each question as answered, flagged, or current, so a reviewer can
+                        read the running state without sitting a timed mock.
+                    </p>
+                </div>
+                <div class="split">
+                    {#each THEMES as t (t.id)}
+                        <div class="pane pgrep {t.cls}">
+                            <span class="pane-label">{t.label}</span>
+                            <div class="stage stack">
+                                <span class="state-label">Question navigator</span>
+                                <div class="navigator">
+                                    {#each examCells as cell (cell.n)}
+                                        <div
+                                            class="nav-cell"
+                                            class:answered={cell.answered}
+                                            class:current={cell.current}
+                                        >
+                                            {cell.n}
+                                            {#if cell.flagged}<span
+                                                    class="nav-cell-flag"
+                                                    aria-hidden="true"
+                                                ></span>{/if}
+                                        </div>
+                                    {/each}
+                                </div>
+                                <div class="nav-legend">
+                                    <span class="leg">
+                                        <span class="leg-swatch answered"></span>
+                                        Answered
+                                    </span>
+                                    <span class="leg">
+                                        <span class="leg-swatch flag"></span>
+                                        Flagged
+                                    </span>
+                                    <span class="leg">
+                                        <span class="leg-swatch current"></span>
+                                        Current
+                                    </span>
+                                </div>
+                                <span class="state-label">
+                                    Result, covered with a range
+                                </span>
+                                <ScoreCard
+                                    kind="readiness"
+                                    value={640}
+                                    range={[610, 670]}
+                                    howSure="76 percent covered"
+                                    updated=""
+                                />
+                                <span class="state-label">
+                                    Result, abstain until covered
+                                </span>
+                                <ScoreCard kind="readiness" abstain={examAbstain} />
+                            </div>
+                        </div>
+                    {/each}
+                </div>
+            </section>
+
             <!-- Nav rail -->
             <section id="nav-rail" class="section">
                 <div class="section-head">
@@ -809,36 +898,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         color: var(--text);
         min-height: 100vh;
         font-family: var(--font-ui);
-    }
-
-    .lab-nav {
-        display: inline-flex;
-        gap: 4px;
-        padding: 4px;
-        border: var(--hairline);
-        border-radius: var(--radius-pill);
-        background: var(--surface);
-        margin-bottom: var(--space-3);
-    }
-
-    .lab-nav__link {
-        padding: 6px 16px;
-        border-radius: var(--radius-pill);
-        font-size: var(--text-small);
-        font-weight: 500;
-        color: var(--muted);
-        text-decoration: none;
-        transition: var(--transition-calm);
-
-        &:hover {
-            color: var(--text);
-            background: var(--hover-wash);
-        }
-
-        &.is-active {
-            color: var(--action-fg);
-            background: var(--action-bg);
-        }
     }
 
     .head {
@@ -1033,6 +1092,97 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         line-height: 1.45;
         color: var(--muted);
         cursor: help;
+    }
+
+    /* Exam navigator, mirroring the cells the exam surface renders per question. */
+    .navigator {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: var(--space-1) 0;
+        border-top: var(--hairline);
+        border-bottom: var(--hairline);
+    }
+
+    .nav-cell {
+        position: relative;
+        width: 34px;
+        height: 34px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: var(--hairline);
+        border-radius: 8px;
+        background: var(--surface);
+        color: var(--muted);
+        font-family: var(--font-mono);
+        font-size: var(--text-small);
+
+        &.answered {
+            color: var(--text);
+            border-color: var(--performance-tint);
+            background: var(--performance-wash);
+        }
+
+        &.current {
+            border-color: var(--text);
+            border-width: 1.5px;
+            color: var(--text);
+        }
+    }
+
+    .nav-cell-flag {
+        position: absolute;
+        top: 3px;
+        right: 3px;
+        width: 5px;
+        height: 5px;
+        border-radius: var(--radius-pill);
+        background: var(--caution);
+    }
+
+    .nav-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        font-size: var(--text-caption);
+        color: var(--muted);
+    }
+
+    .leg {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .leg-swatch {
+        position: relative;
+        width: 16px;
+        height: 16px;
+        border: var(--hairline);
+        border-radius: 5px;
+        background: var(--surface);
+
+        &.answered {
+            border-color: var(--performance-tint);
+            background: var(--performance-wash);
+        }
+
+        &.current {
+            border-color: var(--text);
+            border-width: 1.5px;
+        }
+
+        &.flag::after {
+            content: "";
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            width: 4px;
+            height: 4px;
+            border-radius: var(--radius-pill);
+            background: var(--caution);
+        }
     }
 
     .frame-preview {

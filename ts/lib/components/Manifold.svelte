@@ -71,6 +71,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         });
         return () => observer.disconnect();
     });
+
+    // Redraw when a drawing input changes, so the wireframe stays crisp when its
+    // container resizes (the responsive hero) or the surface updates. Resizing the
+    // canvas element clears it, so a redraw is required, not just new attributes.
+    $: redraw(width, height, scale, glow, grid, lineWidth, surface);
+
+    function redraw(..._inputs: unknown[]): void {
+        if (canvas) {
+            render();
+        }
+    }
 </script>
 
 <div class="manifold" style="width: {width}px; height: {height}px;">

@@ -11,11 +11,16 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     reveal the committed backend provides.
 -->
 <script lang="ts">
+    import { renderMath } from "$lib/pgrep/math";
+
     export let choices: Array<{ key: string; html: string }> = [];
     export let selected = "";
     export let committed = false;
     export let correctKey: string | null = null;
     export let onSelect: ((key: string) => void) | undefined = undefined;
+
+    // Typeset any delimited LaTeX in the choice HTML (no-op on plain text).
+    $: renderedChoices = choices.map((c) => ({ ...c, html: renderMath(c.html) }));
 
     type RowState = "default" | "selected" | "correct" | "wrong" | "locked";
 
@@ -34,7 +39,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <div class="choices">
-    {#each choices as c (c.key)}
+    {#each renderedChoices as c (c.key)}
         {@const state = rowState(c.key)}
         <button
             type="button"

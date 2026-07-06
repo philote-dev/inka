@@ -11,6 +11,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import Manifold3D from "$lib/components/Manifold3D.svelte";
     import { buildSurface, type TopicStat } from "$lib/pgrep/manifold";
 
+    import LabNav from "./LabNav.svelte";
+
     type Lead = "memory" | "performance" | "readiness";
 
     const LEADS: { id: Lead; short: string; label: string }[] = [
@@ -204,13 +206,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <div class="lab">
-    <nav class="lab-nav" aria-label="Lab pages">
-        <a class="lab-nav__link is-active" href="/pgrep-lab" aria-current="page">
-            Manifold lab
-        </a>
-        <a class="lab-nav__link" href="/pgrep-lab/gallery">Component gallery</a>
-        <a class="lab-nav__link" href="/pgrep-lab/demo">Demo profile</a>
-    </nav>
+    <LabNav />
 
     <header class="head">
         <h1>Manifold lab</h1>
@@ -392,36 +388,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         background: var(--canvas);
         color: var(--text);
         min-height: 100vh;
-    }
-
-    .lab-nav {
-        display: inline-flex;
-        gap: 4px;
-        padding: 4px;
-        border: var(--hairline);
-        border-radius: var(--radius-pill);
-        background: var(--surface);
-        margin-bottom: var(--space-3);
-    }
-
-    .lab-nav__link {
-        padding: 6px 16px;
-        border-radius: var(--radius-pill);
-        font-size: var(--text-small);
-        font-weight: 500;
-        color: var(--muted);
-        text-decoration: none;
-        transition: var(--transition-calm);
-
-        &:hover {
-            color: var(--text);
-            background: var(--hover-wash);
-        }
-
-        &.is-active {
-            color: var(--action-fg);
-            background: var(--action-bg);
-        }
     }
 
     .head {
