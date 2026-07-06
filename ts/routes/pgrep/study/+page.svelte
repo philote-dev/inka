@@ -29,7 +29,7 @@ The data flow through pgrepCall is unchanged.
     import HintRung from "$lib/components/HintRung.svelte";
     import StudyFrame from "$lib/components/StudyFrame.svelte";
     import { renderMath } from "$lib/pgrep/math";
-    import { setLearning } from "$lib/pgrep/nav";
+    import { resetSignal, setLearning } from "$lib/pgrep/nav";
 
     import { pgrepCall } from "../lib/bridge";
 
@@ -482,6 +482,13 @@ The data flow through pgrepCall is unchanged.
     // A running session is a focus surface, so the rail collapses while one runs
     // and restores on the launcher and pickers (ts/lib/pgrep/nav.ts).
     $: setLearning(stage === "session");
+    // Re-clicking the active Study tab bumps the rail's reset signal; return this
+    // surface to its launcher (skip the initial value seen at mount).
+    let resetSeen = $resetSignal;
+    $: if ($resetSignal !== resetSeen) {
+        resetSeen = $resetSignal;
+        backToLauncher();
+    }
     $: currentTopic = (card?.topic ?? problem?.topic ?? "").trim();
     $: remainingCount = card?.remaining ?? problem?.remaining ?? null;
     $: countLabel = remainingCount === null ? "" : `${remainingCount} left`;

@@ -15,7 +15,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import Landing from "$lib/components/Landing.svelte";
     import NavRail from "$lib/components/NavRail.svelte";
     import SplashScreen from "$lib/components/SplashScreen.svelte";
-    import { closeRail, narrow, openRail, railOpen, setNarrow } from "$lib/pgrep/nav";
+    import {
+        closeRail,
+        narrow,
+        openRail,
+        railOpen,
+        resetSignal,
+        setNarrow,
+    } from "$lib/pgrep/nav";
 
     import { pgrepCall } from "./lib/bridge";
 
@@ -101,6 +108,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         apply();
         mq.addEventListener("change", apply);
         return () => mq.removeEventListener("change", apply);
+    });
+
+    // A generic reset for the re-clicked active tab. Stateless surfaces have no
+    // in-progress state to tear down, so returning them to the top is the honest
+    // default; stateful surfaces (Study) react to resetSignal themselves. Skip the
+    // value seen at mount so a first paint does not scroll.
+    onMount(() => {
+        let first = true;
+        return resetSignal.subscribe(() => {
+            if (first) {
+                first = false;
+                return;
+            }
+            window.scrollTo({ top: 0 });
+        });
     });
 
     // Apply the saved theme on every surface, not just Settings. Without this a
@@ -253,12 +275,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         cursor: pointer;
     }
 
+    /* Always faintly visible so the collapsed rail is discoverable, growing more
+       prominent on hover or keyboard focus. */
     .rail-edge .handle {
         width: 4px;
         height: 48px;
         border-radius: var(--radius-pill);
         background: var(--border);
-        opacity: 0;
+        opacity: 0.5;
         transition:
             opacity var(--duration-calm) var(--ease-spring),
             width var(--duration-calm) var(--ease-spring),
@@ -268,7 +292,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     .rail-edge:hover .handle,
     .rail-edge:focus-visible .handle {
         opacity: 1;
-        width: 5px;
+        width: 6px;
         background: var(--muted);
     }
 
