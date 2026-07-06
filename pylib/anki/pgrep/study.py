@@ -18,11 +18,14 @@ interleaved **within** a door, never card<->problem whiplash.
   (topic-interleaved round-robin, anti-blocking, capped at
   ``PROBLEMS_PER_SESSION`` and ordered so unseen items lead and the bank rotates
   across sessions), ``next_item`` hands one over with the correct answer and
-  rationales **omitted**, and ``commit_problem`` (called only after
-  the learner has committed) appends exactly one immutable Attempt, then returns
-  correctness plus the static wrong-answer ladder built from the stored
-  ``solution_decomposition``. The final answer appears **only** in the reveal
-  rung. No AI, no confidence capture anywhere.
+  rationales **omitted**, and ``commit_problem`` (called only after the learner
+  has committed) appends exactly one immutable Attempt. On a **hit** it confirms
+  the answer the learner themselves picked. On a **miss** it never reveals the
+  parent answer; it opens the gated decomposition tutor (``decomposition.py``)
+  and re-queues the note so it recurs later in the same session with a different
+  numeric variant. Only the first-try commit (round 0) counts as a clean
+  attempt; tutor retries carry a non-zero ``ladder_depth`` so Performance
+  excludes them (``performance._is_clean``). No confidence capture anywhere.
 
 Session state lives in a module-level dict keyed by ``session_id`` (acceptable
 for this single-user desktop MVP). The bridge handlers in ``qt/aqt/pgrep.py``
@@ -38,7 +41,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, cast
 
 from anki import scheduler_pb2
-from anki.pgrep import attempt_log, problem, seed
+from anki.pgrep import attempt_log, decomposition, problem, seed
 from anki.pgrep.blueprint import CATEGORY_SLUGS
 from anki.pgrep.tags import category_for, category_of, finest_topic
 
@@ -72,24 +75,6 @@ PROBLEMS_PER_SESSION = 20
 # In-memory session state, keyed by session_id. Single-user desktop MVP.
 _SESSIONS: dict[str, dict[str, Any]] = {}
 
-# The wrong-answer ladder prompts are static (AI off). No em-dashes, light on
-# colons, per the copy rule.
-_NUDGE_PROMPT = (
-    "Step back before you compute. What kind of problem is this, and which "
-    "principle applies? Name it in your own words first."
-)
-_DECOMPOSE_PROMPT = (
-    "Break it into ordered sub-goals. Write each sub-goal and one line on why, "
-    "then show the stored steps and compare yours."
-)
-_SIBLING_PROMPT = (
-    "Try the same principle on a nearby case. Change one given, redo the "
-    "reasoning, and see whether your method still holds."
-)
-_REVEAL_PROMPT = (
-    "Compare your work with the full solution, then say in one line where the trap was."
-)
-
 
 def _sched(col: Collection) -> "V3Scheduler":
     """The active V3 scheduler. pgrep runs on the 2021 scheduler; casting keeps
@@ -115,13 +100,18 @@ def start_session(col: Collection, door: str, topic: str | None = None) -> dict:
     if door == "problems":
         # Take the first N of the rotation order (unseen lead, then due-back): a
         # bounded sitting that stays spread across areas and works through the
-        # bank across sessions rather than repeating the same items.
+        # bank across sessions rather than repeating the same items. The sitting
+        # is a FIFO queue of {note_id, round}; a missed item is appended with the
+        # next round so it recurs later in this same session (see commit_problem).
         order = _problem_order(col, topic)[:PROBLEMS_PER_SESSION]
         _SESSIONS[session_id] = {
             "door": "problems",
             "topic": topic,
-            "order": order,
+            "queue": [{"note_id": note_id, "round": 0} for note_id in order],
             "pos": 0,
+            # note_id -> the variant last served for it {"round", "key"}, so the
+            # commit grades against the numbers the learner actually saw.
+            "served": {},
         }
         return {"session_id": session_id, "door": "problems", "remaining": len(order)}
 
@@ -206,21 +196,40 @@ def _next_card(col: Collection, session: dict[str, Any] | None) -> dict:
 def _next_problem(col: Collection, session: dict[str, Any]) -> dict:
     from anki.notes import NoteId
 
-    order: list[int] = session["order"]
+    queue: list[dict[str, Any]] = session["queue"]
     pos: int = session["pos"]
-    if pos >= len(order):
+    if pos >= len(queue):
         return {"kind": "empty"}
-    note_id = order[pos]
+    entry = queue[pos]
     session["pos"] = pos + 1
+    note_id = int(entry["note_id"])
+    round_index = int(entry.get("round", 0))
     note = col.get_note(NoteId(note_id))
+
+    # A recurring (missed) item shows a renumbered parent stem when the problem
+    # has parent variants, so the numbers differ and a result cannot be carried
+    # over. Otherwise it reuses the base stem, still honest since the answer was
+    # never revealed.
+    variant = decomposition.parent_variant(col, note_id, round_index)
+    if variant is not None:
+        stem_html = variant["stem"]
+        choices = variant["choices"]
+        served_key = variant["key"]
+    else:
+        stem_html = note[problem.FIELD_STEM]
+        choices = _parse_choices(note[problem.FIELD_CHOICES])
+        served_key = (note[problem.FIELD_CORRECT] or "").strip().upper()
+
+    session["served"][note_id] = {"round": round_index, "key": served_key}
     return {
         "kind": "problem",
-        "note_id": int(note_id),
-        "stem_html": note[problem.FIELD_STEM],
-        "choices": _parse_choices(note[problem.FIELD_CHOICES]),
+        "note_id": note_id,
+        "stem_html": stem_html,
+        "choices": choices,
         "topic": finest_topic(note.tags),
         # includes the item being handed over, mirroring the scheduler counts.
-        "remaining": len(order) - pos,
+        "remaining": len(queue) - pos,
+        "retry": round_index > 0,
     }
 
 
@@ -276,44 +285,57 @@ def commit_problem(
 ) -> dict:
     """Record a committed Problems answer (before any help) and return feedback.
 
-    Compares ``selected`` to the stored correct letter, appends exactly one
-    immutable Attempt (``ladder_depth`` 0, the commit-before-help event), and
-    returns correctness plus the static wrong-answer ladder built from the
-    stored ``solution_decomposition``. The final answer appears only in the
-    reveal rung.
+    Compares ``selected`` to the correct letter of the variant the learner was
+    served, and appends exactly one immutable Attempt (no confidence). The
+    first-try commit (round 0) is a clean attempt; a tutor retry (a re-served
+    miss, round >= 1) carries a matching non-zero ``ladder_depth`` so the
+    Performance model excludes it (``performance._is_clean`` counts only
+    ``ladder_depth == 0``). Tutor retries never count as clean first-try attempts.
+
+    On a **hit** it returns ``{"correct": true, "correct_choice": ...}`` (the
+    answer the learner themselves picked). On a **miss** it never reveals the
+    parent answer; it returns the gated decomposition tutor to work
+    (``{"correct": false, "tutor": {...}}``) and re-queues the note so it recurs
+    later in this same session with the next numeric variant.
 
     ``response_ms`` is the client-measured time from the item being shown to the
     commit. It rides into the attempt payload as the M5 data-quality signal so the
-    Performance model can drop rapid guesses (``performance._is_clean``). It is the
-    deferred M5 half of the L5.2 seam; an absent or invalid value is simply left
+    Performance model can drop rapid guesses. An absent or invalid value is left
     off, matching the pre-M5 behavior.
     """
     from anki.notes import NoteId
 
     note_id = int(note_id)
     note = col.get_note(NoteId(note_id))
+    session = _SESSIONS.get(session_id) if session_id else None
+    problems_session = bool(session and session.get("door") == "problems")
 
-    correct_letter = (note[problem.FIELD_CORRECT] or "").strip().upper()
+    # Grade against the variant actually served (a renumbered parent has its own
+    # key); fall back to the base note when the session did not serve this item.
+    served = session.get("served", {}).get(note_id) if problems_session else None
+    round_index = int(served["round"]) if served else 0
+    if served and served.get("key"):
+        correct_letter = str(served["key"]).strip().upper()
+    else:
+        correct_letter = (note[problem.FIELD_CORRECT] or "").strip().upper()
+
     selected_letter = (selected or "").strip().upper()
     is_correct = bool(selected_letter) and selected_letter == correct_letter
-
-    choices = _parse_choices(note[problem.FIELD_CHOICES])
-    rationales = _parse_json_map(note[problem.FIELD_DISTRACTOR_RATIONALES])
-    decomposition = _parse_decomposition(note[problem.FIELD_SOLUTION_DECOMPOSITION])
-    topic = finest_topic(note.tags)
-    category = category_for(note.tags)
 
     # Commit gate: exactly one immutable Attempt per commit (no confidence).
     event: dict[str, Any] = {
         "item_note_id": note_id,
-        "topic": topic,
-        "category": category,
+        "topic": finest_topic(note.tags),
+        "category": category_for(note.tags),
         "correct": is_correct,
         "selected_option": selected_letter,
         "session_id": session_id,
         "answered_at": int(time.time()),
-        "ladder_depth": 0,
+        # 0 = clean first-try attempt; >= 1 = tutor retry (excluded from scoring).
+        "ladder_depth": round_index,
     }
+    if round_index > 0:
+        event["tutor_retry"] = True
     # M2: carry the authored item difficulty into the attempt payload so the
     # Performance model can read it live (performance._attempt_difficulty maps a
     # word or a 1..5 number to its scale). Passed through as authored. An empty
@@ -328,84 +350,17 @@ def commit_problem(
         event["response_ms"] = ms
     attempt_log.append_attempt(col, event)
 
-    return {
-        "correct": is_correct,
-        "correct_choice": correct_letter,
-        "rationale_html": _rationale_html(is_correct, selected_letter, rationales),
-        "ladder": _build_ladder(decomposition, correct_letter, choices),
-    }
-
-
-# Ladder + feedback construction (static, AI off)
-##########################################################################
-
-
-def _build_ladder(
-    decomposition: list[dict[str, str]],
-    correct_letter: str,
-    choices: list[str],
-) -> list[dict[str, str]]:
-    """Build the four-rung ladder from the stored decomposition.
-
-    Nudge orients without naming the answer; decompose reveals the stored
-    sub-goals (method only, no final answer); sibling points at a near-transfer
-    case; reveal shows the full worked solution, the one place the final answer
-    appears.
-    """
-    steps_html = _decomposition_html(decomposition)
-    correct_text = _choice_text(correct_letter, choices)
-    return [
-        {"rung": "nudge", "prompt_html": _NUDGE_PROMPT},
-        {
-            "rung": "decompose",
-            "prompt_html": _DECOMPOSE_PROMPT,
-            "reveal_html": steps_html,
-        },
-        {"rung": "sibling", "prompt_html": _SIBLING_PROMPT},
-        {
-            "rung": "reveal",
-            "prompt_html": _REVEAL_PROMPT,
-            "reveal_html": _reveal_html(steps_html, correct_letter, correct_text),
-        },
-    ]
-
-
-def _decomposition_html(decomposition: list[dict[str, str]]) -> str:
-    if not decomposition:
-        return "<p>No stored steps for this item.</p>"
-    items = "".join(
-        f"<li><strong>{step['subgoal']}.</strong> {step['rubric']}</li>"
-        for step in decomposition
-    )
-    return f"<ol>{items}</ol>"
-
-
-def _reveal_html(steps_html: str, correct_letter: str, correct_text: str) -> str:
-    if correct_text:
-        answer_line = f'<p class="answer">Answer {correct_letter}, {correct_text}.</p>'
-    else:
-        answer_line = f'<p class="answer">Answer {correct_letter}.</p>'
-    return f"{steps_html}\n{answer_line}"
-
-
-def _rationale_html(
-    is_correct: bool, selected_letter: str, rationales: dict[str, str]
-) -> str:
     if is_correct:
-        return "<p>Correct. Hold onto the reasoning you used.</p>"
-    text = rationales.get(selected_letter)
-    if text:
-        return f"<p>{text}</p>"
-    return "<p>Not quite. Work through the steps below.</p>"
+        # The answer is confirmed only because the learner picked it themselves.
+        return {"correct": True, "correct_choice": correct_letter}
 
-
-def _choice_text(letter: str, choices: list[str]) -> str:
-    if not letter:
-        return ""
-    index = ord(letter.upper()) - ord("A")
-    if 0 <= index < len(choices):
-        return choices[index]
-    return ""
+    # Miss: the parent answer stays hidden. Open the decomposition tutor and, when
+    # the item has one, re-queue it to recur later this session with the next
+    # variant so the numbers differ and no result carries over.
+    tutor = decomposition.load_tutor(col, note_id, round_index)
+    if tutor["count"] > 0 and problems_session:
+        session["queue"].append({"note_id": note_id, "round": round_index + 1})
+    return {"correct": False, "tutor": tutor}
 
 
 # Ordering + counts
@@ -561,31 +516,3 @@ def _parse_choices(raw: str | None) -> list[str]:
     except (ValueError, TypeError):
         return []
     return [str(item) for item in data] if isinstance(data, list) else []
-
-
-def _parse_json_map(raw: str | None) -> dict[str, str]:
-    try:
-        data = json.loads(raw or "{}")
-    except (ValueError, TypeError):
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    return {str(key).upper(): str(value) for key, value in data.items()}
-
-
-def _parse_decomposition(raw: str | None) -> list[dict[str, str]]:
-    try:
-        data = json.loads(raw or "[]")
-    except (ValueError, TypeError):
-        return []
-    steps: list[dict[str, str]] = []
-    if isinstance(data, list):
-        for item in data:
-            if isinstance(item, dict):
-                steps.append(
-                    {
-                        "subgoal": str(item.get("subgoal", "")),
-                        "rubric": str(item.get("rubric", "")),
-                    }
-                )
-    return steps

@@ -130,6 +130,23 @@ run-ai *args:
     echo ">>> Launching pgrep with AI available (model ${PGREP_AI_MODEL}). Toggle it on in Settings."
     ./run {{ args }}
 
+# Batch-generate the gated decomposition tutor data for the Problems door (WS4)
+# and merge it into content_bundle.json (with --apply), grounded in the private
+# corpus and verified with the shipped core (giveaway guard, independent solve).
+# Needs the content/ tree (corpus + key); run `just pgrep-ai-deps` once first.
+# Example: `just gen-decompositions --per-topic 1 --apply`. macOS/Linux.
+[unix]
+gen-decompositions *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ ninja }} pyenv
+    if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
+    if [ -z "${OPENAI_API_KEY:-}" ]; then
+        echo "Set OPENAI_API_KEY (export it or add it to content/.env) to generate." >&2
+        exit 1
+    fi
+    out/pyenv/bin/python content/tools/generate_decompositions.py {{ args }}
+
 # Reproduce the AI-eval methodology on a committed synthetic sample, offline, with no
 # API key and no private content/ tree, so anyone cloning the public repo gets the same
 # result. Mirrors the gold-set gate: headline metrics with bootstrap CIs, a keyword

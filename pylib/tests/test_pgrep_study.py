@@ -185,7 +185,7 @@ def test_wrong_problems_return_before_correct_within_a_topic():
     assert reordered.index(wrong_one) < reordered.index(correct_one)
 
 
-def test_commit_logs_exactly_one_attempt_and_builds_the_ladder():
+def test_commit_miss_logs_one_attempt_and_withholds_the_answer():
     col = getEmptyCol()
     problem.seed_sample_problems(col)
     started = study.start_session(col, "problems")
@@ -195,34 +195,27 @@ def test_commit_logs_exactly_one_attempt_and_builds_the_ladder():
     note = col.get_note(NoteId(note_id))
     correct = note[problem.FIELD_CORRECT].strip().upper()
     wrong = next(letter for letter in "ABCDE" if letter != correct)
-    correct_text = json.loads(note[problem.FIELD_CHOICES])[ord(correct) - ord("A")]
 
     attempts_before = len(attempt_log.attempts(col))
     result = study.commit_problem(col, note_id, started["session_id"], wrong)
     attempts_after = len(attempt_log.attempts(col))
 
-    # Exactly one immutable Attempt appended by the commit.
+    # Exactly one immutable Attempt appended by the commit, a clean first try.
     assert attempts_after == attempts_before + 1
+    assert attempt_log.attempts(col)[-1].payload["ladder_depth"] == 0
     fold = attempt_log.performance_fold(col)
     assert fold.total == 1
     assert fold.correct == 0
 
+    # A miss never reveals the parent answer: no correct choice, no reveal ladder.
+    # It opens the decomposition tutor instead, and that payload withholds every
+    # answer (no keys, no rationales) until the learner works each subproblem.
     assert result["correct"] is False
-    assert result["correct_choice"] == correct
-
-    rungs = [rung["rung"] for rung in result["ladder"]]
-    assert rungs == ["nudge", "decompose", "sibling", "reveal"]
-
-    # The final answer appears ONLY in the reveal rung (not in the earlier
-    # rungs, and not in the pre-reveal rationale).
-    reveal = next(r for r in result["ladder"] if r["rung"] == "reveal")
-    assert correct_text in reveal["reveal_html"]
-    for rung in result["ladder"]:
-        if rung["rung"] == "reveal":
-            continue
-        for key in ("prompt_html", "reveal_html"):
-            assert correct_text not in rung.get(key, "")
-    assert correct_text not in result["rationale_html"]
+    assert set(result.keys()) == {"correct", "tutor"}
+    for sub in result["tutor"]["subproblems"]:
+        assert "key" not in sub
+        assert "correct_choice" not in sub
+        assert "distractor_rationales" not in sub
 
 
 def test_commit_correct_answer_reports_correct():
@@ -342,3 +335,128 @@ def test_commit_omits_difficulty_when_field_is_empty():
     # An empty authored difficulty is left off the payload. Performance already
     # falls back to a neutral difficulty when the key is absent.
     assert "difficulty" not in events[0].payload
+
+
+# Same-session re-queue and honest first-try semantics
+##########################################################################
+
+
+def _add_tutor_problem(col, *, correct="C") -> int:
+    """A single Problem carrying a tutor blob with a renumbered parent variant."""
+    tutor = {
+        "subproblems": [
+            {
+                "prompt": "Step one.",
+                "variants": [
+                    {
+                        "stem": "sub 1",
+                        "choices": ["a", "b", "c", "d", "e"],
+                        "key": "A",
+                        "distractor_rationales": {
+                            "B": "x",
+                            "C": "x",
+                            "D": "x",
+                            "E": "x",
+                        },
+                        "explain_why": "because",
+                        "source_ref": "S",
+                    }
+                ],
+            },
+            {
+                "prompt": "Step two.",
+                "variants": [
+                    {
+                        "stem": "sub 2",
+                        "choices": ["a", "b", "c", "d", "e"],
+                        "key": "B",
+                        "distractor_rationales": {
+                            "A": "x",
+                            "C": "x",
+                            "D": "x",
+                            "E": "x",
+                        },
+                        "explain_why": "because",
+                        "source_ref": "S",
+                    }
+                ],
+            },
+        ],
+        "parent_variants": [
+            {
+                "stem": "renumbered parent",
+                "choices": ["a", "b", "c", "d", "e"],
+                "key": "E",
+            }
+        ],
+    }
+    notetype = problem.ensure_problem_notetype(col)
+    note = col.new_note(notetype)
+    note[problem.FIELD_STEM] = "Original parent stem."
+    note[problem.FIELD_CHOICES] = json.dumps(["a", "b", "c", "d", "e"])
+    note[problem.FIELD_CORRECT] = correct
+    note[problem.FIELD_DISTRACTOR_RATIONALES] = json.dumps({})
+    note[problem.FIELD_SOLUTION_DECOMPOSITION] = json.dumps([])
+    note[problem.FIELD_DIFFICULTY] = "3.0"
+    note[problem.FIELD_SOURCE_REF] = "src"
+    note[problem.FIELD_DECOMPOSITION_TUTOR] = json.dumps(tutor)
+    note.tags = ["topic::mechanics"]
+    col.add_note(note, col.decks.id(problem.PROBLEM_DECK_NAME))
+    return int(note.id)
+
+
+def test_miss_requeues_with_next_variant_and_excludes_the_retry():
+    from anki.pgrep import performance
+
+    col = getEmptyCol()
+    nid = _add_tutor_problem(col, correct="C")
+
+    started = study.start_session(col, "problems")
+    assert started["remaining"] == 1
+
+    first = study.next_item(col, started["session_id"])
+    assert first["note_id"] == nid
+    assert first["retry"] is False
+    assert first["stem_html"] == "Original parent stem."
+
+    # Miss the first try: the tutor opens and the note is re-queued for later.
+    miss = study.commit_problem(col, nid, started["session_id"], "A")
+    assert miss["correct"] is False
+    assert "correct_choice" not in miss
+    assert miss["tutor"]["count"] == 2
+
+    # It recurs in the SAME session, renumbered so the numbers differ.
+    again = study.next_item(col, started["session_id"])
+    assert again["note_id"] == nid
+    assert again["retry"] is True
+    assert again["stem_html"] == "renumbered parent"
+
+    # Answer the renumbered variant with its own key.
+    hit = study.commit_problem(col, nid, started["session_id"], "E")
+    assert hit["correct"] is True
+
+    # Two attempts: the first-try miss is a clean attempt (ladder_depth 0); the
+    # tutor retry is flagged (ladder_depth >= 1, tutor_retry) so it is excluded
+    # from clean first-try scoring.
+    events = attempt_log.attempts(col)
+    assert len(events) == 2
+    first_event, retry_event = events[0], events[1]
+    assert first_event.payload["ladder_depth"] == 0
+    assert first_event.correct is False
+    assert retry_event.payload["ladder_depth"] == 1
+    assert retry_event.payload.get("tutor_retry") is True
+    assert performance._is_clean(first_event, 0) is True
+    assert performance._is_clean(retry_event, 0) is False
+
+
+def test_correct_first_try_does_not_requeue():
+    col = getEmptyCol()
+    nid = _add_tutor_problem(col, correct="C")
+    started = study.start_session(col, "problems")
+    study.next_item(col, started["session_id"])
+
+    result = study.commit_problem(col, nid, started["session_id"], "C")
+    assert result["correct"] is True
+    assert result["correct_choice"] == "C"
+    # Nothing more is queued after a clean hit.
+    assert study.next_item(col, started["session_id"]) == {"kind": "empty"}

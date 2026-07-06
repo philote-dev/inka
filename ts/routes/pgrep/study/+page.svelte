@@ -26,8 +26,8 @@ The data flow through pgrepCall is unchanged.
     import CardFace from "$lib/components/CardFace.svelte";
     import ChoiceList from "$lib/components/ChoiceList.svelte";
     import GradeBar from "$lib/components/GradeBar.svelte";
-    import HintRung from "$lib/components/HintRung.svelte";
     import StudyFrame from "$lib/components/StudyFrame.svelte";
+    import SubproblemCard from "$lib/components/SubproblemCard.svelte";
     import { renderMath } from "$lib/pgrep/math";
     import { resetSignal, setLearning } from "$lib/pgrep/nav";
 
@@ -63,25 +63,45 @@ The data flow through pgrepCall is unchanged.
 
     type Item = CardItem | ProblemItem | EmptyItem;
 
-    interface LadderRung {
-        rung: "nudge" | "decompose" | "sibling" | "reveal";
-        prompt_html?: string;
-        reveal_html?: string;
+    // The gated decomposition tutor a miss opens. Each subproblem is a mini MCQ
+    // (its correct key, rationales, and model rationale withheld until answered)
+    // plus, with AI on, an "explain why" step. The parent answer is never sent.
+    interface Subproblem {
+        index: number;
+        variant_index: number;
+        prompt: string;
+        stem_html: string;
+        choices: string[];
+    }
+
+    interface TutorState {
+        note_id: number;
+        variant_round: number;
+        count: number;
+        subproblems: Subproblem[];
     }
 
     interface CommitResult {
         correct: boolean;
-        correct_choice: string;
-        rationale_html: string;
-        ladder: LadderRung[];
+        correct_choice?: string;
+        tutor?: TutorState;
     }
 
-    interface TutorGrade {
+    interface McqResult {
+        correct: boolean;
+        rationale_html?: string;
+        correct_choice?: string;
+        explain_why_html?: string;
+        needs_explanation?: boolean;
+        error?: string;
+    }
+
+    interface ExplainResult {
         ai: string;
-        mode: string;
-        coverage?: string;
-        probe?: string;
-        giveaway_blocked?: boolean;
+        pass: boolean;
+        feedback: string;
+        explain_why_html?: string;
+        error?: string;
     }
 
     interface Synthesis {
@@ -111,12 +131,6 @@ The data flow through pgrepCall is unchanged.
         { label: "Good", value: 3 },
         { label: "Easy", value: 4 },
     ];
-    const RUNG_TITLES: Record<string, string> = {
-        nudge: "Nudge",
-        decompose: "Break it down",
-        sibling: "Sibling worked example",
-        reveal: "Reveal and explain back",
-    };
 
     type Door = "cards" | "problems";
     type Stage = "launcher" | "today" | "drill" | "session";
@@ -152,19 +166,28 @@ The data flow through pgrepCall is unchanged.
     let problem: ProblemItem | null = null;
     let selected = "";
     let committed: CommitResult | null = null;
-    let revealedRungs = 0;
-    let shownSteps: Record<number, boolean> = {};
     // M5 seam: when the current problem was shown, so commit can log response_ms
     // (the client-measured think time). Used only to filter rapid guesses.
     let problemShownAt = 0;
 
-    // AI upgrade state (L4). AI is off by default, so the ladder stays the static
-    // reveal-and-self-compare unless the learner turns AI on in Settings.
+    // Decomposition tutor state (opened on a miss). The parent answer is never
+    // revealed; the learner is gated through the subproblems one at a time.
+    let tutor: TutorState | null = null;
+    let tutorDone = false;
+    let spIndex = 0; // current subproblem
+    let spSelected = ""; // the subproblem's MCQ pick
+    let spPhase: "mcq" | "explain" | "done" = "mcq";
+    let spCorrectKey: string | null = null;
+    let spMcqRationale = "";
+    let spExplainWhy = "";
+    let spExplanation = "";
+    let spFeedback = "";
+    let spOutcome: "pending" | "pass" | "fail" = "pending";
+    let spBusy = false;
+
+    // AI upgrade state (L4). AI is off by default; with it on, each subproblem
+    // adds the graded "explain why" gate. Read once at mount.
     let aiOn = false;
-    let learnerStep = "";
-    let learnerWhy = "";
-    let gradeResult: TutorGrade | null = null;
-    let grading = false;
     let synthesis: Synthesis | null = null;
 
     onMount(async () => {
@@ -215,12 +238,26 @@ The data flow through pgrepCall is unchanged.
         problem = null;
         selected = "";
         committed = null;
-        revealedRungs = 0;
-        shownSteps = {};
         doorEmpty = false;
-        learnerStep = "";
-        learnerWhy = "";
-        gradeResult = null;
+        resetTutorState();
+    }
+
+    function resetTutorState(): void {
+        tutor = null;
+        tutorDone = false;
+        resetSubproblemState();
+    }
+
+    function resetSubproblemState(): void {
+        spSelected = "";
+        spPhase = "mcq";
+        spCorrectKey = null;
+        spMcqRationale = "";
+        spExplainWhy = "";
+        spExplanation = "";
+        spFeedback = "";
+        spOutcome = "pending";
+        spBusy = false;
     }
 
     // Start both doors for the current scope (all topics, or one drill topic) so
@@ -342,10 +379,16 @@ The data flow through pgrepCall is unchanged.
                 // M5 seam: think time from the item being shown to this commit.
                 response_ms: responseMs,
             });
-            // On a miss, open the ladder at its first rung. On a hit, keep it
-            // closed behind an opt-in toggle.
-            revealedRungs = committed.correct ? 0 : 1;
-            shownSteps = {};
+            // A miss opens the decomposition tutor (the parent answer stays
+            // hidden). A hit, or a miss with no decomposition available, just
+            // moves on.
+            resetTutorState();
+            tutor = committed.tutor ?? null;
+            if (!committed.correct && tutor && tutor.count > 0) {
+                startSubproblem(0);
+            } else {
+                tutorDone = true;
+            }
         } catch {
             errored = true;
         } finally {
@@ -353,22 +396,84 @@ The data flow through pgrepCall is unchanged.
         }
     }
 
-    async function gradeStep(): Promise<void> {
-        if (!problem || !learnerStep.trim() || grading) {
+    function startSubproblem(i: number): void {
+        spIndex = i;
+        resetSubproblemState();
+    }
+
+    // Gate 1: the subproblem MCQ. A wrong pick returns only that distractor's
+    // rationale (unlimited retries); a correct pick reveals the model rationale
+    // and, with AI on, opens the "explain why" gate.
+    async function checkSubMcq(): Promise<void> {
+        if (!tutor || !spSelected || spBusy) {
             return;
         }
-        grading = true;
+        const sub = tutor.subproblems[spIndex];
+        spBusy = true;
         try {
-            gradeResult = await pgrepCall<TutorGrade>("pgrepTutorGrade", {
-                note_id: problem.note_id,
-                subgoal_index: 0,
-                learner_text: learnerStep,
-                learner_why: learnerWhy,
+            const r = await pgrepCall<McqResult>("pgrepTutorMcq", {
+                note_id: tutor.note_id,
+                subgoal_index: sub.index,
+                variant_index: sub.variant_index,
+                selected: spSelected,
             });
+            if (r.correct) {
+                spCorrectKey = r.correct_choice ?? spSelected;
+                spExplainWhy = r.explain_why_html ?? "";
+                spMcqRationale = "";
+                spPhase = r.needs_explanation ? "explain" : "done";
+            } else {
+                spMcqRationale =
+                    r.rationale_html || "Not quite. Look again and try another.";
+            }
         } catch {
-            gradeResult = null;
+            spMcqRationale = "Something went wrong. Try again.";
         } finally {
-            grading = false;
+            spBusy = false;
+        }
+    }
+
+    // Gate 2 (AI on only): the lenient "explain why". A pass reveals the model
+    // rationale and unlocks the next step; a fail shows feedback and lets the
+    // learner revise and re-check.
+    async function gradeSubExplain(): Promise<void> {
+        if (!tutor || !spExplanation.trim() || spBusy) {
+            return;
+        }
+        const sub = tutor.subproblems[spIndex];
+        spBusy = true;
+        try {
+            const r = await pgrepCall<ExplainResult>("pgrepTutorExplain", {
+                note_id: tutor.note_id,
+                subgoal_index: sub.index,
+                variant_index: sub.variant_index,
+                learner_text: spExplanation,
+            });
+            spFeedback = r.feedback ?? "";
+            if (r.pass) {
+                spOutcome = "pass";
+                spExplainWhy = r.explain_why_html ?? spExplainWhy;
+                spPhase = "done";
+            } else {
+                spOutcome = "fail";
+            }
+        } catch {
+            spFeedback = "Grading is unavailable right now. Try again.";
+            spOutcome = "fail";
+        } finally {
+            spBusy = false;
+        }
+    }
+
+    // Advance only when the step is satisfied. No skip anywhere.
+    function continueSubproblem(): void {
+        if (!tutor) {
+            return;
+        }
+        if (spIndex + 1 < tutor.subproblems.length) {
+            startSubproblem(spIndex + 1);
+        } else {
+            tutorDone = true;
         }
     }
 
@@ -411,26 +516,6 @@ The data flow through pgrepCall is unchanged.
             return;
         }
         await loadDoors(topicArg());
-    }
-
-    function showStep(index: number): void {
-        shownSteps = { ...shownSteps, [index]: true };
-    }
-
-    function nextRung(): void {
-        if (committed && revealedRungs < committed.ladder.length) {
-            revealedRungs += 1;
-        }
-    }
-
-    function openSolution(): void {
-        if (committed) {
-            revealedRungs = committed.ladder.length;
-            const revealIndex = committed.ladder.findIndex((r) => r.rung === "reveal");
-            if (revealIndex >= 0) {
-                shownSteps = { ...shownSteps, [revealIndex]: true };
-            }
-        }
     }
 
     // Close from a running session drops back to the layer it launched from, so
@@ -495,9 +580,15 @@ The data flow through pgrepCall is unchanged.
     $: choiceItems = problem
         ? problem.choices.map((html, i) => ({ key: letterOf(i), html }))
         : [];
-    // Typeset delimited LaTeX in the stem and rationale (no-op on plain text).
+    $: subChoiceItems =
+        tutor && tutor.subproblems[spIndex]
+            ? tutor.subproblems[spIndex].choices.map((html, i) => ({
+                  key: letterOf(i),
+                  html,
+              }))
+            : [];
+    // Typeset delimited LaTeX in the stem (no-op on plain text).
     $: renderedStem = problem ? renderMath(problem.stem_html) : "";
-    $: renderedRationale = committed ? renderMath(committed.rationale_html) : "";
     $: doorList = [
         {
             key: "cards" as Door,
@@ -510,7 +601,7 @@ The data flow through pgrepCall is unchanged.
             key: "problems" as Door,
             name: "Problems",
             kind: "Performance",
-            desc: "Commit first, then work the ladder on a miss.",
+            desc: "Commit first. A miss builds it back up, step by step.",
             info: problemsDoor,
         },
     ];
@@ -898,7 +989,7 @@ The data flow through pgrepCall is unchanged.
                 choices={choiceItems}
                 {selected}
                 committed={committed !== null}
-                correctKey={committed ? committed.correct_choice : null}
+                correctKey={committed?.correct_choice ?? null}
                 onSelect={(key) => (selected = key)}
             />
 
@@ -913,89 +1004,61 @@ The data flow through pgrepCall is unchanged.
                     </button>
                     <span class="muted small">Help stays locked until you commit.</span>
                 </div>
-            {:else}
-                <div
-                    class="verdict"
-                    class:hit={committed.correct}
-                    class:miss={!committed.correct}
-                >
-                    {committed.correct ? "Correct." : "Your answer, not correct."}
+            {:else if committed.correct}
+                <div class="verdict hit">Correct.</div>
+                <div class="actions next">
+                    <button class="btn primary" on:click={loadNext} disabled={busy}>
+                        Next
+                    </button>
+                    <span class="muted small">
+                        {problem.remaining} left in this door.
+                    </span>
                 </div>
-                <div class="rationale">{@html renderedRationale}</div>
-
-                {#if committed.correct && revealedRungs === 0}
-                    <div class="actions">
-                        <button class="btn ghost" on:click={openSolution}>
-                            Show the worked solution
-                        </button>
-                    </div>
+            {:else if tutor && tutor.count > 0 && !tutorDone}
+                <div class="verdict miss">Not correct. Let's build it up.</div>
+                <p class="tutor-lead muted small">
+                    Work each step. The answer to the original stays hidden.
+                </p>
+                {#key spIndex}
+                    <SubproblemCard
+                        index={spIndex + 1}
+                        total={tutor.count}
+                        prompt={tutor.subproblems[spIndex].prompt}
+                        stemHtml={tutor.subproblems[spIndex].stem_html}
+                        choices={subChoiceItems}
+                        selected={spSelected}
+                        phase={spPhase}
+                        correctKey={spCorrectKey}
+                        mcqRationaleHtml={spMcqRationale}
+                        explainWhyHtml={spExplainWhy}
+                        {aiOn}
+                        bind:explanation={spExplanation}
+                        feedback={spFeedback}
+                        explanationOutcome={spOutcome}
+                        busy={spBusy}
+                        isLast={spIndex + 1 === tutor.count}
+                        onSelect={(key) => {
+                            spSelected = key;
+                            spMcqRationale = "";
+                        }}
+                        onCheck={checkSubMcq}
+                        onGrade={gradeSubExplain}
+                        onContinue={continueSubproblem}
+                    />
+                {/key}
+            {:else}
+                <div class="verdict miss">Not correct.</div>
+                {#if tutorDone && tutor && tutor.count > 0}
+                    <p class="tutor-lead muted small">
+                        Nicely worked through. You'll see this one again later with
+                        different numbers.
+                    </p>
+                {:else}
+                    <p class="tutor-lead muted small">
+                        Take another look at the idea. The answer stays hidden, and
+                        you'll get another go.
+                    </p>
                 {/if}
-
-                {#if revealedRungs > 0}
-                    <div class="ladder">
-                        {#each committed.ladder.slice(0, revealedRungs) as rung, i (i)}
-                            <HintRung
-                                title={RUNG_TITLES[rung.rung] ?? rung.rung}
-                                index={i + 1}
-                                total={committed.ladder.length}
-                                prompt={rung.prompt_html ?? ""}
-                                revealHtml={rung.reveal_html}
-                                shown={shownSteps[i] ?? false}
-                                onShow={() => showStep(i)}
-                            />
-                            {#if aiOn && rung.rung === "decompose"}
-                                <div class="grade-step">
-                                    <label for="learner-step">
-                                        Produce this sub-goal in your own words, plus a
-                                        one-line why.
-                                    </label>
-                                    <textarea
-                                        id="learner-step"
-                                        bind:value={learnerStep}
-                                        rows="2"
-                                        placeholder="Your sub-goal"
-                                    ></textarea>
-                                    <input
-                                        bind:value={learnerWhy}
-                                        placeholder="Why (one line)"
-                                    />
-                                    <button
-                                        class="btn"
-                                        on:click={gradeStep}
-                                        disabled={grading || !learnerStep.trim()}
-                                    >
-                                        {grading ? "Grading" : "Grade my step"}
-                                    </button>
-                                    {#if gradeResult}
-                                        <div class="grade-result">
-                                            <span class="cov {gradeResult.coverage}">
-                                                {gradeResult.coverage}
-                                            </span>
-                                            <p class="probe">{gradeResult.probe}</p>
-                                            {#if gradeResult.giveaway_blocked}
-                                                <p class="muted small">
-                                                    A leaking hint was blocked; here is
-                                                    a safe nudge instead.
-                                                </p>
-                                            {/if}
-                                        </div>
-                                    {/if}
-                                </div>
-                            {/if}
-                        {/each}
-                    </div>
-
-                    {#if revealedRungs < committed.ladder.length}
-                        <div class="actions">
-                            <button class="btn ghost" on:click={nextRung}>
-                                Next step
-                            </button>
-                        </div>
-                    {/if}
-
-                    <p class="ladder-footer">Working it out yourself is the point.</p>
-                {/if}
-
                 <div class="actions next">
                     <button class="btn primary" on:click={loadNext} disabled={busy}>
                         Next
@@ -1331,87 +1394,8 @@ The data flow through pgrepCall is unchanged.
         }
     }
 
-    .rationale {
-        margin-top: var(--space-1);
-        color: var(--text);
-        font-size: var(--text-body);
-        line-height: 1.6;
-
-        :global(p) {
-            margin: 0 0 0.6em;
-        }
-    }
-
-    .ladder {
-        margin-top: var(--space-2);
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-2);
-    }
-
-    .ladder-footer {
-        margin: var(--space-2) 0 0;
-        text-align: center;
-        font-size: var(--text-small);
-        color: var(--muted);
-        opacity: 0.8;
-    }
-
-    .grade-step {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
+    .tutor-lead {
         margin: var(--space-1) 0 var(--space-2);
-        padding: var(--space-2);
-        border: var(--hairline);
-        border-radius: var(--radius-control);
-
-        label {
-            font-size: var(--text-small);
-            color: var(--muted);
-        }
-
-        textarea,
-        input {
-            font-family: var(--font-ui);
-            font-size: var(--text-body);
-            color: var(--text);
-            background: var(--canvas);
-            border: var(--hairline);
-            border-radius: var(--radius-control);
-            padding: 8px 10px;
-            resize: vertical;
-        }
-
-        button {
-            align-self: flex-start;
-        }
-    }
-
-    .grade-result {
-        margin-top: 6px;
-
-        .cov {
-            display: inline-block;
-            font-size: var(--text-caption);
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            padding: 2px 8px;
-            border-radius: var(--radius-pill);
-            border: var(--hairline);
-            color: var(--muted);
-        }
-
-        .cov.covered {
-            color: var(--success);
-            border-color: var(--success);
-        }
-
-        .probe {
-            margin: 8px 0 0;
-            font-size: var(--text-body);
-            line-height: 1.5;
-        }
     }
 
     .synthesis {
