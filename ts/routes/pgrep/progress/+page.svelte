@@ -612,25 +612,33 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         }
     }
 
-    /* Section tabs: monochrome chrome (not score data). An underline marks the
-       active section, so the graphs are one click away, not a long scroll. */
+    /* Section switch: a monochrome segmented control (chrome, not score data).
+       The three evidence views read as one control; the active facet lifts onto
+       a surface pill inside the warm inset track. Host buttons inherit a faint
+       rounded box-shadow and radius from Anki's base CSS, so every chrome
+       property is reset here explicitly, or the pills render as ghost boxes. */
     .tabs {
-        display: flex;
-        gap: var(--space-3);
-        border-bottom: var(--hairline);
+        display: inline-flex;
+        align-self: flex-start;
+        gap: var(--space-0);
+        padding: var(--space-0);
+        background: var(--elevated);
+        border: var(--hairline);
+        border-radius: var(--radius-control);
         margin-bottom: var(--space-1);
     }
 
     .tab {
         appearance: none;
-        background: none;
         border: none;
-        border-bottom: 2px solid transparent;
-        margin-bottom: -1px;
-        padding: 0 0 10px;
+        box-shadow: none;
+        background: transparent;
+        border-radius: calc(var(--radius-control) - var(--space-0));
+        padding: 7px 16px;
         font-family: var(--font-ui);
         font-size: var(--text-body);
         font-weight: 500;
+        line-height: 1;
         color: var(--muted);
         cursor: pointer;
         transition: var(--transition-calm);
@@ -641,7 +649,25 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
 
         &.on {
             color: var(--text);
-            border-bottom-color: var(--text);
+            background: var(--surface);
+            box-shadow: var(--shadow-card);
+        }
+
+        &:focus-visible {
+            outline: 2px solid var(--focus-ring);
+            outline-offset: 2px;
+        }
+    }
+
+    /* Phone: let the control span the column so the three facets stay tappable. */
+    @media (max-width: 640px) {
+        .tabs {
+            align-self: stretch;
+        }
+
+        .tab {
+            flex: 1 1 0;
+            text-align: center;
         }
     }
 
