@@ -12,8 +12,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <script lang="ts">
     import ScoreCard from "$lib/components/ScoreCard.svelte";
 
-    import LabNav from "../LabNav.svelte";
-
     type Hue = "memory" | "performance" | "readiness";
 
     const scores: {
@@ -52,9 +50,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <div class="pgrep night-mode shell">
-    <div class="lab">
-        <LabNav />
-
+    <div>
         <header class="head">
             <h1>Home card-row layouts</h1>
             <p>
@@ -154,7 +150,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                             <span class="today-chip">High impact</span>
                         </div>
                         <div class="today-title">Thermodynamics focus drill</div>
-                        <div class="today-meta">Cards and problems, topics interleaved. About 25 min.</div>
+                        <div class="today-meta">
+                            Cards and problems, topics interleaved. About 25 min.
+                        </div>
                     </div>
                     <button class="start">Start session</button>
                 </section>
@@ -180,13 +178,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         min-height: 100vh;
         background: var(--canvas);
         color: var(--text);
-    }
-
-    .lab {
-        max-width: 1440px;
-        margin: 0 auto;
-        padding: var(--space-4, 32px) var(--space-3, 24px) var(--space-6, 64px);
-        font-family: var(--font-ui);
     }
 
     .head {

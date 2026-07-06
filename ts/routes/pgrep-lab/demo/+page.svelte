@@ -11,7 +11,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <script lang="ts">
     import { onMount } from "svelte";
     import { pgrepCall } from "../../pgrep/lib/bridge";
-    import LabNav from "../LabNav.svelte";
 
     interface OverallScore {
         point: number | null;
@@ -87,9 +86,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     });
 </script>
 
-<div class="lab">
-    <LabNav />
-
+<div>
     <header class="head">
         <h1>Demo profile</h1>
         <p>
@@ -231,15 +228,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </div>
 
 <style lang="scss">
-    .lab {
-        max-width: 1180px;
-        margin: 0 auto;
-        padding: var(--space-5) var(--space-3) var(--space-6);
-        background: var(--canvas);
-        color: var(--text);
-        min-height: 100vh;
-    }
-
     .head {
         margin-bottom: var(--space-4);
 

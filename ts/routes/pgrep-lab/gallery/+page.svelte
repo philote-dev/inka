@@ -20,8 +20,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import StudyFrame from "$lib/components/StudyFrame.svelte";
     import { FULL_SURFACE } from "$lib/pgrep/manifold";
 
-    import LabNav from "../LabNav.svelte";
-
     type Hue = "memory" | "performance" | "readiness";
 
     // Each demo is rendered once per theme so both are visible together. The
@@ -257,9 +255,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 </script>
 
-<div class="gallery">
-    <LabNav />
-
+<div>
     <header class="head">
         <h1>Component gallery</h1>
         <p>
@@ -766,8 +762,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         The end-of-exam read reuses the readiness ScoreCard, either a
                         covered scaled score with its likely range or an honest abstain
                         that names the uncovered topics. The question navigator marks
-                        each question as answered, flagged, or current, so a reviewer can
-                        read the running state without sitting a timed mock.
+                        each question as answered, flagged, or current, so a reviewer
+                        can read the running state without sitting a timed mock.
                     </p>
                 </div>
                 <div class="split">
@@ -890,16 +886,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </div>
 
 <style lang="scss">
-    .gallery {
-        max-width: 1240px;
-        margin: 0 auto;
-        padding: var(--space-5) var(--space-3) var(--space-6);
-        background: var(--canvas);
-        color: var(--text);
-        min-height: 100vh;
-        font-family: var(--font-ui);
-    }
-
     .head {
         margin-bottom: var(--space-4);
 

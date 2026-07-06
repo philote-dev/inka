@@ -65,7 +65,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     el.classList.add("night-mode");
                 } else {
                     const prefersDark =
-                        window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+                        window.matchMedia?.("(prefers-color-scheme: dark)").matches ??
+                        false;
                     el.classList.toggle("night-mode", prefersDark);
                 }
             }

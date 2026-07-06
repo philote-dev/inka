@@ -39,6 +39,38 @@ def test_ensure_problem_notetype_is_idempotent():
     assert first["id"] == second["id"]
 
 
+def test_bundle_problems_are_misconception_first():
+    # The value and the risk of a problem both sit in its distractors, so every
+    # shipped problem must carry four misconception-first distractors: the four
+    # non-key letters, each with a misconception tag and a rationale. This is a
+    # shipped invariant, checked on the raw bundle (no Collection needed).
+    for item in problem.BUNDLE_PROBLEMS:
+        key = item["correct"]
+        assert key in problem.CHOICE_LETTERS, item["id"]
+        distractors = item["distractors"]
+        assert len(distractors) == 4, item["id"]
+        labels = sorted(d["label"] for d in distractors)
+        assert labels == sorted(set(problem.CHOICE_LETTERS) - {key}), item["id"]
+        for d in distractors:
+            assert d["label"] != key, item["id"]
+            assert d.get("misconception", "").strip(), (item["id"], d["label"])
+            assert d.get("rationale", "").strip(), (item["id"], d["label"])
+
+
+def test_difficulty_field_maps_fraction_to_authored_scale():
+    # 0..1 authored fraction -> the 1..5 Performance scale (1 + 4*f).
+    assert float(problem.difficulty_field(0.0)) == 1.0
+    assert float(problem.difficulty_field(0.5)) == 3.0
+    assert float(problem.difficulty_field(1.0)) == 5.0
+    # Out-of-range generated values clamp into the scale, never beyond it.
+    assert float(problem.difficulty_field(1.5)) == 5.0
+    assert float(problem.difficulty_field(-0.2)) == 1.0
+    # Missing, non-numeric, or bool falls back to the neutral middle of the scale.
+    assert float(problem.difficulty_field(None)) == 3.0
+    assert float(problem.difficulty_field("medium")) == 3.0
+    assert float(problem.difficulty_field(True)) == 3.0
+
+
 def test_seed_sample_problems_seeds_the_bundle_and_is_idempotent():
     col = getEmptyCol()
 

@@ -19,6 +19,7 @@
         "ftl/core-repo",
         "ftl/usage",
         "licenses.json",
+        "pylib/anki/pgrep/content_bundle.json",
         ".dmypy.json",
         "docs-site",
         "target",

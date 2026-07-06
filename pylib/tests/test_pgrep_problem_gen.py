@@ -11,6 +11,9 @@ stored decomposition and per-distractor rationales, no heavy deps needed.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 
 from anki.pgrep import ai_config, problem, problem_gen
 from anki.pgrep.ai import llm as llm_module
@@ -90,6 +93,39 @@ def test_problem_gen_ai_off():
     assert res["added"] == []
 
 
+def test_ai_off_session_imports_no_heavy_deps():
+    # Hard rule: an AI-off session loads none of the heavy AI stack. Import the
+    # shipped Cards/Problems modules in a fresh interpreter (so a sibling test that
+    # fakes the AI modules cannot pollute sys.modules) and assert the heavy deps
+    # and the heavy ai submodules never load at import time.
+    probe = (
+        "import sys\n"
+        "import anki.pgrep.ai_config\n"
+        "import anki.pgrep.problem\n"
+        "import anki.pgrep.problem_gen\n"
+        "import anki.pgrep.generation\n"
+        "import anki.pgrep.seed\n"
+        "import anki.pgrep.tutor\n"
+        "import anki.pgrep.calibration_evidence\n"
+        "heavy = [m for m in ("
+        "'fastembed','openai','sqlite_vec','sympy','sentence_transformers',"
+        "'anki.pgrep.ai.retrieval','anki.pgrep.ai.llm','anki.pgrep.ai.verify',"
+        "'anki.pgrep.ai.generation_core','anki.pgrep.ai.provenance'"
+        ") if m in sys.modules]\n"
+        "assert not heavy, heavy\n"
+        "print('AI_OFF_CLEAN')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        env=os.environ,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "AI_OFF_CLEAN" in result.stdout
+
+
 def test_problem_gen_ai_on_adds_problem(monkeypatch):
     col = getEmptyCol()
     _enable_ai(col)
@@ -107,6 +143,27 @@ def test_problem_gen_ai_on_adds_problem(monkeypatch):
     assert rationales.get("A")
     assert problem_gen.GENERATED_TAG in note.tags
     assert "topic::atomic" in note.tags
+
+
+def test_problem_gen_difficulty_lands_on_authored_scale(monkeypatch):
+    # A generated 0..1 difficulty must be stored on the Performance model's 1..5
+    # scale, not the raw fraction (which would clamp to the 1.0 floor and make
+    # every generated problem read as "easiest").
+    col = getEmptyCol()
+    _enable_ai(col)
+    prob = _good_problem()
+    prob["difficulty"] = 0.75
+    monkeypatch.setattr(problem_gen, "_retrieve", lambda col, query: list(_GROUNDED))
+    monkeypatch.setattr(
+        llm_module, "LLMClient", lambda model, **kw: _FakeLLM(model, response=prob)
+    )
+
+    res = problem_gen.generate(col, topic="topic::atomic", n=1)
+    assert len(res["added"]) == 1
+    note = col.get_note(res["added"][0]["note_id"])
+    stored = float(note[problem.FIELD_DIFFICULTY])
+    assert stored == 4.0  # 1 + 4 * 0.75
+    assert 1.0 <= stored <= 5.0
 
 
 def test_problem_gen_giveaway_in_decomposition_refused(monkeypatch):

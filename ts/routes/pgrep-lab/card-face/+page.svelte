@@ -11,8 +11,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import CardFace from "$lib/components/CardFace.svelte";
     import { renderMath } from "$lib/pgrep/math";
 
-    import LabNav from "../LabNav.svelte";
-
     // A computational card in delimited LaTeX; MathJax typesets each \( ... \) span
     // while the surrounding prose is left as plain text.
     const questionHtml =
@@ -34,16 +32,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <div class="pgrep night-mode shell">
-    <div class="lab">
-        <LabNav />
-
+    <div>
         <header class="head">
             <h1>Flashcard face and math</h1>
             <p>
-                The Cards-door review card with math-rich content, plus a raw-versus-rendered
-                check of the MathJax renderer. Card content carries delimited LaTeX, so the
-                \( ... \) spans typeset through CardFace while the surrounding prose stays
-                plain.
+                The Cards-door review card with math-rich content, plus a
+                raw-versus-rendered check of the MathJax renderer. Card content carries
+                delimited LaTeX, so the \( ... \) spans typeset through CardFace while
+                the surrounding prose stays plain.
             </p>
         </header>
 
@@ -82,13 +78,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         min-height: 100vh;
         background: var(--canvas);
         color: var(--text);
-    }
-
-    .lab {
-        max-width: 1440px;
-        margin: 0 auto;
-        padding: var(--space-4, 32px) var(--space-3, 24px) var(--space-6, 64px);
-        font-family: var(--font-ui);
     }
 
     .head {

@@ -11,8 +11,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import CardFace from "$lib/components/CardFace.svelte";
     import { renderMath } from "$lib/pgrep/math";
 
-    import LabNav from "../LabNav.svelte";
-
     // The content will carry delimited LaTeX after the conversion pass; this shows
     // how MathJax typesets it. \\( \\) is inline, \\[ \\] is display.
     const questionHtml =
@@ -35,9 +33,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <div class="pgrep night-mode shell">
-    <div class="lab">
-        <LabNav />
-
+    <div>
         <header class="head">
             <h1>Math rendering</h1>
             <p>
@@ -76,13 +72,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         min-height: 100vh;
         background: var(--canvas);
         color: var(--text);
-    }
-
-    .lab {
-        max-width: 1440px;
-        margin: 0 auto;
-        padding: var(--space-4, 32px) var(--space-3, 24px) var(--space-6, 64px);
-        font-family: var(--font-ui);
     }
 
     .head {
