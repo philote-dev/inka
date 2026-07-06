@@ -15,7 +15,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import Landing from "$lib/components/Landing.svelte";
     import NavRail from "$lib/components/NavRail.svelte";
     import SplashScreen from "$lib/components/SplashScreen.svelte";
-    import { openRail, railOpen } from "$lib/pgrep/nav";
+    import { closeRail, narrow, openRail, railOpen, setNarrow } from "$lib/pgrep/nav";
 
     import { pgrepCall } from "./lib/bridge";
 
@@ -82,10 +82,25 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     afterNavigate(() => {
         active = activeFor(page.url.pathname);
         isHome = page.url.pathname === "/pgrep";
+        // On phone the rail is an overlay drawer, so a tap on a destination should
+        // dismiss it as the new surface loads, the way a mobile drawer expects.
+        if ($narrow) {
+            closeRail();
+        }
         if (isHome) {
             diagnosticDone = null;
             void loadDiagnosticStatus();
         }
+    });
+
+    // Track phone width so the rail auto-collapses (and returns as a drawer) below
+    // the 640px breakpoint, matching the responsive step-downs in _pgrep.scss.
+    onMount(() => {
+        const mq = window.matchMedia("(max-width: 640px)");
+        const apply = (): void => setNarrow(mq.matches);
+        apply();
+        mq.addEventListener("change", apply);
+        return () => mq.removeEventListener("change", apply);
     });
 
     // Apply the saved theme on every surface, not just Settings. Without this a
@@ -119,6 +134,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     {/if}
     <div class="shell" class:rail-collapsed={!$railOpen}>
         <NavRail {active} collapsed={!$railOpen} />
+
+        {#if $narrow && $railOpen}
+            <!-- Phone-only scrim behind the drawer. A tap on the dimmed content
+                 closes the rail, the standard way out of a mobile drawer. -->
+            <button
+                class="rail-scrim"
+                type="button"
+                on:click={closeRail}
+                aria-label="Close sidebar"
+            ></button>
+        {/if}
 
         {#if !$railOpen}
             <!-- Restore affordances, shown only while the rail is collapsed. The
@@ -246,9 +272,43 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         background: var(--muted);
     }
 
+    /* Phone drawer scrim: dims the content while the rail overlays it, and is
+       itself the tap target that closes the drawer. */
+    .rail-scrim {
+        position: fixed;
+        inset: 0;
+        z-index: 35;
+        padding: 0;
+        border: none;
+        background: rgba(0, 0, 0, 0.36);
+        cursor: pointer;
+        animation: rail-scrim-in var(--duration-calm) var(--ease-spring);
+    }
+
+    @keyframes rail-scrim-in {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 1;
+        }
+    }
+
+    /* Phone: the edge-hover handle has no meaning on touch, so the burger is the
+       single, obvious way back to the rail. */
+    @media (max-width: 640px) {
+        .rail-edge {
+            display: none;
+        }
+    }
+
     @media (prefers-reduced-motion: reduce) {
         .rail-edge .handle {
             transition: opacity 0s;
+        }
+
+        .rail-scrim {
+            animation: none;
         }
     }
 </style>

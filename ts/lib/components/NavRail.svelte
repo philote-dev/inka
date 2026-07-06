@@ -18,7 +18,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     streak, so the rail stays honest on every surface.
 -->
 <script lang="ts">
-    import { closeRail, learning } from "$lib/pgrep/nav";
+    import { closeRail, learning, narrow } from "$lib/pgrep/nav";
 
     export let active = "Home";
     export let streak: number | undefined = undefined;
@@ -61,7 +61,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             </svg>
             <span>pgrep</span>
         </a>
-        {#if $learning}
+        {#if $learning || $narrow}
             <button
                 class="collapse"
                 type="button"
@@ -187,6 +187,42 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     @media (prefers-reduced-motion: reduce) {
         .rail {
+            transition: none;
+        }
+    }
+
+    /* Phone: the rail leaves the flow and becomes an overlay drawer so it never
+       squeezes the content. It slides in from the left over the layout's scrim
+       and slides out when collapsed, rather than the inline width animation. */
+    @media (max-width: 640px) {
+        .rail {
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 40;
+            width: min(82vw, 292px);
+            background: var(--canvas);
+            box-shadow: var(--shadow-card);
+            transform: translateX(0);
+            transition: transform var(--duration-calm) var(--ease-spring);
+        }
+
+        .rail.collapsed {
+            width: min(82vw, 292px);
+            padding: 28px 16px 24px;
+            border-right-color: var(--border);
+            transform: translateX(-100%);
+            visibility: hidden;
+            transition:
+                transform var(--duration-calm) var(--ease-spring),
+                visibility 0s linear var(--duration-calm);
+        }
+    }
+
+    @media (max-width: 640px) and (prefers-reduced-motion: reduce) {
+        .rail,
+        .rail.collapsed {
             transition: none;
         }
     }
