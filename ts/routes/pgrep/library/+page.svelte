@@ -5,15 +5,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <!--
 pgrep Library (L4.1 + L5.9), the forced-generation authoring surface
 (design/ux-foundation.md 7.4). A guided flow: rather than picking a topic, the
-learner is walked through the whole blueprint one card at a time. On the left
-they write one flashcard in their own words for the topic in focus (the
-generation-effect act, works AI on or off); on the right the AI-matched cards
-appear, each citing a named source and carrying a Verified or Needs-review
-status, with the gold-set gate summarised below. A successful add advances to
-the next topic so the flow keeps leading forward. With AI off the card still
-enters the deck and the right panel says so plainly, pointing to Settings to
-turn AI back on. How the matching cards are built (rephrasing a bundle vs
-drafting net-new cards) is an internal AI decision, never a user choice. Styled
+learner is walked through the whole blueprint one card at a time. Up top they
+write one flashcard in their own words for the topic in focus (the
+generation-effect act, works AI on or off); below, the AI-matched cards appear,
+each citing a named source and carrying a Verified or Needs-review status, with
+the gold-set gate summarised alongside. A successful add advances to the next
+topic so the flow keeps leading forward. With AI off the card still enters the
+deck and the panel below says so plainly, pointing to Settings to turn AI back
+on. How the matching cards are built (rephrasing a bundle vs drafting net-new
+cards) is an internal AI decision, never a user choice. Styled
 with the pgrep tokens; card fronts are typeset through the shared renderMath
 helper, so delimited LaTeX in a matched card shows as math (never forked here).
 -->
@@ -172,7 +172,7 @@ helper, so delimited LaTeX in a matched card shows as math (never forked here).
     }
 
     // Walk the blueprint. A topic change starts a fresh card; the matching cards
-    // from the last build stay on the right as a record of what was made.
+    // from the last build stay below as a record of what was made.
     function step(delta: number): void {
         const next = topicIndex + delta;
         if (next < 0 || next >= TOPICS.length) {
@@ -206,7 +206,7 @@ helper, so delimited LaTeX in a matched card shows as math (never forked here).
             savedFront = front.trim();
             // Guide them onward: once a card lands, advance to the next topic and
             // clear the editor so the next card is ready to write. The matching
-            // set for the card just made stays visible on the right.
+            // set for the card just made stays visible below.
             if (topicIndex < TOPICS.length - 1) {
                 topicIndex += 1;
             }
@@ -226,13 +226,13 @@ helper, so delimited LaTeX in a matched card shows as math (never forked here).
     <header class="head">
         <h1>Make a flashcard</h1>
         <p class="lede">
-            Write one in your own words. We build a matching set in your style, each
-            card checked against a named source.
+            Write one in your own words. We build a matching set, each card checked
+            against a named source.
         </p>
     </header>
 
-    <div class="grid">
-        <!-- Left: the guided card editor -->
+    <div class="stack">
+        <!-- Top: the guided card editor -->
         <section class="editor" aria-label="Your flashcard">
             <div class="guide">
                 <div class="guide-top">
@@ -322,7 +322,7 @@ helper, so delimited LaTeX in a matched card shows as math (never forked here).
             </div>
         </section>
 
-        <!-- Right: the AI-matched cards -->
+        <!-- Below: the AI-matched cards -->
         <section class="siblings" aria-label="Matching cards">
             <div class="siblings-head">
                 <svg
@@ -352,13 +352,15 @@ helper, so delimited LaTeX in a matched card shows as math (never forked here).
 
             {#if !aiOn}
                 {#if seedSaved}
-                    <article class="sib">
-                        <p class="sib-front">{@html renderMath(savedFront)}</p>
-                        <div class="sib-foot">
-                            <span class="src">You wrote this, added as is</span>
-                            <span class="when">Today</span>
-                        </div>
-                    </article>
+                    <div class="sib-list">
+                        <article class="sib">
+                            <p class="sib-front">{@html renderMath(savedFront)}</p>
+                            <div class="sib-foot">
+                                <span class="src">You wrote this, added as is</span>
+                                <span class="when">Today</span>
+                            </div>
+                        </article>
+                    </div>
                 {/if}
                 <div class="placeholder">
                     <p>
@@ -368,22 +370,24 @@ helper, so delimited LaTeX in a matched card shows as math (never forked here).
                     <a class="settings-link" href="/pgrep/settings">Open Settings</a>
                 </div>
             {:else if busy}
-                {#each [0, 1, 2] as row (row)}
-                    <div class="sib skeleton" aria-hidden="true">
-                        <span class="skel-line wide"></span>
-                        <span class="skel-line"></span>
-                        <div class="sib-foot">
-                            <span class="skel-chip"></span>
-                            <span class="skel-chip short"></span>
+                <div class="sib-list">
+                    {#each [0, 1, 2] as row (row)}
+                        <div class="sib skeleton" aria-hidden="true">
+                            <span class="skel-line wide"></span>
+                            <span class="skel-line"></span>
+                            <div class="sib-foot">
+                                <span class="skel-chip"></span>
+                                <span class="skel-chip short"></span>
+                            </div>
                         </div>
-                    </div>
-                {/each}
+                    {/each}
+                </div>
                 <p class="building">Building matching cards from named sources.</p>
             {:else if !result}
                 <div class="placeholder">
                     <p>
-                        Write a card on the left, then we build a matching set from
-                        named sources. Each one is checked before it joins your deck.
+                        Write a card above and we build a matching set from named
+                        sources, each one checked before it joins your deck.
                     </p>
                 </div>
             {:else if result.ai === "error"}
@@ -401,65 +405,69 @@ helper, so delimited LaTeX in a matched card shows as math (never forked here).
                     <p class="saved">Your card is saved.</p>
                 {/if}
 
-                {#each added as c (c.note_id ?? c.front)}
-                    <article class="sib">
-                        <p class="sib-front">{@html renderMath(c.front)}</p>
-                        <div class="sib-foot">
-                            <span class="src">
-                                {#if c.source_ref}Cited from {c.source_ref}{:else}Source
-                                    pending{/if}
-                            </span>
-                            <span class="status-pill verified">
-                                <svg
-                                    width="11"
-                                    height="11"
-                                    viewBox="0 0 12 12"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="1.5"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                >
-                                    <polyline points="2,6.5 5,9.5 10,3" />
-                                </svg>
-                                Verified
-                            </span>
-                        </div>
-                    </article>
-                {/each}
+                {#if added.length || review.length}
+                    <div class="sib-list">
+                        {#each added as c (c.note_id ?? c.front)}
+                            <article class="sib">
+                                <p class="sib-front">{@html renderMath(c.front)}</p>
+                                <div class="sib-foot">
+                                    <span class="src">
+                                        {#if c.source_ref}Cited from {c.source_ref}{:else}Source
+                                            pending{/if}
+                                    </span>
+                                    <span class="status-pill verified">
+                                        <svg
+                                            width="11"
+                                            height="11"
+                                            viewBox="0 0 12 12"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="1.5"
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                        >
+                                            <polyline points="2,6.5 5,9.5 10,3" />
+                                        </svg>
+                                        Verified
+                                    </span>
+                                </div>
+                            </article>
+                        {/each}
 
-                {#each review as c (c.note_id ?? c.front)}
-                    <article class="sib review">
-                        <p class="sib-front">{@html renderMath(c.front)}</p>
-                        <div class="sib-foot">
-                            <span class="src">
-                                {#if c.source_ref}Cited from {c.source_ref}{:else}Source
-                                    pending{/if}
-                            </span>
-                            <span class="status-pill needs-review">
-                                <svg
-                                    width="11"
-                                    height="11"
-                                    viewBox="0 0 12 12"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="1.5"
-                                    stroke-linecap="round"
-                                >
-                                    <line x1="6" y1="2.5" x2="6" y2="7" />
-                                    <circle
-                                        cx="6"
-                                        cy="9.6"
-                                        r="0.6"
-                                        fill="currentColor"
-                                        stroke="none"
-                                    />
-                                </svg>
-                                Needs review
-                            </span>
-                        </div>
-                    </article>
-                {/each}
+                        {#each review as c (c.note_id ?? c.front)}
+                            <article class="sib review">
+                                <p class="sib-front">{@html renderMath(c.front)}</p>
+                                <div class="sib-foot">
+                                    <span class="src">
+                                        {#if c.source_ref}Cited from {c.source_ref}{:else}Source
+                                            pending{/if}
+                                    </span>
+                                    <span class="status-pill needs-review">
+                                        <svg
+                                            width="11"
+                                            height="11"
+                                            viewBox="0 0 12 12"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="1.5"
+                                            stroke-linecap="round"
+                                        >
+                                            <line x1="6" y1="2.5" x2="6" y2="7" />
+                                            <circle
+                                                cx="6"
+                                                cy="9.6"
+                                                r="0.6"
+                                                fill="currentColor"
+                                                stroke="none"
+                                            />
+                                        </svg>
+                                        Needs review
+                                    </span>
+                                </div>
+                            </article>
+                        {/each}
+                    </div>
+                {/if}
 
                 {#if refused.length}
                     <p class="left-out">
@@ -516,18 +524,13 @@ helper, so delimited LaTeX in a matched card shows as math (never forked here).
         }
     }
 
-    .grid {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    .stack {
+        display: flex;
+        flex-direction: column;
         gap: var(--space-4);
-        align-items: start;
-
-        @media (max-width: 820px) {
-            grid-template-columns: minmax(0, 1fr);
-        }
     }
 
-    /* Left: editor */
+    /* Top: editor */
     .editor {
         background: var(--surface);
         border: var(--hairline);
@@ -682,11 +685,18 @@ helper, so delimited LaTeX in a matched card shows as math (never forked here).
         }
     }
 
-    /* Right: siblings */
+    /* Below: siblings */
     .siblings {
         display: flex;
         flex-direction: column;
         gap: var(--space-1);
+    }
+
+    /* Fill the full-width results as a responsive grid, not one wide column. */
+    .sib-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: var(--space-2);
     }
 
     .siblings-head {
