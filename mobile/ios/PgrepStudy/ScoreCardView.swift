@@ -145,3 +145,76 @@ struct ScoreCardView: View {
         return "Updated \(hours / 24)d ago"
     }
 }
+
+/// The compact score card for the Home three-across row: the reserved-hue dot and
+/// name, the figure in its hue, and a tight 80% range under it. It still abstains
+/// honestly on thin data (a dash, never a fabricated number), just in a smaller
+/// footprint than the full `ScoreCardView` used on Progress.
+struct CompactScoreCard: View {
+    let kind: ScoreKind
+    let value: ScoreValue
+    var scale: ScoreScale = .fraction
+    var loading = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(kind.fill)
+                    .frame(width: 8, height: 8)
+                Text(kind.rawValue)
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            if loading {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, Theme.Space.xs)
+            } else if value.abstain {
+                Text("--")
+                    .font(Theme.Typography.scoreCompact)
+                    .foregroundStyle(Theme.muted)
+                Text("Not yet")
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.muted)
+            } else {
+                Text(figure)
+                    .font(Theme.Typography.scoreCompact)
+                    .foregroundStyle(kind.textTint)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Text(range)
+                    .font(Theme.Typography.mono(10))
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
+        .padding(Theme.Space.m)
+        .background(Theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                .stroke(Theme.border, lineWidth: 1)
+        )
+    }
+
+    private var figure: String {
+        switch scale {
+        case .fraction: return ScoreCardView.pct(value.point)
+        case .scaled: return ScoreCardView.whole(value.point)
+        }
+    }
+
+    private var range: String {
+        guard let low = value.low, let high = value.high else { return " " }
+        switch scale {
+        case .fraction: return "\(ScoreCardView.pct(low))-\(ScoreCardView.pct(high))"
+        case .scaled: return "\(ScoreCardView.whole(low))-\(ScoreCardView.whole(high))"
+        }
+    }
+}

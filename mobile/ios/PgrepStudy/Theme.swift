@@ -115,9 +115,43 @@ enum Theme {
         /// Large instrument figure (the score number), tabular so it does not
         /// jitter as it updates.
         static let score = Font.system(size: 40, weight: .semibold).monospacedDigit()
+        /// The compact score figure for the Home three-across row.
+        static let scoreCompact = Font.system(size: 26, weight: .semibold).monospacedDigit()
         /// Inline data/numerals (ranges, counts, timers).
         static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
             Font.system(size: size, weight: weight).monospaced()
+        }
+    }
+}
+
+/// The learner's theme choice, applied through SwiftUI's `preferredColorScheme`.
+/// Stored per device in UserDefaults (a device-level UI preference). Desktop
+/// keeps its theme in the synced collection config; on a phone a per-device
+/// choice is the sensible equivalent, so this is not written to the collection.
+enum AppTheme: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    /// The UserDefaults key backing the choice (@AppStorage in App + Settings).
+    static let storageKey = "pgrep.theme"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+
+    /// nil means "follow the system", so a fresh install never forces a choice.
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
         }
     }
 }

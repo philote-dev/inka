@@ -365,6 +365,62 @@ final class Engine: @unchecked Sendable {
         }
     }
 
+    // MARK: Settings
+
+    /// Read a collection-config JSON value (raw bytes), or nil when unset. The
+    /// pgrep UI preferences (test date, sync url, theme) live in the synced
+    /// "pgrepSettings" blob, exactly like desktop's settings module.
+    func getConfigJSON(key: String) async throws -> Data? {
+        try await perform { backend in try backend.getConfigJson(key: key) }
+    }
+
+    /// Write a collection-config JSON value (raw bytes).
+    func setConfigJSON(key: String, valueJson: Data) async throws {
+        try await perform { backend in try backend.setConfigJson(key: key, valueJson: valueJson) }
+    }
+
+    /// The sample deck's target retention (FSRS desiredRetention), best-effort.
+    /// Read-only on iOS (adjust on desktop, where it syncs from); falls back to
+    /// the default when the deck or value is unavailable. Mirrors the deck the
+    /// desktop settings module reads (the seeded "PGRE::Sample" group).
+    func targetRetention() async throws -> Double {
+        try await perform { backend in
+            for name in ["PGRE::Sample", StudySandbox.studyDeckName] {
+                let did = try backend.deckId(forName: name)
+                guard did != 0 else { continue }
+                let update = try backend.deckConfigsForUpdate(deckId: did)
+                if let match = update.allConfig.first(where: { $0.config.id == update.currentDeck.configID }) {
+                    let value = Double(match.config.config.desiredRetention)
+                    if value > 0 { return value }
+                }
+                let fallback = Double(update.defaults.config.desiredRetention)
+                if fallback > 0 { return fallback }
+            }
+            return 0.9
+        }
+    }
+
+    /// Reset pgrep progress, conservative and scoped exactly like desktop's
+    /// settings.reset_progress: delete the immutable attempt notes (clearing
+    /// Performance/Readiness history) and forget the seeded sample cards back to
+    /// new (dropping their FSRS memory so Memory starts fresh). Everything else,
+    /// including settings and any generated content, is left intact.
+    func resetProgress() async throws -> (attemptsDeleted: Int, cardsReset: Int) {
+        try await perform { backend in
+            self.current = nil  // the queue changes; drop any stale card
+            let attemptNoteIds = try backend.searchNotes(matching: AttemptLog.search)
+            // Mirrors seed.SEEDED_TAG; duplicated across the boundary on purpose.
+            let seededCardIds = try backend.searchCards(matching: "tag:pgrep::seeded")
+            if !attemptNoteIds.isEmpty {
+                _ = try backend.removeNotes(noteIds: attemptNoteIds)
+            }
+            if !seededCardIds.isEmpty {
+                _ = try backend.scheduleCardsAsNew(cardIds: seededCardIds)
+            }
+            return (attemptNoteIds.count, seededCardIds.count)
+        }
+    }
+
     // MARK: - Plumbing
 
     private static func auth(hkey: String, endpoint: String) -> Anki_Sync_SyncAuth {

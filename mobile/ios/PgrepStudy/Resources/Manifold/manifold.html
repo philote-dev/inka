@@ -1,0 +1,40 @@
+<!doctype html>
+<!--
+Copyright: Ankitects Pty Ltd and contributors
+License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
+Host page for the native Home's 3D knowledge manifold. It loads the bundled,
+self-contained renderer (manifold.bundle.js, Three.js + the shared manifold
+renderer, produced by tools/build-manifold-webview.sh) and waits for the native
+side to call window.pgrepManifold.render(...) with the live surface and theme.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+      }
+      #stage {
+        position: fixed;
+        inset: 0;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <script src="manifold.bundle.js"></script>
+  </body>
+</html>

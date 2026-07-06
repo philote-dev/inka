@@ -17,10 +17,14 @@ enum RootTab: Hashable {
 struct RootView: View {
     @StateObject private var app = AppModel()
     @State private var tab: RootTab = .home
+    // The Settings theme choice, applied app-wide so every tab (and the WebGL
+    // manifold, which reads the environment color scheme) switches together.
+    @AppStorage(AppTheme.storageKey) private var themeRaw = AppTheme.system.rawValue
 
     var body: some View {
         content
             .environmentObject(app)
+            .preferredColorScheme((AppTheme(rawValue: themeRaw) ?? .system).colorScheme)
             .task { await app.bootstrap() }
     }
 
