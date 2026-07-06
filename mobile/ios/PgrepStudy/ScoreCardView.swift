@@ -193,8 +193,9 @@ struct CompactScoreCard: View {
                     .minimumScaleFactor(0.6)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
-        .padding(Theme.Space.m)
+        .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
+        .padding(.horizontal, Theme.Space.m)
+        .padding(.vertical, Theme.Space.s)
         .background(Theme.surface)
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
         .overlay(
