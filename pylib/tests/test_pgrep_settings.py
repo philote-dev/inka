@@ -23,6 +23,10 @@ from anki.pgrep.attempt_log import (
     attempts,
     get_attempt_notetype,
 )
+from anki.pgrep.demo_profile import inject_demo_profile, is_demo_injected
+from anki.pgrep.memory import memory_score
+from anki.pgrep.performance import performance_score
+from anki.pgrep.readiness import readiness_score
 from anki.pgrep.seed import DECK_CONFIG_NAME, DECK_NAME, SEEDED_TAG, seed_sample_content
 from tests.shared import getEmptyCol
 
@@ -308,6 +312,37 @@ def test_reset_progress_keeps_settings_notetypes_and_generated_content():
 
 def test_reset_progress_is_safe_with_nothing_to_reset():
     col = getEmptyCol()
-    # No seed, no attempts: a no-op that still reports an honest summary and does
-    # not raise or leave an empty undo entry behind.
-    assert settings.reset_progress(col) == {"attempts_deleted": 0, "cards_reset": 0}
+    # No seed, no attempts, no demo: a no-op that still reports an honest summary
+    # and does not raise or leave an empty undo entry behind.
+    assert settings.reset_progress(col) == {
+        "attempts_deleted": 0,
+        "cards_reset": 0,
+        "demo_cards_removed": 0,
+    }
+
+
+def test_reset_progress_clears_an_injected_demo_profile():
+    col = getEmptyCol()
+    # A dev demo profile lights up all three scores. The demo reviewed cards are
+    # tagged pgrep::demo (not pgrep::seeded), so before this fix a Reset dropped
+    # the attempts (Performance, Readiness) but left those cards, keeping Memory
+    # lit and the three scores inconsistent.
+    inject_demo_profile(col)
+    assert is_demo_injected(col) is True
+    assert memory_score(col)["overall"]["abstain"] is False
+    assert performance_score(col)["overall"]["abstain"] is False
+    assert readiness_score(col)["abstain"] is False
+
+    result = settings.reset_progress(col)
+
+    # The summary reports the demo reviewed cards it swept, alongside the
+    # attempts (which include the demo attempts, being Attempt notes too).
+    assert result["demo_cards_removed"] > 0
+    assert result["attempts_deleted"] > 0
+
+    # The profile marker is gone and, crucially, all three scores abstain again,
+    # exactly like a fresh account.
+    assert is_demo_injected(col) is False
+    assert memory_score(col)["overall"]["abstain"] is True
+    assert performance_score(col)["overall"]["abstain"] is True
+    assert readiness_score(col)["abstain"] is True

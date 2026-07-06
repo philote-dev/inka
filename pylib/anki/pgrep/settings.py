@@ -250,20 +250,27 @@ def default_export_path(now: float | None = None, base_dir: str | None = None) -
 def reset_progress(col: Collection) -> dict[str, int]:
     """Reset pgrep progress and return a summary of what was cleared.
 
-    Exactly two things happen, both scoped to pgrep's own data:
+    Three things happen, all scoped to pgrep's own data:
 
     - Every ``pgrep::Attempt`` note is deleted, which clears the Performance and
-      Readiness history (and removes the suspended attempt cards with them).
+      Readiness history (and removes the suspended attempt cards with them). This
+      sweep also takes any demo-profile attempts, since they are Attempt notes.
     - The seeded sample cards (tagged ``pgrep::seeded``) are forgotten back to
       new, so their FSRS memory state is dropped and Memory and mastery start
       fresh. The cards and their notes are kept.
+    - If a dev demo profile is present, it is cleared too (its ``pgrep::demo``
+      reviewed cards, the now-empty demo deck, and the profile marker). Those
+      cards carry FSRS memory state, so without this Memory would stay lit while
+      Performance and Readiness reset, leaving the three scores inconsistent.
+      After the reset all three abstain again, matching a fresh account.
 
     Everything else is left untouched: settings (retention, test date, theme),
     notetypes, decks, and all other content, including AI-generated Library
-    cards and Problems. The collection is never wiped. The two writes are merged
-    into a single action so the reset is one clean unit.
+    cards and Problems. The collection is never wiped. The writes are merged into
+    a single action so the reset is one clean unit.
     """
     from anki.pgrep.attempt_log import get_attempt_notetype
+    from anki.pgrep.demo_profile import clear_demo_profile, is_demo_injected
     from anki.pgrep.seed import SEEDED_TAG
 
     attempt_note_ids: list[Any] = []
@@ -271,16 +278,25 @@ def reset_progress(col: Collection) -> dict[str, int]:
     if notetype is not None:
         attempt_note_ids = list(col.models.nids(notetype["id"]))
     seeded_card_ids = list(col.find_cards(f"tag:{SEEDED_TAG}"))
+    demo_present = is_demo_injected(col)
 
-    if attempt_note_ids or seeded_card_ids:
+    demo_cards_removed = 0
+    if attempt_note_ids or seeded_card_ids or demo_present:
         undo_id = col.add_custom_undo_entry("Reset pgrep progress")
         if attempt_note_ids:
             col.remove_notes(attempt_note_ids)
         if seeded_card_ids:
             col.sched.schedule_cards_as_new(seeded_card_ids)
+        if demo_present:
+            # The demo attempts were already swept above (they are Attempt
+            # notes); this drops the demo reviewed cards, the empty demo deck,
+            # and the profile marker, so Memory abstains after the reset. Its
+            # inner undo step folds into this one via the merge below.
+            demo_cards_removed = clear_demo_profile(col)["cards_removed"]
         col.merge_undo_entries(undo_id)
 
     return {
         "attempts_deleted": len(attempt_note_ids),
         "cards_reset": len(seeded_card_ids),
+        "demo_cards_removed": demo_cards_removed,
     }
