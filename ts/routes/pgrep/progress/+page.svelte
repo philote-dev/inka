@@ -391,10 +391,7 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         memory &&
         memory.overall.low !== null &&
         memory.overall.high !== null
-            ? ([pct(memory.overall.low), pct(memory.overall.high)] as [
-                  number,
-                  number,
-              ])
+            ? ([pct(memory.overall.low), pct(memory.overall.high)] as [number, number])
             : undefined;
     $: memoryHowSure =
         memoryCovered &&
