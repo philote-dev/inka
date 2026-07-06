@@ -70,6 +70,64 @@ OUTCOME_WRONG = "wrong"
 # alone (matches Memory's own "in your head" reading; tunable).
 STRONG_MEMORY_POINT = 0.7
 
+# One objective quick check per category (a right answer, never a self-rating).
+# Kept in the backend so the content and its key can change without a frontend
+# deploy; the prompt and choices carry delimited LaTeX (\( ... \)) so the surface
+# typesets them like every other pgrep question. ``answer`` is the 0-based index
+# of the correct choice.
+QUICK_CHECKS: dict[str, dict[str, Any]] = {
+    "mechanics": {
+        "prompt": r"A ball is dropped from rest. Ignoring air resistance, its speed after a time \(t\) is",
+        "choices": [r"\(gt\)", r"\(\tfrac{1}{2}gt^2\)", r"\(2gt\)", r"\(gt^2\)"],
+        "answer": 0,
+    },
+    "electromagnetism": {
+        "prompt": r"The electric field of a point charge varies with distance \(r\) as",
+        "choices": [r"\(1/r\)", r"\(1/r^2\)", r"\(1/r^3\)", "it stays constant"],
+        "answer": 1,
+    },
+    "quantum": {
+        "prompt": r"The commutator of position and momentum, \([x, p]\), equals",
+        "choices": [r"\(0\)", r"\(i\hbar\)", r"\(\hbar\)", r"\(1\)"],
+        "answer": 1,
+    },
+    "thermodynamics": {
+        "prompt": r"For an ideal gas, the pressure times the volume \(PV\) equals",
+        "choices": [r"\(nRT\)", r"\(nR/T\)", r"\(RT/n\)", r"\(nRT^2\)"],
+        "answer": 0,
+    },
+    "atomic": {
+        "prompt": r"The energy of a photon of frequency \(f\) is",
+        "choices": [r"\(hf\)", r"\(h/f\)", r"\(f/h\)", r"\(hf^2\)"],
+        "answer": 0,
+    },
+    "optics_waves": {
+        "prompt": "For any wave, the speed equals the frequency times the",
+        "choices": ["wavelength", "period", "amplitude", "phase"],
+        "answer": 0,
+    },
+    "special_relativity": {
+        "prompt": r"As the speed approaches the speed of light, the Lorentz factor \(\gamma\)",
+        "choices": [
+            r"approaches \(1\)",
+            r"approaches \(0\)",
+            "grows without bound",
+            "stays constant",
+        ],
+        "answer": 2,
+    },
+    "lab": {
+        "prompt": r"Averaging \(N\) independent measurements shrinks the standard error by a factor of",
+        "choices": [r"\(N\)", r"\(\sqrt{N}\)", r"\(N^2\)", r"\(1\)"],
+        "answer": 1,
+    },
+    "specialized": {
+        "prompt": "After one half-life, a radioactive sample falls to",
+        "choices": ["one half", "one quarter", "zero", r"\(1/e\)"],
+        "answer": 0,
+    },
+}
+
 
 def _memory_by_category(col: Collection) -> dict[str, dict[str, Any]]:
     """Per-category Memory entry (``point``, ``n_cards``, ...) keyed by slug."""
@@ -106,8 +164,9 @@ def topics(col: Collection) -> dict:
     Matches the ``pgrepDiagnosticTopics`` response (``L2-api-contract.md`` §3,
     L2.3): every blueprint category, in blueprint order, with its blueprint
     weight, the placement stored by a previous :func:`place` run
-    (``strong``/``rusty``) or ``None`` if never placed, and the reviewed-card
-    count derived from Memory.
+    (``strong``/``rusty``) or ``None`` if never placed, the reviewed-card count
+    derived from Memory, and the category's objective quick check (prompt,
+    choices, and the 0-based key) so the surface renders it without hardcoding it.
     """
     stored = _stored_snapshot(col)
     memory = _memory_by_category(col)
@@ -121,6 +180,7 @@ def topics(col: Collection) -> dict:
                 "blueprint": BLUEPRINT_PERCENT[category],
                 "placement": placement if placement in _PLACEMENTS else None,
                 "n_cards": int(memory.get(category, {}).get("n_cards", 0)),
+                "check": QUICK_CHECKS.get(category),
             }
         )
     return {"topics": out}

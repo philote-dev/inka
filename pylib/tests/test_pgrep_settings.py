@@ -150,9 +150,23 @@ def test_get_settings_reports_full_honest_shape():
         "target_retention": settings.DEFAULT_RETENTION,
         "test_date": None,
         "theme": None,
+        "sync_url": settings.DEFAULT_SYNC_URL,
         "retention_min": settings.MIN_RETENTION,
         "retention_max": settings.MAX_RETENTION,
     }
+
+
+def test_sync_url_round_trips_and_defaults_honestly():
+    col = getEmptyCol()
+    # Unset: the local server default (matches ``just sync-server`` on 8080).
+    assert settings.sync_url(col) == settings.DEFAULT_SYNC_URL
+    # A learner's own endpoint persists through the blob.
+    assert settings.set_sync_url(col, "https://sync.example.com/") == (
+        "https://sync.example.com/"
+    )
+    assert settings.sync_url(col) == "https://sync.example.com/"
+    # Clearing it falls back to the honest default rather than an empty string.
+    assert settings.set_sync_url(col, "  ") == settings.DEFAULT_SYNC_URL
 
 
 def test_apply_settings_only_writes_present_keys():

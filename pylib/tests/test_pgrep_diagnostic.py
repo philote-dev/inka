@@ -92,9 +92,18 @@ def test_topics_shape_matches_contract():
     # Every blueprint category is represented, in blueprint order.
     assert [t["category"] for t in data["topics"]] == list(CATEGORY_SLUGS)
     for entry in data["topics"]:
-        assert set(entry) == {"category", "blueprint", "placement", "n_cards"}
+        assert set(entry) == {
+            "category",
+            "blueprint",
+            "placement",
+            "n_cards",
+            "check",
+        }
         assert entry["blueprint"] == BLUEPRINT_PERCENT[entry["category"]]
         assert isinstance(entry["n_cards"], int)
+        # Every category ships an objective quick check (prompt, choices, key).
+        assert set(entry["check"]) == {"prompt", "choices", "answer"}
+        assert isinstance(entry["check"]["answer"], int)
 
 
 def test_place_shape_matches_contract():

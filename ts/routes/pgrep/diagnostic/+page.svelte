@@ -13,6 +13,7 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
     import { onDestroy, onMount } from "svelte";
 
     import ChoiceList from "$lib/components/ChoiceList.svelte";
+    import { renderMath } from "$lib/pgrep/math";
     import { setLearning } from "$lib/pgrep/nav";
 
     import { pgrepCall } from "../lib/bridge";
@@ -24,6 +25,7 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
         blueprint: number;
         placement: Placement | null;
         n_cards: number;
+        check?: QuickCheck | null;
     }
 
     interface TopicsData {
@@ -59,65 +61,9 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
 
     const CHOICE_LETTERS = ["A", "B", "C", "D", "E"];
 
-    // One objective, single-answer quick check per category. These are checks
-    // with a correct answer, never a confidence or self-rating.
-    const QUICK_CHECKS: Record<string, QuickCheck> = {
-        mechanics: {
-            prompt: "A ball is dropped from rest. Ignoring air resistance, its speed after a time t is",
-            choices: ["g t", "half g t squared", "2 g t", "g t squared"],
-            answer: 0,
-        },
-        electromagnetism: {
-            prompt: "The electric field from a point charge changes with distance r as",
-            choices: [
-                "1 over r",
-                "1 over r squared",
-                "1 over r cubed",
-                "it stays constant",
-            ],
-            answer: 1,
-        },
-        quantum: {
-            prompt: "The commutator of position and momentum, written [x, p], equals",
-            choices: ["0", "i h-bar", "h-bar", "1"],
-            answer: 1,
-        },
-        thermodynamics: {
-            prompt: "For an ideal gas, the pressure times the volume P V equals",
-            choices: ["n R T", "n R over T", "R T over n", "n R T squared"],
-            answer: 0,
-        },
-        atomic: {
-            prompt: "The energy of a photon of frequency f is",
-            choices: ["h f", "h over f", "f over h", "h f squared"],
-            answer: 0,
-        },
-        optics_waves: {
-            prompt: "For any wave, the speed equals the frequency times the",
-            choices: ["wavelength", "period", "amplitude", "phase"],
-            answer: 0,
-        },
-        special_relativity: {
-            prompt: "As the speed approaches the speed of light, the Lorentz factor gamma",
-            choices: [
-                "approaches 1",
-                "approaches 0",
-                "grows without bound",
-                "stays constant",
-            ],
-            answer: 2,
-        },
-        lab: {
-            prompt: "Averaging N independent measurements shrinks the standard error by a factor of",
-            choices: ["N", "the square root of N", "N squared", "1"],
-            answer: 1,
-        },
-        specialized: {
-            prompt: "After one half-life, the amount of a radioactive sample falls to",
-            choices: ["one half", "one quarter", "zero", "1 over e"],
-            answer: 0,
-        },
-    };
+    // The quick checks (prompt, choices, and key) come from the backend
+    // (diagnostic.QUICK_CHECKS via pgrepDiagnosticTopics), so the content is
+    // updatable without a frontend deploy and carries delimited LaTeX.
 
     // A few topics per step, so the flow steps through rather than showing all at once.
     const BATCH_SIZE = 3;
@@ -214,9 +160,8 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
     $: checks = (() => {
         const out: CheckItem[] = [];
         for (const t of topicsData?.topics ?? []) {
-            const check = QUICK_CHECKS[t.category];
-            if (check) {
-                out.push({ category: t.category, ...check });
+            if (t.check) {
+                out.push({ category: t.category, ...t.check });
             }
         }
         return out;
@@ -308,7 +253,7 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
             {#each currentBatch as item (item.category)}
                 <li class="question">
                     <div class="qtopic">{label(item.category)}</div>
-                    <div class="qprompt">{item.prompt}</div>
+                    <div class="qprompt">{@html renderMath(item.prompt)}</div>
                     <ChoiceList
                         choices={choiceItems(item)}
                         selected={selectedKeys[item.category] ?? ""}

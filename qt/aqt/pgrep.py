@@ -94,6 +94,13 @@ def pgrep_calibration() -> bytes:
     return _json(calibration_evidence.calibration_evidence())
 
 
+# L5.9 Home / knowledge manifold -> anki.pgrep.manifold.manifold_surface
+def pgrep_manifold() -> bytes:
+    from anki.pgrep import manifold
+
+    return _json(manifold.manifold_surface(aqt.mw.col, deck_id=_args().get("deck_id")))
+
+
 # L2.3 Diagnostic -> anki.pgrep.diagnostic.topics
 def pgrep_diagnostic_topics() -> bytes:
     from anki.pgrep import diagnostic
@@ -425,6 +432,7 @@ pgrep_post_handlers = [
     pgrep_performance_score,
     pgrep_readiness_score,
     pgrep_calibration,
+    pgrep_manifold,
     pgrep_diagnostic_topics,
     pgrep_diagnostic_place,
     pgrep_study_start,

@@ -46,6 +46,11 @@ MAX_RETENTION = 0.97
 # honest instead of forcing a choice the user never made.
 THEMES: tuple[str, ...] = ("Light", "Dark", "System")
 
+# The self-hosted sync server URL, persisted in the blob so a learner's own
+# endpoint survives restarts. Defaults to the local server ``just sync-server``
+# binds (port 8080).
+DEFAULT_SYNC_URL = "http://127.0.0.1:8080/"
+
 # A collection export is written next to a timestamped, non-clobbering name.
 EXPORT_PREFIX = "pgrep-export-"
 EXPORT_SUFFIX = ".colpkg"
@@ -65,6 +70,7 @@ def get_settings(col: Collection) -> dict[str, Any]:
         "target_retention": target_retention(col),
         "test_date": test_date(col),
         "theme": theme(col),
+        "sync_url": sync_url(col),
         "retention_min": MIN_RETENTION,
         "retention_max": MAX_RETENTION,
     }
@@ -83,6 +89,8 @@ def apply_settings(col: Collection, args: dict[str, Any]) -> dict[str, Any]:
         set_test_date(col, args["test_date"])
     if "theme" in args:
         set_theme(col, args["theme"])
+    if "sync_url" in args:
+        set_sync_url(col, args["sync_url"])
     return get_settings(col)
 
 
@@ -132,6 +140,24 @@ def set_theme(col: Collection, value: str | None) -> str | None:
         blob.pop("theme", None)
     _save_blob(col, blob)
     return theme(col)
+
+
+def sync_url(col: Collection) -> str:
+    """The stored self-hosted sync server URL, or the local default if unset."""
+    value = _blob(col).get("sync_url")
+    return value if isinstance(value, str) and value.strip() else DEFAULT_SYNC_URL
+
+
+def set_sync_url(col: Collection, value: str | None) -> str:
+    """Store (or reset to the default, on empty) the sync URL; return the value."""
+    blob = _blob(col)
+    cleaned = value.strip() if isinstance(value, str) else ""
+    if cleaned:
+        blob["sync_url"] = cleaned
+    else:
+        blob.pop("sync_url", None)
+    _save_blob(col, blob)
+    return sync_url(col)
 
 
 # Target retention (the sample deck's FSRS config)

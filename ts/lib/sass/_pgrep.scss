@@ -36,6 +36,9 @@
     --success: #a3be8c;
     --caution: #d08770;
     --error: #bf616a;
+    /* readable text on a filled error background; the error fill is identical in
+       both themes, so this foreground is too (no night-mode override needed) */
+    --error-fg: #fbfaf8;
 
     /* derived */
     --hover-wash: #f5f2ec;

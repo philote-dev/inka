@@ -95,6 +95,22 @@ the data flow through pgrepCall is unchanged.
     };
     const CATEGORY_SLUGS = Object.keys(CATEGORY_LABELS);
     const CHOICE_LETTERS = ["A", "B", "C", "D", "E"];
+
+    // Turn a finest-topic tag ("topic::mechanics::dynamics_energy") into a human
+    // chip label ("Mechanics · Dynamics energy"). A category-only tag shows just
+    // the area, matching how the other surfaces label the reserved score areas.
+    function topicLabel(tag: string): string {
+        const segs = tag.split("::").filter((s) => s && s !== "topic");
+        if (segs.length === 0) {
+            return "";
+        }
+        const area = CATEGORY_LABELS[segs[0]] ?? segs[0].replace(/_/g, " ");
+        if (segs.length === 1) {
+            return area;
+        }
+        const sub = segs[1].replace(/_/g, " ");
+        return `${area} · ${sub.charAt(0).toUpperCase()}${sub.slice(1)}`;
+    }
     const RATINGS = [
         { label: "Again", value: 1 },
         { label: "Hard", value: 2 },
@@ -359,6 +375,7 @@ the data flow through pgrepCall is unchanged.
     // collapses while one runs and restores at the launcher (ts/lib/pgrep/nav.ts).
     $: setLearning(screen !== "launcher");
     $: currentTopic = (card?.topic ?? problem?.topic ?? "").trim();
+    $: currentTopicLabel = topicLabel(currentTopic);
     $: remainingCount = card?.remaining ?? problem?.remaining ?? null;
     $: countLabel = remainingCount === null ? "" : `${remainingCount} left`;
     $: choiceItems = problem
@@ -436,7 +453,7 @@ the data flow through pgrepCall is unchanged.
 {:else}
     <StudyFrame
         count={countLabel}
-        topic={currentTopic}
+        topic={currentTopicLabel}
         {topicTone}
         onClose={toLauncher}
     >

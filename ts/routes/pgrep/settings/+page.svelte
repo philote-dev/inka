@@ -26,6 +26,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         target_retention: number;
         test_date: string | null;
         theme: Theme | null;
+        sync_url: string;
         retention_min: number;
         retention_max: number;
     }
@@ -74,6 +75,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             retentionMin = s.retention_min;
             retentionMax = s.retention_max;
             testDate = s.test_date ?? "";
+            if (s.sync_url) {
+                serverURL = s.sync_url;
+            }
             // A stored theme wins; otherwise the app keeps reflecting whatever it
             // already shows, so a fresh profile never claims a choice unmade.
             if (s.theme) {
@@ -101,6 +105,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 test_date: testDate,
             });
             testDate = s.test_date ?? "";
+        } catch {
+            // Keep the typed value; the next load reconciles it.
+        }
+    }
+
+    async function saveSyncUrl(): Promise<void> {
+        try {
+            const s = await pgrepCall<Settings>("pgrepSettingsSet", {
+                sync_url: serverURL,
+            });
+            serverURL = s.sync_url;
         } catch {
             // Keep the typed value; the next load reconciles it.
         }
@@ -338,6 +353,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         class="url-input mono"
                         type="text"
                         bind:value={serverURL}
+                        on:change={saveSyncUrl}
+                        on:blur={saveSyncUrl}
                         spellcheck="false"
                         autocomplete="off"
                         aria-label="Sync server URL"
@@ -603,7 +620,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             // Armed (awaiting the confirming second click): a filled red so the
             // destructive intent is unmistakable.
             &.armed {
-                color: #fff;
+                color: var(--error-fg);
                 background: var(--error);
                 border-color: var(--error);
 

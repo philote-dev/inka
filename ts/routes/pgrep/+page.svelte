@@ -13,7 +13,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import Manifold from "$lib/components/Manifold.svelte";
     import Manifold3D from "$lib/components/Manifold3D.svelte";
     import ScoreCard from "$lib/components/ScoreCard.svelte";
-    import { FULL_SURFACE } from "$lib/pgrep/manifold";
+    import { FULL_SURFACE, type Surface } from "$lib/pgrep/manifold";
     import { supportsWebGL } from "$lib/pgrep/manifold3d";
 
     import { pgrepCall } from "./lib/bridge";
@@ -110,6 +110,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let readyLoading = true;
     let readyError = false;
 
+    // The manifold hero starts on the static syllabus surface, then swaps to the
+    // live one built from real Memory and the diagnostic (an untouched area stays
+    // unlit, a studied area rises and glows). The static surface is only the
+    // pre-load and error fallback, so the hero is never blank.
+    let surface: Surface = FULL_SURFACE;
+
     async function loadScores(): Promise<void> {
         await Promise.all([
             pgrepCall<MemoryData>("pgrepMemoryScore", {})
@@ -157,12 +163,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         }
     }
 
+    async function loadManifold(): Promise<void> {
+        try {
+            surface = await pgrepCall<Surface>("pgrepManifold", {});
+        } catch {
+            // Keep the static syllabus surface if the live read fails.
+        }
+    }
+
     onMount(() => {
         const reduce =
             window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
         use3d = supportsWebGL() && !reduce;
         void loadScores();
         void loadDiagnosticStatus();
+        void loadManifold();
     });
 
     function pct(value: number): number {
@@ -342,7 +357,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 height={heroHeight}
                 grid={84}
                 heightScale={1.2}
-                surface={FULL_SURFACE}
+                {surface}
                 onTopic={openFocusDrill}
             />
         {:else}
@@ -351,7 +366,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 height={heroHeight}
                 scale={heroScale}
                 grid={90}
-                surface={FULL_SURFACE}
+                {surface}
                 onTopic={openFocusDrill}
             />
         {/if}

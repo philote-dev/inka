@@ -65,6 +65,12 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         reason: string | null;
     }
 
+    interface MemoryData {
+        overall: OverallScore;
+        k_mem: number;
+        last_updated: number | null;
+    }
+
     interface PerformanceData {
         overall: OverallScore;
         k_perf: number;
@@ -99,6 +105,7 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
 
     let data: CoverageData | null = null;
     let calibration: CalibrationData | null = null;
+    let memory: MemoryData | null = null;
     let performance: PerformanceData | null = null;
     let readiness: ReadinessData | null = null;
     let loading = true;
@@ -133,8 +140,9 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
             // evidence), and Readiness are secondary, so a hiccup on any abstains
             // its own panel rather than failing the whole surface. All are pure
             // math and return well within the 100ms feel.
-            const [coverage, perf, calib, ready] = await Promise.all([
+            const [coverage, mem, perf, calib, ready] = await Promise.all([
                 pgrepCall<CoverageData>("pgrepCoverage", {}),
+                pgrepCall<MemoryData>("pgrepMemoryScore", {}).catch(() => null),
                 pgrepCall<PerformanceData>("pgrepPerformanceScore", {}).catch(
                     () => null,
                 ),
@@ -142,6 +150,7 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
                 pgrepCall<ReadinessData>("pgrepReadinessScore", {}).catch(() => null),
             ]);
             data = coverage;
+            memory = mem;
             performance = perf;
             calibration = calib;
             calibrationErrored = calib === null;
@@ -307,6 +316,24 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         };
     }
 
+    // Memory abstains honestly on thin data: with no reviews yet every topic is
+    // below k_mem, so the overall abstains and names what is missing (reviews in
+    // the Cards door). Same engine as Home's Memory card, so they never disagree.
+    function memoryAbstainState(
+        m: MemoryData | null,
+    ): { message: string; missing?: string } | undefined {
+        if (!m) {
+            return { message: "Memory is unavailable right now." };
+        }
+        if (!m.overall.abstain && m.overall.point !== null) {
+            return undefined;
+        }
+        return {
+            message: m.overall.reason ?? "Not enough reviews yet",
+            missing: "Review cards in the Cards door to build this.",
+        };
+    }
+
     // Performance abstains honestly on thin data: with today's empty attempt log
     // every topic is below k_perf, so the overall abstains and names what is
     // missing (attempts through the Problems door), never a fabricated number.
@@ -366,6 +393,35 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
             calibrationErrored,
         ),
     ];
+
+    // Live Memory: the overall FSRS retrievability as a percent with an 80% range
+    // and a how-sure from the interval, or an honest abstain on thin data. The
+    // same engine as Home's Memory card, so the two never disagree.
+    $: memoryCovered =
+        !!memory && !memory.overall.abstain && memory.overall.point !== null;
+    $: memoryValue =
+        memoryCovered && memory && memory.overall.point !== null
+            ? pct(memory.overall.point)
+            : undefined;
+    $: memoryRange =
+        memoryCovered &&
+        memory &&
+        memory.overall.low !== null &&
+        memory.overall.high !== null
+            ? ([pct(memory.overall.low), pct(memory.overall.high)] as [
+                  number,
+                  number,
+              ])
+            : undefined;
+    $: memoryHowSure =
+        memoryCovered &&
+        memory &&
+        memory.overall.low !== null &&
+        memory.overall.high !== null
+            ? howSure(memory.overall.low, memory.overall.high)
+            : "";
+    $: memoryAbstain = memoryAbstainState(memory);
+    $: memoryUpdated = memoryCovered ? formatUpdated(memory?.last_updated) : "";
 
     // Live Performance: the overall P(correct) as a percent with an 80% range and
     // a how-sure read from the interval, or an honest abstain on thin data. This
@@ -537,6 +593,21 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         {/if}
 
         {#if activeTab === "scores"}
+            <div class="memory-block">
+                <ScoreCard
+                    kind="memory"
+                    value={memoryValue}
+                    range={memoryRange}
+                    howSure={memoryHowSure}
+                    updated={memoryUpdated}
+                    abstain={memoryAbstain}
+                />
+                <p class="muted small memory-note">
+                    Memory is your recall on the cards you have reviewed (FSRS
+                    retrievability). It abstains until a topic has enough reviews.
+                </p>
+            </div>
+
             <div class="performance-block">
                 <ScoreCard
                     kind="performance"
@@ -869,6 +940,7 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         }
     }
 
+    .memory-block,
     .performance-block,
     .readiness-block {
         display: flex;
@@ -876,6 +948,7 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         gap: var(--space-1);
     }
 
+    .memory-note,
     .performance-note,
     .readiness-note {
         margin: 0;

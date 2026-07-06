@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 import uuid
 from typing import TYPE_CHECKING, Any
@@ -108,6 +109,21 @@ def _parse_choices(raw: str | None) -> list[str]:
     except (ValueError, TypeError):
         return []
     return [str(item) for item in data] if isinstance(data, list) else []
+
+
+# Problem stems bundle their figure inline as a ``.pg-figure`` block. The exam
+# running screen has a dedicated figure slot, so split the diagram out and serve
+# it separately: the stem text renders above, the figure in its own slot below.
+_FIGURE_RE = re.compile(r'\s*<div class="pg-figure">[\s\S]*?</div>\s*', re.IGNORECASE)
+
+
+def _split_figure(stem: str | None) -> tuple[str, str | None]:
+    """Return ``(stem_without_figure, figure_html_or_None)`` for a problem stem."""
+    text = stem or ""
+    match = _FIGURE_RE.search(text)
+    if not match:
+        return text, None
+    return _FIGURE_RE.sub("", text).strip(), match.group(0).strip()
 
 
 def _clamp(value: float, lo: float, hi: float) -> float:
@@ -298,11 +314,13 @@ def next_exam_item(
     note_id = order[index]
     note = col.get_note(NoteId(note_id))
     recorded = answers.get(index, {})
+    stem_text, figure = _split_figure(note[problem.FIELD_STEM])
     return {
         "kind": "item",
         "index": index,
         "note_id": int(note_id),
-        "stem_html": note[problem.FIELD_STEM],
+        "stem_html": stem_text,
+        "figure": figure,
         "choices": _parse_choices(note[problem.FIELD_CHOICES]),
         "topic": finest_topic(note.tags),
         "total": len(order),
