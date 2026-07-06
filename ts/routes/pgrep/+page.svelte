@@ -216,17 +216,18 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     // Short abstain lines for the compact Home tiles. The full "what is missing"
     // text and its link stay on the Progress ScoreCard; here we keep one honest,
     // compact phrase (never a fabricated number).
-    $: memReasonShort = memLoading ? "Loading" : memError ? "Unavailable" : "Not enough yet";
-    $: perfReasonShort = perfLoading
-        ? "Loading"
-        : perfError
-          ? "Unavailable"
-          : "Not enough yet";
-    $: readyReasonShort = readyLoading
-        ? "Loading"
-        : readyError
-          ? "Unavailable"
-          : "Low coverage";
+    function reasonShort(loading: boolean, errored: boolean, thin: string): string {
+        if (loading) {
+            return "Loading";
+        }
+        if (errored) {
+            return "Unavailable";
+        }
+        return thin;
+    }
+    $: memReasonShort = reasonShort(memLoading, memError, "Not enough yet");
+    $: perfReasonShort = reasonShort(perfLoading, perfError, "Not enough yet");
+    $: readyReasonShort = reasonShort(readyLoading, readyError, "Low coverage");
 </script>
 
 <div class="main">

@@ -31,11 +31,11 @@ decomposition-tutor pass. Checkboxes are the source of truth. Items marked
 - [x] E1. Desktop: retitle main window, drop "User 1 - pgrep" -> "pgrep" (main.py)
 - [x] E2. Desktop: exclusive default strips File/View/Tools/Help; Edit only; About rebranded. Dev keeps hosted (hatch); PGREP_SURFACE_MODE overrides. Note: app-menu name shows the process in dev, becomes "pgrep" when packaged
 - [x] E2b. Desktop: added pgrep's own menus: Settings (Cmd+,) in app menu + a Go menu (Home/Study/Progress/Library, Cmd+1..4) that navigates the surface
-- [ ] E3. Desktop: trim redundant copy on Home "Today" band + Study launcher
-- [ ] E4. Desktop + iOS: responsive score tiles (no full-width stack, no forced scroll)
-- [ ] E5. Desktop: give "Today" its own icon, distinct from the Diagnostic pulse
-- [ ] E6. iOS: remove the redundant "pgrep" greeting on Home
-- [ ] E7. iOS: add a Today icon for parity (distinct from diagnostic)
+- [x] E3. Desktop + iOS: trimmed session copy to one action ("Cards and problems, interleaved" + "Start session"); Study launcher tightened; removed Home "shown honestly" subtitle
+- [x] E4. Desktop + iOS: compact responsive score tiles; stay side-by-side and shrink, full anatomy stays on Progress
+- [x] E5. Desktop + iOS: "Today" now uses a play glyph, distinct from the Diagnostic pulse
+- [x] E6. iOS: removed the redundant "pgrep" greeting; the manifold leads
+- [x] E7. iOS: Today play icon added for parity; compact ranges use "to" not a dash
 
 ## D. L6 ship track (out of scope for now)
 
