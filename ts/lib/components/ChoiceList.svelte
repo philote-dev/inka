@@ -36,16 +36,77 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         }
         return "locked";
     }
+
+    // The choices are a single-select radio group: one row is tabbable (the
+    // selected one, else the first), arrow keys move and select, and a letter
+    // key jumps straight to that choice. Committing locks the group.
+    const radios: HTMLButtonElement[] = [];
+
+    function pick(index: number): void {
+        const choice = choices[index];
+        if (!choice || committed) {
+            return;
+        }
+        onSelect?.(choice.key);
+        radios[index]?.focus();
+    }
+
+    function tabindexFor(key: string, index: number): number {
+        if (selected) {
+            return key === selected ? 0 : -1;
+        }
+        return index === 0 ? 0 : -1;
+    }
+
+    function onKeydown(event: KeyboardEvent, index: number): void {
+        if (committed) {
+            return;
+        }
+        const n = choices.length;
+        let target = -1;
+        switch (event.key) {
+            case "ArrowDown":
+            case "ArrowRight":
+                target = (index + 1) % n;
+                break;
+            case "ArrowUp":
+            case "ArrowLeft":
+                target = (index - 1 + n) % n;
+                break;
+            case "Home":
+                target = 0;
+                break;
+            case "End":
+                target = n - 1;
+                break;
+            default: {
+                const letter = event.key.toUpperCase();
+                const found = choices.findIndex((c) => c.key.toUpperCase() === letter);
+                if (found >= 0) {
+                    target = found;
+                }
+            }
+        }
+        if (target >= 0) {
+            event.preventDefault();
+            pick(target);
+        }
+    }
 </script>
 
-<div class="choices">
-    {#each renderedChoices as c (c.key)}
+<div class="choices" role="radiogroup" aria-label="Answer choices">
+    {#each renderedChoices as c, i (c.key)}
         {@const state = rowState(c.key)}
         <button
             type="button"
             class="choice state-{state}"
+            role="radio"
+            aria-checked={c.key === selected}
+            tabindex={committed ? -1 : tabindexFor(c.key, i)}
             disabled={committed}
-            on:click={() => !committed && onSelect && onSelect(c.key)}
+            bind:this={radios[i]}
+            on:click={() => pick(i)}
+            on:keydown={(e) => onKeydown(e, i)}
         >
             <span class="key">{c.key}</span>
             <span class="content">{@html c.html}</span>
@@ -82,6 +143,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
         &:not([disabled]):hover {
             border-color: var(--muted);
+        }
+
+        &:focus-visible {
+            outline: 2px solid var(--focus-ring);
+            outline-offset: 2px;
         }
 
         &[disabled] {

@@ -14,7 +14,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     export let value: number | undefined = undefined;
     export let range: [number, number] | undefined = undefined;
     export let howSure = "";
-    export let updated = "Updated 2h ago";
+    export let updated = "";
     export let sparkline: number[] | undefined = undefined;
     export let abstain:
         | { message?: string; missing?: string; linkLabel?: string; linkHref?: string }
@@ -193,5 +193,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         text-decoration: underline;
         text-underline-offset: 3px;
         cursor: pointer;
+
+        &:focus-visible {
+            outline: 2px solid var(--focus-ring);
+            outline-offset: 2px;
+            border-radius: 3px;
+        }
     }
 </style>

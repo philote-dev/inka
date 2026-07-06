@@ -124,6 +124,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             background: var(--hover-wash);
             color: var(--text);
         }
+
+        &:focus-visible {
+            outline: 2px solid var(--focus-ring);
+            outline-offset: 2px;
+        }
     }
 
     .column {

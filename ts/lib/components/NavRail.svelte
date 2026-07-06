@@ -284,4 +284,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             font-variant-numeric: tabular-nums;
         }
     }
+
+    .brand:focus-visible,
+    .collapse:focus-visible,
+    .item:focus-visible {
+        outline: 2px solid var(--focus-ring);
+        outline-offset: 2px;
+        border-radius: var(--radius-control);
+    }
 </style>
