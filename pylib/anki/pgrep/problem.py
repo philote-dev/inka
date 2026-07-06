@@ -127,18 +127,22 @@ def ensure_problem_notetype(col: Collection) -> NotetypeDict:
 ##########################################################################
 
 
-def _difficulty_field(fraction: Any) -> str:
+def difficulty_field(fraction: Any) -> str:
     """Authored 0..1 difficulty fraction (higher is harder) -> the 1..5 scale.
 
-    The Performance model reads the stored difficulty via
+    Both the bundle seed path and the AI generation path store difficulty through
+    this, so a curated problem and a generated one feed the score on one scale.
+    The Performance model reads the stored value via
     ``performance._attempt_difficulty`` on the 1..5 authored scale (normalized
-    internally by ``(d-1)/4``). Mapping the bundle's 0..1 fraction with
-    ``1 + 4*f`` lets each curated problem feed the score at its real difficulty
-    instead of clamping to the floor.
+    internally by ``(d-1)/4``). A raw 0..1 fraction would clamp to the 1.0 floor
+    there, so map it with ``1 + 4*f`` first. The fraction is clamped to [0, 1] so
+    an out-of-range generated value can never overshoot the scale; a missing or
+    non-numeric value falls back to the neutral middle.
     """
     if isinstance(fraction, bool) or not isinstance(fraction, (int, float)):
         return _NEUTRAL_DIFFICULTY
-    return f"{1.0 + 4.0 * float(fraction):.2f}"
+    clamped = min(1.0, max(0.0, float(fraction)))
+    return f"{1.0 + 4.0 * clamped:.2f}"
 
 
 def _rationale_map(distractors: list[dict[str, Any]]) -> dict[str, str]:
@@ -184,7 +188,7 @@ def seed_sample_problems(col: Collection) -> int:
         note[FIELD_SOLUTION_DECOMPOSITION] = json.dumps(
             item["solution_decomposition"], ensure_ascii=False
         )
-        note[FIELD_DIFFICULTY] = _difficulty_field(item.get("difficulty"))
+        note[FIELD_DIFFICULTY] = difficulty_field(item.get("difficulty"))
         # Real provenance where the corpus supplied it; empty for the handful of
         # triage-KEEP items the generator left uncited (physics re-derived in P4).
         note[FIELD_SOURCE_REF] = item.get("source_ref") or ""

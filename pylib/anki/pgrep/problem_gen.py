@@ -72,7 +72,10 @@ def _add_problem(col: Collection, item: dict, topic: str) -> int:
     note[problem.FIELD_SOLUTION_DECOMPOSITION] = json.dumps(
         item.get("solution_decomposition", []), ensure_ascii=False
     )
-    note[problem.FIELD_DIFFICULTY] = str(item.get("difficulty", "medium"))
+    # Store on the Performance model's 1..5 authored scale, exactly like the
+    # bundle seed path. A raw 0..1 generated fraction clamps to the 1.0 floor in
+    # the model, pinning every generated problem to "easiest".
+    note[problem.FIELD_DIFFICULTY] = problem.difficulty_field(item.get("difficulty"))
     note[problem.FIELD_SOURCE_REF] = item.get("source_ref") or ""
     note.tags = [GENERATED_TAG, _topic_tag(topic)]
     deck_id = col.decks.id(problem.PROBLEM_DECK_NAME)
