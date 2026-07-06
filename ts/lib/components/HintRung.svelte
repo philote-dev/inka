@@ -161,5 +161,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         &:hover {
             background: var(--hover-wash);
         }
+
+        &:focus-visible {
+            outline: 2px solid var(--focus-ring);
+            outline-offset: 2px;
+        }
     }
 </style>

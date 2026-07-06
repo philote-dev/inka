@@ -24,6 +24,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         (segments.reduce((sum, x) => sum + x.weight * x.covered, 0) / total) * 100,
     );
     $: covered = coveredPct ?? computed;
+    // A per-topic read for assistive tech: the bar is segmented by topic, so the
+    // accessible name spells out each topic's coverage, not just the total.
+    $: barLabel =
+        `${covered} percent of the exam covered. ` +
+        segments
+            .map((s) => `${s.topic}, ${Math.round(s.covered * 100)} percent`)
+            .join(". ");
 </script>
 
 <div class="coverbar">
@@ -33,7 +40,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <span class="gate">Readiness needs {threshold} percent</span>
         </div>
     {/if}
-    <div class="bar" role="img" aria-label="{covered} percent of the exam covered">
+    <div class="bar" role="img" aria-label={barLabel}>
+
         {#each segments as s (s.topic)}
             <div class="seg" style="flex: {s.weight};" title={s.topic}>
                 <div class="fill" style="width: {Math.round(s.covered * 100)}%;"></div>

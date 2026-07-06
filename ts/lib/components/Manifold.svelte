@@ -167,7 +167,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         }
 
         &:focus-visible {
-            outline: 2px solid var(--muted);
+            outline: 2px solid var(--focus-ring);
             outline-offset: 2px;
         }
     }

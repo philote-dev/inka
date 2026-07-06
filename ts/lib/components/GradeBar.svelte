@@ -8,10 +8,38 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     (design/ux-foundation.md).
 -->
 <script lang="ts">
+    import { onDestroy, onMount } from "svelte";
+
     export let grades: Array<{ label: string; value: number; interval?: string }> = [];
     export let showIntervals = false;
     export let disabled = false;
     export let onGrade: ((value: number) => void) | undefined = undefined;
+
+    // Number-key grading (1..N). A study session shows one grade row at a time,
+    // so a window listener is safe. Ignored while disabled or while typing in a
+    // field (the AI self-explanation inputs), so it never steals those keys.
+    function handleKey(event: KeyboardEvent): void {
+        if (disabled) {
+            return;
+        }
+        const target = event.target as HTMLElement | null;
+        if (
+            target &&
+            (target.tagName === "INPUT" ||
+                target.tagName === "TEXTAREA" ||
+                target.isContentEditable)
+        ) {
+            return;
+        }
+        const n = Number(event.key);
+        if (Number.isInteger(n) && n >= 1 && n <= grades.length) {
+            event.preventDefault();
+            onGrade?.(grades[n - 1].value);
+        }
+    }
+
+    onMount(() => window.addEventListener("keydown", handleKey));
+    onDestroy(() => window.removeEventListener("keydown", handleKey));
 </script>
 
 <div class="grades" style="grid-template-columns: repeat({grades.length}, 1fr);">
@@ -54,6 +82,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         &:not([disabled]):hover {
             background: var(--hover-wash);
             border-color: var(--muted);
+        }
+
+        &:focus-visible {
+            outline: 2px solid var(--focus-ring);
+            outline-offset: 2px;
         }
 
         &[disabled] {
