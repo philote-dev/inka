@@ -11,6 +11,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     export interface LabPage {
         href: string;
         label: string;
+        // Layout-heavy sandboxes opt into a wider shell; review pages stay narrow.
+        wide?: boolean;
     }
 
     // Every page in the lab, in nav order.
@@ -18,9 +20,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         { href: "/pgrep-lab", label: "Manifold lab" },
         { href: "/pgrep-lab/gallery", label: "Component gallery" },
         { href: "/pgrep-lab/demo", label: "Demo profile" },
-        { href: "/pgrep-lab/home-layouts", label: "Home layouts" },
-        { href: "/pgrep-lab/card-face", label: "Flashcard" },
-        { href: "/pgrep-lab/math", label: "Math" },
+        { href: "/pgrep-lab/home-layouts", label: "Home layouts", wide: true },
+        { href: "/pgrep-lab/card-face", label: "Flashcard", wide: true },
+        { href: "/pgrep-lab/math", label: "Math", wide: true },
     ];
 </script>
 

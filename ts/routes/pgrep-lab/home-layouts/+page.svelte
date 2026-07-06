@@ -12,8 +12,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <script lang="ts">
     import ScoreCard from "$lib/components/ScoreCard.svelte";
 
-    import LabNav from "../LabNav.svelte";
-
     type Hue = "memory" | "performance" | "readiness";
 
     const scores: {
@@ -52,11 +50,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <div class="pgrep night-mode shell">
-    <div class="lab">
-        <LabNav />
-
-        <header class="head">
-            <h1>Home card-row layouts</h1>
+<div>
+    <header class="head">
+        <h1>Home card-row layouts</h1>
             <p>
                 Today plus the three score cards, shown three ways. Each row is a size
                 container, so it reflows by its own width just as it will on Home. Pick
@@ -180,13 +176,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         min-height: 100vh;
         background: var(--canvas);
         color: var(--text);
-    }
-
-    .lab {
-        max-width: 1440px;
-        margin: 0 auto;
-        padding: var(--space-4, 32px) var(--space-3, 24px) var(--space-6, 64px);
-        font-family: var(--font-ui);
     }
 
     .head {

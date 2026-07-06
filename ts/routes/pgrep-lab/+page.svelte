@@ -11,8 +11,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import Manifold3D from "$lib/components/Manifold3D.svelte";
     import { buildSurface, type TopicStat } from "$lib/pgrep/manifold";
 
-    import LabNav from "./LabNav.svelte";
-
     type Lead = "memory" | "performance" | "readiness";
 
     const LEADS: { id: Lead; short: string; label: string }[] = [
@@ -205,9 +203,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     ];
 </script>
 
-<div class="lab">
-    <LabNav />
-
+<div>
     <header class="head">
         <h1>Manifold lab</h1>
         <p>
@@ -381,15 +377,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </div>
 
 <style lang="scss">
-    .lab {
-        max-width: 1180px;
-        margin: 0 auto;
-        padding: var(--space-5) var(--space-3) var(--space-6);
-        background: var(--canvas);
-        color: var(--text);
-        min-height: 100vh;
-    }
-
     .head {
         margin-bottom: var(--space-4);
 
