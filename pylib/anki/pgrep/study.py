@@ -14,9 +14,11 @@ interleaved **within** a door, never card<->problem whiplash.
   only ever changed by that sanctioned scheduler call.
 
 - **Problems door** enforces the commit gate (``feature-productive-failure.md``).
-  ``start_session`` builds a topic-interleaved (round-robin, anti-blocking)
-  ordering of the seeded Problems, ``next_item`` hands one over with the correct
-  answer and rationales **omitted**, and ``commit_problem`` (called only after
+  ``start_session`` builds a bounded, rotating sitting of the seeded Problems
+  (topic-interleaved round-robin, anti-blocking, capped at
+  ``PROBLEMS_PER_SESSION`` and ordered so unseen items lead and the bank rotates
+  across sessions), ``next_item`` hands one over with the correct answer and
+  rationales **omitted**, and ``commit_problem`` (called only after
   the learner has committed) appends exactly one immutable Attempt, then returns
   correctness plus the static wrong-answer ladder built from the stored
   ``solution_decomposition``. The final answer appears **only** in the reveal
@@ -58,6 +60,14 @@ _RATING_MAP: dict[int, "CardAnswer.Rating.V"] = {
 # (a topic focus drill, or locating a specific card to grade). Bounded so a call
 # stays well under 100 ms even on a large collection.
 _CARD_BATCH = 64
+
+# A Problems-door session hands over a bounded batch, not the whole bank. The
+# Cards door is already capped by the deck's FSRS daily new/review limits, but
+# Problems have no such limiter, so without this a session would queue every
+# seeded problem at once (137 in the shipped bundle). Twenty is a sensible
+# sitting and still spans the blueprint, since the round-robin order front-loads
+# about two problems per area before it repeats a category.
+PROBLEMS_PER_SESSION = 20
 
 # In-memory session state, keyed by session_id. Single-user desktop MVP.
 _SESSIONS: dict[str, dict[str, Any]] = {}
@@ -103,7 +113,10 @@ def start_session(col: Collection, door: str, topic: str | None = None) -> dict:
     session_id = str(uuid.uuid4())
 
     if door == "problems":
-        order = _problem_order(col, topic)
+        # Take the first N of the rotation order (unseen lead, then due-back): a
+        # bounded sitting that stays spread across areas and works through the
+        # bank across sessions rather than repeating the same items.
+        order = _problem_order(col, topic)[:PROBLEMS_PER_SESSION]
         _SESSIONS[session_id] = {
             "door": "problems",
             "topic": topic,
@@ -399,18 +412,60 @@ def _choice_text(letter: str, choices: list[str]) -> str:
 ##########################################################################
 
 
+def _last_attempts(col: Collection) -> dict[int, tuple[bool, int]]:
+    """Map each attempted Problem note to its last ``(correct, answered_at)``.
+
+    Reads the attempt log through the single read-model seam (K4). Events come
+    back oldest first, so the last write per ``item_note_id`` wins. A problem that
+    was never committed is simply absent, which :func:`_rotation_key` treats as
+    the highest priority so unseen items lead the rotation.
+    """
+    last: dict[int, tuple[bool, int]] = {}
+    for event in attempt_log.attempts(col):
+        note_id = event.payload.get("item_note_id")
+        if note_id is None:
+            continue
+        last[int(note_id)] = (event.correct, event.answered_at)
+    return last
+
+
+def _rotation_key(
+    note_id: int, last: dict[int, tuple[bool, int]]
+) -> tuple[int, int, int]:
+    """Sort key for one Problem: unseen first, then last-wrong, then last-correct.
+
+    Lower sorts earlier. Tier 0 is never attempted (leads the rotation), tier 1 a
+    last-wrong answer (returns before correct ones revisit), tier 2 last-correct.
+    Within a tier the oldest ``answered_at`` comes first, so the least-recently
+    touched surfaces next and the sitting rotates through the bank. Ties break on
+    note id for a stable order.
+    """
+    info = last.get(note_id)
+    if info is None:
+        return (0, 0, note_id)
+    correct, answered_at = info
+    return (2 if correct else 1, answered_at, note_id)
+
+
 def _problem_order(col: Collection, topic: str | None) -> list[int]:
-    """Round-robin the seeded Problems across categories (anti-blocking).
+    """Round-robin the seeded Problems across categories (anti-blocking), in
+    rotation order so a session works through the whole bank.
 
     Categories are visited in blueprint order; within a category, notes are
-    ordered by id. Round-robin means consecutive items differ in category until
-    a single category remains, so no more than a couple in a row share a topic.
-    A ``topic`` restricts to that one category (focus drill, interleaving off).
+    ordered by :func:`_rotation_key` (unseen first, then last-wrong, then
+    last-correct, least-recently touched first). Round-robin means consecutive
+    items differ in category until a single category remains, so no more than a
+    couple in a row share a topic. A ``topic`` restricts to that one category
+    (focus drill, interleaving off). ``start_session`` takes the first
+    ``PROBLEMS_PER_SESSION`` of this order as the sitting, so the rest of the
+    bank surfaces as these get answered. All reads go through the attempt-log
+    seam; no scheduling state is touched.
     """
     notetype = problem.get_problem_notetype(col)
     if notetype is None:
         return []
     wanted = _requested_category(topic)
+    last = _last_attempts(col)
 
     by_category: dict[str, list[int]] = {}
     for note_id in col.models.nids(notetype["id"]):
@@ -419,7 +474,7 @@ def _problem_order(col: Collection, topic: str | None) -> list[int]:
             continue
         by_category.setdefault(category, []).append(int(note_id))
     for ids in by_category.values():
-        ids.sort()
+        ids.sort(key=lambda nid: _rotation_key(nid, last))
 
     ordered_categories = [c for c in CATEGORY_SLUGS if c in by_category]
     ordered_categories += sorted(c for c in by_category if c not in CATEGORY_SLUGS)
