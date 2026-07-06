@@ -1055,7 +1055,7 @@
       "topic": "topic::electromagnetism::circuits",
       "kind": "conceptual",
       "front": "In simple AC circuit elements, what is the phase relationship between voltage/emf and current for a resistor, inductor, and capacitor?",
-      "back": "Resistor: voltage and current are in phase. Inductor: emf/voltage leads current. Capacitor: current leads emf/voltage. Mnemonic: “ELI the ICE man” — E leads I in L; I leads E in C.",
+      "back": "Resistor: voltage and current are in phase. Inductor: emf/voltage leads current. Capacitor: current leads emf/voltage. Mnemonic “ELI the ICE man”: E leads I in L, and I leads E in C.",
       "source_ref": "OpenStax University Physics Volume 2, pp. 646-647, §15.3 RLC Series Circuits with AC"
     },
     {
@@ -1743,7 +1743,7 @@
       "topic": "topic::atomic",
       "kind": "conceptual",
       "front": "In Bohr’s model of the hydrogen atom, when is a photon emitted, and why are the emitted spectral lines discrete?",
-      "back": "A photon is emitted only when the electron transitions from an excited state to a lower-energy state. The photon carries away the difference in energy between the two states. Because the allowed electron energies in hydrogen are discrete quantized levels, the possible photon energies—and therefore wavelengths—form discrete spectral emission lines.",
+      "back": "A photon is emitted only when the electron transitions from an excited state to a lower-energy state. The photon carries away the difference in energy between the two states. Because the allowed electron energies in hydrogen are discrete quantized levels, the possible photon energies, and therefore wavelengths, form discrete spectral emission lines.",
       "source_ref": "OpenStax University Physics Volume 3, pp. 266-267, §6.4 Bohr’s Model of the Hydrogen Atom"
     },
     {
@@ -1807,7 +1807,7 @@
       "topic": "topic::atomic",
       "kind": "conceptual",
       "front": "What does it mean for atomic and molecular spectra to be “discrete,” and how does this contrast with a white-light spectrum?",
-      "back": "Discrete spectra show only certain spectral lines. In contrast, a white-light source contains many photon frequencies and produces a continuous spectrum—a continuous “rainbow” of colors.",
+      "back": "Discrete spectra show only certain spectral lines. In contrast, a white-light source contains many photon frequencies and produces a continuous spectrum, a continuous “rainbow” of colors.",
       "source_ref": "OpenStax University Physics Volume 3, p. 580, §7.10 Conceptual Questions"
     },
     {
@@ -1839,7 +1839,7 @@
       "topic": "topic::atomic",
       "kind": "conceptual",
       "front": "In the quantum description of the hydrogen atom, what is an atomic orbital, and how does it differ from a Bohr-model orbit?",
-      "back": "An atomic orbital is a region in space enclosing a certain percentage—usually 90%—of the electron probability. Unlike the Bohr model, the electron does not move around the nucleus in a well-defined path; the uncertainty principle makes it impossible to know how it gets from one place to another.",
+      "back": "An atomic orbital is a region in space enclosing a certain percentage, usually 90%, of the electron probability. Unlike the Bohr model, the electron does not move around the nucleus in a well-defined path; the uncertainty principle makes it impossible to know how it gets from one place to another.",
       "source_ref": "OpenStax University Physics Volume 3, pp. 356-357, §8.1 The Hydrogen Atom"
     },
     {
@@ -2255,7 +2255,7 @@
       "topic": "topic::special_relativity",
       "kind": "conceptual",
       "front": "In special relativity, for two events that occur at the same location in one inertial frame, which observer measures the proper time, and how does a relatively moving inertial observer’s measured time interval compare?",
-      "back": "The proper time is measured in the frame where the start and end of the interval occur at the same location—the rest frame of the events. Any inertial observer moving relative to that frame measures a longer elapsed time interval; proper time is the shortest measure of the interval.",
+      "back": "The proper time is measured in the frame where the start and end of the interval occur at the same location, the rest frame of the events. Any inertial observer moving relative to that frame measures a longer elapsed time interval; proper time is the shortest measure of the interval.",
       "source_ref": "OpenStax University Physics Volume 3, p. 232, §5.3 Time Dilation"
     },
     {
@@ -2319,7 +2319,7 @@
       "topic": "topic::special_relativity",
       "kind": "conceptual",
       "front": "Time dilation: For a muon moving at constant velocity relative to Earth and then decaying, which observer measures the proper time for the decay, and how does the lifetime measured by an earthbound observer compare?",
-      "back": "The clock moving with the muon—its internal clock—measures the proper time of the decay process. An earthbound observer measures the muon to live longer than this proper time.",
+      "back": "The clock moving with the muon, its internal clock, measures the proper time of the decay process. An earthbound observer measures the muon to live longer than this proper time.",
       "source_ref": "OpenStax University Physics Volume 3, pp. 193-194, §5.3 Time Dilation"
     },
     {
@@ -2639,7 +2639,7 @@
       "topic": "topic::specialized",
       "kind": "conceptual",
       "front": "In superconductors, why is the Meissner effect not simply a consequence of zero electrical resistance?",
-      "back": "If a material in a magnetic field merely had its resistivity drop to zero, Ohm’s law would require the internal electric field to be zero for a finite current density. By Faraday’s law, zero electric field implies the magnetic flux through the sample cannot change, so the magnetic field lines would not necessarily be expelled. The Meissner effect—expulsion of magnetic field so the net magnetic field inside is zero—is therefore a special property of superconductors, not just a result of zero resistance.",
+      "back": "If a material in a magnetic field merely had its resistivity drop to zero, Ohm’s law would require the internal electric field to be zero for a finite current density. By Faraday’s law, zero electric field implies the magnetic flux through the sample cannot change, so the magnetic field lines would not necessarily be expelled. The Meissner effect, expulsion of magnetic field so the net magnetic field inside is zero, is therefore a special property of superconductors, not just a result of zero resistance.",
       "source_ref": "OpenStax University Physics Volume 3, pp. 426-427, §9.8 Superconductivity"
     },
     {
