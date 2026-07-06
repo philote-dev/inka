@@ -622,10 +622,7 @@ The data flow through pgrepCall is unchanged.
             <div class="option-body">
                 <div class="eyebrow">Recommended</div>
                 <div class="option-title">Start today's session</div>
-                <p class="option-desc">
-                    Cards and problems, with your topics mixed inside each door and
-                    ordered to what moves your score.
-                </p>
+                <p class="option-desc">Cards and problems, interleaved.</p>
                 {#if cardsDoor || problemsDoor}
                     <div class="meta">
                         {#if cardsDoor}
@@ -649,9 +646,7 @@ The data flow through pgrepCall is unchanged.
         <button class="option row" on:click={openDrill}>
             <div class="option-body">
                 <div class="option-title">Focus drill</div>
-                <p class="option-desc">
-                    One topic at a time. Pick it here or tap a region on your map.
-                </p>
+                <p class="option-desc">One topic at a time.</p>
             </div>
             <svg
                 class="chev"
@@ -671,10 +666,7 @@ The data flow through pgrepCall is unchanged.
         <a class="option row" href="/pgrep/study/exam">
             <div class="option-body">
                 <div class="option-title">Exam mode</div>
-                <p class="option-desc">
-                    A timed mock at real PGRE proportions, zero help. Blind review at
-                    the end.
-                </p>
+                <p class="option-desc">A timed mock, zero help.</p>
             </div>
             <svg
                 class="chev"

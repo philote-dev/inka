@@ -10,9 +10,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import { goto } from "$app/navigation";
     import { onMount } from "svelte";
 
+    import CompactScoreCard from "$lib/components/CompactScoreCard.svelte";
     import Manifold from "$lib/components/Manifold.svelte";
     import Manifold3D from "$lib/components/Manifold3D.svelte";
-    import ScoreCard from "$lib/components/ScoreCard.svelte";
     import { FULL_SURFACE, type Surface } from "$lib/pgrep/manifold";
     import { supportsWebGL } from "$lib/pgrep/manifold3d";
 
@@ -57,24 +57,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         reason: string | null;
         uncovered_topics: string[];
         last_updated: number | null;
-    }
-
-    // Blueprint category slugs to short exam-area labels, so an abstaining
-    // Readiness card can name the uncovered areas honestly (matches Progress).
-    const CATEGORY_LABELS: Record<string, string> = {
-        mechanics: "Mechanics",
-        electromagnetism: "Electromagnetism",
-        quantum: "Quantum",
-        thermodynamics: "Thermodynamics",
-        atomic: "Atomic physics",
-        optics_waves: "Optics and waves",
-        special_relativity: "Special relativity",
-        lab: "Lab methods",
-        specialized: "Specialized",
-    };
-
-    function label(slug: string): string {
-        return CATEGORY_LABELS[slug] ?? slug.replace(/_/g, " ");
     }
 
     // The 3D hero on capable devices, the Canvas 2D fallback otherwise or when
@@ -195,93 +177,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         return "Not very sure";
     }
 
-    interface AbstainProps {
-        message?: string;
-        missing?: string;
-        linkHref?: string;
-        linkLabel?: string;
-    }
-
-    // The honest abstain for Memory. While loading we only say so (no link). On a
-    // real thin-data abstain we name what is missing and link to where the learner
-    // acts on it (Study), per the honesty rule.
-    function memoryAbstain(
-        loading: boolean,
-        errored: boolean,
-        data: MemoryData | null,
-    ): AbstainProps {
-        if (loading) {
-            return { message: "Loading Memory" };
-        }
-        if (errored) {
-            return {
-                message: "Could not load Memory",
-                missing: "Try reopening the app.",
-            };
-        }
-        return {
-            message: "Not enough reviews yet",
-            missing:
-                data?.overall.reason ??
-                "Review a few cards per topic to see your Memory. Seed sample content from the Study tab to start.",
-            linkHref: "/pgrep/study",
-            linkLabel: "Go to Study",
-        };
-    }
-
-    // Performance is transfer (a new, unseen problem), read from the attempt log.
-    // With an empty log it abstains honestly and points at where attempts happen
-    // (the Problems door), never a fabricated number.
-    function performanceAbstain(
-        loading: boolean,
-        errored: boolean,
-        data: PerformanceData | null,
-    ): AbstainProps {
-        if (loading) {
-            return { message: "Loading Performance" };
-        }
-        if (errored) {
-            return {
-                message: "Could not load Performance",
-                missing: "Try reopening the app.",
-            };
-        }
-        return {
-            message: data?.overall.reason ?? "Not enough attempts yet",
-            missing:
-                "Work problems in the Problems door to build this. It stays quiet until a topic has enough attempts.",
-            linkHref: "/pgrep/study",
-            linkLabel: "Go to Study",
-        };
-    }
-
-    // Readiness is coverage-gated: below the gate it abstains and names the
-    // uncovered exam areas, so the learner sees exactly what to cover next.
-    function readinessAbstain(
-        loading: boolean,
-        errored: boolean,
-        data: ReadinessData | null,
-    ): AbstainProps {
-        if (loading) {
-            return { message: "Loading Readiness" };
-        }
-        if (errored) {
-            return {
-                message: "Could not load Readiness",
-                missing: "Try reopening the app.",
-            };
-        }
-        const names = (data?.uncovered_topics ?? []).map(label).join(", ");
-        return {
-            message: data?.reason ?? "Not enough of the exam is covered yet",
-            missing: names
-                ? `Cover ${names} to unlock Readiness.`
-                : "Readiness needs about 70 percent topic coverage first.",
-            linkHref: "/pgrep/progress",
-            linkLabel: "See coverage",
-        };
-    }
-
     $: memAbstain = !mem || mem.overall.abstain || mem.overall.point === null;
     $: memValue =
         mem && mem.overall.point !== null ? pct(mem.overall.point) : undefined;
@@ -293,8 +188,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         mem && mem.overall.low !== null && mem.overall.high !== null
             ? howSure(mem.overall.low, mem.overall.high)
             : "";
-    $: memUpdated = mem && mem.last_updated ? "Updated just now" : "";
-    $: memAbstainProps = memoryAbstain(memLoading, memError, mem);
 
     $: perfAbstain = !perf || perf.overall.abstain || perf.overall.point === null;
     $: perfValue =
@@ -307,8 +200,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         perf && perf.overall.low !== null && perf.overall.high !== null
             ? howSure(perf.overall.low, perf.overall.high)
             : "";
-    $: perfUpdated = perf && perf.last_updated ? "Updated just now" : "";
-    $: perfAbstainProps = performanceAbstain(perfLoading, perfError, perf);
 
     // Readiness ships a 200..990 scaled score (not a percent), so its value and
     // range pass through untouched. The how-sure read is coverage, the gate it
@@ -321,8 +212,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             : undefined;
     $: readyHowSure =
         ready && !ready.abstain ? `${pct(ready.coverage_pct)} percent covered` : "";
-    $: readyUpdated = ready && ready.last_updated ? "Updated just now" : "";
-    $: readyAbstainProps = readinessAbstain(readyLoading, readyError, ready);
+
+    // Short abstain lines for the compact Home tiles. The full "what is missing"
+    // text and its link stay on the Progress ScoreCard; here we keep one honest,
+    // compact phrase (never a fabricated number).
+    $: memReasonShort = memLoading ? "Loading" : memError ? "Unavailable" : "Not enough yet";
+    $: perfReasonShort = perfLoading
+        ? "Loading"
+        : perfError
+          ? "Unavailable"
+          : "Not enough yet";
+    $: readyReasonShort = readyLoading
+        ? "Loading"
+        : readyError
+          ? "Unavailable"
+          : "Low coverage";
 </script>
 
 <div class="main">
@@ -385,12 +289,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     stroke-linecap="round"
                     stroke-linejoin="round"
                 >
-                    <polyline points="2,10 5.5,10 8,4.5 12,15.5 14.5,10 18,10" />
+                    <polygon points="5,3.5 16,10 5,16.5" />
                 </svg>
                 <span>Today</span>
             </div>
-            <div class="today-title">Start today's session</div>
-            <div class="today-meta">Cards and problems, topics interleaved</div>
+            <div class="today-meta">Cards and problems, interleaved</div>
         </div>
         <a class="start" href="/pgrep/study">
             Start session
@@ -410,42 +313,33 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         </a>
     </section>
 
+    <!-- Home shows the compact score tiles (three-across, shrinking to fit). The
+         full ScoreCard anatomy, with the missing text and link, lives on Progress. -->
     <section class="scores">
-        {#if memAbstain}
-            <ScoreCard kind="memory" abstain={memAbstainProps} />
-        {:else}
-            <ScoreCard
-                kind="memory"
-                value={memValue}
-                range={memRange}
-                howSure={memHowSure}
-                updated={memUpdated}
-            />
-        {/if}
-
-        {#if perfAbstain}
-            <ScoreCard kind="performance" abstain={perfAbstainProps} />
-        {:else}
-            <ScoreCard
-                kind="performance"
-                value={perfValue}
-                range={perfRange}
-                howSure={perfHowSure}
-                updated={perfUpdated}
-            />
-        {/if}
-
-        {#if readyAbstain}
-            <ScoreCard kind="readiness" abstain={readyAbstainProps} />
-        {:else}
-            <ScoreCard
-                kind="readiness"
-                value={readyValue}
-                range={readyRange}
-                howSure={readyHowSure}
-                updated={readyUpdated}
-            />
-        {/if}
+        <CompactScoreCard
+            kind="memory"
+            value={memValue}
+            range={memRange}
+            howSure={memHowSure}
+            abstain={memAbstain}
+            reason={memReasonShort}
+        />
+        <CompactScoreCard
+            kind="performance"
+            value={perfValue}
+            range={perfRange}
+            howSure={perfHowSure}
+            abstain={perfAbstain}
+            reason={perfReasonShort}
+        />
+        <CompactScoreCard
+            kind="readiness"
+            value={readyValue}
+            range={readyRange}
+            howSure={readyHowSure}
+            abstain={readyAbstain}
+            reason={readyReasonShort}
+        />
     </section>
 </div>
 
@@ -512,18 +406,27 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         margin: 8px 0 16px;
     }
 
-    /* The three score cards share one honest row, wrapping to a single column
-       only when the content column gets genuinely narrow. */
+    /* The three compact score tiles stay side by side and shrink to fit, so a
+       moderately narrow window still shows all three without a long scroll.
+       They reflow only when the content column gets genuinely tiny: two up
+       first, then a single column. minmax(0, 1fr) lets each tile shrink below
+       its content width (paired with min-width: 0 and ellipsis in the tile). */
     .scores {
         display: grid;
-        grid-template-columns: 1fr;
-        gap: var(--space-2);
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--space-1);
         align-items: stretch;
     }
 
-    @container (min-width: 620px) {
+    @container (max-width: 360px) {
         .scores {
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+
+    @container (max-width: 220px) {
+        .scores {
+            grid-template-columns: 1fr;
         }
     }
 
@@ -574,16 +477,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         }
     }
 
-    .today-title {
-        font-size: 16px;
-        font-weight: 600;
-        letter-spacing: -0.01em;
-    }
-
     .today-meta {
         font-size: 13px;
         color: var(--muted);
-        margin-top: 6px;
     }
 
     .today.band .start {

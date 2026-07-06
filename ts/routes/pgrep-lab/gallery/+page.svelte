@@ -10,6 +10,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
      linked from the top nav. -->
 <script lang="ts">
     import ChoiceList from "$lib/components/ChoiceList.svelte";
+    import CompactScoreCard from "$lib/components/CompactScoreCard.svelte";
     import CoverageBar from "$lib/components/CoverageBar.svelte";
     import GradeBar from "$lib/components/GradeBar.svelte";
     import HintRung from "$lib/components/HintRung.svelte";
@@ -306,7 +307,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         likely range, a how sure read, and a last updated line. The hue
                         touches only the glyph and the sparkline. The second row shows
                         the abstain state, which names what is missing instead of
-                        guessing a number.
+                        guessing a number. The compact tiles are the smaller Home
+                        variant, a glyph, a label, the number, and one short line.
                     </p>
                 </div>
                 <div class="split">
@@ -336,6 +338,39 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                     {#each abstainCards as c (c.kind)}
                                         <ScoreCard kind={c.kind} abstain={c.abstain} />
                                     {/each}
+                                </div>
+                                <span class="state-label">
+                                    Compact tiles, the Home three-across row
+                                </span>
+                                <div class="card-row">
+                                    {#each scoreCards as c (c.kind)}
+                                        <CompactScoreCard
+                                            kind={c.kind}
+                                            value={c.value}
+                                            range={c.range}
+                                            howSure={c.howSure}
+                                        />
+                                    {/each}
+                                </div>
+                                <span class="state-label">
+                                    Compact abstain, one short honest reason
+                                </span>
+                                <div class="card-row">
+                                    <CompactScoreCard
+                                        kind="memory"
+                                        abstain
+                                        reason="Not enough yet"
+                                    />
+                                    <CompactScoreCard
+                                        kind="performance"
+                                        abstain
+                                        reason="Not enough yet"
+                                    />
+                                    <CompactScoreCard
+                                        kind="readiness"
+                                        abstain
+                                        reason="Low coverage"
+                                    />
                                 </div>
                             </div>
                         </div>
