@@ -2,14 +2,15 @@
 // License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 //
 // The app shell: a bottom tab bar with the companion subset (Home, Study,
-// Settings, per design/ux-foundation.md §4 and §9), gated on opening the shared
-// collection once. Deep Progress and Library stay desktop-first.
+// Progress, Settings, per design/ux-foundation.md §4 and §9), gated on opening
+// the shared collection once. Library stays desktop-first.
 
 import SwiftUI
 
 enum RootTab: Hashable {
     case home
     case study
+    case progress
     case settings
 }
 
@@ -36,6 +37,9 @@ struct RootView: View {
                 StudyView()
                     .tabItem { Label("Study", systemImage: "square.stack") }
                     .tag(RootTab.study)
+                ProgressScreen(selectedTab: $tab)
+                    .tabItem { Label("Progress", systemImage: "chart.bar") }
+                    .tag(RootTab.progress)
                 SettingsView()
                     .tabItem { Label("Settings", systemImage: "gearshape") }
                     .tag(RootTab.settings)

@@ -99,13 +99,13 @@ struct StudyView: View {
             }
 
             VStack(spacing: Theme.Space.m) {
-                Text(card.front)
+                Text(HTMLText.plain(from: card.front))
                     .font(Theme.Typography.title)
                     .foregroundStyle(Theme.text)
                     .multilineTextAlignment(.center)
                 if model.showBack {
                     Divider().background(Theme.border)
-                    Text(card.back)
+                    Text(HTMLText.plain(from: card.back))
                         .font(Theme.Typography.content)
                         .foregroundStyle(Theme.muted)
                         .multilineTextAlignment(.center)

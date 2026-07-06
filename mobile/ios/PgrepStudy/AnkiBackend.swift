@@ -35,6 +35,7 @@ public struct RpcId: Sendable {
     public static let answerCard = RpcId(13, 4)
     // SearchService (service 29)
     public static let searchCards = RpcId(29, 1)
+    public static let searchNotes = RpcId(29, 2)
     // StatsService (service 43)
     public static let cardStats = RpcId(43, 0)
     // NotesService (service 25)
@@ -215,6 +216,16 @@ public final class AnkiBackend {
         var req = Anki_Search_SearchRequest()
         req.search = search
         let res: Anki_Search_SearchResponse = try call(.searchCards, req)
+        return res.ids
+    }
+
+    /// Find note ids matching an Anki search string (for example
+    /// "tag:pgrep::attempt"). Used by the score fold to read the immutable
+    /// attempt-log notes desktop wrote; order is left at the engine default.
+    public func searchNotes(matching search: String) throws -> [Int64] {
+        var req = Anki_Search_SearchRequest()
+        req.search = search
+        let res: Anki_Search_SearchResponse = try call(.searchNotes, req)
         return res.ids
     }
 

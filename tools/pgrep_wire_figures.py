@@ -13,6 +13,7 @@ Idempotent: an existing `.pg-figure` block is replaced, so re-running with an
 updated figure set is safe. Backs up the bundle to content_bundle.pre_figures.json
 on first run. Never touches non-figure content.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -35,7 +36,11 @@ def main() -> int:
     bundle_path = Path(args.bundle)
     bundle = json.loads(bundle_path.read_text())
     figures = json.loads(Path(args.figures).read_text())
-    fig_by_id = {f["id"]: f.get("svg", "") for f in figures if f.get("svg", "").strip().startswith("<svg")}
+    fig_by_id = {
+        f["id"]: f.get("svg", "")
+        for f in figures
+        if f.get("svg", "").strip().startswith("<svg")
+    }
 
     backup = bundle_path.with_name("content_bundle.pre_figures.json")
     if not backup.exists():
@@ -49,7 +54,9 @@ def main() -> int:
         if p is None:
             print(f"  ! {pid} not in bundle, skipping")
             continue
-        stem = FIGURE_RE.sub("", p.get("stem", ""))  # drop any prior figure (idempotent)
+        stem = FIGURE_RE.sub(
+            "", p.get("stem", "")
+        )  # drop any prior figure (idempotent)
         p["stem"] = f'{stem}\n<div class="pg-figure">{svg}</div>'
         wired += 1
 

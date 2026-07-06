@@ -100,9 +100,12 @@ pgrep is a study environment for one graduate-level exam — the **Physics GRE (
 
 ## The exam: PGRE
 
-- ~70 five-choice MCQ / 2 hours, computer-delivered, **no guessing penalty**. ~1.71 min/question.
+pgrep models the real, modern PGRE as the shipped code does (`pylib/anki/pgrep/exam.py`, `readiness_constants.py`):
+
+- **100 scored five-choice MCQ / 170 minutes**, computer-delivered, **formula-scored**: a one-quarter-point penalty per wrong answer (`raw = round(correct − incorrect/4)`, skips unpenalized). About 1.7 min/question.
+- **Scaled 200–990** in 10-point steps, via the official raw-to-scaled conversion table (shipped as numeric constants only; see `readiness_constants.py`).
 - Blueprint (stable 20+ yrs): Mechanics 20%, E&M 18%, Quantum 13%, Thermo/Stat Mech 10%, Atomic 10%, Optics/Waves 8%, Special Rel 6%, Lab 6%, Specialized 9%.
-- Subscores (0–100, not equated): Classical Mechanics, E&M, Quantum + Atomic.
+- The official report is a single total score, with no separately reported subscores. pgrep additionally breaks results down per blueprint category to drive coverage and the next-best-topic nudge.
 
 ## Core thesis
 
@@ -111,3 +114,11 @@ The PGRE is **problem-solving-heavy, fact-recall-light** — so flashcards are i
 - **Memory** = P(recall now) → FSRS, verified on held-out reviews.
 - **Performance** = P(correct on a _new_ exam-style question) → held-out item bank.
 - **Readiness** = projected score with explicit range + uncertainty + coverage.
+
+## Submission status and known limitations
+
+The spec rewards honest numbers over flattering ones, and honest negatives count as results. These are reported as such (detail in [`ai/ai-layer.md`](ai/ai-layer.md), [`ai/cutoffs-and-baselines.md`](ai/cutoffs-and-baselines.md), and the ablation run notes).
+
+- **AI generation passes provenance and beats every baseline, but does not fully clear the pre-registered absolute cutoffs.** Under the human adjudicator of record, generated cards clear useful-yield (0.84 vs 0.80) but miss fact-precision by one step (~0.90 vs 0.95). Generated problems fall short on the absolute bars (key-correctness ~0.69 vs 0.95, distractor quality ~0.67 vs 0.70, useful-yield ~0.64 vs 0.75), dragged down by a ~~31% refusal rate even though the shipped non-refused problems score high (key 1.00). Every output still cites a named source or is refused, the AI beats keyword and vector retrieval (~~+0.74 cards, ~~+0.67 problems) and naive-distractor generation (~~+0.42) with CIs excluding zero, and the leakage firewall is green. The remaining gap is generation hardening, not gold-set or methodology.
+- **The study-feature ablation is a simulation, not a human trial, and it reports a real negative.** On synthetic learners (n=1, pre-registered), the interleaving selector beats the blocked variant in all six configs (CIs exclude zero), and beats plain Anki at 20 and 30 reviews/day, but **loses to plain Anki at 10 reviews/day** (an explained difficulty-band trade-off at the scarcest budget). K=3 anti-blocking is memory-neutral by construction. The feature does not robustly beat stock Anki at every budget, reported plainly.
+- **The iOS app is a review + scores + sync companion, being extended toward parity.** It runs real review sessions on the shared Rust engine via the C FFI, shows the three scores, and syncs two-way with desktop (`just ios-sync-proof`). It is a companion by design, not yet a full mirror of the desktop surfaces.

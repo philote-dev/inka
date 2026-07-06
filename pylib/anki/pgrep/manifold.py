@@ -34,15 +34,87 @@ if TYPE_CHECKING:
 # label placement in ``ts/lib/pgrep/manifold.ts`` (the design's fixed layout);
 # only the terrain below is driven by live data.
 _LAYOUT: tuple[dict[str, Any], ...] = (
-    {"topic": "mechanics", "name": "Classical Mechanics", "x": -0.6, "y": -0.5, "dx": -60, "dy": -44, "tf": "translate(-100%, -100%)"},  # noqa: E501
-    {"topic": "electromagnetism", "name": "Electromagnetism", "x": 0.56, "y": -0.48, "dx": 30, "dy": -60, "tf": "translate(0, -100%)"},  # noqa: E501
-    {"topic": "optics_waves", "name": "Optics & Waves", "x": 1.0, "y": -0.14, "dx": 54, "dy": -22, "tf": "translate(0, -100%)"},  # noqa: E501
-    {"topic": "thermodynamics", "name": "Thermo & Stat Mech", "x": -1.05, "y": 0.14, "dx": -54, "dy": 26, "tf": "translate(-100%, 0)"},  # noqa: E501
-    {"topic": "quantum", "name": "Quantum Mechanics", "x": 0.16, "y": 0.6, "dx": -60, "dy": 190, "tf": "translate(-100%, 0)"},  # noqa: E501
-    {"topic": "atomic", "name": "Atomic Physics", "x": 0.72, "y": 0.4, "dx": 64, "dy": 46, "tf": "translate(0, 0)"},  # noqa: E501
-    {"topic": "special_relativity", "name": "Special Relativity", "x": -0.56, "y": 0.62, "dx": -50, "dy": 62, "tf": "translate(-100%, 0)"},  # noqa: E501
-    {"topic": "lab", "name": "Laboratory Methods", "x": -0.05, "y": -0.62, "dx": 10, "dy": -60, "tf": "translate(-50%, -100%)"},  # noqa: E501
-    {"topic": "specialized", "name": "Specialized Topics", "x": 0.16, "y": 0.04, "dx": 30, "dy": 195, "tf": "translate(0, 0)"},  # noqa: E501
+    {
+        "topic": "mechanics",
+        "name": "Classical Mechanics",
+        "x": -0.6,
+        "y": -0.5,
+        "dx": -60,
+        "dy": -44,
+        "tf": "translate(-100%, -100%)",
+    },  # noqa: E501
+    {
+        "topic": "electromagnetism",
+        "name": "Electromagnetism",
+        "x": 0.56,
+        "y": -0.48,
+        "dx": 30,
+        "dy": -60,
+        "tf": "translate(0, -100%)",
+    },  # noqa: E501
+    {
+        "topic": "optics_waves",
+        "name": "Optics & Waves",
+        "x": 1.0,
+        "y": -0.14,
+        "dx": 54,
+        "dy": -22,
+        "tf": "translate(0, -100%)",
+    },  # noqa: E501
+    {
+        "topic": "thermodynamics",
+        "name": "Thermo & Stat Mech",
+        "x": -1.05,
+        "y": 0.14,
+        "dx": -54,
+        "dy": 26,
+        "tf": "translate(-100%, 0)",
+    },  # noqa: E501
+    {
+        "topic": "quantum",
+        "name": "Quantum Mechanics",
+        "x": 0.16,
+        "y": 0.6,
+        "dx": -60,
+        "dy": 190,
+        "tf": "translate(-100%, 0)",
+    },  # noqa: E501
+    {
+        "topic": "atomic",
+        "name": "Atomic Physics",
+        "x": 0.72,
+        "y": 0.4,
+        "dx": 64,
+        "dy": 46,
+        "tf": "translate(0, 0)",
+    },  # noqa: E501
+    {
+        "topic": "special_relativity",
+        "name": "Special Relativity",
+        "x": -0.56,
+        "y": 0.62,
+        "dx": -50,
+        "dy": 62,
+        "tf": "translate(-100%, 0)",
+    },  # noqa: E501
+    {
+        "topic": "lab",
+        "name": "Laboratory Methods",
+        "x": -0.05,
+        "y": -0.62,
+        "dx": 10,
+        "dy": -60,
+        "tf": "translate(-50%, -100%)",
+    },  # noqa: E501
+    {
+        "topic": "specialized",
+        "name": "Specialized Topics",
+        "x": 0.16,
+        "y": 0.04,
+        "dx": 30,
+        "dy": 195,
+        "tf": "translate(0, 0)",
+    },  # noqa: E501
 )
 
 # Design constants for the map frame (copied from the renderer's FULL_SURFACE so
@@ -79,7 +151,9 @@ def manifold_surface(col: Collection, deck_id: int | None = None) -> dict[str, A
     a gentle unlit base, a studied area rises and glows, a known-weak area opens a
     hole. Nothing here invents a number; the terrain is the Memory primitive.
     """
-    by_category = {e["category"]: e for e in memory_score(col, deck_id=deck_id)["by_topic"]}
+    by_category = {
+        e["category"]: e for e in memory_score(col, deck_id=deck_id)["by_topic"]
+    }
     placement = _diagnostic_placement(col)
 
     bumps: list[dict[str, Any]] = []
@@ -108,7 +182,9 @@ def manifold_surface(col: Collection, deck_id: int | None = None) -> dict[str, A
         if lit:
             glows.append({"x": x, "y": y, "c": _MEMORY_HUE})
 
-        known_weak = place == "rusty" or (point is not None and float(point) < _WEAK_MEMORY)
+        known_weak = place == "rusty" or (
+            point is not None and float(point) < _WEAK_MEMORY
+        )
         if known_weak:
             holes.append({"x": x, "y": y, "rx": 0.16, "ry": 0.1, "rot": 0.0})
             dips.append({"x": x, "y": y, "h": 0.12, "s": 0.26})

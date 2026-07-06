@@ -20,7 +20,7 @@ _Clarification (locked):_ the scores stay co-equal for honesty. The thesis bias 
 - **Fill true gaps** _(DEFERRED — teaching fallback, post-core)_ — curated (bundled) learning content for genuinely cold topics. Deferred because the persona is post-undergrad (already oriented), so interleaving needs no cold-start on-ramp. Revisit after the three pillars work; when built, it will also supply a traceable "named source" for AI items.
 - **Build memory** — flashcards for concepts, equations, techniques, spaced.
 - **Build performance** — exam-style problems that test _application_ to novel questions; help that pushes the learner's reasoning before revealing answers.
-- **Build readiness** — full timed, PGRE-shaped mocks (~70Q / 2h, no guessing penalty).
+- **Build readiness** — full timed, PGRE-shaped mocks (100Q / 170 min, quarter-point wrong-answer penalty, scaled 200 to 990).
 - **Know where you stand** — one honest view of memory / performance / readiness, with gaps named.
 - **Know what to do next** — a coverage-aware daily study mix.
 - **Learn from mistakes** — misses resurface, and optionally become new items.

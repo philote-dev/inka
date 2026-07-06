@@ -31,6 +31,16 @@ struct ReviewCard: Sendable, Equatable {
     var remaining: Int
 }
 
+/// The four pgrep read-outs, computed together in one engine pass so Home and
+/// Progress share a single consistent snapshot (Memory feeds Performance and
+/// Coverage; Performance feeds Readiness), exactly like desktop composes them.
+struct Scoreboard: Sendable, Equatable {
+    var memory: MemoryResult
+    var performance: PerformanceResult
+    var readiness: ReadinessResult
+    var coverage: CoverageResult
+}
+
 /// The outcome of a sync attempt.
 enum SyncOutcome: Sendable, Equatable {
     /// A normal sync merged (or there was nothing to do), or a first-run full
@@ -131,31 +141,120 @@ final class Engine: @unchecked Sendable {
         }
     }
 
-    // MARK: Home (Memory)
+    // MARK: Home (the three scores)
 
     /// Compute the native Memory score by folding the engine's own per-card FSRS
     /// retrievability over topic categories (identical primitive to desktop).
     func computeMemory() async throws -> MemoryResult {
         try await perform { backend in
-            let cardIds = try backend.searchCards(matching: "tag:topic::*")
-            var samples: [(category: String, r: Double)] = []
-            var tagCache: [Int64: [String]] = [:]
-            for cid in cardIds {
-                let stats = try backend.cardStats(cardId: cid)
-                // No FSRS state means new/unreviewed; excluded, exactly like the
-                // desktop SQL (retrievability IS NULL).
-                guard stats.hasFsrsRetrievability else { continue }
-                let nid = stats.noteID
-                let tags: [String]
-                if let cached = tagCache[nid] {
-                    tags = cached
-                } else {
-                    tags = try backend.getNote(noteId: nid).tags
-                    tagCache[nid] = tags
-                }
-                samples.append((Topic.category(forTags: tags), Double(stats.fsrsRetrievability)))
+            try Engine.memoryResult(backend)
+        }
+    }
+
+    /// Compute all three honest scores plus coverage in one engine pass, exactly
+    /// how desktop composes them: Memory folds FSRS retrievability; Performance
+    /// folds the attempt log with Memory as the mastery bridge; Readiness
+    /// projects the scaled score from Performance; Coverage is the reviewed-card
+    /// ledger over Memory. With no attempt data (a phone that has not synced
+    /// problem work), Performance and Readiness abstain honestly for the right
+    /// reason rather than showing a fabricated number.
+    func computeScoreboard() async throws -> Scoreboard {
+        try await perform { backend in
+            let now = Date()
+            let memory = try Engine.memoryResult(backend, now: now)
+            let events = try Engine.attemptEvents(backend)
+            let performance = PerformanceScore.compute(
+                events: events,
+                masteryByCategory: memory.masteryByCategory,
+                now: now
+            )
+            let readiness = ReadinessScore.compute(performance: performance)
+            let coverage = CoverageScore.compute(memory: memory)
+            return Scoreboard(
+                memory: memory,
+                performance: performance,
+                readiness: readiness,
+                coverage: coverage
+            )
+        }
+    }
+
+    /// Fold the Memory score from the engine's per-card FSRS retrievability.
+    /// Static so both `computeMemory` and `computeScoreboard` share one pass and
+    /// proto types stay on the engine's serial context.
+    private static func memoryResult(_ backend: AnkiBackend, now: Date = Date()) throws -> MemoryResult {
+        let cardIds = try backend.searchCards(matching: "tag:topic::*")
+        var samples: [(category: String, r: Double)] = []
+        var tagCache: [Int64: [String]] = [:]
+        for cid in cardIds {
+            let stats = try backend.cardStats(cardId: cid)
+            // No FSRS state means new/unreviewed; excluded, exactly like the
+            // desktop SQL (retrievability IS NULL).
+            guard stats.hasFsrsRetrievability else { continue }
+            let nid = stats.noteID
+            let tags: [String]
+            if let cached = tagCache[nid] {
+                tags = cached
+            } else {
+                tags = try backend.getNote(noteId: nid).tags
+                tagCache[nid] = tags
             }
-            return MemoryScore.fold(samples: samples)
+            samples.append((Topic.category(forTags: tags), Double(stats.fsrsRetrievability)))
+        }
+        return MemoryScore.fold(samples: samples, now: now)
+    }
+
+    /// Read every immutable attempt-log note and parse it into an `AttemptEvent`,
+    /// oldest-first (the Performance recency window relies on the order). These
+    /// are ordinary synced Anki notes, so this is exactly what desktop wrote.
+    /// Malformed blobs are skipped, matching the desktop read-model seam.
+    private static func attemptEvents(_ backend: AnkiBackend) throws -> [AttemptEvent] {
+        let noteIds = try backend.searchNotes(matching: AttemptLog.search)
+        var events: [AttemptEvent] = []
+        events.reserveCapacity(noteIds.count)
+        for nid in noteIds {
+            let note = try backend.getNote(noteId: nid)
+            guard note.fields.count > AttemptLog.eventJsonFieldIndex else { continue }
+            if let event = AttemptParser.parse(note.fields[AttemptLog.eventJsonFieldIndex]) {
+                events.append(event)
+            }
+        }
+        events.sort { $0.answeredAt < $1.answeredAt }
+        return events
+    }
+
+    // MARK: Exam (Problems, read-only)
+
+    /// Load every `pgrep::Problem` note from the collection as an `ExamProblem`.
+    /// Read-only: the stem, choices, correct letter, category, and authored
+    /// difficulty are all that Exam mode needs. Empty on a phone whose collection
+    /// carries no problems yet (the exam screen then says so honestly). Assembly
+    /// and scoring are pure (ExamAssembly / ExamScore) and run off the engine.
+    func loadProblems() async throws -> [ExamProblem] {
+        try await perform { backend in
+            let noteIds = try backend.searchNotes(matching: ProblemNote.search)
+            var problems: [ExamProblem] = []
+            problems.reserveCapacity(noteIds.count)
+            for nid in noteIds {
+                let note = try backend.getNote(noteId: nid)
+                guard note.fields.count > ProblemNote.correctIndex else { continue }
+                let choices = ProblemNote.parseChoices(note.fields[ProblemNote.choicesIndex])
+                guard !choices.isEmpty else { continue }
+                let correct = note.fields[ProblemNote.correctIndex]
+                    .trimmingCharacters(in: .whitespaces).uppercased()
+                let difficulty = note.fields.count > ProblemNote.difficultyIndex
+                    ? ProblemNote.parseDifficulty(note.fields[ProblemNote.difficultyIndex])
+                    : nil
+                problems.append(ExamProblem(
+                    noteId: note.id,
+                    stem: note.fields[ProblemNote.stemIndex],
+                    choices: choices,
+                    correctLetter: correct,
+                    category: Topic.category(forTags: note.tags),
+                    difficulty: difficulty
+                ))
+            }
+            return problems
         }
     }
 

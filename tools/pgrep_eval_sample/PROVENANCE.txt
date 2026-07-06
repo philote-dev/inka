@@ -1,0 +1,39 @@
+pgrep public evaluation sample
+==============================
+
+WHAT THIS IS
+  A tiny, fully synthetic dataset that lets anyone who clones the PUBLIC pgrep
+  repo re-run the AI-evaluation methodology and get the same numbers, without
+  the private content/ tree. It is a METHODOLOGY DEMONSTRATOR, not the real gate.
+
+  The real gold sets, held-out ETS forms, corpus, and scoring harness live in the
+  git-ignored private content/ tree and are never committed. This sample mirrors
+  the SHAPE of that evaluation on data that is safe to publish.
+
+LICENSE / ORIGIN (safe to commit)
+  Everything here is CC0-1.0, hand-written from scratch for testing. It states
+  only standard textbook physics facts (which are not copyrightable) in original
+  wording. It contains NO ETS/GRE items, NO OpenStax or Fitzpatrick text, and NO
+  other third-party content. There is no leakage: the gold and held-out items are
+  phrased independently of the corpus passages.
+
+CONTENTS
+  corpus/corpus.json      12 synthetic physics passages (the retrieval corpus the
+                          keyword and embedding-free baselines search, and the
+                          source the AI candidates cite).
+  gold/cards.json         8 gold flashcards with known answers.
+  gold/problems.json      6 gold MCQs, 5 misconception-tagged choices each, one key.
+  heldout/heldout.json    4 held-out MCQs (never in the corpus, never graded here);
+                          used by the seen-vs-held report and the copy-in check.
+
+HOW TO RUN
+  out/pyenv/bin/python tools/pgrep_eval_public.py
+  # or, once the recipe is added:  just eval-public
+
+  Add --help for options, --json for a machine-readable report, and --inject-leak
+  to prove the leakage guard fails loudly (exit code 1) on contamination.
+
+  The script needs only the Python standard library plus numpy. It runs offline,
+  needs no API key, and never reads the private content/ tree. It reads only this
+  sample directory plus the tracked docs_pgrep/ai/cutoffs-and-baselines.md for the
+  frozen cutoffs (with an embedded fallback when that doc is absent).

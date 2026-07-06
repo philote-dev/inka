@@ -20,6 +20,7 @@ Modes:
 
 Fields are deduplicated before calling the model and converted concurrently.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -115,7 +116,9 @@ class Converter:
         self._base = [{"role": "system", "content": SYSTEM}]
         for src, dst in FEWSHOT:
             self._base.append({"role": "user", "content": src})
-            self._base.append({"role": "assistant", "content": json.dumps({"text": dst})})
+            self._base.append(
+                {"role": "assistant", "content": json.dumps({"text": dst})}
+            )
 
     def _parse(self, content: str, fallback: str) -> str:
         content = (content or "").strip()
@@ -151,7 +154,10 @@ class Converter:
                 return self._parse(resp.choices[0].message.content, text)
             except Exception as e:  # noqa: BLE001 - try the next, simpler param set
                 last = e
-        print(f"  ! convert failed: {type(last).__name__}: {str(last)[:160]}", file=sys.stderr)
+        print(
+            f"  ! convert failed: {type(last).__name__}: {str(last)[:160]}",
+            file=sys.stderr,
+        )
         return text
 
 
@@ -178,25 +184,70 @@ def candidates(bundle: dict) -> list[dict]:
         for f in CARD_FIELDS:
             v = c.get(f)
             if isinstance(v, str) and needs_math(v):
-                out.append({"kind": "card", "ci": ci, "id": c.get("id"), "path": (f,), "field": f, "before": v})
+                out.append(
+                    {
+                        "kind": "card",
+                        "ci": ci,
+                        "id": c.get("id"),
+                        "path": (f,),
+                        "field": f,
+                        "before": v,
+                    }
+                )
     for pi, p in enumerate(bundle.get("problems", [])):
         pid = p.get("id")
         if isinstance(p.get("stem"), str) and needs_math(p["stem"]):
-            out.append({"kind": "problem", "pi": pi, "id": pid, "path": ("stem",), "field": "stem", "before": p["stem"]})
+            out.append(
+                {
+                    "kind": "problem",
+                    "pi": pi,
+                    "id": pid,
+                    "path": ("stem",),
+                    "field": "stem",
+                    "before": p["stem"],
+                }
+            )
         for i, ch in enumerate(p.get("choices", []) or []):
             if isinstance(ch, str) and needs_math(ch):
-                out.append({"kind": "problem", "pi": pi, "id": pid, "path": ("choices", i), "field": f"choices[{i}]", "before": ch})
+                out.append(
+                    {
+                        "kind": "problem",
+                        "pi": pi,
+                        "id": pid,
+                        "path": ("choices", i),
+                        "field": f"choices[{i}]",
+                        "before": ch,
+                    }
+                )
         for i, d in enumerate(p.get("distractors", []) or []):
             # Only the user-facing rationale. "misconception" is an internal
             # snake_case taxonomy slug (for example zero_speed_at_top), not math.
             v = d.get("rationale") if isinstance(d, dict) else None
             if isinstance(v, str) and needs_math(v):
-                out.append({"kind": "problem", "pi": pi, "id": pid, "path": ("distractors", i, "rationale"), "field": f"distractors[{i}].rationale", "before": v})
+                out.append(
+                    {
+                        "kind": "problem",
+                        "pi": pi,
+                        "id": pid,
+                        "path": ("distractors", i, "rationale"),
+                        "field": f"distractors[{i}].rationale",
+                        "before": v,
+                    }
+                )
         for i, sd in enumerate(p.get("solution_decomposition", []) or []):
             for f in ("subgoal", "rubric"):
                 v = sd.get(f) if isinstance(sd, dict) else None
                 if isinstance(v, str) and needs_math(v):
-                    out.append({"kind": "problem", "pi": pi, "id": pid, "path": ("solution_decomposition", i, f), "field": f"solution_decomposition[{i}].{f}", "before": v})
+                    out.append(
+                        {
+                            "kind": "problem",
+                            "pi": pi,
+                            "id": pid,
+                            "path": ("solution_decomposition", i, f),
+                            "field": f"solution_decomposition[{i}].{f}",
+                            "before": v,
+                        }
+                    )
     return out
 
 
@@ -213,14 +264,18 @@ def convert_unique(conv: Converter, strings: list[str], workers: int) -> dict[st
     return mapping
 
 
-def set_at(container: dict, item_index_key: str, pi: int, path: tuple, value: str) -> None:
+def set_at(
+    container: dict, item_index_key: str, pi: int, path: tuple, value: str
+) -> None:
     node = container[item_index_key][pi]
     for key in path[:-1]:
         node = node[key]
     node[path[-1]] = value
 
 
-def write_report(md_path: str, model: str, records: list[dict], scope: tuple[int, int]) -> int:
+def write_report(
+    md_path: str, model: str, records: list[dict], scope: tuple[int, int]
+) -> int:
     n_card, n_prob = scope
     flagged = [r for r in records if not r["ok_balanced"] or not r["ok_prose"]]
     lines = [
@@ -244,7 +299,22 @@ def write_report(md_path: str, model: str, records: list[dict], scope: tuple[int
         head = f"## {r['id']} . {r['field']}"
         if flags:
             head += "  [" + ", ".join(flags) + "]"
-        lines += [head, "", "BEFORE", "", "```", r["before"], "```", "", "AFTER", "", "```", r["after"], "```", ""]
+        lines += [
+            head,
+            "",
+            "BEFORE",
+            "",
+            "```",
+            r["before"],
+            "```",
+            "",
+            "AFTER",
+            "",
+            "```",
+            r["after"],
+            "```",
+            "",
+        ]
     Path(md_path).write_text("\n".join(lines))
     return len(flagged)
 
@@ -252,14 +322,26 @@ def write_report(md_path: str, model: str, records: list[dict], scope: tuple[int
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--bundle", default=str(DEFAULT_BUNDLE))
-    ap.add_argument("--sample", action="store_true", help="convert a small review set; write no bundle")
-    ap.add_argument("--apply", action="store_true", help="convert everything; write a NEW bundle to --out")
+    ap.add_argument(
+        "--sample",
+        action="store_true",
+        help="convert a small review set; write no bundle",
+    )
+    ap.add_argument(
+        "--apply",
+        action="store_true",
+        help="convert everything; write a NEW bundle to --out",
+    )
     ap.add_argument("--limit", type=int, default=10, help="sample size (sample mode)")
     ap.add_argument("--ids", nargs="*", default=None)
     ap.add_argument("--model", default="gpt-4o")
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--env-file", default=None)
-    ap.add_argument("--out", default=None, help="apply: converted bundle path (default alongside source)")
+    ap.add_argument(
+        "--out",
+        default=None,
+        help="apply: converted bundle path (default alongside source)",
+    )
     ap.add_argument("--md", default=None, help="report path")
     args = ap.parse_args()
 
@@ -270,7 +352,9 @@ def main() -> int:
         cands = [c for c in cands if c["id"] in wanted]
     n_card = sum(1 for c in cands if c["kind"] == "card")
     n_prob = len(cands) - n_card
-    print(f"candidates needing conversion: {len(cands)} ({n_card} card, {n_prob} problem)")
+    print(
+        f"candidates needing conversion: {len(cands)} ({n_card} card, {n_prob} problem)"
+    )
 
     if not (args.sample or args.apply):
         print("Pass --sample or --apply.")
@@ -278,25 +362,32 @@ def main() -> int:
 
     picks = cands
     if args.sample:
-        cards_first = [c for c in cands if c["kind"] == "card"] + [c for c in cands if c["kind"] == "problem"]
+        cards_first = [c for c in cands if c["kind"] == "card"] + [
+            c for c in cands if c["kind"] == "problem"
+        ]
         picks = cards_first[: args.limit]
 
     key = load_key(args.env_file)
     conv = Converter(args.model, key)
-    print(f"model: {args.model}; workers: {args.workers}; converting {len(picks)} fields...", flush=True)
+    print(
+        f"model: {args.model}; workers: {args.workers}; converting {len(picks)} fields...",
+        flush=True,
+    )
     mapping = convert_unique(conv, [c["before"] for c in picks], args.workers)
 
     records = []
     for c in picks:
         after = mapping.get(c["before"], c["before"])
-        records.append({
-            **{k: c[k] for k in ("kind", "id", "field", "before")},
-            "loc": c,
-            "after": after,
-            "ok_balanced": balanced(after),
-            "ok_prose": prose_preserved(c["before"], after),
-            "changed": after != c["before"],
-        })
+        records.append(
+            {
+                **{k: c[k] for k in ("kind", "id", "field", "before")},
+                "loc": c,
+                "after": after,
+                "ok_balanced": balanced(after),
+                "ok_prose": prose_preserved(c["before"], after),
+                "changed": after != c["before"],
+            }
+        )
 
     if args.apply:
         out_bundle = copy.deepcopy(bundle)
@@ -305,8 +396,12 @@ def main() -> int:
             key_name = "cards" if c["kind"] == "card" else "problems"
             idx = c.get("ci") if c["kind"] == "card" else c.get("pi")
             set_at(out_bundle, key_name, idx, c["path"], r["after"])
-        out_path = args.out or str(Path(args.bundle).with_name("content_bundle.converted.json"))
-        Path(out_path).write_text(json.dumps(out_bundle, indent=2, ensure_ascii=False) + "\n")
+        out_path = args.out or str(
+            Path(args.bundle).with_name("content_bundle.converted.json")
+        )
+        Path(out_path).write_text(
+            json.dumps(out_bundle, indent=2, ensure_ascii=False) + "\n"
+        )
         md_path = args.md or "tools/mathconv_report.md"
         n_flag = write_report(md_path, args.model, records, (n_card, n_prob))
         n_unchanged = sum(1 for r in records if not r["changed"])
@@ -319,9 +414,31 @@ def main() -> int:
     # sample
     out_path = args.out or "tools/mathconv_sample.json"
     md_path = args.md or "tools/mathconv_sample.md"
-    Path(out_path).write_text(json.dumps({"model": args.model, "results": [
-        {k: r[k] for k in ("kind", "id", "field", "before", "after", "ok_balanced", "ok_prose", "changed")} for r in records
-    ]}, indent=2, ensure_ascii=False))
+    Path(out_path).write_text(
+        json.dumps(
+            {
+                "model": args.model,
+                "results": [
+                    {
+                        k: r[k]
+                        for k in (
+                            "kind",
+                            "id",
+                            "field",
+                            "before",
+                            "after",
+                            "ok_balanced",
+                            "ok_prose",
+                            "changed",
+                        )
+                    }
+                    for r in records
+                ],
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
     n_flag = write_report(md_path, args.model, records, (n_card, n_prob))
     print(f"wrote {out_path} and {md_path}")
     print(f"flagged for closer look: {n_flag}/{len(records)}")

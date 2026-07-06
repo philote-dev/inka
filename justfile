@@ -130,6 +130,32 @@ run-ai *args:
     echo ">>> Launching pgrep with AI available (model ${PGREP_AI_MODEL}). Toggle it on in Settings."
     ./run {{ args }}
 
+# Reproduce the AI-eval methodology on a committed synthetic sample, offline, with no
+# API key and no private content/ tree, so anyone cloning the public repo gets the same
+# result. Mirrors the gold-set gate: headline metrics with bootstrap CIs, a keyword
+# (BM25) and an embedding-free (TF-IDF) baseline, the beat-baseline rule, and the
+# leakage firewall. Exits non-zero on contamination. macOS/Linux.
+[unix]
+eval-public *args:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python -c "import numpy" 2>/dev/null || {{ uv }} pip install --python out/pyenv/bin/python numpy
+    out/pyenv/bin/python tools/pgrep_eval_public.py {{ args }}
+
+# Benchmark pgrep engine latency (spec 7h/10): p50/p95/worst for next-card, answer, the
+# three scores, coverage, and the dashboard, on up to 50k cards. macOS/Linux.
+# Example: `just bench --cards 50000`.
+[unix]
+bench *args:
+    {{ ninja }} pylib
+    out/pyenv/bin/python tools/pgrep_bench.py {{ args }}
+
+# Crash/corruption test (spec 7g): 20 mid-review SIGKILLs, reopen + integrity check,
+# assert zero corruption and no lost committed reviews. macOS/Linux.
+[unix]
+crash-test *args:
+    {{ ninja }} pylib
+    out/pyenv/bin/python tools/pgrep_crash_test.py {{ args }}
+
 [private]
 _test:
     {{ ninja }} check:rust_test check:pytest check:vitest

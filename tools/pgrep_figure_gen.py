@@ -17,6 +17,7 @@ repositions labels clear of the geometry, and adds viewBox padding. Output is a
 JSON map (id -> svg) plus an HTML preview showing each figure in a light and a
 dark panel. Never modifies content_bundle.json.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -63,9 +64,15 @@ class Gen:
     def _call(self, messages) -> str:
         temp = {} if self._reasoning else {"temperature": 0}
         last = None
-        for extra in (dict(response_format={"type": "json_object"}, **temp), dict(**temp), dict()):
+        for extra in (
+            dict(response_format={"type": "json_object"}, **temp),
+            dict(**temp),
+            dict(),
+        ):
             try:
-                r = self.client.chat.completions.create(model=self.model, messages=messages, **extra)
+                r = self.client.chat.completions.create(
+                    model=self.model, messages=messages, **extra
+                )
                 raw = (r.choices[0].message.content or "{}").strip()
                 try:
                     return json.loads(raw).get("svg", "")
@@ -78,18 +85,25 @@ class Gen:
         return ""
 
     def svg_for(self, stem: str, hint: str) -> str:
-        return self._call([
-            {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": f"Category: {hint}\n\nProblem stem:\n{stem}\n\nDraw the figure a test would print for this problem."},
-        ])
+        return self._call(
+            [
+                {"role": "system", "content": SYSTEM},
+                {
+                    "role": "user",
+                    "content": f"Category: {hint}\n\nProblem stem:\n{stem}\n\nDraw the figure a test would print for this problem.",
+                },
+            ]
+        )
 
     def refine(self, svg: str) -> str:
         if not svg.strip().startswith("<svg"):
             return svg
-        out = self._call([
-            {"role": "system", "content": REFINE_SYSTEM},
-            {"role": "user", "content": svg},
-        ])
+        out = self._call(
+            [
+                {"role": "system", "content": REFINE_SYSTEM},
+                {"role": "user", "content": svg},
+            ]
+        )
         return out if out.strip().startswith("<svg") else svg
 
 
@@ -98,7 +112,11 @@ def load_key(env_file: str | None) -> str:
 
     if os.environ.get("OPENAI_API_KEY"):
         return os.environ["OPENAI_API_KEY"]
-    for path in [Path(env_file) if env_file else None, REPO / "content" / ".env", REPO / ".env"]:
+    for path in [
+        Path(env_file) if env_file else None,
+        REPO / "content" / ".env",
+        REPO / ".env",
+    ]:
         if path and path.is_file():
             for line in path.read_text().splitlines():
                 if line.strip().startswith("OPENAI_API_KEY="):
@@ -108,9 +126,15 @@ def load_key(env_file: str | None) -> str:
 
 def category_hint(topic: str, text: str) -> str:
     t = text.lower()
-    if re.search(r"circuit|capacitor|resistor|inductor|rlc|ammeter|voltmeter|emf|battery|reactance|impedance", t):
+    if re.search(
+        r"circuit|capacitor|resistor|inductor|rlc|ammeter|voltmeter|emf|battery|reactance|impedance",
+        t,
+    ):
         return "circuit diagram"
-    if re.search(r"incline|pulley|ramp|projectile|block|spring|rod|rails|loop|pendulum|collision", t):
+    if re.search(
+        r"incline|pulley|ramp|projectile|block|spring|rod|rails|loop|pendulum|collision",
+        t,
+    ):
         return "mechanics setup with free-body arrows"
     if re.search(r"p-?v|isotherm|carnot|adiabatic|cycle", t):
         return "P-V diagram with labeled points"
@@ -122,7 +146,7 @@ def category_hint(topic: str, text: str) -> str:
 def build_html(out: list[dict]) -> str:
     def panel(cls, bg, fg):
         cards = "".join(
-            f'<div class="fig"><div class="stem">{r["id"]} &mdash; {r.get("hint","")}</div>'
+            f'<div class="fig"><div class="stem">{r["id"]} &mdash; {r.get("hint", "")}</div>'
             f'<div class="stemtext">{(r.get("stem") or "")[:180]}</div>'
             f'<div class="svgbox">{r.get("svg") or "<em>(empty)</em>"}</div></div>'
             for r in out
@@ -145,8 +169,16 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--bundle", default=str(DEFAULT_BUNDLE))
     ap.add_argument("--ids", nargs="*", default=None)
-    ap.add_argument("--refine-json", default=None, help="refine the SVGs in an existing output json instead of generating")
-    ap.add_argument("--no-refine", action="store_true", help="skip the cleanup pass in generate mode")
+    ap.add_argument(
+        "--refine-json",
+        default=None,
+        help="refine the SVGs in an existing output json instead of generating",
+    )
+    ap.add_argument(
+        "--no-refine",
+        action="store_true",
+        help="skip the cleanup pass in generate mode",
+    )
     ap.add_argument("--model", default="gpt-5.5")
     ap.add_argument("--env-file", default=None)
     ap.add_argument("--json", default="tools/figure_pilot.json")
@@ -169,11 +201,15 @@ def main() -> int:
         bundle = json.loads(Path(args.bundle).read_text())
         by_id = {p["id"]: p for p in bundle["problems"]}
         picks = [by_id[i] for i in args.ids if i in by_id]
-        print(f"model: {args.model}; generating {len(picks)} figures (refine={'off' if args.no_refine else 'on'})...")
+        print(
+            f"model: {args.model}; generating {len(picks)} figures (refine={'off' if args.no_refine else 'on'})..."
+        )
         out = []
         for p in picks:
             stem = p.get("stem", "")
-            hint = category_hint(p.get("topic", ""), stem + " " + " ".join(p.get("choices", [])))
+            hint = category_hint(
+                p.get("topic", ""), stem + " " + " ".join(p.get("choices", []))
+            )
             svg = gen.svg_for(stem, hint)
             if not args.no_refine and svg.strip().startswith("<svg"):
                 svg = gen.refine(svg)

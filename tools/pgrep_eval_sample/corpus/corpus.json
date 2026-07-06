@@ -1,0 +1,103 @@
+{
+    "_about": "Synthetic, hand-written physics passages for the public evaluation demo. Standard textbook physics facts (not copyrightable) phrased from scratch. Contains NO ETS, OpenStax, Fitzpatrick, or any third-party text. Safe to commit.",
+    "license": "CC0-1.0",
+    "synthetic": true,
+    "passages": [
+        {
+            "chunk_id": "syn-0001",
+            "source_ref": "Synthetic Physics Notes, sec 1 Free Fall",
+            "source_title": "Synthetic Physics Notes (CC0, hand-written)",
+            "license": "CC0-1.0",
+            "synthetic": true,
+            "text": "Near the surface of the Earth an object in free fall speeds up downward at a nearly constant rate, written g, of about ten meters per second squared once air drag is set aside. Starting from rest, the distance covered grows with the square of the elapsed time, while the downward speed grows in direct proportion to time."
+        },
+        {
+            "chunk_id": "syn-0002",
+            "source_ref": "Synthetic Physics Notes, sec 2 Kinetic Energy",
+            "source_title": "Synthetic Physics Notes (CC0, hand-written)",
+            "license": "CC0-1.0",
+            "synthetic": true,
+            "text": "The translational kinetic energy of a moving body is one half of its mass times the square of its speed. Because speed enters as a square, doubling the speed makes the kinetic energy four times larger. The net work a force does on an object equals the change it produces in this kinetic energy."
+        },
+        {
+            "chunk_id": "syn-0003",
+            "source_ref": "Synthetic Physics Notes, sec 3 Gauss Law",
+            "source_title": "Synthetic Physics Notes (CC0, hand-written)",
+            "license": "CC0-1.0",
+            "synthetic": true,
+            "text": "Gauss set out how electric field lines threading outward through any closed surface tie back to the charge sitting inside it. Summed over the whole surface, the outward electric flux is fixed by the enclosed charge alone, scaled by the permittivity of empty space, and it does not care about the exact shape of the surface chosen."
+        },
+        {
+            "chunk_id": "syn-0004",
+            "source_ref": "Synthetic Physics Notes, sec 4 Capacitors",
+            "source_title": "Synthetic Physics Notes (CC0, hand-written)",
+            "license": "CC0-1.0",
+            "synthetic": true,
+            "text": "A parallel plate capacitor holds charge on two conducting sheets kept a small gap apart. Its capacitance climbs with the facing plate area and drops as the gap between the plates is widened. Sliding a dielectric slab into the gap lifts the capacitance by the material dielectric constant."
+        },
+        {
+            "chunk_id": "syn-0005",
+            "source_ref": "Synthetic Physics Notes, sec 5 Simple Harmonic Motion",
+            "source_title": "Synthetic Physics Notes (CC0, hand-written)",
+            "license": "CC0-1.0",
+            "synthetic": true,
+            "text": "A block joined to an ideal spring rocks back and forth in simple harmonic motion. The angular frequency of that motion is the square root of the spring stiffness divided by the block mass, so a stiffer spring or a lighter block both quicken the cycle. The restoring force grows in step with the displacement from rest."
+        },
+        {
+            "chunk_id": "syn-0006",
+            "source_ref": "Synthetic Physics Notes, sec 6 Amplitude and Period",
+            "source_title": "Synthetic Physics Notes (CC0, hand-written)",
+            "license": "CC0-1.0",
+            "synthetic": true,
+            "text": "One striking trait of ideal simple harmonic motion is that the time for one full cycle pays no attention to how wide the swing is. Whether the amplitude is large or small the period stays fixed, a property named isochronism that holds so long as the restoring force stays strictly proportional to displacement."
+        },
+        {
+            "chunk_id": "syn-0007",
+            "source_ref": "Synthetic Physics Notes, sec 7 Particle in a Box",
+            "source_title": "Synthetic Physics Notes (CC0, hand-written)",
+            "license": "CC0-1.0",
+            "synthetic": true,
+            "text": "For a quantum particle penned inside a one dimensional box with rigid walls, only certain standing wave states are permitted. Their energies rise with the square of the whole number labelling each level, so the second level sits four times over the lowest and the third level nine times over it."
+        },
+        {
+            "chunk_id": "syn-0008",
+            "source_ref": "Synthetic Physics Notes, sec 8 Photons",
+            "source_title": "Synthetic Physics Notes (CC0, hand-written)",
+            "license": "CC0-1.0",
+            "synthetic": true,
+            "text": "Light hands over its energy in discrete packets called photons. The energy carried by a single photon runs inversely with its wavelength, so short wavelength blue light carries more energy per photon than long wavelength red light. A handy shortcut puts the product of Planck constant and light speed near 1240 electron volt nanometers."
+        },
+        {
+            "chunk_id": "syn-0009",
+            "source_ref": "Synthetic Physics Notes, sec 9 Carnot Limit",
+            "source_title": "Synthetic Physics Notes (CC0, hand-written)",
+            "license": "CC0-1.0",
+            "synthetic": true,
+            "text": "No heat engine cycling between a hot and a cold reservoir can top the Carnot limit. That ceiling on efficiency equals one minus the ratio of the cold absolute temperature to the hot absolute temperature. Spreading the two reservoir temperatures farther apart is what lets an ideal engine turn more heat into work."
+        },
+        {
+            "chunk_id": "syn-0010",
+            "source_ref": "Synthetic Physics Notes, sec 10 Double Slit",
+            "source_title": "Synthetic Physics Notes (CC0, hand-written)",
+            "license": "CC0-1.0",
+            "synthetic": true,
+            "text": "When light streams through two narrow slits it paints alternating bright and dark bands on a far screen. Bright bands land where the path difference from the two openings equals a whole number of wavelengths, the slit spacing times the sine of the angle set equal to an integer multiple of the wavelength."
+        },
+        {
+            "chunk_id": "syn-0011",
+            "source_ref": "Synthetic Physics Notes, sec 11 Ideal Gas",
+            "source_title": "Synthetic Physics Notes (CC0, hand-written)",
+            "license": "CC0-1.0",
+            "synthetic": true,
+            "text": "An ideal gas follows a tidy relation where pressure times volume tracks the absolute temperature. Pinning the temperature while squeezing the gas into a smaller volume drives the pressure up in inverse proportion, so halving the volume of a sealed sample doubles the pressure it pushes with."
+        },
+        {
+            "chunk_id": "syn-0012",
+            "source_ref": "Synthetic Physics Notes, sec 12 Coulomb Law",
+            "source_title": "Synthetic Physics Notes (CC0, hand-written)",
+            "license": "CC0-1.0",
+            "synthetic": true,
+            "text": "Two point charges shove or tug along the line joining them with a strength set by Coulomb law. That force tracks the product of the two charges and thins out as the inverse square of the distance between them, scaled by the Coulomb constant of about nine times ten to the ninth in SI units."
+        }
+    ]
+}

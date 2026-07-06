@@ -85,6 +85,18 @@ struct MemoryResult: Sendable, Equatable {
     var byTopic: [TopicScore]
     var kMem: Int
     var lastUpdated: Date?
+
+    /// Per-category Memory point (the memory -> performance bridge). Only scored
+    /// categories appear; abstaining ones are absent, so Performance falls back
+    /// to its neutral mastery for them (mirrors performance.mastery_by_category
+    /// with its `None` fallback).
+    var masteryByCategory: [String: Double] {
+        var out: [String: Double] = [:]
+        for topic in byTopic where topic.value.point != nil {
+            out[topic.category] = topic.value.point
+        }
+        return out
+    }
 }
 
 enum MemoryScore {

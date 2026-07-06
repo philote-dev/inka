@@ -1,0 +1,46 @@
+{
+    "_about": "Synthetic held-out MCQ bank for the public evaluation demo. Held out by construction: never placed in the corpus, never fed to any candidate. Used to exercise the seen-vs-held report and the copy-in leakage check. Standard physics facts, written from scratch, no third-party text.",
+    "license": "CC0-1.0",
+    "synthetic": true,
+    "role": "heldout",
+    "items": [
+        {
+            "id": "syn-held-01",
+            "blueprint_area": "mechanics",
+            "stem": "Two carts collide and stick together on a frictionless track. Which quantity is necessarily conserved through the collision?",
+            "choices": [
+                "Total kinetic energy",
+                "Total linear momentum",
+                "The speed of each cart",
+                "The mechanical energy of the heavier cart"
+            ],
+            "key": "Total linear momentum"
+        },
+        {
+            "id": "syn-held-02",
+            "blueprint_area": "electromagnetism",
+            "stem": "A charged particle moves parallel to a uniform magnetic field. What magnetic force does it feel?",
+            "choices": [
+                "A force along the field",
+                "A force opposite the field",
+                "Zero force",
+                "A force that grows with speed"
+            ],
+            "key": "Zero force"
+        },
+        {
+            "id": "syn-held-03",
+            "blueprint_area": "atomic",
+            "stem": "In the Bohr model of hydrogen, how does the electron orbital radius scale with the principal quantum number n?",
+            "choices": ["As n", "As n squared", "As one over n", "As n cubed"],
+            "key": "As n squared"
+        },
+        {
+            "id": "syn-held-04",
+            "blueprint_area": "thermodynamics",
+            "stem": "For any spontaneous irreversible process in an isolated system, what happens to the total entropy?",
+            "choices": ["It decreases", "It stays constant", "It increases", "It first rises then returns"],
+            "key": "It increases"
+        }
+    ]
+}

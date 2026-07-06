@@ -7,10 +7,24 @@
 
 import SwiftUI
 
+/// How a score's figure reads: a 0..1 fraction shown on the 0..100 scale
+/// (Memory, Performance), or a whole scaled score on the 200-990 PGRE band
+/// (Readiness), which must never be multiplied by 100.
+enum ScoreScale {
+    case fraction
+    case scaled
+}
+
 struct ScoreCardView: View {
     let kind: ScoreKind
     let value: ScoreValue
     let updated: Date?
+    /// Figure formatting; defaults to the 0..100 percentage used by Memory and
+    /// Performance so existing call sites are unchanged.
+    var scale: ScoreScale = .fraction
+    /// A how-sure read supplied by the caller (Readiness reads out its coverage
+    /// instead of an interval width). Falls back to the interval-width read.
+    var howSureDetail: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
@@ -45,11 +59,11 @@ struct ScoreCardView: View {
 
     private var figure: some View {
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
-            Text(Self.pct(value.point))
+            Text(figureText(value.point))
                 .font(Theme.Typography.score)
                 .foregroundStyle(kind.textTint)
-            if let low = value.low, let high = value.high {
-                Text("\(Self.pct(low)) to \(Self.pct(high)) likely")
+            if let range = rangeText {
+                Text(range)
                     .font(Theme.Typography.mono(12))
                     .foregroundStyle(Theme.muted)
             }
@@ -62,6 +76,23 @@ struct ScoreCardView: View {
             }
             .font(Theme.Typography.caption)
             .foregroundStyle(Theme.muted)
+        }
+    }
+
+    /// The main figure, formatted for the score's scale.
+    private func figureText(_ value: Double?) -> String {
+        switch scale {
+        case .fraction: return Self.pct(value)
+        case .scaled: return Self.whole(value)
+        }
+    }
+
+    /// The 80% range line, formatted for the score's scale, or nil when absent.
+    private var rangeText: String? {
+        guard let low = value.low, let high = value.high else { return nil }
+        switch scale {
+        case .fraction: return "\(Self.pct(low)) to \(Self.pct(high)) likely"
+        case .scaled: return "\(Self.whole(low)) to \(Self.whole(high)) band"
         }
     }
 
@@ -82,6 +113,7 @@ struct ScoreCardView: View {
     }
 
     private var howSure: String {
+        if let howSureDetail { return howSureDetail }
         guard let low = value.low, let high = value.high else { return "" }
         switch high - low {
         case ..<0.06: return "Very sure"
@@ -95,6 +127,12 @@ struct ScoreCardView: View {
     static func pct(_ value: Double?) -> String {
         guard let value else { return "--" }
         return String(Int((value * 100).rounded()))
+    }
+
+    /// A whole score shown as-is (the 200-990 Readiness band). "--" when nil.
+    static func whole(_ value: Double?) -> String {
+        guard let value else { return "--" }
+        return String(Int(value.rounded()))
     }
 
     static func updatedText(_ date: Date) -> String {

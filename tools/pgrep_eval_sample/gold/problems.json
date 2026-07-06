@@ -1,0 +1,319 @@
+[
+    {
+        "id": "syn-prob-01",
+        "schema_version": "1.0.0",
+        "type": "problem",
+        "problem_kind": "computational",
+        "topic": { "category": "mechanics", "subtopic": "kinematics" },
+        "blueprint_area": "mechanics",
+        "stem": "An object is dropped from rest and falls freely for 3.0 s with g = 10 m/s^2. Ignoring air resistance, how far does it fall?",
+        "choices": [
+            {
+                "label": "A",
+                "text": "15 m",
+                "is_key": false,
+                "misconception_tag": "dropped-time-factor",
+                "rationale": "Uses one-half g t instead of one-half g t squared."
+            },
+            {
+                "label": "B",
+                "text": "30 m",
+                "is_key": false,
+                "misconception_tag": "speed-as-distance",
+                "rationale": "Computes the final speed g t and reports it as a distance."
+            },
+            {
+                "label": "C",
+                "text": "45 m",
+                "is_key": true,
+                "rationale": "Distance is one-half g t squared = 0.5 * 10 * 9 = 45 m."
+            },
+            {
+                "label": "D",
+                "text": "90 m",
+                "is_key": false,
+                "misconception_tag": "missing-one-half",
+                "rationale": "Uses g t squared and forgets the factor of one-half."
+            },
+            {
+                "label": "E",
+                "text": "5 m",
+                "is_key": false,
+                "misconception_tag": "arithmetic-slip",
+                "rationale": "Divides rather than multiplies the time factor."
+            }
+        ],
+        "key": "C",
+        "solution_decomposition": [
+            {
+                "step": 1,
+                "subgoal": "Pick the kinematics relation for start from rest.",
+                "rubric": "d = one-half g t squared."
+            },
+            { "step": 2, "subgoal": "Substitute and evaluate.", "rubric": "0.5 * 10 * 3^2 = 45 m." }
+        ],
+        "provenance": { "tier": 1, "source_ref": "Synthetic Physics Notes, sec 1 Free Fall" },
+        "verification": { "status": "verified", "method": "hand-checked", "verified_by": "synthetic-fixture" },
+        "leakage_class": "gold"
+    },
+    {
+        "id": "syn-prob-02",
+        "schema_version": "1.0.0",
+        "type": "problem",
+        "problem_kind": "computational",
+        "topic": { "category": "electromagnetism", "subtopic": "electrostatics" },
+        "blueprint_area": "electromagnetism",
+        "stem": "Two point charges of +2 microcoulomb each are 2.0 m apart in vacuum with k = 9e9 N*m^2/C^2. The magnitude of the electrostatic force between them is closest to",
+        "choices": [
+            {
+                "label": "A",
+                "text": "0.009 N",
+                "is_key": true,
+                "rationale": "F = k q1 q2 / r^2 = 9e9 * 4e-12 / 4 = 0.009 N."
+            },
+            {
+                "label": "B",
+                "text": "0.018 N",
+                "is_key": false,
+                "misconception_tag": "inverse-first-power",
+                "rationale": "Divides by r instead of r squared."
+            },
+            {
+                "label": "C",
+                "text": "0.036 N",
+                "is_key": false,
+                "misconception_tag": "forgot-inverse-square",
+                "rationale": "Omits the division by r squared entirely."
+            },
+            {
+                "label": "D",
+                "text": "0.0045 N",
+                "is_key": false,
+                "misconception_tag": "over-applied-inverse",
+                "rationale": "Divides by an extra power of r."
+            },
+            {
+                "label": "E",
+                "text": "0.09 N",
+                "is_key": false,
+                "misconception_tag": "decimal-slip",
+                "rationale": "Misplaces a factor of ten in the arithmetic."
+            }
+        ],
+        "key": "A",
+        "solution_decomposition": [
+            { "step": 1, "subgoal": "Write Coulomb's law.", "rubric": "F = k q1 q2 / r^2." },
+            { "step": 2, "subgoal": "Substitute SI values.", "rubric": "9e9 * (2e-6)^2 / (2.0)^2 = 0.009 N." }
+        ],
+        "provenance": { "tier": 1, "source_ref": "Synthetic Physics Notes, sec 12 Coulomb Law" },
+        "verification": { "status": "verified", "method": "hand-checked", "verified_by": "synthetic-fixture" },
+        "leakage_class": "gold"
+    },
+    {
+        "id": "syn-prob-03",
+        "schema_version": "1.0.0",
+        "type": "problem",
+        "problem_kind": "conceptual",
+        "topic": { "category": "mechanics", "subtopic": "oscillations" },
+        "blueprint_area": "mechanics",
+        "stem": "For an ideal mass-spring oscillator undergoing small oscillations, how does the period of the motion depend on the amplitude of the swing?",
+        "choices": [
+            {
+                "label": "A",
+                "text": "It is independent of the amplitude.",
+                "is_key": true,
+                "rationale": "Ideal SHM is isochronous; the period depends only on mass and stiffness."
+            },
+            {
+                "label": "B",
+                "text": "It increases with amplitude.",
+                "is_key": false,
+                "misconception_tag": "distance-implies-time",
+                "rationale": "Assumes a wider swing must take longer."
+            },
+            {
+                "label": "C",
+                "text": "It decreases with amplitude.",
+                "is_key": false,
+                "misconception_tag": "speed-implies-shorter",
+                "rationale": "Assumes a larger swing means faster and shorter period."
+            },
+            {
+                "label": "D",
+                "text": "It is proportional to the amplitude.",
+                "is_key": false,
+                "misconception_tag": "spurious-linear-law",
+                "rationale": "Invents a linear dependence on amplitude."
+            },
+            {
+                "label": "E",
+                "text": "It is proportional to the amplitude squared.",
+                "is_key": false,
+                "misconception_tag": "spurious-quadratic-law",
+                "rationale": "Invents a quadratic dependence on amplitude."
+            }
+        ],
+        "key": "A",
+        "solution_decomposition": [
+            { "step": 1, "subgoal": "Recall the SHM period.", "rubric": "T = 2 pi sqrt(m/k), no amplitude term." },
+            { "step": 2, "subgoal": "Conclude amplitude independence.", "rubric": "Period is set by m and k alone." }
+        ],
+        "provenance": { "tier": 1, "source_ref": "Synthetic Physics Notes, sec 6 Amplitude and Period" },
+        "verification": { "status": "verified", "method": "hand-checked", "verified_by": "synthetic-fixture" },
+        "leakage_class": "gold"
+    },
+    {
+        "id": "syn-prob-04",
+        "schema_version": "1.0.0",
+        "type": "problem",
+        "problem_kind": "computational",
+        "topic": { "category": "quantum", "subtopic": "bound_states" },
+        "blueprint_area": "quantum",
+        "stem": "A particle is in a one-dimensional infinite square well with ground-state energy E1. What is the energy of the n = 2 state?",
+        "choices": [
+            {
+                "label": "A",
+                "text": "2 E1",
+                "is_key": false,
+                "misconception_tag": "linear-in-n",
+                "rationale": "Scales energy linearly with the level number."
+            },
+            { "label": "B", "text": "4 E1", "is_key": true, "rationale": "Energies scale as n squared, so E2 = 4 E1." },
+            {
+                "label": "C",
+                "text": "8 E1",
+                "is_key": false,
+                "misconception_tag": "cubic-in-n",
+                "rationale": "Scales as n cubed."
+            },
+            {
+                "label": "D",
+                "text": "E1 / 2",
+                "is_key": false,
+                "misconception_tag": "inverse-scaling",
+                "rationale": "Assumes energy falls as the level rises."
+            },
+            {
+                "label": "E",
+                "text": "16 E1",
+                "is_key": false,
+                "misconception_tag": "n-to-the-fourth",
+                "rationale": "Squares the level number twice."
+            }
+        ],
+        "key": "B",
+        "solution_decomposition": [
+            { "step": 1, "subgoal": "Recall the box spectrum.", "rubric": "E_n proportional to n squared." },
+            { "step": 2, "subgoal": "Evaluate at n = 2.", "rubric": "E2 = 2^2 E1 = 4 E1." }
+        ],
+        "provenance": { "tier": 1, "source_ref": "Synthetic Physics Notes, sec 7 Particle in a Box" },
+        "verification": { "status": "verified", "method": "hand-checked", "verified_by": "synthetic-fixture" },
+        "leakage_class": "gold"
+    },
+    {
+        "id": "syn-prob-05",
+        "schema_version": "1.0.0",
+        "type": "problem",
+        "problem_kind": "conceptual",
+        "topic": { "category": "thermodynamics", "subtopic": "ideal_gas" },
+        "blueprint_area": "thermodynamics",
+        "stem": "An ideal gas is compressed isothermally to half its original volume. By what factor does its pressure change?",
+        "choices": [
+            {
+                "label": "A",
+                "text": "It doubles.",
+                "is_key": true,
+                "rationale": "At fixed temperature pressure varies inversely with volume, so halving V doubles P."
+            },
+            {
+                "label": "B",
+                "text": "It halves.",
+                "is_key": false,
+                "misconception_tag": "direct-proportion",
+                "rationale": "Treats pressure as directly proportional to volume."
+            },
+            {
+                "label": "C",
+                "text": "It is unchanged.",
+                "is_key": false,
+                "misconception_tag": "ignores-boyle",
+                "rationale": "Assumes pressure does not respond to volume."
+            },
+            {
+                "label": "D",
+                "text": "It quadruples.",
+                "is_key": false,
+                "misconception_tag": "square-law",
+                "rationale": "Applies an inverse-square instead of inverse relation."
+            },
+            {
+                "label": "E",
+                "text": "It drops to one quarter.",
+                "is_key": false,
+                "misconception_tag": "direct-square-law",
+                "rationale": "Combines direct proportion with a squared factor."
+            }
+        ],
+        "key": "A",
+        "solution_decomposition": [
+            { "step": 1, "subgoal": "Apply the isothermal condition.", "rubric": "P V = constant at fixed T." },
+            { "step": 2, "subgoal": "Solve for the new pressure.", "rubric": "Halving V doubles P." }
+        ],
+        "provenance": { "tier": 1, "source_ref": "Synthetic Physics Notes, sec 11 Ideal Gas" },
+        "verification": { "status": "verified", "method": "hand-checked", "verified_by": "synthetic-fixture" },
+        "leakage_class": "gold"
+    },
+    {
+        "id": "syn-prob-06",
+        "schema_version": "1.0.0",
+        "type": "problem",
+        "problem_kind": "conceptual",
+        "topic": { "category": "optics_waves", "subtopic": "interference" },
+        "blueprint_area": "optics_waves",
+        "stem": "In a double-slit experiment with slit separation d and wavelength lambda, the angular position theta of the first bright fringe (m = 1) satisfies which condition?",
+        "choices": [
+            {
+                "label": "A",
+                "text": "sin(theta) = lambda / d",
+                "is_key": true,
+                "rationale": "Bright fringes obey d sin(theta) = m lambda, so m = 1 gives sin(theta) = lambda / d."
+            },
+            {
+                "label": "B",
+                "text": "sin(theta) = d / lambda",
+                "is_key": false,
+                "misconception_tag": "inverted-ratio",
+                "rationale": "Inverts the ratio of wavelength to slit spacing."
+            },
+            {
+                "label": "C",
+                "text": "sin(theta) = lambda / (2 d)",
+                "is_key": false,
+                "misconception_tag": "spurious-half",
+                "rationale": "Inserts an unwarranted factor of one-half."
+            },
+            {
+                "label": "D",
+                "text": "d sin(theta) = (m + 1/2) lambda",
+                "is_key": false,
+                "misconception_tag": "dark-fringe-condition",
+                "rationale": "Uses the dark-fringe (minimum) condition by mistake."
+            },
+            {
+                "label": "E",
+                "text": "lambda sin(theta) = d",
+                "is_key": false,
+                "misconception_tag": "swapped-variables",
+                "rationale": "Swaps wavelength and slit spacing in the relation."
+            }
+        ],
+        "key": "A",
+        "solution_decomposition": [
+            { "step": 1, "subgoal": "Write the bright-fringe condition.", "rubric": "d sin(theta) = m lambda." },
+            { "step": 2, "subgoal": "Set m = 1.", "rubric": "sin(theta) = lambda / d." }
+        ],
+        "provenance": { "tier": 1, "source_ref": "Synthetic Physics Notes, sec 10 Double Slit" },
+        "verification": { "status": "verified", "method": "hand-checked", "verified_by": "synthetic-fixture" },
+        "leakage_class": "gold"
+    }
+]
