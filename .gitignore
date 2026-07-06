@@ -37,3 +37,13 @@ docs/autoapi/
 # Private content + eval workspace (corpus, seeds, gold sets, held-out, ETS constants).
 # Never committed: keeps copyrighted material out of git and keeps held-out data hidden.
 /content/
+
+# Project paper: the PDF, .tex, and .bib are committed; these are regenerated build artifacts.
+docs_pgrep/paper/*.aux
+docs_pgrep/paper/*.bbl
+docs_pgrep/paper/*.blg
+docs_pgrep/paper/*.fdb_latexmk
+docs_pgrep/paper/*.fls
+docs_pgrep/paper/*.log
+docs_pgrep/paper/*.out
+docs_pgrep/paper/preview/
