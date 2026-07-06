@@ -48,7 +48,10 @@ final class AppModel: ObservableObject {
 
     init() {
         let defaults = UserDefaults.standard
-        serverURL = defaults.string(forKey: Keys.serverURL) ?? "http://127.0.0.1:8080/"
+        // 8090, not 8080: `just run` uses 8080 for the desktop Qt remote-debug
+        // server, so the sync stack uses its own port. The Simulator shares the
+        // Mac network, so 127.0.0.1 reaches the desktop's `just sync-server`.
+        serverURL = defaults.string(forKey: Keys.serverURL) ?? "http://127.0.0.1:8090/"
         username = defaults.string(forKey: Keys.username) ?? "pgrep"
         syncKey = Keychain.get(account: Keys.keychainAccount)
     }

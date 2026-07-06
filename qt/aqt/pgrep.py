@@ -282,7 +282,9 @@ def pgrep_sync() -> bytes:
 
     mw = aqt.mw
     a = _args()
-    url = (a.get("url") or "http://127.0.0.1:8080/").strip()
+    # 8090, not 8080: `just run` holds 8080 for the Qt remote-debug/hot-reload
+    # server, so the self-hosted sync server uses its own port (see just sync-server).
+    url = (a.get("url") or "http://127.0.0.1:8090/").strip()
     username = a.get("username") or "pgrep"
     password = a.get("password") or "pgrep"
 

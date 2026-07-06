@@ -44,7 +44,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     // An ISO YYYY-MM-DD string, or empty when the learner has set no test date.
     let testDate = "";
 
-    let serverURL = "http://127.0.0.1:8080/";
+    // 8090, not 8080: `just run` uses 8080 for the Qt remote-debug/hot-reload
+    // server, so the sync stack gets its own port to avoid the collision.
+    let serverURL = "http://127.0.0.1:8090/";
     let syncing = false;
     let syncMsg = "";
 
