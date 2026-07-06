@@ -126,7 +126,11 @@ def start_session(col: Collection, door: str, topic: str | None = None) -> dict:
     return {
         "session_id": session_id,
         "door": "cards",
-        "remaining": _card_remaining(col) if deck_id is not None else 0,
+        "remaining": (
+            _card_remaining(col, _requested_category(topic))
+            if deck_id is not None
+            else 0
+        ),
     }
 
 
@@ -441,8 +445,27 @@ def _first_card_in_category(col: Collection, cards: Any, category: str | None) -
     return None
 
 
-def _card_remaining(col: Collection) -> int:
-    return _remaining_count(_sched(col).get_queued_cards(fetch_limit=1))
+def _card_remaining(col: Collection, category: str | None = None) -> int:
+    """Count due cards, optionally scoped to one topic category.
+
+    The all-topics case reads the scheduler's own queue counts (exact). A focus
+    drill scopes to ``category`` by counting matches in a bounded queue fetch, so
+    the drill can show an honest per-topic due count and a correct "nothing due"
+    state. The fetch is capped at ``_CARD_BATCH`` (the same bound ``_next_card``
+    uses to locate a topic card), so a topic with more than that many due at once
+    reads as the cap rather than the full figure. No scheduling state changes.
+    """
+    if category is None:
+        return _remaining_count(_sched(col).get_queued_cards(fetch_limit=1))
+
+    from anki.notes import NoteId
+
+    queued = _sched(col).get_queued_cards(fetch_limit=_CARD_BATCH)
+    return sum(
+        1
+        for queued_card in queued.cards
+        if category_for(col.get_note(NoteId(queued_card.card.note_id)).tags) == category
+    )
 
 
 def _remaining_count(queued: Any) -> int:
