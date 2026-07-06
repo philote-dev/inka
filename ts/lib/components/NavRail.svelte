@@ -164,7 +164,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         padding: 28px 16px 24px;
         font-family: var(--font-ui);
         overflow: hidden;
-        transition: width var(--duration-calm) var(--ease-spring),
+        transition:
+            width var(--duration-calm) var(--ease-spring),
             padding var(--duration-calm) var(--ease-spring);
     }
 
@@ -178,7 +179,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         padding-right: 0;
         border-right-color: transparent;
         visibility: hidden;
-        transition: width var(--duration-calm) var(--ease-spring),
+        transition:
+            width var(--duration-calm) var(--ease-spring),
             padding var(--duration-calm) var(--ease-spring),
             visibility 0s linear var(--duration-calm);
     }

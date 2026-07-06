@@ -189,7 +189,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         border-radius: var(--radius-pill);
         background: var(--border);
         opacity: 0;
-        transition: opacity var(--duration-calm) var(--ease-spring),
+        transition:
+            opacity var(--duration-calm) var(--ease-spring),
             width var(--duration-calm) var(--ease-spring),
             background var(--duration-calm) var(--ease-spring);
     }
