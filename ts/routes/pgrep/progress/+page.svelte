@@ -104,10 +104,6 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
     let loading = true;
     let seeding = false;
     let errored = false;
-    // Diagnostic is first-run and re-runnable (ux-foundation 7.6). Before it has
-    // been completed we show the prompt; after, a quiet re-run link takes its
-    // place. null while unknown so a completed learner never sees a prompt flash.
-    let diagnosticDone: boolean | null = null;
     // A calibration fetch that FAILS is distinct from a layer that genuinely has
     // no evidence: the former says "unavailable" (honest about the fetch), the
     // latter says "no evidence yet". Tracked so the panel never implies the model
@@ -166,21 +162,8 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
         }
     }
 
-    async function loadDiagnosticStatus(): Promise<void> {
-        try {
-            const status = await pgrepCall<{ completed: boolean }>(
-                "pgrepDiagnosticStatus",
-                {},
-            );
-            diagnosticDone = status.completed;
-        } catch {
-            diagnosticDone = false;
-        }
-    }
-
     onMount(() => {
         void load();
-        void loadDiagnosticStatus();
     });
 
     function pct(value: number): number {
@@ -425,25 +408,6 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
                 Coverage gates Readiness. Calibration shows how honest the model is.
             </p>
         </div>
-        {#if diagnosticDone === false}
-            <a class="diag-link" href="/pgrep/diagnostic">
-                <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 20 20"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <polyline points="2,10 5.5,10 8,4.5 12,15.5 14.5,10 18,10" />
-                </svg>
-                Run the diagnostic
-            </a>
-        {:else if diagnosticDone === true}
-            <a class="diag-rerun" href="/pgrep/diagnostic">Re-run the diagnostic</a>
-        {/if}
     </header>
 
     {#if loading}
@@ -645,47 +609,6 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
             margin: 6px 0 0;
             color: var(--muted);
             font-size: var(--text-body);
-        }
-    }
-
-    /* Diagnostic is a re-runnable flow, not a rail tab. Progress hosts a quiet
-       monochrome re-run entry beside the coverage it informs. */
-    .diag-link {
-        flex: 0 0 auto;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 14px;
-        border: var(--hairline);
-        border-radius: var(--radius-control);
-        color: var(--muted);
-        text-decoration: none;
-        font-size: var(--text-body);
-        font-weight: 500;
-        white-space: nowrap;
-        transition: var(--transition-calm);
-
-        &:hover {
-            color: var(--text);
-            background: var(--hover-wash);
-            border-color: var(--muted);
-        }
-    }
-
-    /* After the diagnostic has been completed the prompt retires to a quiet,
-       borderless re-run link, so the flow stays reachable without nagging. */
-    .diag-rerun {
-        flex: 0 0 auto;
-        align-self: center;
-        color: var(--muted);
-        text-decoration: none;
-        font-size: var(--text-small);
-        white-space: nowrap;
-        transition: var(--transition-calm);
-
-        &:hover {
-            color: var(--text);
-            text-decoration: underline;
         }
     }
 
