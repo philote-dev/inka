@@ -454,12 +454,32 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
                     </span>
                 </div>
 
-                <CoverageBar
-                    {segments}
-                    coveredPct={pct(data.overall_pct)}
-                    threshold={pct(data.gate)}
-                    note="Reviewed coverage. Readiness gates separately on questions attempted, not cards reviewed."
-                />
+                <div class="cov-hero">
+                    <div class="cov-figure">
+                        <div class="cov-pct">
+                            <span class="cov-num">{pct(data.overall_pct)}</span>
+                            <span class="cov-unit">%</span>
+                        </div>
+                        <div class="cov-cap">of the exam covered</div>
+                    </div>
+                    <div class="cov-track">
+                        <span class="cov-gate">
+                            Readiness needs {pct(data.gate)} percent
+                        </span>
+                        <CoverageBar
+                            {segments}
+                            coveredPct={pct(data.overall_pct)}
+                            threshold={pct(data.gate)}
+                            showHead={false}
+                            showLabels={false}
+                        />
+                    </div>
+                </div>
+
+                <p class="cov-note">
+                    Reviewed coverage. Readiness gates separately on questions
+                    attempted, not cards reviewed.
+                </p>
 
                 <ul class="topics">
                     {#each topics as topic (topic.category)}
@@ -760,6 +780,81 @@ tags, and embedded constants, no AI. Styled with the pgrep design system
             font-size: var(--text-small);
             color: var(--muted);
             font-variant-numeric: tabular-nums;
+        }
+    }
+
+    /* Coverage hero: the covered fraction reads as the number that matters, set
+       beside the segmented bar it summarises. Monochrome throughout, because
+       coverage is not one of the three reserved score hues. */
+    .cov-hero {
+        display: flex;
+        align-items: center;
+        gap: var(--space-4);
+        margin: var(--space-2) 0 var(--space-1);
+    }
+
+    .cov-figure {
+        flex: 0 0 auto;
+    }
+
+    /* inline-flex so the whitespace between the number and the unit is dropped,
+       and the small percent sign sits on the number's baseline. */
+    .cov-pct {
+        display: inline-flex;
+        align-items: baseline;
+        font-family: var(--font-mono);
+        font-size: var(--text-score);
+        font-weight: 500;
+        line-height: 1;
+        letter-spacing: -0.02em;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .cov-unit {
+        margin-left: 2px;
+        font-size: 0.5em;
+        font-weight: 500;
+        color: var(--muted);
+    }
+
+    .cov-cap {
+        margin-top: var(--space-1);
+        font-size: var(--text-small);
+        color: var(--muted);
+    }
+
+    .cov-track {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .cov-gate {
+        display: block;
+        margin-bottom: 8px;
+        text-align: right;
+        font-family: var(--font-mono);
+        font-size: var(--text-small);
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .cov-note {
+        margin: 0 0 var(--space-1);
+        font-size: var(--text-small);
+        line-height: 1.5;
+        color: var(--muted);
+    }
+
+    /* Phone: stack the number above the bar so neither is squeezed. */
+    @media (max-width: 640px) {
+        .cov-hero {
+            flex-direction: column;
+            align-items: stretch;
+            gap: var(--space-2);
+        }
+
+        .cov-gate {
+            text-align: left;
         }
     }
 
