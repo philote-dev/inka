@@ -141,8 +141,13 @@ sync code. The conflict rule it enforces is documented in
 
 | Command                             | What it does                                                         |
 | ----------------------------------- | -------------------------------------------------------------------- |
-| `just sync-server`                  | Build pylib, then run the server on `0.0.0.0:8080` as `pgrep:pgrep`. |
+| `just sync-server`                  | Build pylib, then run the server on `0.0.0.0:8090` as `pgrep:pgrep`. |
 | `just sync-server user="me:secret"` | Same, with a custom account.                                         |
+
+The sync server uses port `8090`, not `8080`, because `just run` already binds
+`8080` for the Qt remote-debug and hot-reload server (`tools/reload_webviews.py`).
+The desktop and iOS clients default to `8090` to match, so no address needs
+typing.
 
 The recipe runs `tools/sync-server.py`, which mirrors `tools/run.py`'s path
 setup and calls `anki.syncserver.run_sync_server()` (the same `SimpleServer` the
@@ -152,19 +157,18 @@ Environment (read by the server):
 
 - `SYNC_USER1=user:pass` is set from the recipe's `user` arg. Add more accounts
   with `SYNC_USER2=...` in the environment.
-- `SYNC_HOST` (default `0.0.0.0`), `SYNC_PORT` (default `8080`), and `SYNC_BASE`
-  (default `~/.syncserver`, one folder per user).
+- `SYNC_HOST` (default `0.0.0.0`), `SYNC_PORT` (the `just sync-server` recipe sets
+  `8090`), and `SYNC_BASE` (default `~/.syncserver`, one folder per user).
 
-Point clients at it with a custom sync URL:
+The clients need no address typed (both default to `8090`), but for reference:
 
-- **Desktop:** Preferences, then set a self-hosted sync server URL of
-  `http://<mac-ip>:8080/` (the trailing slash matters). Log in with the
-  `SYNC_USER1` credentials, then Sync.
-- **iOS:** the Settings tab in the app. Set the same URL, log in, then Sync.
+- **Desktop:** the pgrep **Settings** Sync section (or Preferences) already points
+  at `http://127.0.0.1:8090/`. Log in with the `SYNC_USER1` credentials, then Sync.
+- **iOS:** the Settings tab in the app, also defaulted to `8090`.
 
-The iOS Simulator shares the Mac's network, so `http://127.0.0.1:8080/` works
+The iOS Simulator shares the Mac's network, so `http://127.0.0.1:8090/` works
 from the Simulator. A physical device needs the Mac's LAN IP. Health check:
-`curl http://127.0.0.1:8080/health` returns `200`.
+`curl http://127.0.0.1:8090/health` returns `200`.
 
 ## Demo profile and the sync walkthrough
 
@@ -198,7 +202,8 @@ control** (the injector at `/pgrep-lab/demo`). It is a dev surface with no link
 from the shipped Home / Study / Progress flow, so reach it one of two ways.
 
 - Inside the running app (no flags). Run `just run`. The `just run` log prints a
-  remote debugging URL (for example `http://127.0.0.1:8080`). Open it in Chrome,
+  remote debugging URL (for example `http://127.0.0.1:8080`, the Qt debug port,
+  distinct from the sync port `8090`). Open it in Chrome,
   pick the pgrep page, and run `location.assign('/pgrep-lab/demo')` in the
   console. The page loads inside the app's webview, which injects the bridge
   auth header, so its buttons work.
@@ -220,7 +225,7 @@ Then the click path is the same:
 ### Push it desktop to mobile
 
 The clients need no setup: the desktop Settings surface and the iOS app both
-default to `http://127.0.0.1:8080/` and the account `pgrep`, so syncing is a
+default to `http://127.0.0.1:8090/` and the account `pgrep`, so syncing is a
 one-click, no-address-to-type experience once the server is up. The only reason
 that address exists at all is that pgrep self-hosts the sync server (constraint
 2) instead of AnkiWeb; baking the default in makes it behave like a normal
@@ -229,14 +234,14 @@ account sign-in.
 **One-command path (recommended).** Prime the whole account off-camera, then
 just sync down on each device:
 
-1. Start the server: `just sync-server` (serves `pgrep:pgrep` on `0.0.0.0:8080`).
+1. Start the server: `just sync-server` (serves `pgrep:pgrep` on `0.0.0.0:8090`).
 2. `just pgrep-demo-sync`. This seeds the real cards and problems, injects the
    made-up stats and a couple of settings, uploads it as `pgrep`, then verifies a
    second engine downloads it and recomputes the same scores. Pass a profile with
    `PGREP_DEMO_PROFILE=rusty just pgrep-demo-sync`.
 3. Desktop: pgrep **Settings** -> **Sync** (server and account are pre-filled).
 4. iOS: `just ios-run`, then **Settings** -> **Sync** (also pre-filled). The
-   Simulator shares the Mac network, so `127.0.0.1:8080` works.
+   Simulator shares the Mac network, so `127.0.0.1:8090` works.
 
 Both ends now show the same lit-up Memory, Performance, and Readiness, computed
 on the shared engine from the synced account.

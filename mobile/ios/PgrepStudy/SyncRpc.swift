@@ -19,7 +19,7 @@ extension RpcId {
 
 extension AnkiBackend {
     /// Exchange username/password for an hkey against the given self-hosted
-    /// endpoint (for example "http://127.0.0.1:8080/"). The endpoint is echoed
+    /// endpoint (for example "http://127.0.0.1:8090/"). The endpoint is echoed
     /// back on the returned auth by the engine.
     public func syncLogin(username: String, password: String, endpoint: String) throws -> Anki_Sync_SyncAuth {
         var req = Anki_Sync_SyncLoginRequest()

@@ -127,7 +127,7 @@ struct SettingsView: View {
     private var syncSection: some View {
         Section("Sync") {
             LabeledContent("Server") {
-                TextField("http://host:8080/", text: $app.serverURL)
+                TextField("http://host:8090/", text: $app.serverURL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .keyboardType(.URL)

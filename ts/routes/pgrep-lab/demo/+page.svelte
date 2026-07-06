@@ -55,7 +55,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     // Sync uses the same one-click flow the Settings surface uses: the URL is the
     // self-hosted server default and the account is the sync-server's default user
     // (see `just sync-server`), so there is no login form to fill for the demo.
-    const serverURL = "http://127.0.0.1:8080/";
+    // 8090, not 8080: `just run` holds 8080 for the Qt remote-debug/hot-reload
+    // server, so the sync stack uses its own port. Matches Settings and the CLI.
+    const serverURL = "http://127.0.0.1:8090/";
     const account = "pgrep";
     let syncing = false;
     let syncMsg = "";

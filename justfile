@@ -19,10 +19,11 @@ run-optimized *args:
     {{ if os() == "windows" { "$env:RELEASE='1'; .\\run.bat" } else { "RELEASE=1 ./run" } }} {{ args }}
 
 # Run a self-hosted Anki sync server for pgrep (reuses Anki's sync unmodified). macOS/Linux.
-# Auth via the user arg (SYNC_USER1); SYNC_HOST/SYNC_PORT/SYNC_BASE via env. See docs_pgrep/reference/dev-harness.md.
+# Defaults to port 8090 (8080 is taken by `just run`'s Qt remote-debug/hot-reload
+# server). Auth via the user arg (SYNC_USER1); SYNC_HOST/SYNC_PORT/SYNC_BASE via env.
 sync-server user="pgrep:pgrep":
     {{ ninja }} pylib
-    SYNC_USER1={{ user }} out/pyenv/bin/python tools/sync-server.py
+    SYNC_USER1={{ user }} SYNC_PORT="${SYNC_PORT:-8090}" out/pyenv/bin/python tools/sync-server.py
 
 # Watch web sources and rebuild/reload Anki's web stack on change (macOS/Linux)
 web-watch:

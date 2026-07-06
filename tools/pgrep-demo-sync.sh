@@ -16,13 +16,13 @@
 # the same account. This is the backbone of the desktop-to-mobile sync demo.
 #
 # The server is expected to be running already (start it with `just sync-server`,
-# which serves pgrep:pgrep on 0.0.0.0:8080). Nothing here is on the shipped user
+# which serves pgrep:pgrep on 0.0.0.0:8090). Nothing here is on the shipped user
 # path; it only writes to the demo account you point it at. macOS/Linux.
 #
 # Usage:
-#   just pgrep-demo-sync                 # strong profile, http://127.0.0.1:8080/
+#   just pgrep-demo-sync                 # strong profile, http://127.0.0.1:8090/
 #   PGREP_DEMO_PROFILE=rusty just pgrep-demo-sync
-#   PGREP_SYNC_URL=http://127.0.0.1:8080/ just pgrep-demo-sync
+#   PGREP_SYNC_URL=http://127.0.0.1:8090/ just pgrep-demo-sync
 
 set -euo pipefail
 
@@ -31,7 +31,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
 PYTHON="out/pyenv/bin/python"
-URL="${PGREP_SYNC_URL:-http://127.0.0.1:8080/}"
+URL="${PGREP_SYNC_URL:-http://127.0.0.1:8090/}"
 [[ "${URL}" == */ ]] || URL="${URL}/"
 USER_NAME="${PGREP_SYNC_USER:-pgrep}"
 PASS="${PGREP_SYNC_PASS:-pgrep}"
