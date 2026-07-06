@@ -14,13 +14,14 @@ the next topic so the flow keeps leading forward. With AI off the card still
 enters the deck and the right panel says so plainly, pointing to Settings to
 turn AI back on. How the matching cards are built (rephrasing a bundle vs
 drafting net-new cards) is an internal AI decision, never a user choice. Styled
-with the pgrep tokens; card content is plain text until the shared math
-component lands (P1 owns math).
+with the pgrep tokens; card fronts are typeset through the shared renderMath
+helper, so delimited LaTeX in a matched card shows as math (never forked here).
 -->
 <script lang="ts">
     import { onMount } from "svelte";
 
     import { pgrepCall } from "../lib/bridge";
+    import { renderMath } from "$lib/pgrep/math";
 
     interface AiStatus {
         enabled: boolean;
@@ -352,7 +353,7 @@ component lands (P1 owns math).
             {#if !aiOn}
                 {#if seedSaved}
                     <article class="sib">
-                        <p class="sib-front">{savedFront}</p>
+                        <p class="sib-front">{@html renderMath(savedFront)}</p>
                         <div class="sib-foot">
                             <span class="src">You wrote this, added as is</span>
                             <span class="when">Today</span>
@@ -402,7 +403,7 @@ component lands (P1 owns math).
 
                 {#each added as c (c.note_id ?? c.front)}
                     <article class="sib">
-                        <p class="sib-front">{c.front}</p>
+                        <p class="sib-front">{@html renderMath(c.front)}</p>
                         <div class="sib-foot">
                             <span class="src">
                                 {#if c.source_ref}Cited from {c.source_ref}{:else}Source
@@ -429,7 +430,7 @@ component lands (P1 owns math).
 
                 {#each review as c (c.note_id ?? c.front)}
                     <article class="sib review">
-                        <p class="sib-front">{c.front}</p>
+                        <p class="sib-front">{@html renderMath(c.front)}</p>
                         <div class="sib-foot">
                             <span class="src">
                                 {#if c.source_ref}Cited from {c.source_ref}{:else}Source
