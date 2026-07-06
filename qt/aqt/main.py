@@ -514,8 +514,9 @@ class AnkiQt(QMainWindow):
         # show main window
         restoreGeom(self, "mainWindow")
         restoreState(self, "mainWindow")
-        # titlebar
-        self.setWindowTitle(f"{self.pm.name} - pgrep")
+        # titlebar: the app is "pgrep", not "{profile} - pgrep". A calm
+        # instrument does not announce the logged-in profile.
+        self.updateTitleBar()
         # show and raise window for osx
         self.show()
         self.activateWindow()
@@ -1471,7 +1472,8 @@ title="{}" {}>{}</button>""".format(
         qconnect(m.actionDocumentation.triggered, self.onDocumentation)
         qconnect(m.actionDonate.triggered, self.onDonate)
         qconnect(m.actionAbout.triggered, self.onAbout)
-        m.actionAbout.setText(tr.qt_accel_about_mac())
+        # pgrep branding: the macOS app menu shows "About pgrep", not "About Anki".
+        m.actionAbout.setText("About pgrep")
 
         # Edit
         qconnect(m.actionUndo.triggered, self.undo)
@@ -1507,6 +1509,14 @@ title="{}" {}>{}</button>""".format(
             pgrep_anki_action = m.menuTools.addAction("Open Anki screens")
             qconnect(pgrep_anki_action.triggered, self.on_open_anki_screens)
 
+        # In the shipped standalone (exclusive) surface, hide Anki's admin menus
+        # so pgrep reads as its own app. Hosted/off keep them (the dev hatch).
+        pgrep_host.apply_menu_chrome(self)
+        # With Anki's menus hidden, give pgrep its own: a Settings item (Cmd+,)
+        # and a Go menu mirroring the rail.
+        if pgrep_host.surface_mode(self) == "exclusive":
+            self._setup_pgrep_menus()
+
         # View
         qconnect(
             m.actionZoomIn.triggered,
@@ -1526,6 +1536,57 @@ title="{}" {}>{}</button>""".format(
 
     def updateTitleBar(self) -> None:
         self.setWindowTitle("pgrep")
+
+    def _setup_pgrep_menus(self) -> None:
+        """pgrep's own native menus for the standalone (exclusive) surface.
+
+        Anki's admin menus are hidden (``pgrep_host.apply_menu_chrome``); in
+        their place pgrep gets a Settings item in the macOS app menu (Cmd+,) and
+        a Go menu mirroring the left rail (Cmd+1..4), so the keyboard and menu
+        bar match the product rather than Anki's collection tools.
+        """
+        m = self.form
+        go = m.menubar.addMenu("&Go")
+
+        # Settings lands in the macOS app menu (PreferencesRole relocates it
+        # there); elsewhere it rides in Go. Cmd+, is the platform convention.
+        settings_action = QAction("Settings…", self)
+        settings_action.setMenuRole(QAction.MenuRole.PreferencesRole)
+        settings_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Preferences))
+        qconnect(
+            settings_action.triggered,
+            lambda: self.pgrep_navigate("pgrep/settings"),
+        )
+        go.addAction(settings_action)
+        go.addSeparator()
+
+        for label, route, shortcut in (
+            ("&Home", "pgrep", "Ctrl+1"),
+            ("&Study", "pgrep/study", "Ctrl+2"),
+            ("&Progress", "pgrep/progress", "Ctrl+3"),
+            ("&Library", "pgrep/library", "Ctrl+4"),
+        ):
+            action = go.addAction(label)
+            action.setShortcut(QKeySequence(shortcut))
+            action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+            qconnect(
+                action.triggered,
+                lambda _checked=False, r=route: self.pgrep_navigate(r),
+            )
+
+    def pgrep_navigate(self, route: str) -> None:
+        """Point the central pgrep surface at a route from a native menu.
+
+        ``route`` is a sveltekit page path such as ``pgrep`` or ``pgrep/study``.
+        """
+        from aqt import pgrep_host
+
+        if not pgrep_host.leads_with_pgrep(self):
+            return
+        if self.state != "pgrep":
+            self.moveToState("pgrep")
+        if self.pgrep_web is not None:
+            self.pgrep_web.load_sveltekit_page(route)
 
     # View
     ##########################################################################

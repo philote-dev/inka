@@ -25,6 +25,7 @@ identically.
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 from aqt.qt import Qt
@@ -34,14 +35,29 @@ if TYPE_CHECKING:
     import aqt.main
 
 _META_KEY = "pgrep_surface_mode"
-_DEFAULT_MODE = "hosted"
+_ENV_KEY = "PGREP_SURFACE_MODE"
+_DEFAULT_MODE = "exclusive"
 _VALID_MODES = ("hosted", "exclusive", "off")
 
 
 def surface_mode(mw: aqt.main.AnkiQt) -> str:
-    """Return the current surface mode (defaults to ``hosted``)."""
-    mode = mw.pm.meta.get(_META_KEY, _DEFAULT_MODE)
-    return mode if mode in _VALID_MODES else _DEFAULT_MODE
+    """Return the current surface mode.
+
+    Resolution order: the ``PGREP_SURFACE_MODE`` env override, then the profile
+    meta, then the default (``exclusive``, the clean standalone surface).
+
+    ``exclusive`` is the product: pgrep's own chrome only, Anki's screens and
+    admin menus hidden. The dev hatch back to Anki (its deck browser, the dev
+    lab, the full menus) is ``PGREP_SURFACE_MODE=hosted`` (or ``off`` for stock
+    Anki), so a normal ``just run`` still opens what learners will see.
+    """
+    env = os.environ.get(_ENV_KEY)
+    if env in _VALID_MODES:
+        return env
+    mode = mw.pm.meta.get(_META_KEY)
+    if mode in _VALID_MODES:
+        return mode
+    return _DEFAULT_MODE
 
 
 def set_surface_mode(mw: aqt.main.AnkiQt, mode: str) -> None:
@@ -127,3 +143,29 @@ def sync_central_surface(mw: aqt.main.AnkiQt, state: str) -> None:
     # reachable via Tools > Open Anki screens).
     mw.toolbarWeb.setVisible(not pgrep_active)
     mw.bottomWeb.setVisible(not pgrep_active)
+
+
+def apply_menu_chrome(mw: aqt.main.AnkiQt) -> None:
+    """Hide Anki's collection-admin menus in the shipped standalone surface.
+
+    In ``exclusive`` mode pgrep is the whole app, so the native File, View,
+    Tools, and Help menus (import/export, note types, add-ons, database checks,
+    Anki's own docs) are hidden and only Edit stays for text fields. Anki's
+    Preferences is dropped from the macOS app menu too, since pgrep carries its
+    own Settings. ``hosted`` and ``off`` keep every menu, the dev hatch.
+
+    Reversible: it only toggles action visibility. About and Quit keep their
+    macOS app-menu slots because Qt relocates their role actions when the
+    menubar is built, before this runs.
+    """
+    if surface_mode(mw) != "exclusive":
+        return
+    form = mw.form
+    for menu in (
+        form.menuCol,
+        form.menuqt_accel_view,
+        form.menuTools,
+        form.menuHelp,
+    ):
+        menu.menuAction().setVisible(False)
+    form.actionPreferences.setVisible(False)

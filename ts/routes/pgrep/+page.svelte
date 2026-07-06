@@ -233,7 +233,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     <header class="head">
         <div class="head-text">
             <h1>Your knowledge map</h1>
-            <p>Memory, performance, and readiness, shown honestly.</p>
         </div>
         {#if diagnosticDone === false}
             <a class="diag-link" href="/pgrep/diagnostic">
@@ -367,12 +366,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             font-size: var(--text-greeting);
             font-weight: 600;
             letter-spacing: -0.02em;
-        }
-
-        p {
-            margin: 6px 0 0;
-            font-size: var(--text-body);
-            color: var(--muted);
         }
     }
 

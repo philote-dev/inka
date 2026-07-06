@@ -3,12 +3,13 @@
 
 """Tests for the pgrep surface-mode host logic.
 
-These prove the exclusive takeover (Option C) works without shipping it. The
-default stays ``hosted`` (Option A), and the pure decision helpers are covered
-directly so no Qt main window is needed.
+The shipped default is ``exclusive`` (the clean standalone surface); dev runs
+default to ``hosted`` so Anki stays reachable (the dev hatch). The pure decision
+helpers are covered directly so no Qt main window is needed.
 """
 
 import types
+from unittest import mock
 
 import pytest
 
@@ -26,16 +27,55 @@ def _fake_mw(meta: dict | None = None) -> tuple[types.SimpleNamespace, dict]:
     return types.SimpleNamespace(pm=pm), saved
 
 
-def test_hosted_is_the_default() -> None:
+def test_exclusive_is_the_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PGREP_SURFACE_MODE", raising=False)
     mw, _ = _fake_mw()
-    assert pgrep_host.surface_mode(mw) == "hosted"
+    assert pgrep_host.surface_mode(mw) == "exclusive"
     assert pgrep_host.leads_with_pgrep(mw) is True
     assert pgrep_host.default_state(mw) == "pgrep"
 
 
-def test_unknown_mode_falls_back_to_hosted() -> None:
+def test_unknown_mode_falls_back_to_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PGREP_SURFACE_MODE", raising=False)
     mw, _ = _fake_mw({"pgrep_surface_mode": "bogus"})
+    assert pgrep_host.surface_mode(mw) == "exclusive"
+
+
+def test_hosted_is_the_dev_hatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PGREP_SURFACE_MODE", raising=False)
+    # The stored meta opts back into Anki's reachable, full-menu surface.
+    mw, _ = _fake_mw({"pgrep_surface_mode": "hosted"})
     assert pgrep_host.surface_mode(mw) == "hosted"
+
+
+def test_env_override_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    mw, _ = _fake_mw({"pgrep_surface_mode": "off"})
+    monkeypatch.setenv("PGREP_SURFACE_MODE", "hosted")
+    assert pgrep_host.surface_mode(mw) == "hosted"
+    # An invalid env value is ignored, so the stored meta wins.
+    monkeypatch.setenv("PGREP_SURFACE_MODE", "bogus")
+    assert pgrep_host.surface_mode(mw) == "off"
+
+
+def test_apply_menu_chrome_hides_admin_menus_only_in_exclusive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PGREP_SURFACE_MODE", raising=False)
+
+    # The dev hatch (hosted) keeps every menu: nothing is hidden.
+    hosted, _ = _fake_mw({"pgrep_surface_mode": "hosted"})
+    hosted.form = mock.MagicMock()
+    pgrep_host.apply_menu_chrome(hosted)
+    hosted.form.menuTools.menuAction().setVisible.assert_not_called()
+
+    # Exclusive (the default product surface) hides the admin menus and
+    # Anki's Preferences.
+    exclusive, _ = _fake_mw()
+    exclusive.form = mock.MagicMock()
+    pgrep_host.apply_menu_chrome(exclusive)
+    exclusive.form.menuTools.menuAction().setVisible.assert_called_with(False)
+    exclusive.form.menuCol.menuAction().setVisible.assert_called_with(False)
+    exclusive.form.actionPreferences.setVisible.assert_called_with(False)
 
 
 def test_hosted_keeps_anki_reachable() -> None:
