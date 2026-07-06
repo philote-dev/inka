@@ -15,8 +15,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     // while the surrounding prose is left as plain text.
     const questionHtml =
         "<p>A bead of mass \\(m\\) rides inside a vertical loop of radius \\(R\\). What minimum speed \\(v\\) at the top keeps it on the track, and what is its kinetic energy \\(K\\) there?</p>";
-    const answerHtml =
+    const answerBody =
         "<p>At the top, gravity alone supplies the centripetal force, so \\(mg=\\frac{mv^2}{R}\\) and \\(v=\\sqrt{gR}\\). The kinetic energy is then \\(K=\\tfrac{1}{2}mv^2=\\tfrac{1}{2}mgR\\). Over the descent the work-energy theorem \\(W_{\\mathrm{net}}=\\Delta K\\) fixes the release height.</p>";
+    const sourceRef =
+        "OpenStax University Physics Volume 1, pp. 337-338, §7.3 Work-Energy Theorem";
+    // card.answer() renders {{FrontSide}}<hr id=answer>{{Back}}, so the raw answer
+    // repeats the prompt and trails the source. CardFace shows the front once and
+    // lifts the source into a tag.
+    const answerHtml = `${questionHtml}\n\n<hr id=answer>\n\n${answerBody}\n\nSource: ${sourceRef}`;
 
     // Raw LaTeX spans drawn from the card above, to show raw versus typeset.
     const samples = [
@@ -37,9 +43,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <h1>Flashcard face and math</h1>
             <p>
                 The Cards-door review card with math-rich content, plus a
-                raw-versus-rendered check of the MathJax renderer. Card content carries
-                delimited LaTeX, so the \( ... \) spans typeset through CardFace while
-                the surrounding prose stays plain.
+                raw-versus-rendered check of the MathJax renderer. On reveal the front
+                shows once and the source moves to a tag. Delimited LaTeX typesets
+                through CardFace while the surrounding prose stays plain.
             </p>
         </header>
 

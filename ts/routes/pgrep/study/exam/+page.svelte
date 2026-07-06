@@ -495,7 +495,6 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
         <button class="back" on:click={leave}>Back to Study</button>
         <header class="head">
             <h1>Exam mode</h1>
-            <p class="sub">A timed mock at real exam proportions.</p>
         </header>
 
         <div class="card">
@@ -686,7 +685,6 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
     <section class="review">
         <header class="head">
             <h1>Exam result</h1>
-            <p class="sub">Your projected score, pace, and a full review.</p>
         </header>
 
         <div class="score-row">
@@ -800,12 +798,6 @@ tokens. The countdown runs on a 1s interval so nothing blocks the 100ms rule.
             font-size: var(--text-title);
             font-weight: 600;
             letter-spacing: -0.02em;
-        }
-
-        .sub {
-            margin: 6px 0 0;
-            color: var(--muted);
-            font-size: var(--text-body);
         }
     }
 

@@ -16,8 +16,29 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     export let answerHtml = "";
     export let answerShown = false;
 
+    // Anki renders the answer as {{FrontSide}}<hr id=answer>{{Back}}, so the raw
+    // answer repeats the prompt. Keep only what follows the answer divider, so the
+    // front shows once. The provenance appended to the Back ("... Source: <ref>")
+    // is peeled off and shown as a small tag rather than inline body text.
+    function splitAnswer(html: string): { body: string; source: string } {
+        const afterDivider = html.replace(
+            /^[\s\S]*<hr\s+id=["']?answer["']?[^>]*>/i,
+            "",
+        );
+        const match = afterDivider.match(/(?:<br\s*\/?>|\s)*Source:\s*([\s\S]+?)\s*$/i);
+        if (match && match.index !== undefined) {
+            return {
+                body: afterDivider.slice(0, match.index).trim(),
+                source: match[1].trim(),
+            };
+        }
+        return { body: afterDivider.trim(), source: "" };
+    }
+
     $: renderedQuestion = renderMath(questionHtml);
-    $: renderedAnswer = renderMath(answerHtml);
+    $: answerParts = splitAnswer(answerHtml);
+    $: renderedAnswer = renderMath(answerParts.body);
+    $: answerSource = answerParts.source;
 </script>
 
 <div class="card-face">
@@ -43,6 +64,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     {#if answerShown}
         <hr class="divider" />
         <div class="answer">{@html renderedAnswer}</div>
+        {#if answerSource}
+            <p class="source">
+                <span class="source-tag">Source</span>
+                {answerSource}
+            </p>
+        {/if}
     {/if}
 </div>
 
@@ -98,5 +125,26 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         :global(p:last-child) {
             margin-bottom: 0;
         }
+    }
+
+    .source {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: center;
+        gap: 8px;
+        margin: var(--space-2) 0 0;
+        font-size: var(--text-caption);
+        line-height: 1.5;
+        color: var(--muted);
+    }
+
+    .source-tag {
+        padding: 2px 8px;
+        border: var(--hairline);
+        border-radius: var(--radius-pill);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-weight: 600;
     }
 </style>
