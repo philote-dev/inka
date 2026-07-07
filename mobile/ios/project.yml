@@ -80,6 +80,9 @@ targets:
     sources:
       - path: PgrepStudyTests
       - path: PgrepStudy/AnkiBackend.swift
+      # Pure target-retention bounds + clamp (ported from settings.py), exercised
+      # by RetentionSettingsTests alongside the AnkiBackend deck-config round-trip.
+      - path: PgrepStudy/Retention.swift
       - path: PgrepStudy/AttemptWriter.swift
       # Pure Card Sets read-model grouping + the note-RPC read/write extension,
       # exercised by CardSetsTests. The SwiftUI browser (LibraryView) that drives

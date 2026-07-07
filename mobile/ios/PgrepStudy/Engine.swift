@@ -78,6 +78,9 @@ final class Engine: @unchecked Sendable {
     // The card currently shown for review, kept here so proto types stay on the
     // engine's serial context and never cross an actor/task boundary.
     private var current: Anki_Scheduler_QueuedCards.QueuedCard?
+    // The paths the collection was opened from, kept so export (which takes the
+    // collection out of the backend) can reopen it afterwards.
+    private var openPaths: (collection: String, media: String)?
 
     /// Open the backend and collection, and select the study deck. Must be
     /// called once before any other method.
@@ -89,6 +92,7 @@ final class Engine: @unchecked Sendable {
                     try b.openCollection(path: collectionPath, mediaFolder: mediaFolder)
                     try b.selectDeck(named: StudySandbox.studyDeckName)
                     self.backend = b
+                    self.openPaths = (collectionPath, mediaFolder)
                     cont.resume(returning: ())
                 } catch {
                     cont.resume(throwing: error)
@@ -521,10 +525,10 @@ final class Engine: @unchecked Sendable {
         try await perform { backend in try backend.setConfigJson(key: key, valueJson: valueJson) }
     }
 
-    /// The sample deck's target retention (FSRS desiredRetention), best-effort.
-    /// Read-only on iOS (adjust on desktop, where it syncs from); falls back to
-    /// the default when the deck or value is unavailable. Mirrors the deck the
-    /// desktop settings module reads (the seeded "PGRE::Sample" group).
+    /// The sample deck's target retention (FSRS desiredRetention), best-effort;
+    /// falls back to the default when the deck or value is unavailable. Mirrors
+    /// the deck the desktop settings module reads (the seeded "PGRE::Sample"
+    /// group), the same config `setTargetRetention` writes onto.
     func targetRetention() async throws -> Double {
         try await perform { backend in
             for name in ["PGRE::Sample", StudySandbox.studyDeckName] {
@@ -538,9 +542,74 @@ final class Engine: @unchecked Sendable {
                 let fallback = Double(update.defaults.config.desiredRetention)
                 if fallback > 0 { return fallback }
             }
-            return 0.9
+            return Retention.default
         }
     }
+
+    /// Set the sample deck's target retention (FSRS desiredRetention), clamped to
+    /// the supported range, and return the persisted value. Mirrors desktop's
+    /// settings.set_target_retention: the value is written onto the sample deck's
+    /// own dedicated config group (the seeded "PGRE::Sample" group, so the user's
+    /// default config is never touched) via the lightweight legacy config write,
+    /// so no card is rescheduled and no FSRS card state is rewritten. Reads the
+    /// stored value back so the caller shows the persisted truth. On the serial
+    /// engine queue.
+    @discardableResult
+    func setTargetRetention(_ value: Double) async throws -> Double {
+        let clamped = Retention.clamp(value)
+        return try await perform { backend in
+            for name in ["PGRE::Sample", StudySandbox.studyDeckName] {
+                let did = try backend.deckId(forName: name)
+                guard did != 0 else { continue }
+                let configId = try backend.deckConfigsForUpdate(deckId: did).currentDeck.configID
+                guard configId != 0 else { continue }
+                try backend.setDeckConfigDesiredRetention(configId: configId, retention: clamped)
+                // Read the stored value back through the same seam targetRetention
+                // uses, so the UI reflects exactly what was persisted.
+                let update = try backend.deckConfigsForUpdate(deckId: did)
+                if let match = update.allConfig.first(where: { $0.config.id == update.currentDeck.configID }) {
+                    let stored = Double(match.config.config.desiredRetention)
+                    if stored > 0 { return Retention.clamp(stored) }
+                }
+                return clamped
+            }
+            return clamped
+        }
+    }
+
+    /// Export the whole collection as a `.colpkg` to a temp file and return its
+    /// path, for the Settings share sheet. Mirrors desktop's pgrep_export
+    /// (col.export_collection_package). The backend takes the collection out to
+    /// write the package, so this reopens it afterwards (like desktop's
+    /// mw.reopen()), whether or not the export succeeds. On the serial queue.
+    func exportCollectionPackage(includeMedia: Bool = true) async throws -> String {
+        try await perform { backend in
+            guard let paths = self.openPaths else { throw EngineError.notOpen }
+            self.current = nil  // the collection is briefly taken out; drop any card
+            let outPath = Engine.exportTempPath()
+            defer {
+                try? backend.openCollection(path: paths.collection, mediaFolder: paths.media)
+                try? backend.selectDeck(named: StudySandbox.studyDeckName)
+            }
+            try backend.exportCollectionPackage(outPath: outPath, includeMedia: includeMedia, legacy: false)
+            return outPath
+        }
+    }
+
+    /// A timestamped, non-clobbering `.colpkg` path in the temp directory, named
+    /// like desktop's settings.export_basename (pgrep-export-YYYYMMDD-HHMMSS).
+    private static func exportTempPath() -> String {
+        let stamp = exportTimestampFormatter.string(from: Date())
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent("pgrep-export-\(stamp).colpkg").path
+    }
+
+    private static let exportTimestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter
+    }()
 
     /// Reset pgrep progress, conservative and scoped exactly like desktop's
     /// settings.reset_progress: delete the immutable attempt notes (clearing
