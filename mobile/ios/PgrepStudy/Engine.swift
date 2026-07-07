@@ -320,6 +320,25 @@ final class Engine: @unchecked Sendable {
         }
     }
 
+    // MARK: Decomposition tutor (Problems miss, AI off)
+
+    /// Load a Problem note's stored decomposition tutor (its pre-generated
+    /// subproblems + numeric variants), a port of the read in
+    /// decomposition._load_tutor_data via the note-reading RPC. Reads only. A note
+    /// that predates the `decomposition_tutor` field, or whose blob is empty or
+    /// malformed, reads as an empty tutor (`hasTutor == false`), so a miss on such
+    /// a problem falls back to the honest worked-solution reveal instead of a
+    /// gated tutor. Grading and variant selection are pure (DecompositionTutor).
+    func loadTutor(noteId: Int64) async throws -> DecompositionTutor {
+        try await perform { backend in
+            let note = try backend.getNote(noteId: noteId)
+            guard note.fields.count > ProblemNote.decompositionTutorIndex else {
+                return DecompositionTutor.empty
+            }
+            return DecompositionTutor.parse(json: note.fields[ProblemNote.decompositionTutorIndex])
+        }
+    }
+
     // MARK: Sync
 
     /// Log in to a self-hosted sync server and return the hkey to persist.

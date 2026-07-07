@@ -17,14 +17,16 @@
 //     already ported in LadderSession.arrange, which the session reuses.
 //   - The Problems commit gate holds: a learner commits BEFORE any help, which
 //     appends exactly one immutable Attempt (ladder_depth 0). A hit affirms the
-//     picked answer; a miss reveals the correct choice and the stored worked
-//     solution (study.commit_problem's no-decomposition branch). The richer
-//     gated decomposition tutor is the next task; `revealSteps` marks the seam.
+//     picked answer. A miss opens the gated decomposition tutor when the problem
+//     carries stored tutor data (DecompositionTutor + SubproblemCardView, the
+//     parent answer withheld), otherwise reveals the correct choice and the
+//     stored worked solution (study.commit_problem's no-decomposition branch).
 //
 // This file is the pure, testable core (no SwiftUI, no engine): the interleave
 // order and the commit grading. StudySessionView.swift drives it against the
-// shared Engine, mirroring the ChoiceList/ChoiceListView and Ladder/LadderView
-// split so the host-less test bundle can exercise the logic.
+// shared Engine, mirroring the ChoiceList/ChoiceListView and
+// DecompositionTutor/SubproblemCardView split so the host-less test bundle can
+// exercise the logic.
 
 import Foundation
 
@@ -110,9 +112,10 @@ enum StudySession {
     /// no-decomposition branch, via decomposition.parent_explanation).
     ///
     /// This is the tutor seam: when a missed problem carries decomposition-tutor
-    /// data, the next task branches here to open the gated tutor instead of this
-    /// static reveal. Generic over the step type so the pure core stays free of
-    /// the LadderStep model and the test bundle needs only this one file.
+    /// data, StudySessionView opens the gated tutor (DecompositionTutor) instead
+    /// of this static reveal, which now backs only the no-decomposition branch.
+    /// Generic over the step type so the pure core stays free of the LadderStep
+    /// model and the test bundle needs only this one file.
     static func revealSteps<Step>(correct: Bool, solutionSteps: [Step]) -> [Step] {
         correct ? [] : solutionSteps
     }

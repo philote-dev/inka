@@ -51,6 +51,33 @@ final class StudySessionModel: ObservableObject {
     @Published private(set) var problemsCorrect = 0
     @Published private(set) var startedEmpty = false
 
+    // Decomposition tutor state, opened on a miss of a problem that carries
+    // stored tutor data. Mirrors the +page.svelte tutor flow: the parent answer
+    // is never revealed on this path, and the learner is gated through the
+    // subproblems one at a time. AI off, so the MCQ alone gates each step.
+    enum TutorFlow: Equatable {
+        /// A hit, or a miss not yet decided.
+        case none
+        /// Reading the problem's tutor data to decide tutor vs. reveal.
+        case loading
+        /// Miss with no usable tutor: show the honest worked-solution reveal.
+        case reveal
+        /// Miss with a tutor: the gated subproblems are in progress.
+        case running
+        /// The tutor completed; the learner may move on.
+        case done
+    }
+
+    @Published private(set) var tutorFlow: TutorFlow = .none
+    @Published private(set) var tutorSteps: [TutorStep] = []
+    @Published private(set) var tutorStepIndex = 0
+    @Published var tutorSelected = ""
+    @Published private(set) var tutorStepPhase: SubproblemPhase = .mcq
+    @Published private(set) var tutorCorrectKey: String?
+    @Published private(set) var tutorRationaleHtml = ""
+    @Published private(set) var tutorExplainWhyHtml = ""
+    private var currentTutor: DecompositionTutor?
+
     private var engine: Engine?
     private var onPersisted: (() -> Void)?
     private var hasStarted = false
@@ -114,6 +141,7 @@ final class StudySessionModel: ObservableObject {
         showBack = false
         selected = ""
         committed = nil
+        resetTutorState()
         do {
             let card = try await engine.nextCard()
             let kind = StudySession.nextKind(
@@ -165,8 +193,11 @@ final class StudySessionModel: ObservableObject {
     }
 
     /// The commit gate: grade locally, append one clean Attempt (ladder_depth 0),
-    /// then reveal. A hit affirms the picked choice; a miss reveals the correct
-    /// choice (through the ChoiceList) and the stored worked solution.
+    /// then reveal. A hit affirms the picked choice. A miss opens the gated
+    /// decomposition tutor when the problem carries stored tutor data (the parent
+    /// answer stays hidden), otherwise reveals the correct choice and the stored
+    /// worked solution. Mirrors study.commit_problem's hit / tutor / reveal
+    /// branches.
     func commit() {
         guard case let .problem(problem) = phase, committed == nil, !selected.isEmpty else { return }
         let correct = StudySession.isCorrect(selected: selected, correctLetter: problem.correctLetter)
@@ -178,6 +209,114 @@ final class StudySessionModel: ObservableObject {
         problemsCommitted += 1
         if correct { problemsCorrect += 1 }
         persistAttempt(problem: problem, correct: correct)
+        // Only the clean first-try commit above is logged. Tutor retries never
+        // write an attempt (scoring counts only ladder_depth 0), so the gated
+        // steps below are local UI, exactly like desktop's read-only tutor calls.
+        if correct {
+            tutorFlow = .none
+        } else {
+            tutorFlow = .loading
+            let noteId = problem.noteId
+            Task { await decideMissPath(noteId: noteId) }
+        }
+    }
+
+    /// On a miss, read the problem's stored tutor data to choose between the gated
+    /// decomposition tutor (the parent answer withheld) and the honest
+    /// worked-solution reveal. A read failure or a problem with no usable tutor
+    /// falls back to the reveal, so a miss never strands the learner.
+    private func decideMissPath(noteId: Int64) async {
+        guard let engine else { tutorFlow = .reveal; return }
+        let tutor = (try? await engine.loadTutor(noteId: noteId)) ?? .empty
+        // Bail if the learner already moved on (the commit was reset).
+        guard tutorFlow == .loading else { return }
+        if tutor.hasTutor {
+            currentTutor = tutor
+            tutorSteps = tutor.load(roundIndex: 0)
+            startTutorStep(0)
+            tutorFlow = .running
+        } else {
+            tutorFlow = .reveal
+        }
+    }
+
+    /// Reset one subproblem step to its opening MCQ state.
+    private func startTutorStep(_ index: Int) {
+        tutorStepIndex = index
+        tutorSelected = ""
+        tutorStepPhase = .mcq
+        tutorCorrectKey = nil
+        tutorRationaleHtml = ""
+        tutorExplainWhyHtml = ""
+    }
+
+    private func resetTutorState() {
+        tutorFlow = .none
+        tutorSteps = []
+        tutorStepIndex = 0
+        currentTutor = nil
+        tutorSelected = ""
+        tutorStepPhase = .mcq
+        tutorCorrectKey = nil
+        tutorRationaleHtml = ""
+        tutorExplainWhyHtml = ""
+    }
+
+    /// Pick a subproblem MCQ answer (pre-commit), clearing any prior wrong-pick
+    /// rationale so the next Check starts clean.
+    func selectTutorChoice(_ letter: String) {
+        guard tutorStepPhase == .mcq else { return }
+        tutorSelected = letter
+        tutorRationaleHtml = ""
+    }
+
+    /// Grade the current subproblem MCQ (unlimited retries). A wrong pick shows
+    /// only that distractor's rationale (never the key); a correct pick reveals
+    /// the model rationale and satisfies the step. AI off, so there is no explain
+    /// gate. Ports the pgrepTutorMcq call against DecompositionTutor.checkMcq.
+    func checkTutorMcq() {
+        guard tutorFlow == .running, tutorStepPhase == .mcq, !tutorSelected.isEmpty,
+              let tutor = currentTutor, tutorSteps.indices.contains(tutorStepIndex) else { return }
+        let step = tutorSteps[tutorStepIndex]
+        guard let outcome = tutor.checkMcq(
+            subgoalIndex: step.index,
+            variantIndex: step.variantIndex,
+            selected: tutorSelected,
+            aiEnabled: false
+        ) else {
+            tutorRationaleHtml = "Something went wrong. Try again."
+            return
+        }
+        switch outcome {
+        case let .correct(correctChoice, explainWhyHtml, _):
+            tutorCorrectKey = correctChoice
+            tutorExplainWhyHtml = explainWhyHtml
+            tutorRationaleHtml = ""
+            tutorStepPhase = .done
+        case let .incorrect(rationaleHtml):
+            tutorRationaleHtml = rationaleHtml.isEmpty
+                ? "Not quite. Look again and try another." : rationaleHtml
+        }
+    }
+
+    /// Advance to the next subproblem, or finish the tutor. No skip anywhere.
+    func continueTutor() {
+        guard tutorFlow == .running else { return }
+        if tutorStepIndex + 1 < tutorSteps.count {
+            startTutorStep(tutorStepIndex + 1)
+        } else {
+            tutorFlow = .done
+        }
+    }
+
+    /// The parent problem's correct key to reveal in the choice list after a
+    /// commit, or nil while the gated tutor runs. A miss with a tutor never
+    /// reveals the parent answer (the whole point of the gate); a hit or a
+    /// no-tutor miss reveals it, matching study.commit_problem's response shape.
+    var parentRevealKey: String? {
+        guard let committed else { return nil }
+        if committed.correct { return committed.correctLetter }
+        return tutorFlow == .reveal ? committed.correctLetter : nil
     }
 
     /// Move on from a committed problem to the next woven item.
@@ -325,7 +464,7 @@ struct StudySessionView: View {
                             set: { picked in if let picked { model.select(picked) } }
                         ),
                         committed: model.committed != nil,
-                        correctKey: model.committed?.correctLetter
+                        correctKey: model.parentRevealKey
                     )
 
                     if let committed = model.committed {
@@ -361,18 +500,79 @@ struct StudySessionView: View {
 
     private func feedback(_ committed: StudyReveal) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
-            Text(committed.correct ? "Correct." : "Not correct.")
-                .font(Theme.Typography.emphasis)
-                .foregroundStyle(committed.correct ? Theme.success : Theme.performanceText)
+            if committed.correct {
+                Text("Correct.")
+                    .font(Theme.Typography.emphasis)
+                    .foregroundStyle(Theme.success)
+                nextBar
+            } else {
+                missContent(committed)
+            }
+        }
+    }
 
-            // Miss seam: a problem carrying decomposition-tutor data opens the
-            // gated tutor here in the next task. For now, reveal the worked
-            // solution so a miss never strands the learner.
-            if !committed.correct, !committed.steps.isEmpty {
+    /// A miss resolves to one of three paths, mirroring study.commit_problem: the
+    /// gated decomposition tutor (parent answer withheld), the honest
+    /// worked-solution reveal (no tutor), or a brief load while the choice is
+    /// made. After the tutor completes the parent answer still stays hidden.
+    @ViewBuilder
+    private func missContent(_ committed: StudyReveal) -> some View {
+        switch model.tutorFlow {
+        case .loading:
+            missVerdict("Not correct.")
+            HStack(spacing: Theme.Space.s) {
+                ProgressView()
+                Text("Building the steps.")
+                    .font(Theme.Typography.body)
+                    .foregroundStyle(Theme.muted)
+            }
+        case .running:
+            missVerdict("Not correct. Let's build it up.")
+            tutorCard
+        case .done:
+            missVerdict("Not correct.")
+            Text("Nicely worked through. Keep that reasoning for the next one.")
+                .font(Theme.Typography.body)
+                .foregroundStyle(Theme.muted)
+            nextBar
+        case .reveal, .none:
+            missVerdict("Not correct.")
+            if !committed.steps.isEmpty {
                 SolutionRevealView(steps: committed.steps)
             }
-
             nextBar
+        }
+    }
+
+    private func missVerdict(_ text: String) -> some View {
+        Text(text)
+            .font(Theme.Typography.emphasis)
+            .foregroundStyle(Theme.performanceText)
+    }
+
+    /// The current subproblem step of the gated tutor. Keyed on the step index so
+    /// each step rebuilds fresh (mirrors the desktop `{#key spIndex}`).
+    @ViewBuilder
+    private var tutorCard: some View {
+        if model.tutorSteps.indices.contains(model.tutorStepIndex) {
+            let step = model.tutorSteps[model.tutorStepIndex]
+            SubproblemCardView(
+                step: step,
+                stepNumber: model.tutorStepIndex + 1,
+                total: model.tutorSteps.count,
+                selected: Binding(
+                    get: { model.tutorSelected.isEmpty ? nil : model.tutorSelected },
+                    set: { picked in if let picked { model.selectTutorChoice(picked) } }
+                ),
+                phase: model.tutorStepPhase,
+                correctKey: model.tutorCorrectKey,
+                rationaleHtml: model.tutorRationaleHtml,
+                explainWhyHtml: model.tutorExplainWhyHtml,
+                isLast: model.tutorStepIndex + 1 == model.tutorSteps.count,
+                onCheck: { model.checkTutorMcq() },
+                onContinue: { model.continueTutor() }
+            )
+            .id(model.tutorStepIndex)
         }
     }
 

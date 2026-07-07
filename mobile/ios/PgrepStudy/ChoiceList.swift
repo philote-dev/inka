@@ -5,9 +5,9 @@
 // ts/lib/components/ChoiceList.svelte. This file holds the option model, the row
 // states, and the two pieces of logic worth pinning (letter labeling and the
 // pre/post-commit state resolution); ChoiceListView.swift draws them. Splitting
-// logic from the SwiftUI view follows the codebase's Ladder/LadderView and
-// ExamScore/ExamView pattern and lets the standalone (host-less) test bundle
-// exercise the logic without a running app.
+// logic from the SwiftUI view follows the codebase's ExamScore/ExamView and
+// StudySession/StudySessionView pattern and lets the standalone (host-less) test
+// bundle exercise the logic without a running app.
 
 import Foundation
 
