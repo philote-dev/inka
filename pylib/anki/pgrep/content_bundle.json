@@ -7190,7 +7190,7 @@
             "prompt": "Use the vacuum electromagnetic-wave speed relation to extract the wavelength from a frequency written in the form \\(f=c/L\\).",
             "variants": [
               {
-                "stem": "A plane electromagnetic wave in vacuum has frequency \\(f=c/(0.48\\,\\mathrm{m})\\). Using \\(c=f\\lambda\\), what is its wavelength?",
+                "stem": "A plane electromagnetic wave in vacuum has frequency \\(f=c/(0.48\\,\\mathrm{m})\\). What is its wavelength?",
                 "choices": [
                   "\\(2.08\\,\\mathrm{m}\\)",
                   "\\(0.96\\,\\mathrm{m}\\)",
@@ -7209,7 +7209,7 @@
                 "source_ref": "Fitzpatrick: Quantum Mechanics, p. 18, §Classical Light Waves"
               },
               {
-                "stem": "A plane electromagnetic wave in vacuum has frequency \\(f=c/(1.20\\,\\mathrm{m})\\). Using \\(c=f\\lambda\\), what is its wavelength?",
+                "stem": "A plane electromagnetic wave in vacuum has frequency \\(f=c/(1.20\\,\\mathrm{m})\\). What is its wavelength?",
                 "choices": [
                   "\\(0.83\\,\\mathrm{m}\\)",
                   "\\(2.40\\,\\mathrm{m}\\)",
