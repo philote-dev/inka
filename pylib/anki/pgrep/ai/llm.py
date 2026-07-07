@@ -49,25 +49,28 @@ class LLMClient:
         self.seed = seed
         self._client = OpenAI()
 
-    def complete_json(self, system: str, user: str) -> dict:
-        """One JSON-object completion, parsed.
+    def complete_text(
+        self, system: str, user: str, *, json_object: bool = False
+    ) -> str:
+        """One completion, returned as the raw response text.
 
         Reasoning and gpt-5 snapshots can reject a non-default ``temperature`` or
         ``seed``; on that error the call retries with the offending option
         dropped, so the strongest snapshot still works. Transient errors retry
-        with a short backoff.
+        with a short backoff. Pass ``json_object=True`` to require a JSON-object
+        reply (what ``complete_json`` uses).
         """
-        import json
         import time
 
         base: dict = {
             "model": self.model,
-            "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
         }
+        if json_object:
+            base["response_format"] = {"type": "json_object"}
         # Try richest options first, then progressively drop unsupported ones.
         option_sets: list[dict[str, float | int | None]] = [
             {"temperature": self.temperature, "seed": self.seed},
@@ -82,7 +85,7 @@ class LLMClient:
             for attempt in range(3):
                 try:
                     resp = self._client.chat.completions.create(**kwargs)
-                    return json.loads(resp.choices[0].message.content)
+                    return resp.choices[0].message.content
                 except Exception as exc:  # noqa: BLE001
                     name = type(exc).__name__
                     if name in ("BadRequestError", "UnprocessableEntityError"):
@@ -100,6 +103,12 @@ class LLMClient:
                     raise
         assert last_exc is not None
         raise last_exc
+
+    def complete_json(self, system: str, user: str) -> dict:
+        """One JSON-object completion, parsed. Uses ``complete_text``'s retries."""
+        import json
+
+        return json.loads(self.complete_text(system, user, json_object=True))
 
 
 def _is_floating_alias(model: str) -> bool:
@@ -151,6 +160,56 @@ def pick_judge_snapshot(exclude: str, available: list[str] | None = None) -> str
     if not pool:
         raise RuntimeError("no distinct judge model found on the account")
     return sorted(pool, key=_rank, reverse=True)[0]
+
+
+def generator_client(model: str) -> LLMClient:
+    """An ``LLMClient`` for the generator, pinned to a dated snapshot.
+
+    ``LLMClient`` refuses floating aliases, so a floating ``model`` (for example
+    ``gpt-5.5``) is resolved to the strongest dated snapshot on the account.
+    """
+    if _is_floating_alias(model):
+        model = pick_generator_snapshot()
+    return LLMClient(model)
+
+
+def judge_client(model: str, exclude: str = "") -> LLMClient:
+    """An ``LLMClient`` for a judge, pinned to a dated snapshot.
+
+    A floating ``model`` is resolved to a dated snapshot different from
+    ``exclude`` (the generator, when there is one).
+    """
+    if _is_floating_alias(model):
+        model = pick_judge_snapshot(exclude)
+    return LLMClient(model)
+
+
+def load_api_key(env_file: str | None = None) -> None:
+    """Ensure ``OPENAI_API_KEY`` is in the environment for the offline tools.
+
+    If it is already set, do nothing. Otherwise read it from ``env_file`` (when
+    given), then ``content/.env``, then ``.env`` at the repo root, and set it on
+    ``os.environ`` so a plain ``OpenAI()`` (as ``LLMClient`` builds) picks it up.
+    This is the one place that loads the key, replacing the per-tool copies.
+    """
+    if os.environ.get("OPENAI_API_KEY"):
+        return
+    here = os.path.dirname(os.path.abspath(__file__))
+    # llm.py -> ai -> pgrep -> anki -> pylib -> repo root
+    repo = os.path.abspath(os.path.join(here, *([os.pardir] * 5)))
+    bases = [os.getcwd(), repo]
+    candidates: list[str] = [env_file] if env_file else []
+    for base in bases:
+        candidates.append(os.path.join(base, "content", ".env"))
+        candidates.append(os.path.join(base, ".env"))
+    for path in candidates:
+        if path and os.path.isfile(path):
+            with open(path, encoding="utf-8") as fh:
+                for line in fh:
+                    if line.strip().startswith("OPENAI_API_KEY="):
+                        val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        os.environ["OPENAI_API_KEY"] = val
+                        return
 
 
 def has_api_key() -> bool:
