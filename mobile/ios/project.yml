@@ -83,6 +83,9 @@ targets:
       - path: PgrepStudy/AttemptWriter.swift
       - path: PgrepStudy/SyncRpc.swift
       - path: PgrepStudy/StudySandbox.swift
+      # The math renderer's document builder, exercised by MathTextTests to prove
+      # the offline (bundled MathJax, no CDN) references without a full app host.
+      - path: PgrepStudy/MathText.swift
       - path: PgrepStudy/Generated
       - path: ../sample-deck/collection.anki2
         buildPhase: resources
@@ -92,6 +95,7 @@ targets:
         embed: false
       - sdk: Security.framework
       - sdk: SystemConfiguration.framework
+      - sdk: WebKit.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: net.ankiweb.pgrep.PgrepStudyTests
