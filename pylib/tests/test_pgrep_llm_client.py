@@ -302,6 +302,27 @@ def test_giveaway_returns_fallback_on_error():
     assert v["gives_away"] is False and v.get("note") == "judge call failed"
 
 
+def test_pick_generator_snapshot_excludes_non_chat():
+    # A non-chat variant (audio) carries a chat family token but must never win,
+    # or the chat-completions call 404s. This is the regression the figure run hit.
+    models = [
+        "gpt-5.5-audio-2026-04-23",
+        "gpt-5.5-2026-04-23",
+        "text-embedding-3-large",
+    ]
+    assert llm.pick_generator_snapshot(models) == "gpt-5.5-2026-04-23"
+
+
+def test_pick_judge_snapshot_excludes_non_chat_and_generator():
+    models = [
+        "gpt-5.5-2026-04-23",
+        "gpt-4o-realtime-2026-01-01",
+        "gpt-4.1-2026-02-02",
+    ]
+    got = llm.pick_judge_snapshot("gpt-5.5-2026-04-23", models)
+    assert got == "gpt-4.1-2026-02-02"
+
+
 if __name__ == "__main__":
     import traceback
 

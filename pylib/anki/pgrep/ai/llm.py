@@ -25,6 +25,23 @@ from dataclasses import dataclass, field
 # an explicit dated snapshot always beats a floating alias.
 _FAMILY_RANK = ("gpt-5", "gpt-4.1", "gpt-4o", "o4", "o3", "gpt-4")
 _SNAPSHOT_RE = re.compile(r"-\d{4}-\d{2}-\d{2}$")
+# Substrings that mark a model id as NOT a chat-completions model even though it
+# carries a chat family token (for example gpt-4o-audio, gpt-4o-realtime,
+# gpt-4o-search). A floating alias must never resolve to one of these, or the
+# chat-completions call 404s.
+_NON_CHAT_MARKERS = (
+    "audio",
+    "realtime",
+    "image",
+    "tts",
+    "transcribe",
+    "embedding",
+    "search",
+    "moderation",
+    "whisper",
+    "dall-e",
+    "instruct",
+)
 
 
 @dataclass
@@ -132,15 +149,19 @@ def _rank(model_id: str) -> tuple:
     return (-len(_FAMILY_RANK), 0, model_id)
 
 
+def _is_chat_snapshot(model_id: str) -> bool:
+    """A chat-family model id that is not one of the non-chat variants."""
+    m = model_id.lower()
+    return any(f in m for f in _FAMILY_RANK) and not any(
+        k in m for k in _NON_CHAT_MARKERS
+    )
+
+
 def pick_generator_snapshot(available: list[str] | None = None) -> str:
     """The strongest dated chat snapshot on the account, for the generator."""
     models = available if available is not None else list_models()
-    dated = [
-        m
-        for m in models
-        if _SNAPSHOT_RE.search(m) and any(f in m for f in _FAMILY_RANK)
-    ]
-    pool = dated or [m for m in models if any(f in m for f in _FAMILY_RANK)]
+    dated = [m for m in models if _SNAPSHOT_RE.search(m) and _is_chat_snapshot(m)]
+    pool = dated or [m for m in models if _is_chat_snapshot(m)]
     if not pool:
         raise RuntimeError("no suitable chat model found on the account")
     return sorted(pool, key=_rank, reverse=True)[0]
@@ -152,11 +173,11 @@ def pick_judge_snapshot(exclude: str, available: list[str] | None = None) -> str
     pool = [
         m
         for m in models
-        if m != exclude and _SNAPSHOT_RE.search(m) and any(f in m for f in _FAMILY_RANK)
+        if m != exclude and _SNAPSHOT_RE.search(m) and _is_chat_snapshot(m)
     ]
     if not pool:
-        # Fall back to any model that is not the generator.
-        pool = [m for m in models if m != exclude]
+        # Fall back to any chat model that is not the generator.
+        pool = [m for m in models if m != exclude and _is_chat_snapshot(m)]
     if not pool:
         raise RuntimeError("no distinct judge model found on the account")
     return sorted(pool, key=_rank, reverse=True)[0]
