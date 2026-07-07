@@ -418,6 +418,29 @@ final class Engine: @unchecked Sendable {
         }
     }
 
+    // MARK: Library (Card Sets)
+
+    /// Load the learner's card sets for the Library browser: the Basic
+    /// topic-tagged cards in the seeded and authored decks, grouped into one set
+    /// per blueprint category (blueprint order, empty categories omitted). A read
+    /// of the same notes desktop's pgrep_card_sets reads, through the identical
+    /// grouping (CardSets.group), so the two surfaces show the same sets.
+    func loadCardSets() async throws -> [CardSet] {
+        try await perform { backend in try backend.loadCardSets() }
+    }
+
+    /// Author one card into a category's set, as-is (no AI), mirroring
+    /// card_sets.add_card -> generation.author_seed. Returns the new note id. The
+    /// card is a real Basic note in PGRE::Generated tagged for the category, so it
+    /// lands in the right set and (once studied) feeds Memory / Coverage, exactly
+    /// like a desktop-authored one, and syncs as the same kind of note.
+    @discardableResult
+    func addCard(category: String, front: String, back: String) async throws -> Int64 {
+        try await perform { backend in
+            try backend.addCard(category: category, front: front, back: back)
+        }
+    }
+
     // MARK: Sync
 
     /// Log in to a self-hosted sync server and return the hkey to persist.

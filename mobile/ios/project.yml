@@ -81,6 +81,11 @@ targets:
       - path: PgrepStudyTests
       - path: PgrepStudy/AnkiBackend.swift
       - path: PgrepStudy/AttemptWriter.swift
+      # Pure Card Sets read-model grouping + the note-RPC read/write extension,
+      # exercised by CardSetsTests. The SwiftUI browser (LibraryView) that drives
+      # it against the Engine stays in the app target only. Pulls in the Blueprint
+      # + Topic helpers it groups on (already compiled below via MemoryScore.swift).
+      - path: PgrepStudy/CardSets.swift
       - path: PgrepStudy/SyncRpc.swift
       - path: PgrepStudy/StudySandbox.swift
       # The math renderer's document builder, exercised by MathTextTests to prove
