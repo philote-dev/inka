@@ -35,8 +35,12 @@ docs/autoapi/
 .worktrees/
 
 # Private content + eval workspace (corpus, seeds, gold sets, held-out, ETS constants).
-# Never committed: keeps copyrighted material out of git and keeps held-out data hidden.
-/content/
+# The DATA stays out of git (copyrighted material and held-out data). Only the
+# pipeline CODE under content/tools/ is tracked, so it is backed up and CI-testable.
+/content/*
+!/content/tools/
+/content/tools/*
+!/content/tools/*.py
 
 # Project paper: the PDF, .tex, and .bib are committed; these are regenerated build artifacts.
 docs_pgrep/paper/*.aux
