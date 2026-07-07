@@ -12,6 +12,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import review_sheet  # noqa: E402
 
 
 def rec(v: dict) -> str:
@@ -64,8 +69,9 @@ def main() -> None:
         "",
     ]
     with open(os.path.join(args.out, "03-giveaway.md"), "w", encoding="utf-8") as fh:
-        fh.write("\n".join(head) + "\n" + "\n".join(block(v) for v in flagged))
-    json.dump({v["id"]: rec(v) for v in flagged},
+        fh.write(review_sheet.build(flagged, header=head, recommend=rec, block=block,
+                                    id_of=lambda v: v["id"]))
+    json.dump(review_sheet.manifest(flagged, recommend=rec, id_of=lambda v: v["id"]),
               open(os.path.join(args.out, "03-giveaway.manifest.json"), "w",
                    encoding="utf-8"), indent=2, ensure_ascii=False)
     print(f"flagged {len(flagged)} (high {high}); wrote 03-giveaway.md")

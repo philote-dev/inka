@@ -29,6 +29,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import _ai_path  # noqa: E402
+import review_sheet  # noqa: E402
 
 _ai_path.add_ai_core()
 
@@ -75,17 +76,6 @@ def reword(client, model: str, what: str, fix: str, stem_text: str) -> str:
     return stem_text
 
 
-def parse_reviewed(md: str) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for b in re.split(r"\n### ", "\n" + md):
-        m = re.match(r"(p4-prob-\d+)", b)
-        if not m:
-            continue
-        cm = re.search(r"-> your call:\s*(.+)", b)
-        out[m.group(1)] = cm.group(1).strip() if cm else "KEEP"
-    return out
-
-
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--auto", choices=["high", "all"], default=None)
@@ -106,7 +96,8 @@ def main() -> None:
         calls = {v["id"]: "FIX" for v in data["verdicts"]
                  if v.get("gives_away") and (args.auto == "all" or v.get("severity") == "high")}
     else:
-        calls = parse_reviewed(open(args.reviewed, encoding="utf-8").read())
+        calls = review_sheet.parse(open(args.reviewed, encoding="utf-8").read(),
+                                   review_sheet.PROBLEM_ID_RE)
 
     bundle = json.load(open(args.bundle, encoding="utf-8"))
     by_id = {p["id"]: p for p in bundle["problems"]}

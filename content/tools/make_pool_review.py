@@ -17,6 +17,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import review_sheet  # noqa: E402
 
 LETTERS = "ABCDE"
 
@@ -96,14 +101,15 @@ def main() -> None:
         "---",
         "",
     ]
-    body = [block(it) for it in review]
-    md = "\n".join(head) + "\n" + "\n".join(body)
+    md = review_sheet.build(review, header=head, recommend=recommend, block=block,
+                            id_of=lambda it: it["id"])
     with open(os.path.join(args.out, "01-problems.md"), "w", encoding="utf-8") as fh:
         fh.write(md)
 
     manifest = {
         "auto_dropped": sorted(it["id"] for it in refused),
-        "review": {it["id"]: recommend(it) for it in review},
+        "review": review_sheet.manifest(review, recommend=recommend,
+                                        id_of=lambda it: it["id"]),
     }
     json.dump(manifest, open(os.path.join(args.out, "01-problems.manifest.json"), "w",
                              encoding="utf-8"), indent=2, ensure_ascii=False)

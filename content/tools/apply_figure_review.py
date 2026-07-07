@@ -21,10 +21,12 @@ import re
 import sys
 
 sys.path.insert(0, os.path.join(os.getcwd(), "tools"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pgrep_content_audit as audit  # noqa: E402
 import pgrep_figure_gen as figgen  # noqa: E402
 import pgrep_figure_verify as figverify  # noqa: E402
+import review_sheet  # noqa: E402
 
 HEX = re.compile(r"#[0-9a-fA-F]{3,6}")
 FIG_REF = re.compile(r"(?i)\b(as shown|shown (?:above|below)|in the figure|the figure|the diagram|figure (?:above|below))\b")
@@ -37,17 +39,6 @@ TEXTONLY_SYSTEM = (
     "given number, and the final question identical in meaning. Return STRICT "
     'JSON: {"stem": "<rewritten stem>"}.'
 )
-
-
-def parse_verdicts(md: str) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for b in re.split(r"\n### ", "\n" + md):
-        m = re.match(r"(p4-prob-\d+)", b)
-        if not m:
-            continue
-        cm = re.search(r"-> your call:\s*(.+)", b)
-        out[m.group(1)] = cm.group(1).strip() if cm else "KEEP"
-    return out
 
 
 def conv_issues(svg: str) -> list[str]:
@@ -65,7 +56,8 @@ def main() -> None:
     ap.add_argument("--attempts", type=int, default=3)
     args = ap.parse_args()
 
-    verd = parse_verdicts(open(args.reviewed, encoding="utf-8").read())
+    verd = review_sheet.parse(open(args.reviewed, encoding="utf-8").read(),
+                              review_sheet.PROBLEM_ID_RE)
     review = {r["id"]: r for r in json.load(open(args.review, encoding="utf-8"))}
     approved = json.load(open(args.approved_in, encoding="utf-8"))  # the 67 already OK
     key = figgen.load_key(None)
