@@ -114,3 +114,30 @@ def test_set_surface_mode_round_trips_and_validates() -> None:
     assert saved["count"] == 1
     with pytest.raises(ValueError):
         pgrep_host.set_surface_mode(mw, "nonsense")
+
+
+def test_profile_autoload_exclusive_prefers_last_loaded() -> None:
+    # the product is single-user: exclusive auto-opens, never shows the chooser
+    assert (
+        pgrep_host.profile_to_autoload("exclusive", ["User 1", "Frank"], "Frank")
+        == "Frank"
+    )
+
+
+def test_profile_autoload_exclusive_falls_back_to_first() -> None:
+    # last-loaded missing or unset, take the first profile
+    assert (
+        pgrep_host.profile_to_autoload("exclusive", ["User 1", "Frank"], "Gone")
+        == "User 1"
+    )
+    assert pgrep_host.profile_to_autoload("exclusive", ["User 1"], None) == "User 1"
+
+
+def test_profile_autoload_dev_hatch_returns_none() -> None:
+    # hosted and off keep Anki's chooser (the dev hatch), so no auto-open
+    assert pgrep_host.profile_to_autoload("hosted", ["User 1"], "User 1") is None
+    assert pgrep_host.profile_to_autoload("off", ["User 1"], "User 1") is None
+
+
+def test_profile_autoload_none_when_no_profiles() -> None:
+    assert pgrep_host.profile_to_autoload("exclusive", [], "User 1") is None

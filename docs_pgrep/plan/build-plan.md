@@ -31,7 +31,7 @@ Everything through the desktop takeover, the visual system, the closeout, and th
 | **L2.7 Closeout (make it ours)** | ✅     | Surface QA across all five surfaces in both themes (single shared `NavRail`, `Manifold3D` degrades to the 2D fallback, tokenized accents, copy-rule fixes, evidence-linked abstain states). The `ts/routes/pgrep-lab/gallery` covers every primitive's states. The exclusive takeover is proven with pure helpers in `pgrep_host.py` (`hosted` stays default), tested in `qt/tests/test_pgrep_host.py`. The dev app carries the pgrep name and icon (desktop titles + window icon, iOS `CFBundleDisplayName` + `AppIcon`).                                                                                                                                     |
 | **L3 Mobile parity + Sync**      | ✅     | The native SwiftUI companion (`mobile/ios/PgrepStudy/`): a Home glance (2D wireframe manifold, native Memory that matches desktop by construction, honest Performance and Readiness abstains), a Study Cards door with full FSRS grading, and Settings sync. Two-way sync reuses Anki's self-hosted server unmodified (`just sync-server`) with the conflict rule in `[L3-sync-conflict-rule.md](L3-sync-conflict-rule.md)`, proven by `pylib/tests/test_pgrep_sync_roundtrip.py` (revlog and Attempt union, newer-mtime, offline-then-sync) and `just ios-sync-proof` (the iOS FFI upload downloaded by a desktop engine). No changes under `rslib/src/sync`. |
 
-**What is deliberately not done yet.** L4 (AI) is merged to `main` and off by default, with its provisional gate green on beat-baseline but the absolute cutoffs and the human E4 rating still pending (see the L4 status block in section 4). L5 (Models + evidence) is merged to `main` @ `280621c36`: all three scores are calibrated with held-out evidence and the ablation is reported (see the L5 status block in section 4). What remains is the L5.9 polish-and-completion interlude (human-led: surface fine-tuning, exam mode, real content, the demo/sync harness), then L6 (final packaging, hardening, and the exclusive takeover flip), plus the human E4 deliverables (the results report, model cards, and the Brainlift).
+**What is deliberately not done yet.** L4 (AI) is merged to `main` and off by default, with its provisional gate green on beat-baseline but the absolute cutoffs and the human E4 rating still pending (see the L4 status block in section 4). L5 (Models + evidence) is merged to `main` @ `280621c36`: all three scores are calibrated with held-out evidence and the ablation is reported (see the L5 status block in section 4). What remains is the L5.9 polish-and-completion interlude (human-led: surface fine-tuning, exam mode, real content, the demo/sync harness), then L6 (the de-Anki sweep, packaging, hardening, and recording; the exclusive takeover flip and the first identity pass are already done), plus the human E4 deliverables (the results report, model cards, and the Brainlift).
 
 ---
 
@@ -294,24 +294,33 @@ _Resume commands (repo root, conda_ `pgrep-ai` _)._ `python content/tools/make_g
 
 ---
 
-### L6 · Ship + harden · entry: L5.9 polish complete
+### L6 · Ship + harden · entry: L5.9 polish complete · partly done
 
-**Why.** Turn the working system into shippable artifacts and make the takeover final (spec constraint 8).
+**Status. Partly done on `main`.** The exclusive takeover flip and a first identity pass landed during the L5.9 run, so this section has been corrected to match the repo. Done: L6.1 (the flip) plus the window title "pgrep", the pgrep window icon, and the macOS "About pgrep" label. The genuine remainder is (a) the de-Anki sweep, remove every user-facing "Anki" and "AnkiWeb" from the shipped surface while keeping the Anki credit in one About and licenses surface, and (b) the follow-ons: packaging, hardening, and the submission recording. Full spec for the sweep and the re-planned follow-ons: `[2026-07-06-l6-production-de-anki-design.md](2026-07-06-l6-production-de-anki-design.md)`.
 
-**Design refs.** `[content-and-dependencies.md](../reference/content-and-dependencies.md)` (signing, packaging), `[L2-api-contract.md §6](../contracts/L2-api-contract.md)` (the A to C flip), `[../../prod/video/submission-video-kit.md](../../prod/video/submission-video-kit.md)` (the recordings).
+**Why.** Turn the working system into shippable artifacts and make the takeover final (spec constraint 8), presenting as pgrep everywhere a learner looks with Anki only underneath.
+
+**Design refs.** `[2026-07-06-l6-production-de-anki-design.md](2026-07-06-l6-production-de-anki-design.md)` (the de-Anki sweep and the re-planned follow-ons), `[content-and-dependencies.md](../reference/content-and-dependencies.md)` (signing, packaging), `[L2-api-contract.md §6](../contracts/L2-api-contract.md)` (the A to C flip), `[../../prod/video/submission-video-kit.md](../../prod/video/submission-video-kit.md)` (the recordings).
 
 **Tasks.**
 
-- **L6.1 Exclusive takeover.** Flip `_DEFAULT_MODE = "exclusive"` in `pgrep_host.py`, drop the "Open Anki screens" action, and short-circuit `deckBrowser` back to `pgrep`. This is the one-place change proven in L2.7.3.
-- **L6.2 Final identity and packaging.** App name, bundle id, icon, window and menu title, and the installer name. Rebuild the desktop `.dmg` and produce the phone build (signed APK or TestFlight, or a documented sideload).
-- **L6.3 Hardening.** Crash test the review loop twenty times with zero collection corruption. A one-command benchmark on a 50k-card collection reporting p50, p95, and worst. Confirm the coverage map and the abstain rule under load.
-- **L6.4 Submission.** The clean-machine install recordings and the polished Sunday demo from the real build, per `prod/video/submission-video-kit.md`.
+_Done and on `main` (landed during the L5.9 run)._
 
-**Exit gate.** Both apps install and run clean on a fresh machine, AI off still scores, the review loop is corruption-free across the crash test, the benchmark meets the speed rule, and the demo is recorded.
+- **L6.1 Exclusive takeover ✅.** `_DEFAULT_MODE = "exclusive"` in `pgrep_host.py:39`, the deck browser redirects back to pgrep (`redirect_state`), and the collection-admin menus are hidden (`apply_menu_chrome`). This is the one-place change proven in L2.7.3, now the default.
+- **L6.2 Identity, first pass ✅.** The window title reads "pgrep" (`main.py:517`), the window carries the pgrep icon (`main.py:981`), and the macOS app menu shows "About pgrep" (`main.py:1475`).
+
+_The genuine remainder._
+
+- **L6.2a de-Anki sweep.** Remove every user-facing "Anki" and "AnkiWeb" from the shipped exclusive surface, keeping the Anki credit in one place. Rebuild the About dialog as pgrep with an Open-Source Licenses and Credits block, add a Settings "About and licenses" row, and rebrand the reachable sync (`ftl/core/sync.ftl`) and error (`ftl/qt/errors.ftl`) strings to pgrep and neutral server wording. Full spec: `[2026-07-06-l6-production-de-anki-design.md](2026-07-06-l6-production-de-anki-design.md)`.
+- **L6.2b Packaging (follow-on).** Bundle display name and id, the `.dmg` name, the macOS app-menu name (`CFBundleName`), the deferred data-folder and support-link cleanup carried over from the de-Anki sweep, and the phone build (signed APK or TestFlight, or a documented sideload). Needs human signing and an Apple Developer decision.
+- **L6.3 Hardening (follow-on).** Crash test the review loop twenty times with zero collection corruption. A one-command benchmark on a 50k-card collection reporting p50, p95, and worst. Confirm the coverage map and the abstain rule under load.
+- **L6.4 Submission (follow-on).** The clean-machine install recordings and the polished Sunday demo from the real build, per `prod/video/submission-video-kit.md`. Human-run.
+
+**Exit gate.** Launched in exclusive mode, no "Anki" or "AnkiWeb" is visible on any reachable surface except the Anki credit in the About and licenses surface. Both apps install and run clean on a fresh machine, AI off still scores, the review loop is corruption-free across the crash test, the benchmark meets the speed rule, and the demo is recorded.
 
 **Human dependencies.** P1 (signing, packaging, phone build, clean-machine test), E4 (results report, model cards, Brainlift), and recording the videos. See section 5.
 
-**Agents.** L6.1 and L6.2 (one implementer each, then review). L6.3 (one implementer, benchmark and crash harness). L6.4 is human-run recording.
+**Agents.** The de-Anki sweep runs as parallel implementers on separate files (About and licenses, sync strings, error strings) with a reachability audit alongside, per `2026-07-06-l6-production-de-anki-design.md`. Packaging and hardening follow (one implementer each, then review). L6.4 is human-run recording.
 
 **Controller prompt.**
 
@@ -319,14 +328,15 @@ _Resume commands (repo root, conda_ `pgrep-ai` _)._ `python content/tools/make_g
 > **Read first, in full:**
 >
 > - this file's L6 section
+> - docs_pgrep/plan/2026-07-06-l6-production-de-anki-design.md (the de-Anki sweep and the re-planned follow-ons)
 > - docs_pgrep/reference/content-and-dependencies.md (signing and packaging)
 > - docs_pgrep/contracts/L2-api-contract.md §6 (the A to C flip)
 > - prod/video/submission-video-kit.md
->   **Entry check:** confirm L3, L4, and L5 exit gates are green on `main`. If not, stop and tell me.
->   **Deliverable:** the exclusive takeover, final identity and packaging, hardening (crash test, benchmark), and the recorded submission.
->   **Your job:** run this layer with subagent-driven development in a `.worktrees/l6-ship` worktree. L6.1 then L6.2, L6.3 in parallel where independent. L6.4 is human-run; prepare the exact steps. Spec-compliance then code-quality review per task.
->   **Constraints (hard):** AI off must still score. Zero collection corruption. Keep the AGPL headers and the Anki credit (spec constraint 9). No made-up measurements in the recordings.
->   **Exit gate:** as above. Report the installer artifacts, the benchmark numbers, the crash-test result, and the recording checklist.
+>   **Entry check:** confirm L3, L4, and L5 exit gates are green on `main`, and that the exclusive flip and the first identity pass (title, icon, "About pgrep") are already in. If not, stop and tell me.
+>   **Deliverable:** the de-Anki sweep (a pgrep About and licenses surface plus rebranded sync and error strings), then the follow-ons: final packaging, hardening (crash test, benchmark), and the recorded submission.
+>   **Your job:** run this layer with subagent-driven development in a `.worktrees/l6-de-anki` worktree. Dispatch the de-Anki sweep first (About and licenses, sync strings, error strings, and the reachability audit, on separate files), then packaging and hardening where independent. L6.4 is human-run; prepare the exact steps. Spec-compliance then code-quality review per task.
+>   **Constraints (hard):** AI off must still score. Zero collection corruption. Keep the AGPL headers and the Anki credit in the About and licenses surface (spec constraint 9). No made-up measurements in the recordings. Copy rule: no em-dashes, short labels, calm voice.
+>   **Exit gate:** as above. Report the rebranded surfaces, the installer artifacts, the benchmark numbers, the crash-test result, and the recording checklist.
 
 ---
 
@@ -354,17 +364,17 @@ Content and judgment are the scarce inputs. Compute is not the bottleneck.
 
 **The nine spec constraints, and where each is satisfied.**
 
-| # | Constraint                                                                   | Satisfied by                                   |
-| - | ---------------------------------------------------------------------------- | ---------------------------------------------- |
-| 1 | A real change inside Anki's Rust engine                                      | L1 selector ✅ (`points_at_stake.rs`)          |
-| 2 | Two apps sharing one engine, two-way sync                                    | L3 ✅                                          |
-| 3 | Three separate scores, each with a range and a give-up rule                  | Memory L2 ✅; Performance and Readiness L5 ✅  |
-| 4 | Held-out evaluation for every model, reproducibly                            | L4.0 harness ✅; L5 evidence ✅                |
-| 5 | One study feature built on learning science, ablation-tested                 | L1 interleaving ✅; ablation L5.4 ✅           |
-| 6 | Every AI output traces to a named source, gold-set checked, beats a baseline | L4                                             |
-| 7 | Both apps run with AI off and still score                                    | L2 ✅ (desktop), L3 ✅ (mobile), guarded in L4 |
-| 8 | Ship a desktop installer plus a phone build                                  | Installer L2 and L2.5 ✅; final L6             |
-| 9 | License AGPL-3.0-or-later, crediting Anki                                    | Headers kept throughout; verified at L6        |
+| # | Constraint                                                                   | Satisfied by                                                            |
+| - | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| 1 | A real change inside Anki's Rust engine                                      | L1 selector ✅ (`points_at_stake.rs`)                                   |
+| 2 | Two apps sharing one engine, two-way sync                                    | L3 ✅                                                                   |
+| 3 | Three separate scores, each with a range and a give-up rule                  | Memory L2 ✅; Performance and Readiness L5 ✅                           |
+| 4 | Held-out evaluation for every model, reproducibly                            | L4.0 harness ✅; L5 evidence ✅                                         |
+| 5 | One study feature built on learning science, ablation-tested                 | L1 interleaving ✅; ablation L5.4 ✅                                    |
+| 6 | Every AI output traces to a named source, gold-set checked, beats a baseline | L4                                                                      |
+| 7 | Both apps run with AI off and still score                                    | L2 ✅ (desktop), L3 ✅ (mobile), guarded in L4                          |
+| 8 | Ship a desktop installer plus a phone build                                  | Installer L2 and L2.5 ✅; final L6                                      |
+| 9 | License AGPL-3.0-or-later, crediting Anki                                    | AGPL headers kept; Anki credited in the About and licenses surface (L6) |
 
 **Hard invariants (every layer inherits).**
 

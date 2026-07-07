@@ -169,3 +169,20 @@ def apply_menu_chrome(mw: aqt.main.AnkiQt) -> None:
     ):
         menu.menuAction().setVisible(False)
     form.actionPreferences.setVisible(False)
+
+
+def profile_to_autoload(
+    mode: str, profiles: list[str], last_loaded: str | None
+) -> str | None:
+    """The profile to open without ever showing Anki's profile chooser.
+
+    pgrep is single-user, so in ``exclusive`` mode the profile manager must
+    never surface: pick the last-loaded profile when it still exists, otherwise
+    the first one. Returns ``None`` in ``hosted`` and ``off`` (the dev hatch
+    keeps Anki's chooser) and when there is no profile to load.
+    """
+    if mode != "exclusive" or not profiles:
+        return None
+    if last_loaded and last_loaded in profiles:
+        return last_loaded
+    return profiles[0]

@@ -320,7 +320,21 @@ class AnkiQt(QMainWindow):
                 self.pm.load(name)
 
         if not self.pm.name:
-            self.showProfileManager()
+            from aqt import pgrep_host
+
+            # pgrep is single-user; in the exclusive product surface never show
+            # Anki's profile chooser, auto-open a profile instead. Hosted and
+            # off keep the chooser (the dev hatch).
+            auto = pgrep_host.profile_to_autoload(
+                pgrep_host.surface_mode(self),
+                self.pm.profiles(),
+                self.pm.last_loaded_profile_name(),
+            )
+            if auto is not None:
+                self.pm.load(auto)
+                self.loadProfile()
+            else:
+                self.showProfileManager()
         else:
             self.loadProfile()
 
@@ -493,7 +507,7 @@ class AnkiQt(QMainWindow):
             self.progress.finish()
             problems = future.result()
             if not problems:
-                showInfo("Profiles can now be opened with an older version of Anki.")
+                showInfo("Profiles can now be opened with an older version of pgrep.")
             else:
                 showWarning(
                     "The following profiles could not be downgraded: {}".format(
@@ -649,7 +663,7 @@ class AnkiQt(QMainWindow):
         except Exception as e:
             if "FileTooNew" in str(e):
                 showWarning(
-                    "This profile requires a newer version of Anki to open. Did you forget to use the Downgrade button prior to switching Anki versions?"
+                    "This profile requires a newer version of pgrep to open. Did you forget to use the Downgrade button prior to switching pgrep versions?"
                 )
             else:
                 showWarning(
@@ -1628,10 +1642,8 @@ title="{}" {}>{}</button>""".format(
     ##########################################################################
 
     def setup_auto_update(self, _log: list[DownloadLogEntry]) -> None:
-        from aqt.update import check_for_update
-
-        if aqt.mw.pm.check_for_updates():
-            check_for_update()
+        # pgrep: no update channel; never phone home to Anki's servers on launch.
+        return
 
     # Timers
     ##########################################################################

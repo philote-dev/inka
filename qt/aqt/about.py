@@ -5,7 +5,6 @@ import platform
 from collections.abc import Callable
 
 import aqt.forms
-from anki.lang import without_unicode_isolation
 from anki.utils import version_with_build
 from aqt.errors import addon_debug_info
 from aqt.qt import *
@@ -65,21 +64,15 @@ def show(mw: aqt.AnkiQt) -> QDialog:
 
     # WebView contents
     ######################################################################
-    abouttext = "<center><img src='/_anki/imgs/anki-logo-thin.png'></center>"
-    lede = tr.about_anki_is_a_friendly_intelligent_spaced().replace("Anki", "Anki®")
-    abouttext += f"<p>{lede}"
-    abouttext += f"<p>{tr.about_anki_is_licensed_under_the_agpl3()}"
-    abouttext += f"<p>{tr.about_version(val=version_with_build())}<br>"
+    from aqt.pgrep_about import about_html
+
+    seam_line = None
     if aqt.mw.col:
-        abouttext += f"pgrep: {aqt.mw.col.pgrep_seam_check()}<br>"
-    abouttext += ("Python %s Qt %s Chromium %s<br>") % (
+        seam_line = f"pgrep: {aqt.mw.col.pgrep_seam_check()}"
+    env_line = ("Python %s Qt %s Chromium %s") % (
         platform.python_version(),
         qVersion(),
         (qWebEngineChromiumVersion() or "").split(".")[0],
-    )
-    abouttext += (
-        without_unicode_isolation(tr.about_visit_website(val=aqt.appWebsite))
-        + "</span>"
     )
 
     # Automatically sorted; add new lines at the end.
@@ -234,11 +227,19 @@ def show(mw: aqt.AnkiQt) -> QDialog:
     )
 
     allusers = [user.replace(" ", "&nbsp;") for user in allusers]
-    abouttext += "<p>" + tr.about_written_by_damien_elmes_with_patches(
+    contributors_html = tr.about_written_by_damien_elmes_with_patches(
         cont=", ".join(allusers) + f", {tr.about_and_others()}"
     )
-    abouttext += f"<p>{tr.about_if_you_have_contributed_and_are()}"
-    abouttext += f"<p>{tr.about_a_big_thanks_to_all_the()}"
+    contributors_html += f"<p>{tr.about_if_you_have_contributed_and_are()}"
+    contributors_html += f"<p>{tr.about_a_big_thanks_to_all_the()}"
+
+    abouttext = about_html(
+        license_line=tr.about_anki_is_licensed_under_the_agpl3(),
+        version_line=tr.about_version(val=version_with_build()),
+        seam_line=seam_line,
+        env_line=env_line,
+        contributors_html=contributors_html,
+    )
     abt.label.setMinimumWidth(800)
     abt.label.setMinimumHeight(600)
     dialog.show()

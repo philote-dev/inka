@@ -19,27 +19,27 @@ sync-media-log-title = Media Sync Log
 
 ## Error messages / dialogs
 
-sync-conflict = Only one copy of Anki can sync to your account at once. Please wait a few minutes, then try again.
-sync-server-error = AnkiWeb encountered a problem. Please try again in a few minutes.
-sync-client-too-old = Your Anki version is too old. Please update to the latest version to continue syncing.
+sync-conflict = Only one copy of pgrep can sync at once. Please wait a few minutes, then try again.
+sync-server-error = Your sync server encountered a problem. Please try again in a few minutes.
+sync-client-too-old = Your pgrep version is too old. Please update to the latest version to continue syncing.
 sync-wrong-pass = Email or password was incorrect; please try again.
 sync-resync-required = Please sync again. If this message keeps appearing, please post on the support site.
-sync-must-wait-for-end = Anki is currently syncing. Please wait for the sync to complete, then try again.
-sync-confirm-empty-download = Local collection has no cards. Download from AnkiWeb?
-sync-confirm-empty-upload = AnkiWeb collection has no cards. Replace it with local collection?
+sync-must-wait-for-end = pgrep is currently syncing. Please wait for the sync to complete, then try again.
+sync-confirm-empty-download = This device has no cards. Download from server?
+sync-confirm-empty-upload = The server has no cards. Replace it with this device's collection?
 sync-conflict-explanation =
-    Your decks here and on AnkiWeb differ in such a way that they can't be merged together, so it's necessary to overwrite the decks on one side with the decks from the other.
+    Your decks here and on the server differ in such a way that they can't be merged together, so it's necessary to overwrite the decks on one side with the decks from the other.
     
-    If you choose download, Anki will fetch the collection from AnkiWeb, and any changes you have made on this device since the last sync will be lost.
+    If you choose download, pgrep will fetch the collection from the server, and any changes you have made on this device since the last sync will be lost.
     
-    If you choose upload, Anki will send this device's data to AnkiWeb, and any changes that are waiting on AnkiWeb will be lost.
+    If you choose upload, pgrep will send this device's data to the server, and any changes that are waiting on the server will be lost.
     
     After all devices are in sync, future reviews and added cards can be merged automatically.
 sync-conflict-explanation2 =
-    There is a conflict between decks on this device and AnkiWeb. You must choose which version to keep:
+    There is a conflict between this device and your sync server. You must choose which version to keep:
 
-    - Select **{ sync-download-from-ankiweb }** to replace decks here with AnkiWeb’s version. You will lose any changes you made on this device since your last sync.
-    - Select **{ sync-upload-to-ankiweb }** to overwrite AnkiWeb’s versions with decks from this device, and delete any changes on AnkiWeb.
+    - Select **{ sync-download-from-ankiweb }** to replace the decks here with the server’s version. You will lose any changes made on this device since your last sync.
+    - Select **{ sync-upload-to-ankiweb }** to overwrite the server’s version with the decks from this device, and delete any changes stored there.
 
     Once the conflict is resolved, syncing will work as usual.
 
@@ -52,7 +52,7 @@ sync-sanity-check-failed = Please use the Check Database function, then sync aga
 sync-clock-off = Unable to sync - your clock is not set to the correct time.
 # “details” expands to a string such as “300.14 MB > 300.00 MB”
 sync-upload-too-large =
-    Your collection file is too large to send to AnkiWeb. You can reduce its size by removing any unwanted decks (optionally exporting them first), and then using Check Database to shrink the file size down.
+    Your collection file is too large to send to the server. You can reduce its size by removing any unwanted decks (optionally exporting them first), and then using Check Database to shrink the file size down.
     
     { $details } (uncompressed)
 sync-sign-in = Sign in
@@ -65,14 +65,14 @@ sync-ankihub-addon-installation = AnkiHub Add-on Installation
 
 sync-media-log-button = Media Log
 sync-abort-button = Abort
-sync-download-from-ankiweb = Download from AnkiWeb
-sync-upload-to-ankiweb = Upload to AnkiWeb
+sync-download-from-ankiweb = Download from server
+sync-upload-to-ankiweb = Upload to server
 sync-cancel-button = Cancel
 
 ## Normal sync progress
 
-sync-downloading-from-ankiweb = Downloading from AnkiWeb...
-sync-uploading-to-ankiweb = Uploading to AnkiWeb...
+sync-downloading-from-ankiweb = Downloading from server...
+sync-uploading-to-ankiweb = Uploading to server...
 sync-syncing = Syncing...
 sync-checking = Checking...
 sync-connecting = Connecting...

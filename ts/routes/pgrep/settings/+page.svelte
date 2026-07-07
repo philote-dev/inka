@@ -456,6 +456,22 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 </div>
             </div>
         </section>
+
+        <section class="group">
+            <div class="group-label">About</div>
+            <div class="card">
+                <div class="row">
+                    <div class="row-text">
+                        <div class="row-title">pgrep</div>
+                        <div class="row-sub">
+                            Built on Anki, created by Ankitects Pty Ltd and the Anki
+                            community, and licensed under the GNU AGPL v3 or later.
+                            Source is available under that license.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
     </div>
 </div>
 
