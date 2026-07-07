@@ -49,6 +49,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             wide: true,
         },
         {
+            href: "/pgrep-lab/calibration",
+            label: "Calibration",
+            group: "design",
+            blurb: "The first-run calibration walkthrough end to end: author one card per subtopic to completion, then the card sets deal in.",
+            wide: true,
+        },
+        {
             href: "/pgrep-lab/demo",
             label: "Profile",
             group: "demo",

@@ -414,8 +414,18 @@ renders only the content area. Card fronts are typeset with the shared renderMat
         ensureRaf();
     }
 
-    function peek(i: number, k: number): string {
-        const isHover = hovered === i && sel === i && open === null;
+    // hov/s/op are passed in (not just read from scope) so Svelte tracks them as
+    // dependencies of the {peek(...)} template expression and re-renders the back
+    // cards when the hover state changes. Reading them only from the closure would
+    // leave the peek non-reactive, so the stack would never lift on hover.
+    function peek(
+        i: number,
+        k: number,
+        hov: number,
+        s: number,
+        op: number | null,
+    ): string {
+        const isHover = hov === i && s === i && op === null;
         return (isHover ? PEEK : BASE)[k];
     }
 
@@ -685,9 +695,18 @@ renders only the content area. Card fronts are typeset with the shared renderMat
                             on:mouseenter={() => hoverDeck(i)}
                             on:mouseleave={() => (hovered = -1)}
                         >
-                            <div class="back" style="transform: {peek(i, 2)};"></div>
-                            <div class="back" style="transform: {peek(i, 1)};"></div>
-                            <div class="back" style="transform: {peek(i, 0)};"></div>
+                            <div
+                                class="back"
+                                style="transform: {peek(i, 2, hovered, sel, open)};"
+                            ></div>
+                            <div
+                                class="back"
+                                style="transform: {peek(i, 1, hovered, sel, open)};"
+                            ></div>
+                            <div
+                                class="back"
+                                style="transform: {peek(i, 0, hovered, sel, open)};"
+                            ></div>
                             <div
                                 class="front"
                                 class:hovered={hovered === i &&
