@@ -29,6 +29,16 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_BUNDLE = REPO / "pylib" / "anki" / "pgrep" / "content_bundle.json"
 
+# Route every model call through the one pinned client. The offline tools import
+# the AI core as ``pgrep.ai.*`` with ``pylib/anki`` on the path (no compiled
+# backend needed). Append it, never prepend: pylib/anki holds modules named like
+# stdlib ones, so only the unique ``pgrep`` name should resolve from here.
+_AI_CORE = REPO / "pylib" / "anki"
+if _AI_CORE.is_dir() and str(_AI_CORE) not in sys.path:
+    sys.path.append(str(_AI_CORE))
+
+from pgrep.ai import llm  # noqa: E402
+
 SYSTEM = r"""You draw a single clean black-and-white line-art SVG diagram for a Physics GRE problem, in the style of ETS practice-test figures.
 
 Hard rules:
@@ -54,56 +64,38 @@ Return ONLY a JSON object {"svg": "<svg ...>...</svg>"} and nothing else."""
 
 
 class Gen:
-    def __init__(self, model: str, key: str) -> None:
-        from openai import OpenAI  # type: ignore[import-not-found]
+    def __init__(self, model: str, key: str | None = None, *, client=None) -> None:
+        # ``key`` is accepted for the existing callers that still pass one
+        # positionally; the key now lives in the environment (see
+        # ``llm.load_api_key``) and the pinned client reads it there. Pass
+        # ``client`` to inject a fake in tests (no network).
+        self.client = client if client is not None else llm.generator_client(model)
+        self.model = getattr(self.client, "model", model)
 
-        self.model = model
-        self.client = OpenAI(api_key=key, max_retries=5)
-        self._reasoning = model.startswith(("gpt-5", "o1", "o3", "o4"))
-
-    def _call(self, messages) -> str:
-        temp = {} if self._reasoning else {"temperature": 0}
-        last = None
-        for extra in (
-            dict(response_format={"type": "json_object"}, **temp),
-            dict(**temp),
-            dict(),
-        ):
-            try:
-                r = self.client.chat.completions.create(
-                    model=self.model, messages=messages, **extra
-                )
-                raw = (r.choices[0].message.content or "{}").strip()
-                try:
-                    return json.loads(raw).get("svg", "")
-                except json.JSONDecodeError:
-                    m = re.search(r"<svg[\s\S]*?</svg>", raw)
-                    return m.group(0) if m else ""
-            except Exception as e:  # noqa: BLE001
-                last = e
-        print(f"  ! call failed: {last}", file=sys.stderr)
-        return ""
+    def _call(self, system: str, user: str) -> str:
+        try:
+            raw = (
+                self.client.complete_text(system, user, json_object=True) or "{}"
+            ).strip()
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! call failed: {e}", file=sys.stderr)
+            return ""
+        try:
+            return json.loads(raw).get("svg", "")
+        except json.JSONDecodeError:
+            m = re.search(r"<svg[\s\S]*?</svg>", raw)
+            return m.group(0) if m else ""
 
     def svg_for(self, stem: str, hint: str) -> str:
         return self._call(
-            [
-                {"role": "system", "content": SYSTEM},
-                {
-                    "role": "user",
-                    "content": f"Category: {hint}\n\nProblem stem:\n{stem}\n\nDraw the figure a test would print for this problem.",
-                },
-            ]
+            SYSTEM,
+            f"Category: {hint}\n\nProblem stem:\n{stem}\n\nDraw the figure a test would print for this problem.",
         )
 
     def refine(self, svg: str) -> str:
         if not svg.strip().startswith("<svg"):
             return svg
-        out = self._call(
-            [
-                {"role": "system", "content": REFINE_SYSTEM},
-                {"role": "user", "content": svg},
-            ]
-        )
+        out = self._call(REFINE_SYSTEM, svg)
         return out if out.strip().startswith("<svg") else svg
 
     def svg_for_feedback(
@@ -111,39 +103,33 @@ class Gen:
     ) -> str:
         """Redraw a figure, correcting the specific problems a reviewer found."""
         return self._call(
-            [
-                {"role": "system", "content": SYSTEM},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Category: {hint}\n\nProblem stem:\n{stem}\n\n"
-                        "A previous attempt drew this figure, but a reviewer found "
-                        f"these problems you MUST fix:\n{complaints}\n\n"
-                        "Previous SVG (correct its content; keep the line-art style "
-                        f"and all the conventions):\n{prior_svg}\n\n"
-                        "Redraw the figure so it faithfully matches the stem and "
-                        "resolves every listed problem."
-                    ),
-                },
-            ]
+            SYSTEM,
+            (
+                f"Category: {hint}\n\nProblem stem:\n{stem}\n\n"
+                "A previous attempt drew this figure, but a reviewer found "
+                f"these problems you MUST fix:\n{complaints}\n\n"
+                "Previous SVG (correct its content; keep the line-art style "
+                f"and all the conventions):\n{prior_svg}\n\n"
+                "Redraw the figure so it faithfully matches the stem and "
+                "resolves every listed problem."
+            ),
         )
 
 
-def load_key(env_file: str | None) -> str:
+def load_key(env_file: str | None = None) -> str:
+    """Load the API key into the environment and return it.
+
+    Kept for callers that pass a key positionally to ``Gen``. The actual loading
+    lives in ``llm.load_api_key`` (the one shared implementation); this returns
+    the value so existing callers that build their own client can reuse it.
+    """
     import os
 
-    if os.environ.get("OPENAI_API_KEY"):
-        return os.environ["OPENAI_API_KEY"]
-    for path in [
-        Path(env_file) if env_file else None,
-        REPO / "content" / ".env",
-        REPO / ".env",
-    ]:
-        if path and path.is_file():
-            for line in path.read_text().splitlines():
-                if line.strip().startswith("OPENAI_API_KEY="):
-                    return line.split("=", 1)[1].strip().strip('"').strip("'")
-    raise SystemExit("No OPENAI_API_KEY found")
+    llm.load_api_key(env_file)
+    key = os.environ.get("OPENAI_API_KEY")
+    if not key:
+        raise SystemExit("No OPENAI_API_KEY found")
+    return key
 
 
 def category_hint(topic: str, text: str) -> str:
@@ -207,7 +193,8 @@ def main() -> int:
     ap.add_argument("--html", default="tools/figure_pilot.html")
     args = ap.parse_args()
 
-    gen = Gen(args.model, load_key(args.env_file))
+    llm.load_api_key(args.env_file)
+    gen = Gen(args.model)
 
     if args.refine_json:
         out = json.loads(Path(args.refine_json).read_text())

@@ -33,6 +33,15 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_BUNDLE = REPO / "pylib" / "anki" / "pgrep" / "content_bundle.json"
 
+# Route model calls through the one pinned client. Append ``pylib/anki`` so the
+# AI core imports as ``pgrep.ai.*`` (offline, no compiled backend); appending
+# keeps its stdlib-named siblings from shadowing the standard library.
+_AI_CORE = REPO / "pylib" / "anki"
+if _AI_CORE.is_dir() and str(_AI_CORE) not in sys.path:
+    sys.path.append(str(_AI_CORE))
+
+from pgrep.ai import llm  # noqa: E402
+
 SVG_RE = re.compile(r"<svg[\s\S]*?</svg>", re.IGNORECASE)
 FIGURE_DIV_RE = re.compile(r'<div class="pg-figure">[\s\S]*?</div>', re.IGNORECASE)
 
@@ -59,61 +68,31 @@ def strip_figure(stem: str) -> str:
 
 
 class Judge:
-    def __init__(self, model: str, key: str) -> None:
-        from openai import OpenAI  # type: ignore[import-not-found]
-
-        self.model = model
-        self.client = OpenAI(api_key=key, max_retries=5)
-        self._reasoning = model.startswith(("gpt-5", "o1", "o3", "o4"))
+    def __init__(self, model: str, key: str | None = None, *, client=None) -> None:
+        # ``key`` is accepted for the existing callers that still pass one
+        # positionally; the key lives in the environment now (see
+        # ``llm.load_api_key``) and the pinned client reads it there. Pass
+        # ``client`` to inject a fake in tests (no network).
+        self.client = client if client is not None else llm.judge_client(model)
+        self.model = getattr(self.client, "model", model)
 
     def verify(self, stem: str, svg: str) -> dict:
         user = f"PROBLEM STEM:\n{stem}\n\nSVG SOURCE:\n{svg}"
-        temp = {} if self._reasoning else {"temperature": 0}
-        last = None
-        for extra in (
-            dict(response_format={"type": "json_object"}, **temp),
-            dict(**temp),
-            dict(),
-        ):
-            try:
-                r = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": JUDGE_SYSTEM},
-                        {"role": "user", "content": user},
-                    ],
-                    **extra,
-                )
-                raw = (r.choices[0].message.content or "{}").strip()
-                try:
-                    return json.loads(raw)
-                except json.JSONDecodeError:
-                    m = re.search(r"\{[\s\S]*\}", raw)
-                    return (
-                        json.loads(m.group(0))
-                        if m
-                        else {"matches": False, "notes": "unparseable judge reply"}
-                    )
-            except Exception as e:  # noqa: BLE001
-                last = e
-        return {"matches": False, "notes": f"judge call failed: {last}"}
-
-
-def load_key(env_file: str | None) -> str:
-    import os
-
-    if os.environ.get("OPENAI_API_KEY"):
-        return os.environ["OPENAI_API_KEY"]
-    for path in [
-        Path(env_file) if env_file else None,
-        REPO / "content" / ".env",
-        REPO / ".env",
-    ]:
-        if path and path.is_file():
-            for line in path.read_text().splitlines():
-                if line.strip().startswith("OPENAI_API_KEY="):
-                    return line.split("=", 1)[1].strip().strip('"').strip("'")
-    raise SystemExit("No OPENAI_API_KEY found")
+        try:
+            raw = (
+                self.client.complete_text(JUDGE_SYSTEM, user, json_object=True) or "{}"
+            ).strip()
+        except Exception as e:  # noqa: BLE001
+            return {"matches": False, "notes": f"judge call failed: {e}"}
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            m = re.search(r"\{[\s\S]*\}", raw)
+            return (
+                json.loads(m.group(0))
+                if m
+                else {"matches": False, "notes": "unparseable judge reply"}
+            )
 
 
 def main() -> int:
@@ -142,7 +121,8 @@ def main() -> int:
             p["id"]: strip_figure(p.get("stem", "")) for p in bundle.get("problems", [])
         }
 
-    judge = Judge(args.model, load_key(args.env_file))
+    llm.load_api_key(args.env_file)
+    judge = Judge(args.model)
     verdicts: list[dict] = []
     n_fail = 0
     print(f"judge: {args.model}; verifying {len(figures)} figures...")

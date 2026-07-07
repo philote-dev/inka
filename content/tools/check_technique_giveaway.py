@@ -36,6 +36,12 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
+import _ai_path  # noqa: E402
+
+_ai_path.add_ai_core()
+
+from pgrep.ai import llm  # noqa: E402
+
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEFAULT_BUNDLE = os.path.join(REPO, "pylib", "anki", "pgrep", "content_bundle.json")
 FIG = re.compile(r'<div class="pg-figure">[\s\S]*?</div>')
@@ -80,43 +86,38 @@ def _payload(p: dict) -> str:
 
 
 class Judge:
-    def __init__(self, model: str, key: str) -> None:
-        from openai import OpenAI  # type: ignore[import-not-found]
-
-        self.model = model
-        self.client = OpenAI(api_key=key, max_retries=5)
-        self._reasoning = model.startswith(("gpt-5", "o1", "o3", "o4"))
+    def __init__(self, model: str, key: str | None = None, *, client=None) -> None:
+        # ``key`` is accepted for the existing callers that still pass one
+        # positionally; the key lives in the environment now (see
+        # ``llm.load_api_key``) and the pinned client reads it there. Pass
+        # ``client`` to inject a fake in tests (no network).
+        self.client = client if client is not None else llm.judge_client(model)
+        self.model = getattr(self.client, "model", model)
 
     def judge(self, p: dict) -> dict:
-        temp = {} if self._reasoning else {"temperature": 0}
-        for extra in (dict(response_format={"type": "json_object"}, **temp), dict(**temp), dict()):
-            try:
-                r = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[{"role": "system", "content": JUDGE_SYSTEM},
-                              {"role": "user", "content": _payload(p)}],
-                    **extra,
-                )
-                raw = (r.choices[0].message.content or "{}").strip()
-                try:
-                    return json.loads(raw)
-                except json.JSONDecodeError:
-                    m = re.search(r"\{[\s\S]*\}", raw)
-                    return json.loads(m.group(0)) if m else {"gives_away": False}
-            except Exception:  # noqa: BLE001
-                continue
-        return {"gives_away": False, "what": "", "note": "judge call failed"}
+        try:
+            raw = (self.client.complete_text(JUDGE_SYSTEM, _payload(p), json_object=True) or "{}").strip()
+        except Exception:  # noqa: BLE001
+            return {"gives_away": False, "what": "", "note": "judge call failed"}
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            m = re.search(r"\{[\s\S]*\}", raw)
+            return json.loads(m.group(0)) if m else {"gives_away": False}
 
 
-def load_key() -> str:
-    if os.environ.get("OPENAI_API_KEY"):
-        return os.environ["OPENAI_API_KEY"]
-    for path in (os.path.join(REPO, "content", ".env"), os.path.join(REPO, ".env")):
-        if os.path.isfile(path):
-            for line in open(path):
-                if line.strip().startswith("OPENAI_API_KEY="):
-                    return line.split("=", 1)[1].strip().strip('"').strip("'")
-    raise SystemExit("No OPENAI_API_KEY found")
+def load_key(env_file: str | None = None) -> str:
+    """Load the API key into the environment and return it.
+
+    Kept for callers that pass a key positionally to ``Judge``. The loading now
+    lives in ``llm.load_api_key`` (the one shared implementation); this returns
+    the value for callers that build their own client from it.
+    """
+    llm.load_api_key(env_file)
+    key = os.environ.get("OPENAI_API_KEY")
+    if not key:
+        raise SystemExit("No OPENAI_API_KEY found")
+    return key
 
 
 def main() -> int:
@@ -135,7 +136,8 @@ def main() -> int:
         idset = set(args.ids)
         problems = [p for p in problems if p["id"] in idset]
 
-    judge = Judge(args.model, load_key())
+    llm.load_api_key()
+    judge = Judge(args.model)
     verdicts: list[dict] = []
     done = {"n": 0}
 
