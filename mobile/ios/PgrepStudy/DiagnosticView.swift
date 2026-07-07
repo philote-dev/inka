@@ -118,9 +118,15 @@ final class DiagnosticModel: ObservableObject {
         do {
             placed = try await engine.placeDiagnostic(answers: answers)
             // Best-effort, like desktop reads pgrepManifold after placing: show the
-            // freshly-read knowledge terrain. The chips below stand on their own if
-            // this read fails.
-            resultSurface = (try? await engine.computeMemory()).map(ManifoldSurface.build(memory:))
+            // freshly-placed knowledge terrain, strong areas affirmed and rusty
+            // ones opened as gaps. The chips below stand on their own if this read
+            // fails.
+            let placement = Dictionary(
+                uniqueKeysWithValues: placed.map { ($0.category, $0.placement) }
+            )
+            resultSurface = (try? await engine.computeMemory()).map {
+                ManifoldSurface.build(memory: $0, placement: placement)
+            }
             screen = .results
             return true
         } catch {

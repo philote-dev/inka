@@ -39,6 +39,10 @@ struct Scoreboard: Sendable, Equatable {
     var performance: PerformanceResult
     var readiness: ReadinessResult
     var coverage: CoverageResult
+    /// The stored diagnostic placement (strong/rusty per category), so the Home
+    /// manifold can fold it into the terrain exactly like desktop. Empty when the
+    /// Diagnostic has never run, so the map degrades to the Memory terrain.
+    var placement: [String: DiagnosticPlacement]
 }
 
 /// The outcome of a sync attempt.
@@ -170,11 +174,13 @@ final class Engine: @unchecked Sendable {
             )
             let readiness = ReadinessScore.compute(performance: performance)
             let coverage = CoverageScore.compute(memory: memory)
+            let placement = try Engine.diagnosticPlacement(backend)
             return Scoreboard(
                 memory: memory,
                 performance: performance,
                 readiness: readiness,
-                coverage: coverage
+                coverage: coverage,
+                placement: placement
             )
         }
     }
@@ -280,6 +286,20 @@ final class Engine: @unchecked Sendable {
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
         else { return [:] }
         return object
+    }
+
+    /// The stored diagnostic placement as typed buckets for the manifold fold,
+    /// dropping any unrecognized value (mirrors manifold.py's `_diagnostic_placement`
+    /// combined with the desktop `_PLACEMENTS` guard). Empty when the Diagnostic
+    /// has never run, so the Home manifold degrades to the Memory-only terrain.
+    private static func diagnosticPlacement(_ backend: AnkiBackend) throws -> [String: DiagnosticPlacement] {
+        var out: [String: DiagnosticPlacement] = [:]
+        for (category, raw) in try diagnosticSnapshot(backend) {
+            if let placement = DiagnosticPlacement(rawValue: raw) {
+                out[category] = placement
+            }
+        }
+        return out
     }
 
     // MARK: Exam (Problems, read-only)
