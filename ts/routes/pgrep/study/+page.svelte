@@ -188,14 +188,27 @@ The data flow through pgrepCall is unchanged.
     // AI upgrade state (L4). AI is off by default; with it on, each subproblem
     // adds the graded "explain why" gate. Read once at mount.
     let aiOn = false;
+    // Calibration gate: default calibrated=true so a read error or the pre-load
+    // frame never flashes the lock; the real value lands on mount.
+    let calibrated = true;
     let synthesis: Synthesis | null = null;
 
     onMount(async () => {
         try {
-            const status = await pgrepCall<{ enabled: boolean }>("pgrepAiStatus", {});
+            const [status, cal] = await Promise.all([
+                pgrepCall<{ enabled: boolean }>("pgrepAiStatus", {}),
+                pgrepCall<{ calibrated: boolean }>("pgrepCalibrationStatus", {}),
+            ]);
             aiOn = status.enabled;
+            calibrated = cal.calibrated;
         } catch {
             aiOn = false;
+            calibrated = true;
+        }
+        // Study is gated behind calibration while AI is on (card-sets plan §4):
+        // stop before any door or deep-link work; the lock renders instead.
+        if (aiOn && !calibrated) {
+            return;
         }
         // A door preselected from the demo launcher arrives as ?door=cards|problems.
         // Jump straight into that door of today's session (used by the dev lab's
@@ -564,6 +577,10 @@ The data flow through pgrepCall is unchanged.
     let topicTone: "memory" | "performance" = "performance";
     $: topicTone = door === "cards" ? "memory" : "performance";
 
+    // Study is locked behind calibration while AI is on (card-sets plan §4).
+    // Home and Progress stay open; only this surface gates.
+    $: locked = aiOn && !calibrated;
+
     // A running session is a focus surface, so the rail collapses while one runs
     // and restores on the launcher and pickers (ts/lib/pgrep/nav.ts).
     $: setLearning(stage === "session");
@@ -611,7 +628,22 @@ The data flow through pgrepCall is unchanged.
         doorsReady && cardsDoor?.remaining === 0 && problemsDoor?.remaining === 0;
 </script>
 
-{#if stage === "launcher"}
+{#if locked}
+    <section class="wrap">
+        <header class="head">
+            <h1>Study</h1>
+            <p class="sub">One step first.</p>
+        </header>
+        <section class="notice">
+            <p class="lead">Calibrate first</p>
+            <p class="muted">
+                Writing a card in your own words for each topic is how this sticks. Make
+                one per topic in the Library, then Study opens.
+            </p>
+            <a class="btn primary" href="/pgrep/library">Go to the Library</a>
+        </section>
+    </section>
+{:else if stage === "launcher"}
     <section class="wrap">
         <header class="head">
             <h1>Study</h1>

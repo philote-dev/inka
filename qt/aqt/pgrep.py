@@ -213,6 +213,9 @@ def pgrep_exam_result() -> bytes:
 def pgrep_ai_status() -> bytes:
     from anki.pgrep import ai_config
 
+    # First AI-status read applies the collection's first-run defaults (AI on),
+    # so onboarding lands on the calibration-paramount path. Idempotent.
+    ai_config.ensure_first_run_defaults(aqt.mw.col)
     return _json(ai_config.ai_status(aqt.mw.col))
 
 
@@ -462,6 +465,40 @@ def pgrep_diagnostic_status() -> bytes:
     return _json({"completed": completed})
 
 
+# L4 Library / Card Sets browser -> anki.pgrep.card_sets.list_card_sets. A
+# read-only view model for the "wheel": the learner's Basic topic-tagged cards
+# grouped into one set per blueprint category, with real counts and real face
+# previews. No AI, no scheduler.
+def pgrep_card_sets() -> bytes:
+    from anki.pgrep import card_sets
+
+    return _json(card_sets.list_card_sets(aqt.mw.col))
+
+
+# L4 Library / Card Sets "Add a card" -> anki.pgrep.card_sets.add_card. Authors
+# the learner's own front/back as-is into the category's set (generation.author_
+# seed), no AI. Separate from calibration.
+def pgrep_add_card() -> bytes:
+    from anki.pgrep import card_sets
+
+    a = _args()
+    return _json(
+        card_sets.add_card(
+            aqt.mw.col, a.get("category", ""), a.get("front", ""), a.get("back", "")
+        )
+    )
+
+
+# L4 Calibration gate -> anki.pgrep.calibration.calibration_status. Reports how
+# many blueprint categories the learner has authored a card in and whether that
+# calibrates the collection, so Study and Library can gate on aiEnabled &&
+# !calibrated. Sets a sticky flag on completion.
+def pgrep_calibration_status() -> bytes:
+    from anki.pgrep import calibration
+
+    return _json(calibration.calibration_status(aqt.mw.col))
+
+
 # Registered once into mediasrv's post_handler_list (see qt/aqt/mediasrv.py).
 pgrep_post_handlers = [
     pgrep_seed,
@@ -496,4 +533,7 @@ pgrep_post_handlers = [
     pgrep_export,
     pgrep_reset,
     pgrep_diagnostic_status,
+    pgrep_card_sets,
+    pgrep_add_card,
+    pgrep_calibration_status,
 ]

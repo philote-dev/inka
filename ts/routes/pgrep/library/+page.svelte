@@ -1,669 +1,259 @@
 <!--
 Copyright: Ankitects Pty Ltd and contributors
 License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
--->
-<!--
-pgrep Library (L4.1 + L5.9), the forced-generation authoring surface
-(design/ux-foundation.md 7.4). A guided flow: rather than picking a topic, the
-learner is walked through the whole blueprint one card at a time. Up top they
-write one flashcard in their own words for the topic in focus (the
-generation-effect act, works AI on or off); below, the AI-matched cards appear,
-each citing a named source and carrying a Verified or Needs-review status, with
-the gold-set gate summarised alongside. A successful add advances to the next
-topic so the flow keeps leading forward. With AI off the card still enters the
-deck and the panel below says so plainly, pointing to Settings to turn AI back
-on. How the matching cards are built (rephrasing a bundle vs drafting net-new
-cards) is an internal AI decision, never a user choice. Styled
-with the pgrep tokens; card fronts are typeset through the shared renderMath
-helper, so delimited LaTeX in a matched card shows as math (never forked here).
+
+pgrep Library, two states (card-sets plan §3):
+
+  - Calibration walkthrough (Walkthrough.svelte) while AI is on and calibration
+    is incomplete. This is the generation-effect act, and with AI on it is the
+    gate in front of Study.
+  - The Card Sets wheel (CardWheel.svelte) once calibrated, or whenever AI is
+    off. For AI-off, uncalibrated learners the wheel shows immediately with a
+    dismissible "Teach pgrep your style" entry that launches the walkthrough
+    voluntarily (never a wall).
+
+Selection rule: show the walkthrough when (aiEnabled && !calibrated), else the
+wheel. Authoring the last category's card completes calibration and flips the
+surface to the wheel; turning AI off in Settings relaxes the gate on the next
+visit.
 -->
 <script lang="ts">
     import { onMount } from "svelte";
 
+    import { goto } from "$app/navigation";
+    import CardWheel from "$lib/components/CardWheel.svelte";
+
     import { pgrepCall } from "../lib/bridge";
-    import { renderMath } from "$lib/pgrep/math";
+    import Walkthrough from "./Walkthrough.svelte";
 
-    interface AiStatus {
-        enabled: boolean;
-        model: string | null;
-        has_key: boolean;
-        ready: boolean;
-    }
-
-    interface GenCard {
+    interface WheelCard {
+        note_id?: number;
         front: string;
         back?: string;
-        source_ref?: string | null;
-        review_reason?: string | null;
-        note_id?: number;
+    }
+    interface CardSet {
+        category: string;
+        name: string;
+        cards: WheelCard[];
     }
 
-    interface RefusedCard {
-        reason?: string | null;
-        front?: string | null;
-    }
+    let sets: CardSet[] = [];
+    let aiEnabled = false;
+    let calibrated = false;
+    let loaded = false;
+    let error = false;
+    // AI-off, uncalibrated learners can opt into the walkthrough voluntarily.
+    let walkthroughByChoice = false;
+    let entryDismissed = false;
 
-    interface SeedResult {
-        added?: boolean;
-        note_id?: number;
-        topic?: string;
-    }
+    // The gate: AI on and not yet calibrated forces the walkthrough. AI-off
+    // learners can still choose it. Everyone else gets the wheel.
+    $: showWalkthrough = (aiEnabled && !calibrated) || walkthroughByChoice;
+    $: showTeachEntry =
+        loaded &&
+        !error &&
+        !showWalkthrough &&
+        !aiEnabled &&
+        !calibrated &&
+        !entryDismissed;
 
-    interface GenerateResult {
-        ai: "off" | "error" | "on" | string;
-        added?: GenCard[];
-        review?: GenCard[];
-        refused?: RefusedCard[];
-        seed?: SeedResult | null;
-        message?: string;
-    }
-
-    // The 20 blueprint topic tags, grouped for the selector.
-    const TOPICS: { tag: string; label: string }[] = [
-        {
-            tag: "topic::mechanics::dynamics_energy",
-            label: "Mechanics / Dynamics, work and energy",
-        },
-        { tag: "topic::mechanics::oscillations", label: "Mechanics / Oscillations" },
-        {
-            tag: "topic::mechanics::rotation",
-            label: "Mechanics / Rotation and rigid bodies",
-        },
-        {
-            tag: "topic::mechanics::central_forces",
-            label: "Mechanics / Central forces and orbits",
-        },
-        {
-            tag: "topic::mechanics::lagrangian_hamiltonian",
-            label: "Mechanics / Lagrangian and Hamiltonian",
-        },
-        {
-            tag: "topic::electromagnetism::electrostatics",
-            label: "E and M / Electrostatics",
-        },
-        {
-            tag: "topic::electromagnetism::magnetostatics",
-            label: "E and M / Magnetostatics",
-        },
-        {
-            tag: "topic::electromagnetism::induction_maxwell",
-            label: "E and M / Induction and Maxwell",
-        },
-        {
-            tag: "topic::electromagnetism::em_waves",
-            label: "E and M / Electromagnetic waves",
-        },
-        { tag: "topic::electromagnetism::circuits", label: "E and M / Circuits" },
-        { tag: "topic::quantum::formalism", label: "Quantum / Formalism" },
-        {
-            tag: "topic::quantum::schrodinger_solutions",
-            label: "Quantum / Schrodinger solutions",
-        },
-        {
-            tag: "topic::quantum::angular_momentum_spin",
-            label: "Quantum / Angular momentum and spin",
-        },
-        {
-            tag: "topic::quantum::perturbation_symmetry",
-            label: "Quantum / Perturbation and symmetry",
-        },
-        {
-            tag: "topic::thermodynamics",
-            label: "Thermodynamics and statistical mechanics",
-        },
-        { tag: "topic::atomic", label: "Atomic physics" },
-        { tag: "topic::optics_waves", label: "Optics and wave phenomena" },
-        { tag: "topic::special_relativity", label: "Special relativity" },
-        { tag: "topic::lab", label: "Laboratory methods" },
-        { tag: "topic::specialized", label: "Specialized topics" },
-    ];
-
-    let status: AiStatus | null = null;
-    // Guided walkthrough: rather than picking from a list, the learner is walked
-    // through the whole blueprint one topic at a time. The current topic is in
-    // focus, the steppers move through the set, and a successful add advances so
-    // the flow keeps leading them forward.
-    let topicIndex = 0;
-    let front = "";
-    let back = "";
-    let busy = false;
-    let result: GenerateResult | null = null;
-    let error = "";
-    // What the learner submitted, captured at build time so the saved card keeps
-    // showing the authored text even after the editor clears for the next topic.
-    let savedFront = "";
-
-    $: current = TOPICS[topicIndex];
-    $: topic = current.tag;
-    $: topicLabel = current.label;
-    $: atFirst = topicIndex === 0;
-    $: atLast = topicIndex === TOPICS.length - 1;
-    $: aiOn = status?.enabled ?? false;
-    $: added = result?.added ?? [];
-    $: review = result?.review ?? [];
-    $: refused = result?.refused ?? [];
-    $: seedSaved = result?.seed?.added ?? false;
-    // The gate admitted a card once at least one sibling passed straight into the
-    // deck; if some are still waiting, it is running; otherwise it stays idle.
-    function gateState(
-        addedCount: number,
-        reviewCount: number,
-    ): "passed" | "running" | "idle" {
-        if (addedCount > 0) {
-            return "passed";
-        }
-        if (reviewCount > 0) {
-            return "running";
-        }
-        return "idle";
-    }
-    $: gate = gateState(added.length, review.length);
-
-    onMount(loadStatus);
-
-    async function loadStatus(): Promise<void> {
+    onMount(async () => {
         try {
-            status = await pgrepCall<AiStatus>("pgrepAiStatus", {});
+            const [ai, cal] = await Promise.all([
+                pgrepCall<{ enabled: boolean }>("pgrepAiStatus", {}),
+                pgrepCall<{ calibrated: boolean }>("pgrepCalibrationStatus", {}),
+            ]);
+            aiEnabled = ai.enabled;
+            calibrated = cal.calibrated;
+            sets = await pgrepCall<CardSet[]>("pgrepCardSets", {});
         } catch {
-            // If the status read fails, stay honest and treat AI as off rather
-            // than surfacing a raw error. The AI-off path always works.
-            status = null;
-        }
-    }
-
-    // Walk the blueprint. A topic change starts a fresh card; the matching cards
-    // from the last build stay below as a record of what was made.
-    function step(delta: number): void {
-        const next = topicIndex + delta;
-        if (next < 0 || next >= TOPICS.length) {
-            return;
-        }
-        topicIndex = next;
-        front = "";
-        back = "";
-        error = "";
-    }
-
-    async function generate(): Promise<void> {
-        error = "";
-        if (!front.trim() || !back.trim()) {
-            error = "Write both the front and the back first.";
-            return;
-        }
-        busy = true;
-        result = null;
-        try {
-            // How the matching cards are built (rephrase vs net-new siblings) is
-            // an internal AI decision, so the surface always asks for the
-            // source-cited, gated build. The learner just writes a card.
-            result = await pgrepCall<GenerateResult>("pgrepLibraryGenerate", {
-                mode: "gap_fill",
-                topic,
-                seed_front: front,
-                seed_back: back,
-                n: 3,
-            });
-            savedFront = front.trim();
-            // Guide them onward: once a card lands, advance to the next topic and
-            // clear the editor so the next card is ready to write. The matching
-            // set for the card just made stays visible below.
-            if (topicIndex < TOPICS.length - 1) {
-                topicIndex += 1;
-            }
-            front = "";
-            back = "";
-        } catch {
-            // A thrown call (not an AI refusal, which comes back in the result)
-            // means the build could not run. Keep it human, not a raw error.
-            error = "Could not build cards just now. Try again.";
+            error = true;
         } finally {
-            busy = false;
+            loaded = true;
         }
+    });
+
+    // After the walkthrough authors a card, re-check coverage. Completing it
+    // calibrates the collection, so the surface returns to the wheel (freshly
+    // reloaded so the just-authored cards are there).
+    async function onAuthored(): Promise<void> {
+        try {
+            const cal = await pgrepCall<{ calibrated: boolean }>(
+                "pgrepCalibrationStatus",
+                {},
+            );
+            calibrated = cal.calibrated;
+            if (calibrated) {
+                walkthroughByChoice = false;
+                sets = await pgrepCall<CardSet[]>("pgrepCardSets", {});
+            }
+        } catch {
+            // Leave the walkthrough in place if the re-check fails.
+        }
+    }
+
+    // "Study this set" enters that category's focus drill through the deep link
+    // Study already handles on mount (?topic=<slug>).
+    function studySet(category: string): void {
+        void goto(`/pgrep/study?topic=${encodeURIComponent(category)}`);
+    }
+
+    // "Add a card" authors the learner's own front/back as-is into the set (no
+    // AI), then appends it locally so the grid and counts update without a
+    // refetch. Categories are stable, so the open set stays put.
+    async function addCard(
+        category: string,
+        front: string,
+        back: string,
+    ): Promise<void> {
+        const res = await pgrepCall<{ note_id: number; category: string }>(
+            "pgrepAddCard",
+            { category, front, back },
+        );
+        sets = sets.map((s) =>
+            s.category === category
+                ? { ...s, cards: [...s.cards, { note_id: res.note_id, front, back }] }
+                : s,
+        );
     }
 </script>
 
-<div class="library">
-    <header class="head">
-        <h1>Make a flashcard</h1>
-        <p class="lede">
-            Write one in your own words. We build a matching set, each card checked
-            against a named source.
-        </p>
-    </header>
-
-    <div class="stack">
-        <!-- Top: the guided card editor -->
-        <section class="editor" aria-label="Your flashcard">
-            <div class="guide">
-                <div class="guide-top">
-                    <span class="eyebrow">
-                        Card {topicIndex + 1} of {TOPICS.length}
-                    </span>
-                    <div class="stepper">
-                        <button
-                            type="button"
-                            class="step"
-                            on:click={() => step(-1)}
-                            disabled={atFirst}
-                            aria-label="Previous topic"
-                        >
-                            <svg
-                                width="16"
-                                height="16"
-                                viewBox="0 0 20 20"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="1.6"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                            >
-                                <polyline points="12,5 7,10 12,15" />
-                            </svg>
-                        </button>
-                        <button
-                            type="button"
-                            class="step"
-                            on:click={() => step(1)}
-                            disabled={atLast}
-                            aria-label="Next topic"
-                        >
-                            <svg
-                                width="16"
-                                height="16"
-                                viewBox="0 0 20 20"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="1.6"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                            >
-                                <polyline points="8,5 13,10 8,15" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-                <div class="guide-topic">
-                    <span class="dot" aria-hidden="true"></span>
-                    <span class="guide-topic-label">{topicLabel}</span>
-                </div>
-            </div>
-
-            <label class="field">
-                <span class="eyebrow">Front</span>
-                <textarea
-                    bind:value={front}
-                    rows="2"
-                    placeholder="What does this concept test?"
-                ></textarea>
-            </label>
-
-            <label class="field">
-                <span class="eyebrow">Back</span>
-                <textarea
-                    bind:value={back}
-                    rows="4"
-                    placeholder="Your concise answer, in your own words."
-                ></textarea>
-            </label>
-
-            <div class="editor-foot">
-                <button class="primary" on:click={generate} disabled={busy}>
-                    {#if busy}
-                        Working
-                    {:else if aiOn}
-                        Build matching cards
-                    {:else}
-                        Add this card
-                    {/if}
-                </button>
-                {#if error}
-                    <p class="note-caution">{error}</p>
-                {/if}
-            </div>
-        </section>
-
-        <!-- Below: the AI-matched cards -->
-        <section class="siblings" aria-label="Matching cards">
-            <div class="siblings-head">
-                <svg
-                    class="spark"
-                    class:on={aiOn}
-                    width="16"
-                    height="16"
-                    viewBox="0 0 20 20"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <path
-                        d="M10 2.5 L11.8 8.2 L17.5 10 L11.8 11.8 L10 17.5 L8.2 11.8 L2.5 10 L8.2 8.2 Z"
-                    />
-                </svg>
-                <h2>Matching cards</h2>
-                {#if !aiOn}
-                    <span class="ai-pill">
-                        <span class="ai-dot" aria-hidden="true"></span>
-                        AI off
-                    </span>
-                {/if}
-            </div>
-
-            {#if !aiOn}
-                {#if seedSaved}
-                    <div class="sib-list">
-                        <article class="sib">
-                            <p class="sib-front">{@html renderMath(savedFront)}</p>
-                            <div class="sib-foot">
-                                <span class="src">You wrote this, added as is</span>
-                                <span class="when">Today</span>
-                            </div>
-                        </article>
-                    </div>
-                {/if}
-                <div class="placeholder">
-                    <p>
-                        AI matching is off, so no new cards are drafted and the gold set
-                        gate stays idle. Write cards yourself, or turn AI back on.
-                    </p>
-                    <a class="settings-link" href="/pgrep/settings">Open Settings</a>
-                </div>
-            {:else if busy}
-                <div class="sib-list">
-                    {#each [0, 1, 2] as row (row)}
-                        <div class="sib skeleton" aria-hidden="true">
-                            <span class="skel-line wide"></span>
-                            <span class="skel-line"></span>
-                            <div class="sib-foot">
-                                <span class="skel-chip"></span>
-                                <span class="skel-chip short"></span>
-                            </div>
-                        </div>
-                    {/each}
-                </div>
-                <p class="building">Building matching cards from named sources.</p>
-            {:else if !result}
-                <div class="placeholder">
-                    <p>
-                        Write a card above and we build a matching set from named
-                        sources, each one checked before it joins your deck.
-                    </p>
-                </div>
-            {:else if result.ai === "error"}
-                {#if seedSaved}
-                    <p class="saved">Your card is saved.</p>
-                {/if}
-                <div class="placeholder caution">
-                    <p>
-                        Something went wrong building the matching cards. Your card was
-                        still saved, so nothing was lost.
-                    </p>
-                </div>
-            {:else}
-                {#if seedSaved}
-                    <p class="saved">Your card is saved.</p>
-                {/if}
-
-                {#if added.length || review.length}
-                    <div class="sib-list">
-                        {#each added as c (c.note_id ?? c.front)}
-                            <article class="sib">
-                                <p class="sib-front">{@html renderMath(c.front)}</p>
-                                <div class="sib-foot">
-                                    <span class="src">
-                                        {#if c.source_ref}Cited from {c.source_ref}{:else}Source
-                                            pending{/if}
-                                    </span>
-                                    <span class="status-pill verified">
-                                        <svg
-                                            width="11"
-                                            height="11"
-                                            viewBox="0 0 12 12"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            stroke-width="1.5"
-                                            stroke-linecap="round"
-                                            stroke-linejoin="round"
-                                        >
-                                            <polyline points="2,6.5 5,9.5 10,3" />
-                                        </svg>
-                                        Verified
-                                    </span>
-                                </div>
-                            </article>
-                        {/each}
-
-                        {#each review as c (c.note_id ?? c.front)}
-                            <article class="sib review">
-                                <p class="sib-front">{@html renderMath(c.front)}</p>
-                                <div class="sib-foot">
-                                    <span class="src">
-                                        {#if c.source_ref}Cited from {c.source_ref}{:else}Source
-                                            pending{/if}
-                                    </span>
-                                    <span class="status-pill needs-review">
-                                        <svg
-                                            width="11"
-                                            height="11"
-                                            viewBox="0 0 12 12"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            stroke-width="1.5"
-                                            stroke-linecap="round"
-                                        >
-                                            <line x1="6" y1="2.5" x2="6" y2="7" />
-                                            <circle
-                                                cx="6"
-                                                cy="9.6"
-                                                r="0.6"
-                                                fill="currentColor"
-                                                stroke="none"
-                                            />
-                                        </svg>
-                                        Needs review
-                                    </span>
-                                </div>
-                            </article>
-                        {/each}
-                    </div>
-                {/if}
-
-                {#if refused.length}
-                    <p class="left-out">
-                        {refused.length}
-                        {refused.length === 1 ? "card" : "cards"} left out. pgrep could not
-                        ground {refused.length === 1 ? "it" : "them"} in a named source, so
-                        {refused.length === 1 ? "it stays" : "they stay"} out of your deck.
-                    </p>
-                {/if}
-
-                {#if !added.length && !review.length && !refused.length}
-                    <div class="placeholder">
-                        <p>No matching cards were built this time. Try another card.</p>
-                    </div>
-                {/if}
-
-                {#if gate !== "idle"}
-                    <span class="gate-chip" class:running={gate === "running"}>
-                        <span class="gate-dot" aria-hidden="true"></span>
-                        {gate === "passed"
-                            ? "Gold set gate passed"
-                            : "Gold set gate running"}
-                    </span>
-                {/if}
-            {/if}
-        </section>
+{#if !loaded}
+    <div class="library-wheel">
+        <p class="state">Reading your sets.</p>
     </div>
-</div>
+{:else if error}
+    <div class="library-wheel">
+        <div class="state">
+            <p class="lead">Could not load your library.</p>
+        </div>
+    </div>
+{:else if showWalkthrough}
+    <Walkthrough {onAuthored} />
+{:else}
+    <div class="library-wheel">
+        {#if showTeachEntry}
+            <div class="teach-entry">
+                <div class="teach-copy">
+                    <span class="teach-title">Teach pgrep your style</span>
+                    <span class="teach-sub">
+                        Write one card per topic in your own words. It is the fastest
+                        way to make this stick.
+                    </span>
+                </div>
+                <div class="teach-actions">
+                    <button
+                        class="teach-start"
+                        on:click={() => (walkthroughByChoice = true)}
+                    >
+                        Start
+                    </button>
+                    <button
+                        class="teach-dismiss"
+                        aria-label="Dismiss"
+                        on:click={() => (entryDismissed = true)}
+                    >
+                        <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            aria-hidden="true"
+                        >
+                            <line x1="4" y1="4" x2="12" y2="12" />
+                            <line x1="12" y1="4" x2="4" y2="12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        {/if}
+        <div class="wheel-holder">
+            <CardWheel {sets} onStudySet={studySet} onAddCard={addCard} />
+        </div>
+    </div>
+{/if}
 
 <style lang="scss">
-    .library {
-        max-width: 980px;
-        margin: 0 auto;
-        padding: var(--space-5) var(--space-6) var(--space-6);
+    /* Full surface height (the rail sits beside this in the shell), so the wheel's
+       perspective stage has the vertical room its geometry is tuned for. */
+    .library-wheel {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        height: 100dvh;
+    }
+
+    .wheel-holder {
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+
+    .state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        gap: var(--space-1);
+        color: var(--muted);
         font-family: var(--font-ui);
+        font-size: var(--text-body);
+        text-align: center;
+    }
+
+    .lead {
+        margin: 0;
+        font-size: var(--text-emphasis);
+        font-weight: 600;
         color: var(--text);
     }
 
-    .head {
-        margin-bottom: var(--space-4);
-
-        h1 {
-            margin: 0;
-            font-size: var(--text-title);
-            font-weight: 600;
-            letter-spacing: -0.02em;
-        }
-
-        .lede {
-            margin: var(--space-1) 0 0;
-            font-size: var(--text-body);
-            color: var(--muted);
-            max-width: 60ch;
-        }
-    }
-
-    .stack {
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-4);
-    }
-
-    /* Top: editor */
-    .editor {
-        background: var(--surface);
-        border: var(--hairline);
-        border-radius: var(--radius-card);
-        box-shadow: var(--shadow-card);
-        padding: var(--space-3);
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-2);
-    }
-
-    /* Guided walkthrough header: a card counter and steppers on top, then the
-       topic in focus. The topic carries the reserved amber (Memory), because a
-       card is the memory modality, so the colour is a data language, not decor. */
-    .guide {
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-1);
-        margin-bottom: var(--space-1);
-    }
-
-    .guide-top {
+    /* AI-off, uncalibrated entry into the walkthrough. A calm strip, never a wall. */
+    .teach-entry {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: var(--space-2);
-    }
-
-    .stepper {
-        display: inline-flex;
-        gap: 6px;
-    }
-
-    .step {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 28px;
-        height: 28px;
-        padding: 0;
-        border: var(--hairline);
-        border-radius: var(--radius-control);
+        margin: var(--space-2) var(--space-3) 0;
+        padding: 12px 14px 12px 18px;
         background: var(--surface);
-        color: var(--muted);
-        cursor: pointer;
-        transition: var(--transition-calm);
-
-        &:hover:not(:disabled) {
-            color: var(--text);
-            border-color: var(--muted);
-            background: var(--hover-wash);
-        }
-
-        &:disabled {
-            opacity: 0.4;
-            cursor: default;
-        }
+        border: var(--hairline);
+        border-radius: var(--radius-card);
+        box-shadow: var(--shadow-card);
+        font-family: var(--font-ui);
     }
 
-    .guide-topic {
-        display: inline-flex;
-        align-items: center;
-        gap: var(--space-1);
+    .teach-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
         min-width: 0;
-
-        .dot {
-            flex: 0 0 7px;
-            width: 7px;
-            height: 7px;
-            border-radius: var(--radius-pill);
-            background: var(--memory);
-        }
     }
 
-    .guide-topic-label {
-        font-size: var(--text-emphasis);
+    .teach-title {
+        font-size: var(--text-body);
         font-weight: 600;
-        letter-spacing: -0.01em;
-        color: var(--memory-text);
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        color: var(--text);
     }
 
-    .eyebrow {
-        font-size: var(--text-caption);
-        font-weight: 500;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+    .teach-sub {
+        font-size: var(--text-small);
+        line-height: 1.5;
         color: var(--muted);
     }
 
-    .field {
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-1);
-
-        textarea {
-            font: inherit;
-            font-size: var(--text-emphasis);
-            line-height: 1.6;
-            color: var(--text);
-            background: var(--elevated);
-            border: var(--hairline);
-            border-radius: var(--radius-control);
-            padding: 12px 14px;
-            resize: vertical;
-            transition: var(--transition-calm);
-
-            &::placeholder {
-                color: var(--muted);
-            }
-
-            &:focus {
-                outline: none;
-                border-color: var(--muted);
-            }
-        }
-    }
-
-    .editor-foot {
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-1);
-        margin-top: var(--space-0);
-    }
-
-    .primary {
-        align-self: flex-start;
+    .teach-actions {
         display: inline-flex;
         align-items: center;
-        padding: 10px 18px;
+        gap: var(--space-1);
+        flex: 0 0 auto;
+    }
+
+    .teach-start {
+        padding: 8px 16px;
         font-family: var(--font-ui);
         font-size: var(--text-body);
         font-weight: 500;
@@ -674,267 +264,29 @@ helper, so delimited LaTeX in a matched card shows as math (never forked here).
         cursor: pointer;
         transition: var(--transition-calm);
 
-        &:hover:not(:disabled) {
+        &:hover {
             background: var(--action-bg-hover);
             border-color: var(--action-bg-hover);
         }
-
-        &:disabled {
-            opacity: 0.55;
-            cursor: default;
-        }
     }
 
-    /* Below: siblings */
-    .siblings {
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-1);
-    }
-
-    /* Fill the full-width results as a responsive grid, not one wide column. */
-    .sib-list {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-        gap: var(--space-2);
-    }
-
-    .siblings-head {
-        display: flex;
-        align-items: center;
-        gap: var(--space-1);
-        padding: 0 2px;
-        margin-bottom: var(--space-0);
-
-        h2 {
-            margin: 0;
-            font-size: var(--text-emphasis);
-            font-weight: 600;
-            letter-spacing: -0.01em;
-        }
-
-        .spark {
-            color: var(--muted);
-            transition: var(--transition-calm);
-
-            &.on {
-                color: var(--memory-text);
-            }
-        }
-
-        .ai-pill {
-            margin-left: auto;
-            display: inline-flex;
-            align-items: center;
-            gap: 7px;
-            font-size: var(--text-caption);
-            font-weight: 500;
-            color: var(--muted);
-            border: var(--hairline);
-            border-radius: var(--radius-pill);
-            padding: 3px 10px;
-            white-space: nowrap;
-
-            .ai-dot {
-                width: 5px;
-                height: 5px;
-                border-radius: var(--radius-pill);
-                background: var(--muted);
-                opacity: 0.7;
-            }
-        }
-    }
-
-    .sib {
-        background: var(--surface);
-        border: var(--hairline);
-        border-radius: var(--radius-row);
-        box-shadow: var(--shadow-card);
-        padding: 16px 18px;
-
-        &.review {
-            border-style: dashed;
-            box-shadow: none;
-        }
-    }
-
-    .sib-front {
-        margin: 0;
-        font-size: var(--text-body);
-        line-height: 1.6;
-    }
-
-    .sib-foot {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: var(--space-2);
-        margin-top: 14px;
-    }
-
-    .src {
-        font-size: var(--text-small);
-        color: var(--muted);
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .when {
-        font-size: var(--text-small);
-        color: var(--muted);
-        font-variant-numeric: tabular-nums;
-        white-space: nowrap;
-    }
-
-    /* Status pills carry state colour (a separate language from the score hues)
-       on the text and glyph only; the border stays a neutral hairline. */
-    .status-pill {
+    .teach-dismiss {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        flex: 0 0 auto;
-        font-size: var(--text-caption);
-        font-weight: 500;
-        border: var(--hairline);
-        border-radius: var(--radius-pill);
-        padding: 3px 10px;
-        white-space: nowrap;
-
-        &.verified {
-            color: var(--success);
-        }
-
-        &.needs-review {
-            color: var(--caution);
-        }
-    }
-
-    .saved {
-        margin: 0 0 var(--space-0);
-        font-size: var(--text-body);
-        color: var(--text);
-    }
-
-    .left-out {
-        margin: var(--space-0) 2px 0;
-        font-size: var(--text-small);
-        line-height: 1.5;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        border: none;
+        border-radius: var(--radius-control);
+        background: none;
         color: var(--muted);
-    }
+        cursor: pointer;
+        transition: var(--transition-calm);
 
-    .placeholder {
-        border: 1px dashed var(--border);
-        border-radius: var(--radius-row);
-        padding: 16px 18px;
-
-        p {
-            margin: 0;
-            font-size: var(--text-small);
-            line-height: 1.6;
-            color: var(--muted);
-        }
-
-        &.caution p {
-            color: var(--caution);
-        }
-    }
-
-    .settings-link {
-        display: inline-block;
-        margin-top: var(--space-1);
-        font-size: var(--text-small);
-        color: var(--text);
-        text-decoration: underline;
-        text-underline-offset: 3px;
-    }
-
-    .building {
-        margin: var(--space-0) 2px 0;
-        font-size: var(--text-small);
-        color: var(--muted);
-    }
-
-    .note-caution {
-        margin: 0;
-        font-size: var(--text-small);
-        color: var(--caution);
-    }
-
-    .gate-chip {
-        align-self: flex-start;
-        display: inline-flex;
-        align-items: center;
-        gap: var(--space-1);
-        margin-top: var(--space-1);
-        font-size: var(--text-small);
-        color: var(--muted);
-        border: var(--hairline);
-        border-radius: var(--radius-pill);
-        padding: 5px 14px;
-
-        .gate-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: var(--radius-pill);
-            background: var(--success);
-        }
-
-        &.running .gate-dot {
-            background: var(--caution);
-        }
-    }
-
-    /* Loading skeletons for the generating pass. */
-    .skeleton {
-        box-shadow: none;
-    }
-
-    .skel-line {
-        display: block;
-        height: 12px;
-        border-radius: 6px;
-        background: var(--elevated);
-        animation: pgrep-skel 2.4s ease-in-out infinite;
-
-        &.wide {
-            width: 90%;
-        }
-
-        & + .skel-line {
-            width: 60%;
-            margin-top: 8px;
-        }
-    }
-
-    .skel-chip {
-        display: inline-block;
-        width: 96px;
-        height: 12px;
-        border-radius: 6px;
-        background: var(--elevated);
-        animation: pgrep-skel 2.4s ease-in-out infinite;
-
-        &.short {
-            width: 60px;
-        }
-    }
-
-    @keyframes pgrep-skel {
-        0%,
-        100% {
-            opacity: 0.5;
-        }
-        50% {
-            opacity: 0.85;
-        }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-        .skel-line,
-        .skel-chip {
-            animation: none;
+        &:hover {
+            color: var(--text);
+            background: var(--hover-wash);
         }
     }
 </style>

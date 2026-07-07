@@ -55,6 +55,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             wide: true,
         },
         {
+            href: "/pgrep-lab/card-sets",
+            label: "Card sets wheel",
+            group: "decisions",
+            blurb: "The Library card-sets browser: the 3D wheel and the dealt grid, both feels.",
+            wide: true,
+        },
+        {
             href: "/pgrep-lab/math",
             label: "Math",
             group: "decisions",
