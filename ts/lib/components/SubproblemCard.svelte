@@ -25,7 +25,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     export let index = 1; // 1-based, for the step count
     export let total = 1;
-    export let prompt = "";
     export let stemHtml = "";
     export let choices: { key: string; html: string }[] = [];
     export let selected = "";
@@ -50,9 +49,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     $: renderedRationale = mcqRationaleHtml
         ? renderMath(noDashes(mcqRationaleHtml))
         : "";
-    $: renderedExplainWhy = explainWhyHtml
-        ? renderMath(noDashes(explainWhyHtml))
-        : "";
+    $: renderedExplainWhy = explainWhyHtml ? renderMath(noDashes(explainWhyHtml)) : "";
     $: locked = phase !== "mcq";
 
     // Anti-spam. Shuffle and re-letter the MCQ on each retry so cycling by
@@ -120,8 +117,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         trueKey,
         html: noDashes(byHtml.get(trueKey) ?? ""),
     }));
-    $: selectedDisplay =
-        displayChoices.find((d) => d.trueKey === selected)?.key ?? "";
+    $: selectedDisplay = displayChoices.find((d) => d.trueKey === selected)?.key ?? "";
     $: correctDisplay = correctKey
         ? (displayChoices.find((d) => d.trueKey === correctKey)?.key ?? null)
         : null;
@@ -339,7 +335,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     </button>
                     {#if busy}
                         <span class="thinking" aria-label="Thinking">
-                            <span></span><span></span><span></span>
+                            <span></span>
+                            <span></span>
+                            <span></span>
                         </span>
                     {/if}
                 </div>

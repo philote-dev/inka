@@ -305,10 +305,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     <header class="head">
         <h1>Tutor harness</h1>
         <p>
-            Run the gated decomposition tutor a Problems miss opens, on any problem
-            that has decomposition data, without a full session. It calls the same
-            backend the Study page does, so with AI on the explanation gate is graded
-            live. Dev only, never part of the shipped app.
+            Run the gated decomposition tutor a Problems miss opens, on any problem that
+            has decomposition data, without a full session. It calls the same backend
+            the Study page does, so with AI on the explanation gate is graded live. Dev
+            only, never part of the shipped app.
         </p>
     </header>
 
@@ -368,9 +368,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <p class="error">{listError}</p>
         {:else if problems.length === 0}
             <p class="notice">
-                No problems in this collection have decomposition data yet. Click
-                "Load / refresh sample problems" to seed the bundled problems and pull
-                in their tutor data, then pick one.
+                No problems in this collection have decomposition data yet. Click "Load
+                / refresh sample problems" to seed the bundled problems and pull in
+                their tutor data, then pick one.
             </p>
         {:else}
             <p class="hint">
@@ -386,7 +386,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <p class="notice">
                 AI grading is off, so the explanation gate is skipped and only the
                 multiple choice gates. Turn AI on to test the full flow (run the app
-                with <code>just run-ai</code> so a key is loaded).
+                with <code>just run-ai</code>
+                so a key is loaded).
             </p>
         {/if}
     </section>
@@ -411,7 +412,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     {#if tutor}
         {#if parentStem}
             <section class="parent">
-                <span class="parent-label">Parent problem (its answer stays hidden)</span>
+                <span class="parent-label">
+                    Parent problem (its answer stays hidden)
+                </span>
                 <div class="parent-stem">{@html parentStem}</div>
             </section>
         {/if}
@@ -420,10 +423,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <section class="done">
                 <div class="done-mark">Tutor complete</div>
                 <p>
-                    Every subproblem was satisfied. In a real session the missed
-                    problem re-enters the rotation and returns later with different
-                    numbers. Change the variant round above and restart to see the
-                    renumbered version.
+                    Every subproblem was satisfied. In a real session the missed problem
+                    re-enters the rotation and returns later with different numbers.
+                    Change the variant round above and restart to see the renumbered
+                    version.
                 </p>
                 <button class="btn strong" on:click={openTutor}>Run again</button>
             </section>
@@ -431,7 +434,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <SubproblemCard
                 index={spIndex + 1}
                 total={tutor.count}
-                prompt={currentSub.prompt}
                 stemHtml={currentSub.stem_html}
                 {choices}
                 selected={spSelected}

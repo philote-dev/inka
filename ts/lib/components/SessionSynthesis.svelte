@@ -134,10 +134,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         {/if}
 
         <div class="footer">
-            <span class="selector-note">Tomorrow's selector weights these patterns.</span>
-            <button class="done" type="button" on:click={() => onDone?.()}>
-                Done
-            </button>
+            <span class="selector-note">
+                Tomorrow's selector weights these patterns.
+            </span>
+            <button class="done" type="button" on:click={() => onDone?.()}>Done</button>
         </div>
     </div>
 </section>

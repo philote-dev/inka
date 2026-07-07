@@ -995,7 +995,6 @@ The data flow through pgrepCall is unchanged.
                     <SubproblemCard
                         index={spIndex + 1}
                         total={tutor.count}
-                        prompt={tutor.subproblems[spIndex].prompt}
                         stemHtml={tutor.subproblems[spIndex].stem_html}
                         choices={subChoiceItems}
                         selected={spSelected}
