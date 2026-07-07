@@ -190,7 +190,7 @@ def build(args: argparse.Namespace) -> None:
     config_args = get_briefcase_config_args(args)
     shutil.copy("LICENSE", out_dir / "LICENSE")
     (out_dir / "CHANGELOG").write_text(
-        "Please see https://apps.ankiweb.net/", encoding="utf-8"
+        "Please see https://github.com/philote-dev/inka/releases", encoding="utf-8"
     )
     subprocess.check_call(
         [

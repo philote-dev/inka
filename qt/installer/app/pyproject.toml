@@ -5,15 +5,15 @@ requires-python = ">=3.10"
 [tool.briefcase]
 project_name = "pgrep"
 bundle = "net.ankiweb.pgrep"
-url = "https://apps.ankiweb.net"
+url = "https://github.com/philote-dev/inka"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
 author = "Damien Elmes"
 
 [tool.briefcase.app.anki]
 formal_name = "pgrep"
-description = "An intelligent spaced-repetition learning system"
-long_description = """Anki is a flashcard program that helps you spend more time on challenging material, and less on what you already know."""
+description = "A focused study app for the Physics GRE"
+long_description = """pgrep is a focused study app for the Physics GRE. It runs on your own devices and syncs to a server you control."""
 sources = [
   "src/anki",
 ]
@@ -71,9 +71,7 @@ entitlement."com.apple.security.device.audio-input" = true
 supported = false
 
 [tool.briefcase.app.anki.windows]
-# No pgrep .ico asset exists yet, so Windows keeps the existing icon here.
-# Replace with "resources/pgrep" once a pgrep.ico is produced.
-icon = "resources/anki"
+icon = "resources/pgrep"
 
 [tool.briefcase.app.anki.iOS]
 supported = false
@@ -85,25 +83,25 @@ supported = false
 supported = false
 
 [tool.briefcase.app.anki.document_type.apkg]
-description = "Anki deck package"
+description = "Deck package"
 extension = "apkg"
 icon = "resources/anki"
 mime_type = "application/x-apkg"
-url = "https://docs.ankiweb.net/exporting.html#deck-apkg"
+url = "https://github.com/philote-dev/inka"
 macOS.CFBundleTypeRole = "Editor"
 
 [tool.briefcase.app.anki.document_type.colpkg]
-description = "Anki collection package"
+description = "Collection package"
 extension = "colpkg"
 icon = "resources/anki"
 mime_type = "application/x-colpkg"
-url = "https://docs.ankiweb.net/exporting.html#collection-colpkg"
+url = "https://github.com/philote-dev/inka"
 macOS.CFBundleTypeRole = "Editor"
 
 [tool.briefcase.app.anki.document_type.ankiaddon]
-description = "Anki add-on package"
+description = "Add-on package"
 extension = "ankiaddon"
 icon = "resources/anki"
 mime_type = "application/x-ankiaddon"
-url = "https://addon-docs.ankiweb.net/sharing.html"
+url = "https://github.com/philote-dev/inka"
 macOS.CFBundleTypeRole = "Editor"

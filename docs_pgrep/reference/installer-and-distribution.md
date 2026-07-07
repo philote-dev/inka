@@ -16,7 +16,7 @@ rendered through the platform templates under `qt/installer/*-template/`.
 | `bundle`                  | `net.ankiweb.pgrep`                 | Combined with the app slug it yields the App-ID `net.ankiweb.pgrep.anki`, matching the iOS `net.ankiweb.pgrep.*` family. |
 | `project_name`            | `pgrep`                             | Umbrella project name in Briefcase metadata.                                                                             |
 | `icon`                    | `resources/pgrep`                   | App icon. Briefcase appends the per-platform extension, so it uses `pgrep.icns` on macOS and `pgrep.png` on Linux.       |
-| `icon` (windows override) | `resources/anki`                    | Temporary fallback. See caveats below.                                                                                   |
+| `icon` (windows override) | `resources/pgrep`                   | Uses the multi-size `pgrep.ico` in `resources/`.                                                                         |
 | `license`, `author`       | `AGPL-3.0-or-later`, `Damien Elmes` | Kept intact for license and attribution.                                                                                 |
 
 The Briefcase app slug stays `anki`. The section header is still
@@ -191,11 +191,19 @@ internal or external testers.
   `Anki.exe` in the sign and verify steps. After this rebrand the binary is
   `pgrep.exe`. That workflow is outside the installer scope and was not changed
   here, so the path must be updated before a signed Windows release will pass.
-- Windows icon. The Windows section falls back to `resources/anki` because no
-  `pgrep.ico` asset exists and the build host has no image converter. Produce a
-  multi-size `pgrep.ico`, drop it in `qt/installer/app/resources/`, and switch
-  the windows `icon` to `resources/pgrep`.
-- Non-identity metadata. The `url` (apps.ankiweb.net), `long_description`, the
-  document type descriptions, the Linux man page, the README, and the legacy
-  `anki.xpm` icon still read Anki. These are descriptive text or attribution,
-  not app identity, so they were left as is.
+- Windows icon. Shipped. A multi-size `pgrep.ico` (16 through 256) now lives in
+  `qt/installer/app/resources/`, and the windows `icon` points at
+  `resources/pgrep`.
+- Descriptive metadata de-Anki'd. The app `url`, `description`,
+  `long_description`, the document-type descriptions, and the document-type URLs
+  now read pgrep and point at the project repository. The matching `appWebsite`
+  and `appWebsiteDownloadSection` in `qt/aqt/__init__.py` and the `CHANGELOG`
+  line in `build_installer.py` were repointed too. The Linux man page, the
+  README, and the legacy `anki.xpm` icon still read Anki; they are attribution
+  or out-of-scope text and were left as is.
+- App identity (bundle id and slug). Deferred by decision. The bundle stays
+  `net.ankiweb.pgrep` and the slug `anki` (bundle id `net.ankiweb.pgrep.anki`)
+  for now, to avoid build risk before the demo recording. It is OS-level
+  metadata, not user-visible UI. Moving to a de-Anki'd id such as `app.pgrep`
+  means renaming the slug, which ripples into `build_installer.py` paths, the
+  `src/anki` launcher, and `cleanup_paths`; revisit after the recording.

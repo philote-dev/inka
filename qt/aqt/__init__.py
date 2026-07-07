@@ -79,8 +79,8 @@ except AttributeError:
         sys.stderr = sys.stdout = open(os.devnull, "w", encoding="utf8")
 
 appVersion = _version
-appWebsite = "https://apps.ankiweb.net/"
-appWebsiteDownloadSection = "https://apps.ankiweb.net/#download"
+appWebsite = "https://github.com/philote-dev/inka"
+appWebsiteDownloadSection = "https://github.com/philote-dev/inka/releases"
 appDonate = "https://docs.ankiweb.net/contrib.html"
 appShared = "https://ankiweb.net/shared/"
 appUpdate = "https://ankiweb.net/update/desktop"
