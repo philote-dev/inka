@@ -5,7 +5,8 @@ and what the project depends on from outside the codebase. It defines the
 sourcing tiers, the provenance and leakage rules, the data assets the AI layer is
 built on, and the external tools and services the build requires. Shared product
 context is in [`../README.md`](../README.md). Live dataset status is in
-[`dataset-pipeline.md`](dataset-pipeline.md).
+[`dataset-pipeline.md`](dataset-pipeline.md). The pipeline that builds, gates, and
+audits the content bundle is in [`content-pipeline.md`](content-pipeline.md).
 
 ---
 
@@ -115,6 +116,13 @@ Everything not living in the repo, grouped by when it is first needed.
 | Vector store     | retrieval index                                          | local `sqlite-vec`, no service needed                                            |
 | CAS: SymPy       | verify computational cards and problems without an LLM   | free, deterministic, offline. Central to the gate.                               |
 | PDF extraction   | source PDFs into corpus text                             | `PyMuPDF` (text). Vision models for scanned equations where needed.              |
+
+Every model call goes through one pinned client, `pylib/anki/pgrep/ai/llm.py`
+`LLMClient` (an exact dated snapshot, shared retries, JSON responses), and
+`load_api_key(...)` is the single place that resolves the key from the
+environment or `content/.env`. The offline judges (figure fidelity, technique
+giveaway, and the audit checks) share one `Judge` over that client. See
+[`content-pipeline.md`](content-pipeline.md).
 
 ### 3.3 Mobile and ship (L3 / L6)
 
