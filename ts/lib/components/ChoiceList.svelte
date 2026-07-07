@@ -19,23 +19,36 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     export let correctKey: string | null = null;
     export let onSelect: ((key: string) => void) | undefined = undefined;
 
-    // Typeset any delimited LaTeX in the choice HTML (no-op on plain text).
-    $: renderedChoices = choices.map((c) => ({ ...c, html: renderMath(c.html) }));
-
     type RowState = "default" | "selected" | "correct" | "wrong" | "locked";
 
-    function rowState(key: string): RowState {
-        if (!committed) {
-            return key === selected ? "selected" : "default";
+    function rowState(
+        key: string,
+        sel: string,
+        isCommitted: boolean,
+        correct: string | null,
+    ): RowState {
+        if (!isCommitted) {
+            return key === sel ? "selected" : "default";
         }
-        if (correctKey && key === correctKey) {
+        if (correct && key === correct) {
             return "correct";
         }
-        if (key === selected) {
+        if (key === sel) {
             return "wrong";
         }
         return "locked";
     }
+
+    // Typeset the choice HTML and resolve each row's state here, referencing
+    // selected/committed/correctKey directly so Svelte re-runs it the moment the
+    // selection changes. A rowState() call inside an {@const} would not re-run on
+    // a selection change (the dependency hides inside the function), so the live
+    // blue highlight never appeared until commit.
+    $: renderedChoices = choices.map((c) => ({
+        key: c.key,
+        html: renderMath(c.html),
+        state: rowState(c.key, selected, committed, correctKey),
+    }));
 
     // The choices are a single-select radio group: one row is tabbable (the
     // selected one, else the first), arrow keys move and select, and a letter
@@ -96,10 +109,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
 <div class="choices" role="radiogroup" aria-label="Answer choices">
     {#each renderedChoices as c, i (c.key)}
-        {@const state = rowState(c.key)}
         <button
             type="button"
-            class="choice state-{state}"
+            class="choice state-{c.state}"
             role="radio"
             aria-checked={c.key === selected}
             tabindex={committed ? -1 : tabindexFor(c.key, i)}
@@ -110,10 +122,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         >
             <span class="key">{c.key}</span>
             <span class="content">{@html c.html}</span>
-            {#if state === "correct"}
-                <span class="tag correct">Correct answer</span>
-            {:else if state === "wrong"}
-                <span class="tag wrong">Your answer, not correct</span>
+            {#if c.state === "wrong"}
+                <span class="tag wrong">Not correct</span>
             {/if}
         </button>
     {/each}
@@ -157,18 +167,27 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     .state-selected {
         border-color: var(--performance);
-        border-width: 1.5px;
+        border-width: 2px;
         background: var(--performance-wash);
+        box-shadow: inset 0 0 0 1px var(--performance);
     }
 
     .state-correct {
         border-color: var(--success);
-        border-width: 1.5px;
-        background: var(--success-wash);
+        border-width: 2px;
+        background: rgba(163, 190, 140, 0.3);
+        box-shadow:
+            inset 0 0 0 3px var(--success),
+            0 0 0 4px rgba(163, 190, 140, 0.5);
     }
 
+    /* Experiment: a wrong pick reads pastel red (diverges from the calm-blue
+       honesty rule, under review). */
     .state-wrong {
-        opacity: 0.62;
+        border-color: var(--error-tint);
+        border-width: 2px;
+        background: var(--error-wash);
+        box-shadow: inset 0 0 0 1px var(--error-tint);
     }
 
     .state-locked {
@@ -196,7 +215,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     .state-correct .key {
         border-color: var(--success);
-        color: var(--text);
+        background: var(--success);
+        color: var(--action-bg);
+        font-weight: 600;
+    }
+
+    .state-wrong .key {
+        border-color: var(--error-tint);
+        color: var(--error);
     }
 
     .content {
@@ -217,14 +243,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         padding: 3px 10px;
         white-space: nowrap;
 
-        &.correct {
-            color: var(--text);
-            border: 1px solid var(--success);
-        }
-
         &.wrong {
-            color: var(--performance-text);
-            border: 1px solid var(--performance-tint);
+            color: var(--error);
+            border: 1px solid var(--error-tint);
         }
     }
 </style>
