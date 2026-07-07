@@ -40,70 +40,37 @@ import _ai_path  # noqa: E402
 
 _ai_path.add_ai_core()
 
-from pgrep.ai import llm  # noqa: E402
+from pgrep.ai import judge as ai_judge  # type: ignore[import-not-found]  # noqa: E402
+from pgrep.ai import llm  # type: ignore[import-not-found]  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEFAULT_BUNDLE = os.path.join(REPO, "pylib", "anki", "pgrep", "content_bundle.json")
 FIG = re.compile(r'<div class="pg-figure">[\s\S]*?</div>')
 _lock = threading.Lock()
 
-JUDGE_SYSTEM = (
-    "You audit Physics GRE multiple-choice problems for a subtle flaw: a stem that "
-    "HANDS THE SOLVER the governing relation, formula, or solution technique the "
-    "problem is meant to test. That trivializes a physics problem into plugging in "
-    "numbers.\n\n"
-    "Draw this line carefully:\n"
-    "- NOT a giveaway (allowed): stating given numeric values or standard constants "
-    "(for example g = 9.8 m/s^2, the speed of light c, a mass, a length, a moment "
-    "of inertia value), defining notation, or describing the physical setup. A "
-    "solver is supposed to be given the data.\n"
-    "- IS a giveaway (flag it): stating the KEY physical relation, formula, or "
-    "method whose recall or derivation is the actual point, for example 'using "
-    "f = c/lambda', 'recall that E = hf', 'apply the Rydberg formula "
-    "1/lambda = R(1/n1^2 - 1/n2^2)', 'use the fact that the period is "
-    "T = 2*pi*sqrt(L/g)', or a stem that walks through the solution steps.\n\n"
-    "Judge whether removing the stated relation would still leave the problem "
-    "solvable by someone who knows the physics. If the stem states the very "
-    "relation that IS the knowledge being tested, flag it.\n\n"
-    "Return STRICT JSON: {\"gives_away\": true|false, \"severity\": "
-    "\"high\"|\"low\", \"what\": \"the exact relation/technique handed over, or "
-    "empty\", \"fix\": \"how to reword so the relation is not given\"}. Use "
-    "severity high when the handed-over relation is essentially the answer method; "
-    "low when it is a borderline nudge."
-)
-
 
 def _stem(p: dict) -> str:
     return FIG.sub(" ", p.get("stem", "")).strip()
 
 
-def _payload(p: dict) -> str:
-    choices = "\n".join(f"  {c}" for c in p.get("choices", []))
-    return (
-        f"TOPIC: {p.get('topic','')}\n\nSTEM:\n{_stem(p)}\n\n"
-        f"CHOICES:\n{choices}\n\nCORRECT: {p.get('correct','')}"
-    )
-
-
 class Judge:
+    """Thin compatibility shim over ``ai.judge.Judge``.
+
+    Kept so ``apply_giveaway_review`` / ``fix_decomp_giveaways`` and this CLI are
+    unchanged; the giveaway check itself lives in ``pgrep.ai.judge`` now. ``key``
+    is accepted positionally for the legacy callers; the key lives in the
+    environment (``llm.load_api_key``). Pass ``client`` to inject a fake in tests
+    (no network).
+    """
+
     def __init__(self, model: str, key: str | None = None, *, client=None) -> None:
-        # ``key`` is accepted for the existing callers that still pass one
-        # positionally; the key lives in the environment now (see
-        # ``llm.load_api_key``) and the pinned client reads it there. Pass
-        # ``client`` to inject a fake in tests (no network).
-        self.client = client if client is not None else llm.judge_client(model)
-        self.model = getattr(self.client, "model", model)
+        client = client if client is not None else llm.judge_client(model)
+        self._judge = ai_judge.Judge(model, client=client)
+        self.client = self._judge.client
+        self.model = self._judge.model
 
     def judge(self, p: dict) -> dict:
-        try:
-            raw = (self.client.complete_text(JUDGE_SYSTEM, _payload(p), json_object=True) or "{}").strip()
-        except Exception:  # noqa: BLE001
-            return {"gives_away": False, "what": "", "note": "judge call failed"}
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            m = re.search(r"\{[\s\S]*\}", raw)
-            return json.loads(m.group(0)) if m else {"gives_away": False}
+        return self._judge.technique_giveaway(p).to_dict()
 
 
 def load_key(env_file: str | None = None) -> str:

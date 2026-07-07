@@ -40,27 +40,11 @@ _AI_CORE = REPO / "pylib" / "anki"
 if _AI_CORE.is_dir() and str(_AI_CORE) not in sys.path:
     sys.path.append(str(_AI_CORE))
 
+from pgrep.ai import judge as ai_judge  # type: ignore[import-not-found]  # noqa: E402
 from pgrep.ai import llm  # type: ignore[import-not-found]  # noqa: E402
 
 SVG_RE = re.compile(r"<svg[\s\S]*?</svg>", re.IGNORECASE)
 FIGURE_DIV_RE = re.compile(r'<div class="pg-figure">[\s\S]*?</div>', re.IGNORECASE)
-
-JUDGE_SYSTEM = (
-    "You verify that an SVG line-art diagram faithfully depicts a Physics GRE "
-    "problem. You are given the problem stem (the words the student reads) and "
-    "the SVG source. Decide whether the figure correctly and sufficiently shows "
-    "the setup the stem describes.\n"
-    "Check: every physical object, component, or body named in the stem appears "
-    "in the figure; the geometry, arrangement, or circuit topology matches the "
-    "text; symbolic labels in the figure correspond to variables in the stem; "
-    "nothing in the figure contradicts the text; the figure carries NO numeric "
-    "values or units (those belong in the stem); and a student could use the "
-    "figure to reason about the problem.\n"
-    'Return STRICT JSON only: {"matches": true|false, "missing": [str], '
-    '"contradictions": [str], "has_numbers": true|false, "notes": str}. '
-    "List concrete gaps in missing/contradictions. Set matches=false if any "
-    "named element is missing, anything contradicts the text, or numbers appear."
-)
 
 
 def strip_figure(stem: str) -> str:
@@ -68,31 +52,23 @@ def strip_figure(stem: str) -> str:
 
 
 class Judge:
+    """Thin compatibility shim over ``ai.judge.Judge``.
+
+    Kept so ``run_figures`` / ``apply_figure_review`` and this CLI are unchanged;
+    the fidelity check itself lives in ``pgrep.ai.judge`` now. ``key`` is accepted
+    positionally for the legacy callers; the key lives in the environment
+    (``llm.load_api_key``). Pass ``client`` to inject a fake in tests (no
+    network).
+    """
+
     def __init__(self, model: str, key: str | None = None, *, client=None) -> None:
-        # ``key`` is accepted for the existing callers that still pass one
-        # positionally; the key lives in the environment now (see
-        # ``llm.load_api_key``) and the pinned client reads it there. Pass
-        # ``client`` to inject a fake in tests (no network).
-        self.client = client if client is not None else llm.judge_client(model)
-        self.model = getattr(self.client, "model", model)
+        client = client if client is not None else llm.judge_client(model)
+        self._judge = ai_judge.Judge(model, client=client)
+        self.client = self._judge.client
+        self.model = self._judge.model
 
     def verify(self, stem: str, svg: str) -> dict:
-        user = f"PROBLEM STEM:\n{stem}\n\nSVG SOURCE:\n{svg}"
-        try:
-            raw = (
-                self.client.complete_text(JUDGE_SYSTEM, user, json_object=True) or "{}"
-            ).strip()
-        except Exception as e:  # noqa: BLE001
-            return {"matches": False, "notes": f"judge call failed: {e}"}
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            m = re.search(r"\{[\s\S]*\}", raw)
-            return (
-                json.loads(m.group(0))
-                if m
-                else {"matches": False, "notes": "unparseable judge reply"}
-            )
+        return self._judge.figure_fidelity(stem, svg).to_dict()
 
 
 def main() -> int:
