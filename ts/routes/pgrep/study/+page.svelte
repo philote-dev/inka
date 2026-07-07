@@ -190,15 +190,23 @@ The data flow through pgrepCall is unchanged.
     let synthLoading = false;
 
     onMount(async () => {
+        // Read AI and calibration independently. A failed calibration call must
+        // never force aiOn off: that would leave the explain gate stranded after a
+        // correct subproblem pick (phase becomes "explain" from the backend while
+        // the card renders nothing because aiOn is false).
         try {
-            const [status, cal] = await Promise.all([
-                pgrepCall<{ enabled: boolean }>("pgrepAiStatus", {}),
-                pgrepCall<{ calibrated: boolean }>("pgrepCalibrationStatus", {}),
-            ]);
+            const status = await pgrepCall<{ enabled: boolean }>("pgrepAiStatus", {});
             aiOn = status.enabled;
-            calibrated = cal.calibrated;
         } catch {
             aiOn = false;
+        }
+        try {
+            const cal = await pgrepCall<{ calibrated: boolean }>(
+                "pgrepCalibrationStatus",
+                {},
+            );
+            calibrated = cal.calibrated;
+        } catch {
             calibrated = true;
         }
         // Study is gated behind calibration while AI is on (card-sets plan §4):
@@ -432,7 +440,9 @@ The data flow through pgrepCall is unchanged.
                 spCorrectKey = r.correct_choice ?? spSelected;
                 spExplainWhy = r.explain_why_html ?? "";
                 spMcqRationale = "";
-                spPhase = r.needs_explanation ? "explain" : "done";
+                // Only open the explain gate when the card can actually show it
+                // (aiOn), so a backend/frontend AI mismatch never strands the step.
+                spPhase = r.needs_explanation && aiOn ? "explain" : "done";
             } else {
                 spMcqRationale =
                     r.rationale_html || "Not quite. Look again and try another.";
@@ -1020,9 +1030,6 @@ The data flow through pgrepCall is unchanged.
                 </div>
             {:else if tutor && tutor.count > 0 && !tutorDone}
                 <div class="verdict miss">Not correct. Let's build it up.</div>
-                <p class="tutor-lead muted small">
-                    Work each step. The answer to the original stays hidden.
-                </p>
                 {#key spIndex}
                     <SubproblemCard
                         index={spIndex + 1}
