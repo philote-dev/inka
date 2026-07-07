@@ -178,3 +178,57 @@ def _ensure_points_at_stake_config(col: Collection, deck_id: DeckId) -> None:
     if conf.get("reviewOrder") != POINTS_AT_STAKE:
         conf["reviewOrder"] = POINTS_AT_STAKE
         col.decks.update_config(conf)
+
+
+# Demo / dev harness: refill the sample Cards door on demand
+##########################################################################
+
+# A restart lifts the sample deck's daily new and review caps to this value
+# (comfortably above the bundle size) so the demo Cards door is never held back
+# by the day's counts. Scoped to the sample deck's own config group.
+_DEMO_DAILY_LIMIT = 9999
+
+
+def restart_sample_cards(col: Collection) -> dict[str, Any]:
+    """Make the sample Cards door fully due again, so the demo always has cards.
+
+    Ensures the sample content is seeded, lifts the sample deck's daily new and
+    review caps so nothing is held back by the day's counts, then forgets every
+    seeded card back to new so the whole set is due at once. Only the sample deck
+    and its own config group are touched, so user data and other decks are left
+    alone. Returns the deck id, cards created (0 once seeded), and cards restarted.
+    """
+    summary = seed_sample_content(col)
+    deck_id = col.decks.id(DECK_NAME)
+    assert deck_id is not None
+    _lift_daily_limits(col, deck_id)
+
+    seeded_card_ids = list(col.find_cards(f"tag:{SEEDED_TAG}"))
+    if seeded_card_ids:
+        undo_id = col.add_custom_undo_entry("Restart pgrep sample cards")
+        col.sched.schedule_cards_as_new(seeded_card_ids)
+        col.merge_undo_entries(undo_id)
+
+    return {
+        "deck_id": int(deck_id),
+        "cards_created": summary["cards_created"],
+        "cards_restarted": len(seeded_card_ids),
+    }
+
+
+def _lift_daily_limits(col: Collection, deck_id: DeckId) -> None:
+    """Raise the sample deck's new/review per-day caps so a demo never runs dry.
+
+    Writes to the sample deck's dedicated config group (created by
+    :func:`_ensure_points_at_stake_config`), so no other deck's limits move.
+    """
+    _ensure_points_at_stake_config(col, deck_id)
+    conf = col.decks.config_dict_for_deck_id(deck_id)
+    changed = False
+    for bucket in ("new", "rev"):
+        section = conf.get(bucket)
+        if isinstance(section, dict) and section.get("perDay") != _DEMO_DAILY_LIMIT:
+            section["perDay"] = _DEMO_DAILY_LIMIT
+            changed = True
+    if changed:
+        col.decks.update_config(conf)

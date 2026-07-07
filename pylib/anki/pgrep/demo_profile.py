@@ -25,9 +25,11 @@ What it injects, per covered category:
   correctness, ``answered_at`` spread over weeks), so Performance scores the
   category and its blueprint weight counts toward Readiness coverage.
 
-The covered set sums to ``COVERAGE_WEIGHT`` of the blueprint (above the 0.70
-Readiness gate), leaving ``lab`` and ``specialized`` uncovered so Readiness still
-names an honest hole rather than a fake all-clear.
+Each stage covers a growing slice of the blueprint. The early ``diagnostic``
+stage sits *below* the 0.70 Readiness coverage gate on purpose, so Readiness
+honestly abstains (no score yet) until enough ground is covered; later stages
+clear it. ``lab`` and ``specialized`` stay uncovered even at the top, so Readiness
+always names an honest hole rather than a fake all-clear.
 
 Marking, idempotency, reversibility. Every reviewed card carries the
 :data:`DEMO_TAG` marker, and every Attempt payload carries ``demo: true``.
@@ -78,25 +80,58 @@ _ACTIVE_PROFILE_KEY = "pgrep_demo_profile"
 # mutating the (immutable) notes. Kept inside the payload at creation time.
 DEMO_PAYLOAD_KEY = "demo"
 
-# Categories the profile covers: a representative subtopic plus a per-area skill
-# in [0, 1] that shapes the profile (a strong learner is not equally strong
-# everywhere). Their blueprint weights sum to COVERAGE_WEIGHT, comfortably above
-# the 0.70 Readiness gate; lab and specialized are left uncovered so Readiness
+# A covered area is (category, representative subtopic, per-area skill in [0, 1]).
+# The skill shapes how strong the area reads (a learner is not equally strong
+# everywhere); Memory reads only the FSRS state and the topic tag, so the subtopic
+# is just a realistic label.
+CoveredArea = tuple[str, str, float]
+
+# Each stage covers a GROWING slice of the blueprint, mirroring a real learner:
+# a day-one diagnostic has touched only a few areas, a mid learner more, an
+# exam-ready learner most. The summed blueprint weight of a stage's areas is what
+# clears (or misses) the 0.70 Readiness coverage gate, so the demo can show the
+# honest "no Readiness score yet" state early and watch it appear as coverage
+# grows. lab and specialized stay uncovered even at the top, so Readiness always
 # names an honest hole rather than a fake all-clear.
-COVERED: tuple[tuple[str, str, float], ...] = (
-    ("mechanics", "kinematics", 0.9),
-    ("electromagnetism", "circuits", 0.7),
-    ("quantum", "wavefunction", 0.4),
-    ("thermodynamics", "laws", 0.6),
-    ("atomic", "spectra", 0.5),
-    ("optics_waves", "interference", 0.3),
-    ("special_relativity", "kinematics", 0.8),
+
+# Diagnostic: mechanics + EM + quantum = 0.51 weight, BELOW the 0.70 gate, so
+# Readiness abstains. This is the "did the diagnostic and a little practice, no
+# readiness score yet" state.
+_DIAGNOSTIC_COVERED: tuple[CoveredArea, ...] = (
+    ("mechanics", "kinematics", 0.55),
+    ("electromagnetism", "circuits", 0.4),
+    ("quantum", "wavefunction", 0.3),
 )
 
-COVERED_CATEGORIES: tuple[str, ...] = tuple(category for category, _, _ in COVERED)
-COVERAGE_WEIGHT: float = sum(
-    BLUEPRINT_PERCENT[category] for category in COVERED_CATEGORIES
+# Training: adds thermodynamics + atomic = 0.71 weight, just PAST the gate, so
+# Readiness has appeared with a modest score.
+_TRAINING_COVERED: tuple[CoveredArea, ...] = (
+    ("mechanics", "kinematics", 0.75),
+    ("electromagnetism", "circuits", 0.6),
+    ("quantum", "wavefunction", 0.45),
+    ("thermodynamics", "laws", 0.6),
+    ("atomic", "spectra", 0.5),
 )
+
+# Nearing exam: adds optics/waves + special relativity = 0.85 weight, comfortably
+# past the gate, leaving only lab + specialized as the honest hole.
+_EXAM_COVERED: tuple[CoveredArea, ...] = (
+    ("mechanics", "kinematics", 0.9),
+    ("electromagnetism", "circuits", 0.75),
+    ("quantum", "wavefunction", 0.5),
+    ("thermodynamics", "laws", 0.7),
+    ("atomic", "spectra", 0.6),
+    ("optics_waves", "interference", 0.45),
+    ("special_relativity", "kinematics", 0.85),
+)
+
+
+def _categories_of(covered: tuple[CoveredArea, ...]) -> tuple[str, ...]:
+    return tuple(category for category, _, _ in covered)
+
+
+def _coverage_weight_of(covered: tuple[CoveredArea, ...]) -> float:
+    return sum(BLUEPRINT_PERCENT[category] for category in _categories_of(covered))
 
 # How far a per-area skill pulls attempt accuracy around the profile base
 # (skill 0.0 subtracts half of this, 1.0 adds half), and the range the skill maps
@@ -144,13 +179,20 @@ _ATTEMPT_WINDOW_DAYS = 45
 
 @dataclass(frozen=True)
 class DemoProfile:
-    """One hypothetical learner shape. ``accuracy`` sets how many attempts land.
+    """One hypothetical learner shape at a point in their journey.
 
-    ``stability_days`` / ``fsrs_difficulty`` / ``last_review_days_ago`` are cycled
-    across a category's reviewed cards to give a realistic spread of FSRS
-    retrievability (and therefore Memory). A strong learner has long, recent
-    stability (high R); a rusty learner has short, older stability (lower R). Both
-    still clear every abstain gate; only the numbers differ.
+    ``covered`` is this stage's slice of the blueprint (see the covered-set
+    constants): it grows stage to stage, so early stages can sit below the
+    Readiness coverage gate and honestly show no Readiness score yet.
+
+    ``accuracy`` sets how many attempts land (Performance). ``stability_days`` /
+    ``fsrs_difficulty`` / ``last_review_days_ago`` are cycled across a category's
+    reviewed cards to give a realistic spread of FSRS retrievability (Memory). The
+    stages form a clear progression: ``diagnostic`` has short, older stability and
+    modest accuracy over a small slice (low scores, Readiness abstains),
+    ``training`` sits in the middle over a slice that just clears the gate, and
+    ``nearing_exam`` has long, recent stability and high accuracy over a broad
+    slice (high scores). The magnitudes and the coverage both climb.
     """
 
     key: str
@@ -159,28 +201,46 @@ class DemoProfile:
     stability_days: tuple[float, ...]
     fsrs_difficulty: tuple[float, ...]
     last_review_days_ago: tuple[int, ...]
+    covered: tuple[CoveredArea, ...]
 
 
+# The stages of a learner's journey, ordered low to high so both the scores and
+# the blueprint coverage climb as you step through them. Diagnostic sits below the
+# Readiness gate on purpose (no Readiness score yet); training just clears it;
+# nearing-exam clears it comfortably.
 PROFILES: dict[str, DemoProfile] = {
-    "strong": DemoProfile(
-        key="strong",
-        label="Strong learner",
-        accuracy=0.8,
+    "diagnostic": DemoProfile(
+        key="diagnostic",
+        label="Diagnostic",
+        accuracy=0.47,
+        stability_days=(1.8, 2.8, 4.0, 2.2, 3.2, 2.5),
+        fsrs_difficulty=(7.0, 7.5, 7.0, 8.0, 7.5, 7.0),
+        last_review_days_ago=(16, 26, 34, 20, 30, 24),
+        covered=_DIAGNOSTIC_COVERED,
+    ),
+    "training": DemoProfile(
+        key="training",
+        label="Training",
+        accuracy=0.5,
+        stability_days=(4.0, 6.0, 9.0, 5.0, 7.0, 5.5),
+        fsrs_difficulty=(5.0, 6.0, 5.0, 7.0, 6.0, 5.0),
+        last_review_days_ago=(10, 16, 22, 12, 18, 14),
+        covered=_TRAINING_COVERED,
+    ),
+    "nearing_exam": DemoProfile(
+        key="nearing_exam",
+        label="Nearing exam",
+        accuracy=0.85,
         stability_days=(90.0, 140.0, 200.0, 110.0, 160.0, 130.0),
         fsrs_difficulty=(3.0, 4.0, 3.0, 5.0, 4.0, 3.0),
         last_review_days_ago=(2, 5, 8, 3, 6, 4),
-    ),
-    "rusty": DemoProfile(
-        key="rusty",
-        label="Rusty learner",
-        accuracy=0.5,
-        stability_days=(6.0, 12.0, 20.0, 8.0, 15.0, 10.0),
-        fsrs_difficulty=(6.0, 7.0, 6.0, 8.0, 7.0, 6.0),
-        last_review_days_ago=(18, 30, 40, 22, 34, 26),
+        covered=_EXAM_COVERED,
     ),
 }
 
-DEFAULT_PROFILE = "strong"
+# The headline stage: bare inject and the sync walkthrough default to the
+# exam-ready learner so the scores light up strongly out of the box.
+DEFAULT_PROFILE = "nearing_exam"
 
 
 def _resolve_profile(profile: str | None) -> DemoProfile:
@@ -210,6 +270,18 @@ def _category_accuracy(base: float, skill: float) -> float:
 def _stability_scale(skill: float) -> float:
     """Map an area skill to an FSRS stability multiplier (stronger remembers longer)."""
     return _STABILITY_SCALE_MIN + skill * (_STABILITY_SCALE_MAX - _STABILITY_SCALE_MIN)
+
+
+def _demo_now() -> int:
+    """A day-quantized injection clock (start of the current UTC day).
+
+    Injected timestamps (card ``last_review_time`` and attempt ``answered_at``) are
+    anchored here rather than to a raw ``time.time()``. Two injections of the same
+    stage on the same day then produce identical timestamps, so a stage's scores
+    are stable within a day and a preview matches its real inject (rather than
+    drifting by the second or two between the two calls).
+    """
+    return int(time.time()) // 86400 * 86400
 
 
 def is_demo_injected(col: Collection) -> bool:
@@ -249,8 +321,8 @@ def inject_demo_profile(
 
     Idempotent for the same profile: if that profile is already present this is a
     no-op that reports ``already_injected``. Switching to a different profile
-    clears the current one first, so the lab can move between "strong" and "rusty"
-    without a manual clear. Returns a summary dict with the profile key, whether it
+    clears the current one first, so the lab can move between stages without a
+    manual clear. Returns a summary dict with the profile key, whether it
     was already present, the number of reviewed cards and attempts created, the
     covered categories, and their summed blueprint coverage weight.
     """
@@ -265,15 +337,16 @@ def inject_demo_profile(
                 "already_injected": True,
                 "cards_created": 0,
                 "attempts_created": 0,
-                "covered_categories": list(COVERED_CATEGORIES),
-                "coverage_weight": COVERAGE_WEIGHT,
+                "covered_categories": list(_categories_of(prof.covered)),
+                "coverage_weight": _coverage_weight_of(prof.covered),
             }
         # A different profile is active: clear it first so the lab can switch
-        # between profiles (strong to rusty and back) without a manual clear.
+        # between stages (diagnostic to nearing_exam and back) without a manual clear.
         clear_demo_profile(col)
 
-    cards_created = _inject_reviewed_cards(col, prof)
-    attempts_created = _inject_attempts(col, prof)
+    now = _demo_now()
+    cards_created = _inject_reviewed_cards(col, prof, now)
+    attempts_created = _inject_attempts(col, prof, now)
     col.set_config(_ACTIVE_PROFILE_KEY, prof.key)
 
     return {
@@ -281,8 +354,8 @@ def inject_demo_profile(
         "already_injected": False,
         "cards_created": cards_created,
         "attempts_created": attempts_created,
-        "covered_categories": list(COVERED_CATEGORIES),
-        "coverage_weight": COVERAGE_WEIGHT,
+        "covered_categories": list(_categories_of(prof.covered)),
+        "coverage_weight": _coverage_weight_of(prof.covered),
     }
 
 
@@ -327,14 +400,20 @@ def demo_status(col: Collection) -> dict[str, Any]:
     performance = performance_score(col)
     readiness = readiness_score(col)
 
+    # Report the *active* stage's intended coverage (empty when nothing is
+    # injected), so the lab caption matches what was actually injected.
+    active_key = col.get_config(_ACTIVE_PROFILE_KEY, None) if injected else None
+    active = PROFILES.get(active_key) if active_key else None
+    covered = active.covered if active else ()
+
     return {
         "injected": injected,
-        "profile": col.get_config(_ACTIVE_PROFILE_KEY, None) if injected else None,
+        "profile": active_key,
         "profiles": [{"key": p.key, "label": p.label} for p in PROFILES.values()],
         "demo_cards": len(col.find_notes(f"tag:{DEMO_TAG}")),
         "demo_attempts": len(_demo_attempt_note_ids(col)),
-        "covered_categories": list(COVERED_CATEGORIES),
-        "coverage_weight": COVERAGE_WEIGHT,
+        "covered_categories": list(_categories_of(covered)),
+        "coverage_weight": _coverage_weight_of(covered),
         "coverage_pct": readiness["coverage_pct"],
         "coverage_gate": readiness["coverage_gate"],
         "scores": {
@@ -345,10 +424,57 @@ def demo_status(col: Collection) -> dict[str, Any]:
     }
 
 
+def preview_demo_profile(
+    col: Collection, profile: str | None = DEFAULT_PROFILE
+) -> dict[str, Any]:
+    """Compute the scores a stage would produce, without committing it.
+
+    The lab surface shows a stage's scores the moment it is selected, before the
+    user commits with :func:`inject_demo_profile`. This injects the requested
+    stage inside a restore guard, snapshots :func:`demo_status`, then rolls back
+    to whatever was committed before (nothing, or another stage), so the committed
+    demo state is left exactly as it was.
+
+    The returned snapshot matches :func:`demo_status` with two additions:
+    ``preview`` is ``True`` when the numbers come from a throwaway injection, and
+    ``preview_profile`` names the previewed stage. ``injected`` and ``profile``
+    keep reporting the *committed* state, so the caller can label the difference.
+    Because each stage's injection is deterministic, callers may cache the result
+    per stage key.
+    """
+    prof = _resolve_profile(profile)
+    prior = col.get_config(_ACTIVE_PROFILE_KEY, None) if is_demo_injected(col) else None
+
+    # Fast path: the requested stage is already committed, so its live status is
+    # the preview, with no injection churn needed.
+    if prior == prof.key:
+        snapshot = demo_status(col)
+        snapshot["preview"] = False
+        snapshot["preview_profile"] = prof.key
+        return snapshot
+
+    try:
+        inject_demo_profile(col, prof.key)
+        snapshot = demo_status(col)
+    finally:
+        # Restore the committed state: drop the preview injection, then re-inject
+        # whatever stage (if any) was committed before. Both steps touch only
+        # demo-marked data, and the re-injection is deterministic.
+        clear_demo_profile(col)
+        if prior is not None:
+            inject_demo_profile(col, prior)
+
+    snapshot["preview"] = True
+    snapshot["preview_profile"] = prof.key
+    snapshot["injected"] = prior is not None
+    snapshot["profile"] = prior
+    return snapshot
+
+
 # --- injection internals -----------------------------------------------------
 
 
-def _inject_reviewed_cards(col: Collection, prof: DemoProfile) -> int:
+def _inject_reviewed_cards(col: Collection, prof: DemoProfile, now: int) -> int:
     """Create demo reviewed cards with FSRS state so Memory scores each category.
 
     Mirrors ``seed.py``: add the notes in one batch, then attach FSRS memory
@@ -363,14 +489,13 @@ def _inject_reviewed_cards(col: Collection, prof: DemoProfile) -> int:
 
     deck_id = col.decks.id(DEMO_DECK_NAME)
     assert deck_id is not None
-    now = int(time.time())
 
     undo_id = col.add_custom_undo_entry("Inject pgrep demo profile")
 
     # (note, area skill, per-area card index) so state can vary by area and card.
     prepared: list[tuple[Note, float, int]] = []
     requests: list[AddNoteRequest] = []
-    for category, subtopic, skill in COVERED:
+    for category, subtopic, skill in prof.covered:
         for index in range(CARDS_PER_CATEGORY):
             note = _new_reviewed_note(col, basic, category, subtopic, index)
             requests.append(AddNoteRequest(note=note, deck_id=deck_id))
@@ -430,7 +555,7 @@ def _apply_review_state(
     card.last_review_time = now - days_ago * 86400
 
 
-def _inject_attempts(col: Collection, prof: DemoProfile) -> int:
+def _inject_attempts(col: Collection, prof: DemoProfile, now: int) -> int:
     """Append clean Attempt notes per category through the sanctioned write path.
 
     Each attempt uses ``append_attempt`` with a self-contained payload carrying
@@ -439,10 +564,9 @@ def _inject_attempts(col: Collection, prof: DemoProfile) -> int:
     ``answered_at`` spread over weeks, and the :data:`DEMO_PAYLOAD_KEY` flag so
     the attempt is reversible.
     """
-    now = int(time.time())
     created = 0
 
-    for cat_index, (category, subtopic, skill) in enumerate(COVERED):
+    for cat_index, (category, subtopic, skill) in enumerate(prof.covered):
         topic = _topic_tag(category, subtopic)
         item_base = (cat_index + 1) * 100000
         accuracy = _category_accuracy(prof.accuracy, skill)

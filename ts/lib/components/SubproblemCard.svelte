@@ -16,13 +16,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     keeps it demoable in the component gallery without a session.
 -->
 <script lang="ts">
+    import { onDestroy } from "svelte";
+
     import { renderMath } from "$lib/pgrep/math";
+    import { noDashes } from "$lib/pgrep/text";
 
     import ChoiceList from "./ChoiceList.svelte";
 
     export let index = 1; // 1-based, for the step count
     export let total = 1;
-    export let prompt = "";
     export let stemHtml = "";
     export let choices: { key: string; html: string }[] = [];
     export let selected = "";
@@ -43,11 +45,233 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     export let onGrade: (() => void) | undefined = undefined;
     export let onContinue: (() => void) | undefined = undefined;
 
-    $: renderedPrompt = prompt ? renderMath(prompt) : "";
-    $: renderedStem = stemHtml ? renderMath(stemHtml) : "";
-    $: renderedRationale = mcqRationaleHtml ? renderMath(mcqRationaleHtml) : "";
-    $: renderedExplainWhy = explainWhyHtml ? renderMath(explainWhyHtml) : "";
+    $: renderedStem = stemHtml ? renderMath(noDashes(stemHtml)) : "";
+    $: renderedRationale = mcqRationaleHtml
+        ? renderMath(noDashes(mcqRationaleHtml))
+        : "";
+    $: renderedExplainWhy = explainWhyHtml ? renderMath(noDashes(explainWhyHtml)) : "";
     $: locked = phase !== "mcq";
+
+    // Anti-spam. Shuffle and re-letter the MCQ on each retry so cycling by
+    // position or a remembered letter both fail, and hold the Check button after
+    // a burst of rapid wrong picks. The hold grows while the burst continues and
+    // re-arms on release, so a spammer who resumes at once is caught again (and
+    // longer), while a considered gap forgets the burst entirely. The display
+    // letter maps back to the stored key before onSelect, so grading is
+    // unchanged. Presentational only; scoring already excludes tutor retries.
+    const LETTERS = ["A", "B", "C", "D", "E"];
+    const RAPID_MS = 4000; // a second Check this soon after the last is "rapid"
+    const RAPID_LIMIT = 2; // rapid checks in a row before the button holds
+    const HOLD_BASE_MS = 4000; // first hold; each hold in the burst adds a step
+    const HOLD_STEP_MS = 3000;
+
+    function shuffle(keys: string[]): string[] {
+        const a = [...keys];
+        for (let i = a.length - 1; i > 0; i -= 1) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+    }
+
+    let order: string[] = [];
+    let shuffledForIndex = -1;
+    let lastRationale = "";
+    let lastCheckAt = 0;
+    let rapidCount = 0;
+    let holdCount = 0;
+    let held = false;
+    let holdTimer: ReturnType<typeof setTimeout> | undefined;
+    let nudge = "";
+
+    $: trueKeys = choices.map((c) => c.key);
+    $: byHtml = new Map(choices.map((c) => [c.key, c.html]));
+
+    // A fresh subproblem: shuffle once and clear the anti-spam counters.
+    $: if (index !== shuffledForIndex && trueKeys.length) {
+        shuffledForIndex = index;
+        order = shuffle(trueKeys);
+        lastRationale = "";
+        lastCheckAt = 0;
+        rapidCount = 0;
+        holdCount = 0;
+        held = false;
+        nudge = "";
+        clearTimeout(holdTimer);
+    }
+
+    // A new wrong pick: reshuffle so the next attempt cannot be cycled by position.
+    $: if (mcqRationaleHtml !== lastRationale) {
+        lastRationale = mcqRationaleHtml;
+        if (mcqRationaleHtml && trueKeys.length) {
+            order = shuffle(trueKeys);
+        }
+    }
+
+    $: safeOrder =
+        order.length === trueKeys.length && order.every((k) => byHtml.has(k))
+            ? order
+            : trueKeys;
+    $: displayChoices = safeOrder.map((trueKey, pos) => ({
+        key: LETTERS[pos] ?? trueKey,
+        trueKey,
+        html: noDashes(byHtml.get(trueKey) ?? ""),
+    }));
+    $: selectedDisplay = displayChoices.find((d) => d.trueKey === selected)?.key ?? "";
+    $: correctDisplay = correctKey
+        ? (displayChoices.find((d) => d.trueKey === correctKey)?.key ?? null)
+        : null;
+
+    function selectDisplay(displayKey: string): void {
+        const d = displayChoices.find((x) => x.key === displayKey);
+        if (d) {
+            onSelect?.(d.trueKey);
+        }
+    }
+
+    function handleCheck(): void {
+        if (held) {
+            return;
+        }
+        const now = Date.now();
+        const rapid = lastCheckAt !== 0 && now - lastCheckAt < RAPID_MS;
+        lastCheckAt = now;
+        if (rapid) {
+            rapidCount += 1;
+        } else {
+            // A considered gap: forget the burst and its escalation.
+            rapidCount = 0;
+            holdCount = 0;
+        }
+        if (rapidCount >= RAPID_LIMIT) {
+            holdCount += 1;
+            held = true;
+            nudge = "Slow down and read the options. You can try again in a moment.";
+            clearTimeout(holdTimer);
+            holdTimer = setTimeout(
+                () => {
+                    held = false;
+                    nudge = "";
+                    // Re-arm: restart the clock and leave the burst one short of
+                    // the limit, so an immediate repeat holds again, and longer.
+                    lastCheckAt = Date.now();
+                    rapidCount = RAPID_LIMIT - 1;
+                },
+                HOLD_BASE_MS + HOLD_STEP_MS * (holdCount - 1),
+            );
+            return;
+        }
+        nudge = "";
+        onCheck?.();
+    }
+
+    // The AI feedback types out letter by letter, as if the tutor is speaking
+    // back. Reduced motion shows it at once.
+    let displayedFeedback = "";
+    let typeTimer: ReturnType<typeof setInterval> | undefined;
+    const reduceMotion =
+        typeof window !== "undefined" &&
+        !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    $: cleanFeedback = feedback ? noDashes(feedback) : "";
+    function runTypewriter(text: string): void {
+        clearInterval(typeTimer);
+        if (!text) {
+            displayedFeedback = "";
+            return;
+        }
+        if (reduceMotion) {
+            displayedFeedback = text;
+            return;
+        }
+        displayedFeedback = "";
+        let i = 0;
+        typeTimer = setInterval(() => {
+            i += 1;
+            displayedFeedback = text.slice(0, i);
+            if (i >= text.length) {
+                clearInterval(typeTimer);
+            }
+        }, 16);
+    }
+    $: runTypewriter(cleanFeedback);
+
+    // The wrong-pick rationale (the red hint) types out too. It can carry math,
+    // so instead of typing raw HTML it reveals the already-rendered markup: text
+    // nodes appear a character at a time and each KaTeX block appears whole
+    // (typing an equation's glyphs would look broken). Cheap: one small DOM write
+    // per tick, and the math is rendered once up front, never re-rendered.
+    function revealHtml(root: HTMLElement): ReturnType<typeof setInterval> | undefined {
+        type Unit =
+            | { kind: "text"; node: Text; text: string; upto: number }
+            | { kind: "el"; el: HTMLElement };
+        const units: Unit[] = [];
+        const visit = (node: Node): void => {
+            for (const child of Array.from(node.childNodes)) {
+                if (child.nodeType === Node.TEXT_NODE) {
+                    const tn = child as Text;
+                    const text = tn.data;
+                    tn.data = "";
+                    for (let i = 1; i <= text.length; i += 1) {
+                        units.push({ kind: "text", node: tn, text, upto: i });
+                    }
+                } else if (child.nodeType === Node.ELEMENT_NODE) {
+                    const el = child as HTMLElement;
+                    if (
+                        el.classList.contains("katex") ||
+                        el.classList.contains("katex-display")
+                    ) {
+                        el.style.visibility = "hidden";
+                        units.push({ kind: "el", el });
+                    } else {
+                        visit(el);
+                    }
+                }
+            }
+        };
+        visit(root);
+        if (!units.length) {
+            return undefined;
+        }
+        let i = 0;
+        const timer = setInterval(() => {
+            const u = units[i];
+            if (u.kind === "text") {
+                u.node.data = u.text.slice(0, u.upto);
+            } else {
+                u.el.style.visibility = "visible";
+            }
+            i += 1;
+            if (i >= units.length) {
+                clearInterval(timer);
+            }
+        }, 14);
+        return timer;
+    }
+
+    function typeHtml(node: HTMLElement, html: string) {
+        let timer: ReturnType<typeof setInterval> | undefined;
+        const render = (h: string): void => {
+            clearInterval(timer);
+            node.innerHTML = h;
+            if (h && !reduceMotion) {
+                timer = revealHtml(node);
+            }
+        };
+        render(html);
+        return {
+            update(h: string): void {
+                render(h);
+            },
+            destroy(): void {
+                clearInterval(timer);
+            },
+        };
+    }
+
+    onDestroy(() => {
+        clearInterval(typeTimer);
+        clearTimeout(holdTimer);
+    });
 </script>
 
 <section class="subproblem">
@@ -60,30 +284,32 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         </div>
     </header>
 
-    {#if prompt}
-        <p class="sub-prompt">{@html renderedPrompt}</p>
-    {/if}
     <div class="sub-stem">{@html renderedStem}</div>
 
     <ChoiceList
-        {choices}
-        {selected}
+        choices={displayChoices}
+        selected={selectedDisplay}
         committed={locked}
-        correctKey={locked ? correctKey : null}
-        onSelect={locked ? undefined : onSelect}
+        correctKey={locked ? correctDisplay : null}
+        onSelect={locked ? undefined : selectDisplay}
     />
 
     {#if phase === "mcq"}
         {#if mcqRationaleHtml}
-            <div class="note miss">{@html renderedRationale}</div>
+            <div class="note miss" use:typeHtml={renderedRationale}></div>
+            <p class="muted small">Try again.</p>
         {/if}
         <div class="actions">
-            <button class="btn primary" on:click={onCheck} disabled={!selected || busy}>
+            <button
+                class="btn primary"
+                on:click={handleCheck}
+                disabled={!selected || busy || held}
+            >
                 {busy ? "Checking" : "Check"}
             </button>
-            <span class="muted small">
-                Answer it correctly to go on. You can retry as many times as you like.
-            </span>
+            {#if nudge}
+                <span class="muted small">{nudge}</span>
+            {/if}
         </div>
     {:else}
         <div class="verdict hit">That's right.</div>
@@ -105,15 +331,19 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         on:click={onGrade}
                         disabled={busy || !explanation.trim()}
                     >
-                        {busy ? "Checking" : "Check my explanation"}
+                        Check my explanation
                     </button>
-                    <span class="muted small">
-                        A good-enough explanation unlocks the next step.
-                    </span>
+                    {#if busy}
+                        <span class="thinking" aria-label="Thinking">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </span>
+                    {/if}
                 </div>
-                {#if feedback}
+                {#if displayedFeedback}
                     <div class="note {explanationOutcome === 'pass' ? 'pass' : 'try'}">
-                        {feedback}
+                        {displayedFeedback}
                     </div>
                 {/if}
             </div>
@@ -126,8 +356,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     <div class="why-body">{@html renderedExplainWhy}</div>
                 </div>
             {/if}
-            {#if feedback}
-                <div class="note pass">{feedback}</div>
+            {#if displayedFeedback}
+                <div class="note pass">{displayedFeedback}</div>
             {/if}
             <div class="actions">
                 <button class="btn primary" on:click={onContinue} disabled={busy}>
@@ -183,17 +413,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         &.on {
             background: var(--performance);
             border-color: var(--performance);
-        }
-    }
-
-    .sub-prompt {
-        margin: 0;
-        font-size: var(--text-body);
-        line-height: 1.55;
-        color: var(--muted);
-
-        :global(p) {
-            margin: 0 0 0.4em;
         }
     }
 
@@ -275,12 +494,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             }
         }
 
-        /* Never red during learning. A miss or a "try again" reads calm blue. */
+        /* Experiment: a miss or a failed explanation reads pastel red (diverges
+           from the calm-blue honesty rule, under review). */
         &.miss,
         &.try {
-            color: var(--performance-text);
-            border-color: var(--performance-tint);
-            background: var(--performance-wash);
+            color: var(--error);
+            border-color: var(--error-tint);
+            background: var(--error-wash);
         }
 
         &.pass {
@@ -295,6 +515,49 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         align-items: center;
         gap: var(--space-2);
         flex-wrap: wrap;
+    }
+
+    /* The tutor "thinking" while the AI grades the explanation. */
+    .thinking {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+
+        span {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--muted);
+            animation: sp-thinking 1.2s infinite ease-in-out both;
+        }
+
+        span:nth-child(2) {
+            animation-delay: 0.15s;
+        }
+
+        span:nth-child(3) {
+            animation-delay: 0.3s;
+        }
+    }
+
+    @keyframes sp-thinking {
+        0%,
+        80%,
+        100% {
+            opacity: 0.25;
+            transform: translateY(0);
+        }
+        40% {
+            opacity: 1;
+            transform: translateY(-3px);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .thinking span {
+            animation: none;
+            opacity: 0.6;
+        }
     }
 
     .muted {

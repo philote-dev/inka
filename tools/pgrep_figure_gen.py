@@ -106,6 +106,28 @@ class Gen:
         )
         return out if out.strip().startswith("<svg") else svg
 
+    def svg_for_feedback(
+        self, stem: str, hint: str, prior_svg: str, complaints: str
+    ) -> str:
+        """Redraw a figure, correcting the specific problems a reviewer found."""
+        return self._call(
+            [
+                {"role": "system", "content": SYSTEM},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Category: {hint}\n\nProblem stem:\n{stem}\n\n"
+                        "A previous attempt drew this figure, but a reviewer found "
+                        f"these problems you MUST fix:\n{complaints}\n\n"
+                        "Previous SVG (correct its content; keep the line-art style "
+                        f"and all the conventions):\n{prior_svg}\n\n"
+                        "Redraw the figure so it faithfully matches the stem and "
+                        "resolves every listed problem."
+                    ),
+                },
+            ]
+        )
+
 
 def load_key(env_file: str | None) -> str:
     import os
