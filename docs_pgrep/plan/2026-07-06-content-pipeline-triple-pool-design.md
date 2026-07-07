@@ -158,18 +158,18 @@ and finest-unit assignment refines which specific units carry diagrams (for
 example, within mechanics, dynamics, rotation, and oscillations carry diagrams
 while abstract energy arguments stay text-only).
 
-| Area | Blueprint | New (approx) | Diagram share | Diagram (approx) |
-| --- | --- | --- | --- | --- |
-| mechanics | 20% | 55 | 50% | 28 |
-| electromagnetism | 18% | 50 | 45% | 22 |
-| quantum | 13% | 36 | 15% | 5 |
-| thermodynamics | 10% | 27 | 40% | 11 |
-| atomic | 10% | 27 | 15% | 4 |
-| optics_waves | 8% | 22 | 55% | 12 |
-| special_relativity | 6% | 16 | 10% | 2 |
-| lab | 6% | 16 | 40% | 6 |
-| specialized | 9% | 25 | 15% | 4 |
-| Total | | ~274 | ~34% | ~94 |
+| Area               | Blueprint | New (approx) | Diagram share | Diagram (approx) |
+| ------------------ | --------- | ------------ | ------------- | ---------------- |
+| mechanics          | 20%       | 55           | 50%           | 28               |
+| electromagnetism   | 18%       | 50           | 45%           | 22               |
+| quantum            | 13%       | 36           | 15%           | 5                |
+| thermodynamics     | 10%       | 27           | 40%           | 11               |
+| atomic             | 10%       | 27           | 15%           | 4                |
+| optics_waves       | 8%        | 22           | 55%           | 12               |
+| special_relativity | 6%        | 16           | 10%           | 2                |
+| lab                | 6%        | 16           | 40%           | 6                |
+| specialized        | 9%        | 25           | 15%           | 4                |
+| Total              |           | ~274         | ~34%          | ~94              |
 
 ## Subagent orchestration
 

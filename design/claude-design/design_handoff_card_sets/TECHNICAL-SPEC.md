@@ -87,15 +87,15 @@ spread += (1 − spread) · 0.09          // starts 0.04 on mount
 
 ## 4. Feel presets (`wheelFeel` prop)
 
-| const   | Ferris (default) | Shallow | Deep  | meaning                        |
-|---------|------------------|---------|-------|--------------------------------|
-| `R`     | 640              | 920     | 500   | wheel radius, px               |
-| `sp`    | 34°              | 23°     | 45°   | angular step between decks     |
-| `rotK`  | 0.45             | 0.52    | 0.42  | fraction of tangent rotation   |
-| `push`  | 260              | 180     | 350   | extra Z recede per step, px    |
-| `fwd`   | 70               | 50      | 100   | forward bow at mid-transit, px |
-| `dim`   | 0.52             | 0.38    | 0.66  | opacity falloff per step past 1|
-| `maxPhi`| 76°              | 64°     | 86°   | clamp on phi                   |
+| const    | Ferris (default) | Shallow | Deep | meaning                         |
+| -------- | ---------------- | ------- | ---- | ------------------------------- |
+| `R`      | 640              | 920     | 500  | wheel radius, px                |
+| `sp`     | 34°              | 23°     | 45°  | angular step between decks      |
+| `rotK`   | 0.45             | 0.52    | 0.42 | fraction of tangent rotation    |
+| `push`   | 260              | 180     | 350  | extra Z recede per step, px     |
+| `fwd`    | 70               | 50      | 100  | forward bow at mid-transit, px  |
+| `dim`    | 0.52             | 0.38    | 0.66 | opacity falloff per step past 1 |
+| `maxPhi` | 76°              | 64°     | 86°  | clamp on phi                    |
 
 ## 5. Inputs → all write `T`
 
@@ -164,19 +164,19 @@ wheel fades back in. Guard: total timeout ≈ `420 + 10(n−1) + 100` ms.
 
 Palette (dark → light substitution used to generate the light file):
 
-| role            | dark      | light     |
-|-----------------|-----------|-----------|
-| `--bg`          | `#262624` | `#FBFAF8` |
-| `--card`        | `#302F2C` | `#FFFFFF` |
-| `--card-back`   | `#2D2C29` | `#F5F2EC` |
-| `--bg-inset`    | `#2B2A27` | `#F5F2EC` |
-| `--border`      | `#45433E` | `#E8E4DA` |
-| `--border-back` | `#403E39` | `#EAE6DC` |
-| `--border-strong`/`--faint` | `#6E6B64` | `#A5A199` |
-| `--muted`       | `#A5A199` | `#6E6B64` |
-| `--text`        | `#ECEAE3` | `#262624` |
-| text hover/max  | `#FFFFFF` | `#000000` |
-| shadows         | black-based | `rgba(38,38,36,.06)` ramp |
+| role                        | dark        | light                     |
+| --------------------------- | ----------- | ------------------------- |
+| `--bg`                      | `#262624`   | `#FBFAF8`                 |
+| `--card`                    | `#302F2C`   | `#FFFFFF`                 |
+| `--card-back`               | `#2D2C29`   | `#F5F2EC`                 |
+| `--bg-inset`                | `#2B2A27`   | `#F5F2EC`                 |
+| `--border`                  | `#45433E`   | `#E8E4DA`                 |
+| `--border-back`             | `#403E39`   | `#EAE6DC`                 |
+| `--border-strong`/`--faint` | `#6E6B64`   | `#A5A199`                 |
+| `--muted`                   | `#A5A199`   | `#6E6B64`                 |
+| `--text`                    | `#ECEAE3`   | `#262624`                 |
+| text hover/max              | `#FFFFFF`   | `#000000`                 |
+| shadows                     | black-based | `rgba(38,38,36,.06)` ramp |
 
 Type: Inter (UI), JetBrains Mono (all numbers, `tnum lnum`). Scale used:
 11 caption / 12 small / 13 controls / 14 body / 15 preview / 22–24 titles.

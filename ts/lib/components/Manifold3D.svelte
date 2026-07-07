@@ -204,7 +204,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         class="label label-btn"
                         style="left: {l.lx}px; top: {l.ly}px; transform: {l.tf}; color: {l.c}; opacity: {op(
                             l,
-                        )}; pointer-events: {op(l) > 0.5 ? 'auto' : 'none'}; background: {pill(l.chip)};"
+                        )}; pointer-events: {op(l) > 0.5
+                            ? 'auto'
+                            : 'none'}; background: {pill(l.chip)};"
                         on:click={() => launch(l.topic)}
                     >
                         {l.name}
@@ -274,7 +276,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         font-family: var(--font-ui);
         cursor: pointer;
         border-radius: var(--radius-control, 8px);
-        transition: var(--transition-calm), opacity 220ms ease;
+        transition:
+            var(--transition-calm),
+            opacity 220ms ease;
 
         &:hover {
             text-decoration: underline;

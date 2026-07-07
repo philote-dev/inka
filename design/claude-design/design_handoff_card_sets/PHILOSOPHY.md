@@ -1,6 +1,6 @@
 # Philosophy: why the wheel is built this way
 
-pgrep's personality is *an honest measuring instrument*. Nothing in the UI
+pgrep's personality is _an honest measuring instrument_. Nothing in the UI
 performs; everything reports. That constraint shaped every decision below —
 the browse surface earns its theatrics by making the **spatial model** of
 your library truthful, then refuses decoration everywhere else.
@@ -9,7 +9,7 @@ your library truthful, then refuses decoration everywhere else.
 
 Anki decks are usually a list. The wheel instead treats each topic as a
 **physical stack of cards** occupying space: stacks sit shoulder to
-shoulder on a circular carousel that curves *into* the page. This does three
+shoulder on a circular carousel that curves _into_ the page. This does three
 honest things:
 
 - **Depth = distance from attention.** The set you're considering is
@@ -19,7 +19,7 @@ honest things:
 - **The queue is circular** because eight topics have no first or last —
   review is a cycle. Scrolling never hits a wall; the shortest path to any
   set is at most four steps.
-- **Stacks look like what they are.** A set's face is its *actual* top
+- **Stacks look like what they are.** A set's face is its _actual_ top
   card's question, not a cover illustration. Back cards physically peek out
   above the front card. Hover doesn't add a glow; it slides the back cards
   up further — the object responds the way paper would.
@@ -33,9 +33,9 @@ honest things:
 - **Always settle centered.** Free scroll with a snap on release: browsing
   is analog, but the resting state is always a decision — one set, front
   and center, with an explicit "Click to open" affordance.
-- **Shuffle, not slide.** A set in transit bows slightly *toward* the
+- **Shuffle, not slide.** A set in transit bows slightly _toward_ the
   viewer and passes in front before settling (the `fwd` term). This came
-  from iteration: a flat lateral slide read as a 2D carousel; a dip *away*
+  from iteration: a flat lateral slide read as a 2D carousel; a dip _away_
   read as retreat. Pulling a card out of the queue toward you and laying it
   back is how a hand actually shuffles a deck.
 - **Front-facing bias.** Decks rotate at less than half the arc's tangent
@@ -50,8 +50,8 @@ honest things:
 - **The grid open is literal dealing.** Cards fly from the stack's exact
   screen position to their grid cells (FLIP), 16ms apart, slight scatter
   rotation in flight, top-left lands first. Closing reverses it, last card
-  leaves first. The animation is the explanation: *these cards were in that
-  pile.*
+  leaves first. The animation is the explanation: _these cards were in that
+  pile._
 
 ## 3. Calm everywhere else
 
@@ -65,7 +65,7 @@ honest things:
   occlusion, and opacity.
 - Numbers (card counts) are JetBrains Mono tabular — data is data.
 - The add-card composer is inline, in the grid cell where the card will
-  live. Creating a card should feel like *placing* it, not filling a modal
+  live. Creating a card should feel like _placing_ it, not filling a modal
   form. Cancel/Esc backs out; a second Esc closes the set — one consistent
   "step back" gesture.
 

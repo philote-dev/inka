@@ -127,10 +127,11 @@ New read model + handler:
 }
 ```
 
-  Enumerate `Basic` notes tagged `topic::<category>*` across `PGRE::Sample` +
-  `PGRE::Generated`; group by `category_for(tags)` (see `anki.pgrep.tags`); order
-  categories in blueprint order (`CATEGORY_SLUGS`). Counts and the face preview
-  (`cards[0].front`) are real — no invented numbers (honesty rule).
+Enumerate `Basic` notes tagged `topic::<category>*` across `PGRE::Sample` +
+`PGRE::Generated`; group by `category_for(tags)` (see `anki.pgrep.tags`); order
+categories in blueprint order (`CATEGORY_SLUGS`). Counts and the face preview
+(`cards[0].front`) are real — no invented numbers (honesty rule).
+
 - Bridge: `pgrep_card_sets` in `qt/aqt/pgrep.py`, registered in
   `pgrep_post_handlers`. Reachable as `pgrepCardSets`.
 
@@ -182,18 +183,18 @@ grid into it or a sibling `ts/lib/components/CardSetGrid.svelte`. Port faithfull
 Map to existing tokens so light/dark come for free; reconcile the two extra shades
 rather than hardcoding hex:
 
-| design      | pgrep token        | note |
-|-------------|--------------------|------|
-| `--bg`      | `--canvas`         | frame background |
-| `--card`    | `--surface`        | front card, grid card |
-| `--card-back` / `--bg-inset` | `--elevated` | back cards, composer inputs |
-| `--border` / `--border-back` | `--border` | hairlines |
-| `--border-strong` (hover) | `--muted` | matches CardFace hover |
-| `--faint` (counts) | `--muted` | mono count text |
-| `--muted`   | `--muted`          | labels |
-| `--text`    | `--text`           | headings, front text |
-| shadows     | `--shadow-card`    | only the front card is elevated |
-| easing/time | `--ease-spring` + literal durations (280/360/460ms) | |
+| design                       | pgrep token                                         | note                            |
+| ---------------------------- | --------------------------------------------------- | ------------------------------- |
+| `--bg`                       | `--canvas`                                          | frame background                |
+| `--card`                     | `--surface`                                         | front card, grid card           |
+| `--card-back` / `--bg-inset` | `--elevated`                                        | back cards, composer inputs     |
+| `--border` / `--border-back` | `--border`                                          | hairlines                       |
+| `--border-strong` (hover)    | `--muted`                                           | matches CardFace hover          |
+| `--faint` (counts)           | `--muted`                                           | mono count text                 |
+| `--muted`                    | `--muted`                                           | labels                          |
+| `--text`                     | `--text`                                            | headings, front text            |
+| shadows                      | `--shadow-card`                                     | only the front card is elevated |
+| easing/time                  | `--ease-spring` + literal durations (280/360/460ms) |                                 |
 
 Type: `--font-ui` (Inter) for UI, `--font-mono` (JetBrains Mono, `tnum lnum`) for
 counts. Radii via existing `--radius-*` (grid 14 / deck 16 / dots 999).
@@ -241,6 +242,7 @@ review (per the gallery workflow).
 ### Phase 1 — The wheel browser (read-only)
 
 **Backend**
+
 - Create `pylib/anki/pgrep/card_sets.py` → `list_card_sets(col)` (§5.1).
 - Add `pgrep_card_sets` to `qt/aqt/pgrep.py` + register in `pgrep_post_handlers`.
 - Test `pylib/tests/test_pgrep_card_sets.py`: seeded collection groups into
@@ -248,6 +250,7 @@ review (per the gallery workflow).
   collection → empty list; generated cards included.
 
 **Frontend**
+
 - Create `ts/lib/components/CardWheel.svelte` (stage + decks + dots + open grid),
   ported per §5.2, with reduced-motion + settle-and-stop rAF from the start.
 - `ts/routes/pgrep/library/+page.svelte` renders the wheel (calibrated/AI-off

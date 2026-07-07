@@ -2,14 +2,18 @@
 Copyright: Ankitects Pty Ltd and contributors
 License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
-<!-- Card Sets wheel (review fixture). The Library browser from the design handoff,
-     recreated as CardWheel.svelte and shown here on synthetic, math-rich fixture
-     data so the motion (spring, deal, hover peek) and both themes can be reviewed
-     without a running collection. The wheelFeel toggle switches the three tuned
-     geometry presets (TECHNICAL-SPEC §4). Scroll or drag the stage, click the
-     centered set to deal it out, Esc or "All sets" to close. No bridge calls. -->
+<!-- Card Sets wheel (review playground). The Library browser, recreated as
+     CardWheel.svelte, shown here on synthetic math-rich fixture data so the
+     motion can be inspected and tuned without a running collection. Every
+     geometry and spring number is a live slider (seeded from the real presets
+     the component exports, so they never drift). Pick a preset to load its
+     numbers, drag the sliders to feel each one, force reduced motion, flip the
+     theme, or replay the intro deal. No bridge calls. -->
 <script lang="ts">
-    import CardWheel from "$lib/components/CardWheel.svelte";
+    import CardWheel, {
+        WHEEL_FEELS,
+        WHEEL_SPRING,
+    } from "$lib/components/CardWheel.svelte";
 
     interface WheelCard {
         note_id?: number;
@@ -23,7 +27,130 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     const FEELS = ["Ferris", "Shallow", "Deep"] as const;
-    let wheelFeel: (typeof FEELS)[number] = "Ferris";
+    type Preset = (typeof FEELS)[number];
+    let preset: Preset = "Ferris";
+
+    // Live geometry + spring, seeded from the real preset numbers the component
+    // exports. Reassigning `vals` (never mutating in place) keeps the reactive
+    // `tune` fresh, which the wheel picks up on the next frame.
+    let vals = { ...WHEEL_FEELS.Ferris, ...WHEEL_SPRING };
+    $: tune = vals;
+
+    type Knob = keyof typeof vals;
+    const KNOBS: {
+        key: Knob;
+        label: string;
+        min: number;
+        max: number;
+        step: number;
+        unit?: string;
+        hint: string;
+    }[] = [
+        {
+            key: "R",
+            label: "Radius",
+            min: 300,
+            max: 1100,
+            step: 10,
+            unit: "px",
+            hint: "How far the ring curves into the screen.",
+        },
+        {
+            key: "sp",
+            label: "Angular step",
+            min: 10,
+            max: 60,
+            step: 1,
+            unit: "°",
+            hint: "Degrees between neighbouring sets.",
+        },
+        {
+            key: "maxPhi",
+            label: "Max angle",
+            min: 40,
+            max: 90,
+            step: 1,
+            unit: "°",
+            hint: "Clamp on how far a set can swing to the side.",
+        },
+        {
+            key: "dim",
+            label: "Dim falloff",
+            min: 0,
+            max: 1,
+            step: 0.02,
+            hint: "How quickly receding sets fade out.",
+        },
+        {
+            key: "push",
+            label: "Push back",
+            min: 0,
+            max: 500,
+            step: 10,
+            unit: "px",
+            hint: "Extra depth pushed onto the neighbours.",
+        },
+        {
+            key: "fwd",
+            label: "Forward bump",
+            min: 0,
+            max: 160,
+            step: 5,
+            unit: "px",
+            hint: "Slight lift toward the viewer at the sides.",
+        },
+        {
+            key: "rotK",
+            label: "Rotation",
+            min: 0,
+            max: 1,
+            step: 0.01,
+            hint: "How much each set yaws with its angle.",
+        },
+        {
+            key: "follow",
+            label: "Spring follow",
+            min: 0.02,
+            max: 0.6,
+            step: 0.01,
+            hint: "How quickly the wheel settles after a scroll or drag.",
+        },
+        {
+            key: "spreadRate",
+            label: "Fan-out speed",
+            min: 0.02,
+            max: 0.4,
+            step: 0.01,
+            hint: "Speed of the intro deal-out (hit Replay to see it).",
+        },
+    ];
+
+    function setKnob(key: Knob, v: number): void {
+        vals = { ...vals, [key]: v };
+    }
+    function loadPreset(name: Preset): void {
+        vals = { ...WHEEL_FEELS[name], ...WHEEL_SPRING };
+        preset = name;
+    }
+
+    // Untouched means the sliders still match the loaded preset (so the preset
+    // chip reads as selected; once you drag a slider it becomes "custom").
+    $: pristine =
+        JSON.stringify(vals) ===
+        JSON.stringify({ ...WHEEL_FEELS[preset], ...WHEEL_SPRING });
+
+    const fmt = (v: number): string =>
+        Number.isInteger(v) ? String(v) : v.toFixed(2);
+    $: valuesText =
+        `{ R: ${vals.R}, sp: ${vals.sp}, dim: ${vals.dim}, maxPhi: ${vals.maxPhi}, ` +
+        `push: ${vals.push}, fwd: ${vals.fwd}, rotK: ${vals.rotK} }\n` +
+        `spring: { follow: ${vals.follow}, spreadRate: ${vals.spreadRate} }`;
+
+    let theme: "light" | "dark" = "light";
+    let reduceMotion = false;
+    // Bumping this remounts the wheel, replaying the mount fan-out with the
+    // current spread rate.
+    let replay = 0;
 
     // The wheel handles any N; this fixture is the nine blueprint categories with
     // real GRE question fronts (several carrying delimited LaTeX, so the shared
@@ -205,54 +332,105 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <div class="head">
     <h1>Card sets wheel</h1>
     <p>
-        The Library browser: topic sets on a 3D wheel you scroll, drag, and click open
-        into a dealt grid. Recreated from the design handoff as
-        <code>CardWheel.svelte</code>
-        on the shared renderMath. Reduced-motion snaps instead of springing, and the loop
-        idles when the wheel is at rest.
+        The Library browser as a live playground. Topic sets ride a 3D wheel you
+        scroll, drag, arrow through, or click open into a dealt grid. Every geometry
+        and spring number below is wired straight into
+        <code>CardWheel.svelte</code>, so drag a slider and watch the motion change.
+        Reduced motion snaps instead of springing; the loop idles when the wheel is
+        at rest.
     </p>
 </div>
 
-<div class="controls">
-    <span class="controls-label">Feel</span>
-    <div class="chips">
-        {#each FEELS as f (f)}
-            <button
-                class="chip"
-                class:selected={f === wheelFeel}
-                on:click={() => (wheelFeel = f)}
-            >
-                {f}
-            </button>
-        {/each}
-    </div>
-    {#if studied}
-        <span class="studied">Would study: {studied}</span>
-    {/if}
-</div>
+<div class="playground">
+    <aside class="panel">
+        <div class="panel-group">
+            <span class="panel-label">Preset</span>
+            <div class="chips">
+                {#each FEELS as f (f)}
+                    <button
+                        class="chip"
+                        class:selected={f === preset && pristine}
+                        on:click={() => loadPreset(f)}
+                    >
+                        {f}
+                    </button>
+                {/each}
+                {#if !pristine}
+                    <button class="chip ghost" on:click={() => loadPreset(preset)}>
+                        Reset
+                    </button>
+                {/if}
+            </div>
+        </div>
 
-<div class="themes">
-    <div class="theme-col">
-        <span class="state">Light</span>
-        <div class="pgrep wheel-demo">
-            <CardWheel
-                sets={mutable}
-                {wheelFeel}
-                onStudySet={studySet}
-                onAddCard={addCard}
-            />
+        <div class="knobs">
+            {#each KNOBS as k (k.key)}
+                <label class="knob" title={k.hint}>
+                    <span class="knob-name">{k.label}</span>
+                    <input
+                        type="range"
+                        min={k.min}
+                        max={k.max}
+                        step={k.step}
+                        value={vals[k.key]}
+                        on:input={(e) => setKnob(k.key, +e.currentTarget.value)}
+                    />
+                    <span class="knob-val">{fmt(vals[k.key])}{k.unit ?? ""}</span>
+                </label>
+            {/each}
         </div>
-    </div>
-    <div class="theme-col">
-        <span class="state">Dark</span>
-        <div class="pgrep night-mode wheel-demo">
-            <CardWheel
-                sets={mutable}
-                {wheelFeel}
-                onStudySet={studySet}
-                onAddCard={addCard}
-            />
+
+        <div class="panel-group">
+            <span class="panel-label">Theme</span>
+            <div class="chips">
+                <button
+                    class="chip"
+                    class:selected={theme === "light"}
+                    on:click={() => (theme = "light")}
+                >
+                    Light
+                </button>
+                <button
+                    class="chip"
+                    class:selected={theme === "dark"}
+                    on:click={() => (theme = "dark")}
+                >
+                    Dark
+                </button>
+            </div>
         </div>
+
+        <div class="panel-group actions">
+            <label class="check">
+                <input type="checkbox" bind:checked={reduceMotion} />
+                Reduced motion
+            </label>
+            <button class="chip" on:click={() => (replay += 1)}>Replay intro</button>
+        </div>
+
+        <details class="readout">
+            <summary>Current values</summary>
+            <pre>{valuesText}</pre>
+        </details>
+
+        {#if studied}
+            <p class="studied">Would study: <code>{studied}</code></p>
+        {/if}
+    </aside>
+
+    <div class="stage-wrap">
+        {#key replay}
+            <div class="pgrep wheel-demo" class:night-mode={theme === "dark"}>
+                <CardWheel
+                    sets={mutable}
+                    wheelFeel={preset}
+                    {tune}
+                    forceReduce={reduceMotion}
+                    onStudySet={studySet}
+                    onAddCard={addCard}
+                />
+            </div>
+        {/key}
     </div>
 </div>
 
@@ -281,15 +459,33 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         }
     }
 
-    .controls {
-        display: flex;
-        align-items: center;
-        gap: var(--space-2);
-        margin-bottom: var(--space-3);
-        flex-wrap: wrap;
+    /* Controls beside the stage; stacks on narrow viewports. */
+    .playground {
+        display: grid;
+        grid-template-columns: 288px minmax(0, 1fr);
+        gap: var(--space-4);
+        align-items: start;
     }
 
-    .controls-label {
+    .panel {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+        padding: var(--space-3);
+        border: var(--hairline);
+        border-radius: var(--radius-frame);
+        background: var(--surface);
+        position: sticky;
+        top: var(--space-2);
+    }
+
+    .panel-group {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-1);
+    }
+
+    .panel-label {
         font-size: var(--text-caption);
         font-weight: 600;
         text-transform: uppercase;
@@ -299,6 +495,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     .chips {
         display: inline-flex;
+        flex-wrap: wrap;
         gap: var(--space-1);
     }
 
@@ -324,41 +521,120 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             background: var(--action-bg);
             border-color: var(--action-bg);
         }
+
+        &.ghost {
+            font-style: italic;
+        }
     }
 
-    .studied {
+    /* One slider row: label / track / value, aligned in a tidy grid. */
+    .knobs {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .knob {
+        display: grid;
+        grid-template-columns: 92px 1fr 52px;
+        align-items: center;
+        gap: var(--space-2);
+        cursor: pointer;
+    }
+
+    .knob-name {
+        font-size: var(--text-small);
+        color: var(--text);
+    }
+
+    .knob input[type="range"] {
+        width: 100%;
+        accent-color: var(--action-bg);
+        cursor: pointer;
+    }
+
+    .knob-val {
         font-family: var(--font-mono);
         font-size: var(--text-small);
         color: var(--muted);
+        text-align: right;
+        font-variant-numeric: tabular-nums;
     }
 
-    .themes {
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-4);
+    .actions {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
     }
 
-    .theme-col {
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-1);
+    .check {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: var(--text-small);
+        color: var(--text);
+        cursor: pointer;
+
+        input {
+            accent-color: var(--action-bg);
+            cursor: pointer;
+        }
     }
 
-    .state {
-        font-size: var(--text-caption);
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
+    .readout {
+        font-size: var(--text-small);
         color: var(--muted);
+
+        summary {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        pre {
+            margin: var(--space-1) 0 0;
+            padding: var(--space-2);
+            background: var(--elevated);
+            border-radius: var(--radius-control);
+            font-family: var(--font-mono);
+            font-size: var(--text-caption);
+            line-height: 1.5;
+            color: var(--text);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+    }
+
+    .studied {
+        margin: 0;
+        font-size: var(--text-small);
+        color: var(--muted);
+
+        code {
+            font-family: var(--font-mono);
+        }
     }
 
     /* Bound the wheel in a framed panel (it fills its parent's height). Tall
        enough for the perspective stage to read; the frame clips the receding
        decks the way the app surface does. */
+    .stage-wrap {
+        min-width: 0;
+    }
+
     .wheel-demo {
-        height: 600px;
+        height: min(78vh, 680px);
         border: var(--hairline);
         border-radius: var(--radius-frame);
         overflow: hidden;
+    }
+
+    @media (max-width: 900px) {
+        .playground {
+            grid-template-columns: 1fr;
+        }
+
+        .panel {
+            position: static;
+        }
     }
 </style>

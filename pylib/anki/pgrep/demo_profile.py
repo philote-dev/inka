@@ -133,6 +133,7 @@ def _categories_of(covered: tuple[CoveredArea, ...]) -> tuple[str, ...]:
 def _coverage_weight_of(covered: tuple[CoveredArea, ...]) -> float:
     return sum(BLUEPRINT_PERCENT[category] for category in _categories_of(covered))
 
+
 # How far a per-area skill pulls attempt accuracy around the profile base
 # (skill 0.0 subtracts half of this, 1.0 adds half), and the range the skill maps
 # FSRS stability onto (a stronger area remembers longer). Both keep every covered

@@ -45,7 +45,9 @@ def test_seeded_collection_groups_into_blueprint_ordered_sets():
     for s in sets:
         assert len(s["cards"]) == expected_counts[s["category"]]
         assert len(s["cards"]) > 0
-    assert sum(len(s["cards"]) for s in sets) == len(col.find_notes(f"tag:{SEEDED_TAG}"))
+    assert sum(len(s["cards"]) for s in sets) == len(
+        col.find_notes(f"tag:{SEEDED_TAG}")
+    )
 
 
 def test_face_preview_is_the_real_first_front_in_note_id_order():

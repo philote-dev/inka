@@ -32,9 +32,33 @@ renders only the content area. Card fronts are typeset with the shared renderMat
     // TECHNICAL-SPEC section 4. Ferris is the shipped default; the others exist
     // for the dev gallery to inspect the feel.
     export const WHEEL_FEELS: Record<"Ferris" | "Shallow" | "Deep", WheelFeel> = {
-        Ferris: { R: 640, sp: 34, dim: 0.52, maxPhi: 76, push: 260, fwd: 70, rotK: 0.45 },
-        Shallow: { R: 920, sp: 23, dim: 0.38, maxPhi: 64, push: 180, fwd: 50, rotK: 0.52 },
-        Deep: { R: 500, sp: 45, dim: 0.66, maxPhi: 86, push: 350, fwd: 100, rotK: 0.42 },
+        Ferris: {
+            R: 640,
+            sp: 34,
+            dim: 0.52,
+            maxPhi: 76,
+            push: 260,
+            fwd: 70,
+            rotK: 0.45,
+        },
+        Shallow: {
+            R: 920,
+            sp: 23,
+            dim: 0.38,
+            maxPhi: 64,
+            push: 180,
+            fwd: 50,
+            rotK: 0.52,
+        },
+        Deep: {
+            R: 500,
+            sp: 45,
+            dim: 0.66,
+            maxPhi: 86,
+            push: 350,
+            fwd: 100,
+            rotK: 0.42,
+        },
     };
 
     // Per-frame spring rates: how fast the wheel chases its target on release
@@ -239,8 +263,8 @@ renders only the content area. Card fronts are typeset with the shared renderMat
             motion.A = motion.T;
             motion.spread = 1;
         } else {
-            motion.A += (motion.T - motion.A) * (dragging ? 0.4 : 0.16);
-            motion.spread += (1 - motion.spread) * 0.09;
+            motion.A += (motion.T - motion.A) * (dragging ? 0.4 : follow);
+            motion.spread += (1 - motion.spread) * spreadRate;
         }
         const spRad = (cfg.sp * Math.PI) / 180;
         const maxRad = (cfg.maxPhi * Math.PI) / 180;
@@ -541,9 +565,9 @@ renders only the content area. Card fronts are typeset with the shared renderMat
 
     onMount(() => {
         const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-        reduce = mq.matches;
+        systemReduce = mq.matches;
         const onMq = (): void => {
-            reduce = mq.matches;
+            systemReduce = mq.matches;
             ensureRaf();
         };
         mq.addEventListener("change", onMq);

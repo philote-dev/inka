@@ -351,8 +351,7 @@ export function project(
 
 export function palette(t: number, theme?: string): number[] {
     const { amber: a, lilac: m, blue: b } = theme === "light" ? PALETTE_LIGHT : PALETTE;
-    const lerp = (p: number[], q: number[], u: number) =>
-        p.map((v, i) => v + (q[i] - v) * u);
+    const lerp = (p: number[], q: number[], u: number) => p.map((v, i) => v + (q[i] - v) * u);
     const c = t < 0.5 ? lerp(a, m, t * 2) : lerp(m, b, (t - 0.5) * 2);
     return c.map(Math.round);
 }
@@ -427,11 +426,11 @@ export function drawManifold(
         const rg = ctx.createRadialGradient(p.X, p.Y, 0, p.X, p.Y, glowR);
         rg.addColorStop(
             0,
-            "rgba(" +
-                g.c +
-                "," +
-                ((theme === "light" ? 0.11 : 0.07) * glow).toFixed(3) +
-                ")",
+            "rgba("
+                + g.c
+                + ","
+                + ((theme === "light" ? 0.11 : 0.07) * glow).toFixed(3)
+                + ")",
         );
         rg.addColorStop(1, "rgba(" + g.c + ",0)");
         ctx.fillStyle = rg;
@@ -489,10 +488,9 @@ export function drawManifold(
                 d += 1.6 * Math.exp(-Math.pow(v - cGet(h), 2) / (2 * s * s));
             }
             for (const b of surface.bumps) {
-                d -=
-                    0.6 *
-                    (b.h / 0.5) *
-                    Math.exp(-Math.pow(v - cGet(b), 2) / (2 * b.s * b.s));
+                d -= 0.6
+                    * (b.h / 0.5)
+                    * Math.exp(-Math.pow(v - cGet(b), 2) / (2 * b.s * b.s));
             }
             wArr.push(Math.max(0.3, d));
         }
@@ -558,11 +556,10 @@ export function drawManifold(
             }
             const zc = Math.max(0, (A.z + B.z + C.z + D.z) / 4);
             const fadeC = (A.fade + B.fade + C.fade + D.fade) / 4;
-            const alpha =
-                fill *
-                glow *
-                (0.35 + 0.65 * fadeC) *
-                (fillBase + fillGain * Math.pow(zc, 1.4));
+            const alpha = fill
+                * glow
+                * (0.35 + 0.65 * fadeC)
+                * (fillBase + fillGain * Math.pow(zc, 1.4));
             if (alpha < 0.004) {
                 continue;
             }
@@ -571,16 +568,15 @@ export function drawManifold(
                 Math.round((A.c[1] + B.c[1] + C.c[1] + D.c[1]) / 4),
                 Math.round((A.c[2] + B.c[2] + C.c[2] + D.c[2]) / 4),
             ];
-            ctx.fillStyle =
-                "rgba(" +
-                c[0] +
-                "," +
-                c[1] +
-                "," +
-                c[2] +
-                "," +
-                Math.min(0.5, alpha).toFixed(3) +
-                ")";
+            ctx.fillStyle = "rgba("
+                + c[0]
+                + ","
+                + c[1]
+                + ","
+                + c[2]
+                + ","
+                + Math.min(0.5, alpha).toFixed(3)
+                + ")";
             ctx.beginPath();
             ctx.moveTo(A.X, A.Y);
             ctx.lineTo(B.X, B.Y);
@@ -605,8 +601,7 @@ export function drawManifold(
             0.85,
             glow * fd * ((theme === "light" ? 0.55 : 0.46) + 1.5 * Math.max(0, z)),
         );
-        ctx.strokeStyle =
-            "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + alpha.toFixed(3) + ")";
+        ctx.strokeStyle = "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + alpha.toFixed(3) + ")";
         ctx.beginPath();
         ctx.moveTo(a.X, a.Y);
         ctx.lineTo(b.X, b.Y);
@@ -643,16 +638,15 @@ export function drawManifold(
                 Math.round((a.c[1] + b.c[1]) / 2),
                 Math.round((a.c[2] + b.c[2]) / 2),
             ];
-            ctx.strokeStyle =
-                "rgba(" +
-                c[0] +
-                "," +
-                c[1] +
-                "," +
-                c[2] +
-                "," +
-                rimAlpha.toFixed(3) +
-                ")";
+            ctx.strokeStyle = "rgba("
+                + c[0]
+                + ","
+                + c[1]
+                + ","
+                + c[2]
+                + ","
+                + rimAlpha.toFixed(3)
+                + ")";
             ctx.beginPath();
             ctx.moveTo(a.X, a.Y);
             ctx.lineTo(b.X, b.Y);
@@ -684,9 +678,7 @@ export function drawManifold(
     const mixK = theme === "light" ? 0.18 : 0.35;
     return surface.labels.map((l) => {
         const p = project(l.x, l.y, height(surface, l.x, l.y), po);
-        const cc = colorAt(surface, l.x, l.y, theme).map((v, i) =>
-            Math.round(v + (ink[i] - v) * mixK),
-        );
+        const cc = colorAt(surface, l.x, l.y, theme).map((v, i) => Math.round(v + (ink[i] - v) * mixK));
         return {
             name: l.name,
             ax: p.X,
@@ -833,11 +825,11 @@ export function drawContour(
         const rg = ctx.createRadialGradient(px(g.x), py(g.y), 0, px(g.x), py(g.y), S);
         rg.addColorStop(
             0,
-            "rgba(" +
-                g.c +
-                "," +
-                ((theme === "light" ? 0.12 : 0.08) * glow).toFixed(3) +
-                ")",
+            "rgba("
+                + g.c
+                + ","
+                + ((theme === "light" ? 0.12 : 0.08) * glow).toFixed(3)
+                + ")",
         );
         rg.addColorStop(1, "rgba(" + g.c + ",0)");
         ctx.fillStyle = rg;
@@ -845,8 +837,7 @@ export function drawContour(
     }
 
     // Domain boundary and hole rims, quiet.
-    ctx.strokeStyle =
-        theme === "light" ? "rgba(110,107,100,0.4)" : "rgba(165,161,153,0.3)";
+    ctx.strokeStyle = theme === "light" ? "rgba(110,107,100,0.4)" : "rgba(165,161,153,0.3)";
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let k = 0; k <= 120; k++) {
@@ -955,11 +946,10 @@ export function drawContour(
             const zd = zs[i][j + 1];
             for (let li = 0; li < levels.length; li++) {
                 const L = levels[li];
-                const code =
-                    (za > L ? 1 : 0) |
-                    (zb > L ? 2 : 0) |
-                    (zc > L ? 4 : 0) |
-                    (zd > L ? 8 : 0);
+                const code = (za > L ? 1 : 0)
+                    | (zb > L ? 2 : 0)
+                    | (zc > L ? 4 : 0)
+                    | (zd > L ? 8 : 0);
                 const segs = SEG[code];
                 if (!segs) {
                     continue;
@@ -999,16 +989,15 @@ export function drawContour(
                     0.95,
                     glow * (0.42 + 0.46 * frac) * (isIdx ? 1.15 : 1),
                 );
-                ctx.strokeStyle =
-                    "rgba(" +
-                    c[0] +
-                    "," +
-                    c[1] +
-                    "," +
-                    c[2] +
-                    "," +
-                    alpha.toFixed(3) +
-                    ")";
+                ctx.strokeStyle = "rgba("
+                    + c[0]
+                    + ","
+                    + c[1]
+                    + ","
+                    + c[2]
+                    + ","
+                    + alpha.toFixed(3)
+                    + ")";
                 for (const [e1, e2] of segs) {
                     const p1 = ept(e1);
                     const p2 = ept(e2);

@@ -57,9 +57,9 @@ def load_problems(args) -> list[dict]:
         data = json.loads(Path(args.problems).read_text(encoding="utf-8"))
         problems = data if isinstance(data, list) else data.get("problems", [])
     else:
-        problems = json.loads(
-            Path(args.bundle).read_text(encoding="utf-8")
-        ).get("problems", [])
+        problems = json.loads(Path(args.bundle).read_text(encoding="utf-8")).get(
+            "problems", []
+        )
     if args.ids:
         idset = set(args.ids)
         return [p for p in problems if p.get("id") in idset]
@@ -91,8 +91,10 @@ def main() -> int:
     approved: list[dict] = []
     review: list[dict] = []
     preview_rows: list[dict] = []
-    print(f"figures: {len(problems)} problems, up to {args.attempts} attempts each "
-          f"(gen={args.gen_model}, judge={args.judge_model})")
+    print(
+        f"figures: {len(problems)} problems, up to {args.attempts} attempts each "
+        f"(gen={args.gen_model}, judge={args.judge_model})"
+    )
 
     for p in problems:
         pid = p["id"]
@@ -106,14 +108,19 @@ def main() -> int:
         for attempt in range(args.attempts):
             conv = conventions(svg)
             has_svg = svg.strip().startswith("<svg")
-            verdict = judge.verify(stem, svg) if has_svg else {"matches": False,
-                                                               "notes": "no svg drawn"}
+            verdict = (
+                judge.verify(stem, svg)
+                if has_svg
+                else {"matches": False, "notes": "no svg drawn"}
+            )
             if has_svg and not conv and verdict.get("matches"):
                 ok = True
                 break
             if attempt < args.attempts - 1:
                 svg = gen.refine(
-                    gen.svg_for_feedback(stem, hint, svg, complaints_text(verdict, conv))
+                    gen.svg_for_feedback(
+                        stem, hint, svg, complaints_text(verdict, conv)
+                    )
                 )
 
         preview_rows.append({"id": pid, "hint": hint, "stem": stem, "svg": svg})
@@ -121,11 +128,20 @@ def main() -> int:
             approved.append({"id": pid, "svg": svg})
             print(f"  {pid}  APPROVED")
         else:
-            review.append({
-                "id": pid, "stem": stem, "svg": svg,
-                "verdict": verdict, "conventions": conventions(svg),
-            })
-            reason = verdict.get("missing") or verdict.get("contradictions") or verdict.get("notes")
+            review.append(
+                {
+                    "id": pid,
+                    "stem": stem,
+                    "svg": svg,
+                    "verdict": verdict,
+                    "conventions": conventions(svg),
+                }
+            )
+            reason = (
+                verdict.get("missing")
+                or verdict.get("contradictions")
+                or verdict.get("notes")
+            )
             print(f"  {pid}  REVIEW  {reason}")
 
     Path(os.path.join(args.out, "approved.json")).write_text(

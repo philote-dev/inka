@@ -13,7 +13,7 @@ The Problems door opens a gated decomposition tutor on a miss: 2 to 3 subproblem
 each an MCQ (unlimited retries, a wrong pick shows only that distractor's
 rationale) plus, with AI on, a lenient "explain why" the AI must pass. The parent
 answer is never revealed; the missed problem re-queues with new numbers. Scoring
-already excludes tutor retries (``ladder_depth >= 1``).
+already excludes tutor retries (`ladder_depth >= 1`).
 
 Two gaps remain from `feature-productive-failure.md`:
 

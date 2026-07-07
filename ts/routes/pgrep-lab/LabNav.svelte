@@ -45,7 +45,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             href: "/pgrep-lab/card-sets",
             label: "Card sets",
             group: "design",
-            blurb: "The Library card-sets browser: the 3D wheel and the dealt grid, both feels.",
+            blurb: "The Library card-sets wheel as a live playground: tune the geometry and spring, replay the deal, force reduced motion.",
             wide: true,
         },
         {

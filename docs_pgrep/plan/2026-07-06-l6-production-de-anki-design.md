@@ -19,14 +19,14 @@ licenses surface rather than by branding scattered through the UI.
 
 ## Corrected L6 reality (plan vs repo)
 
-| `build-plan.md` L6 says | Repo reality today |
-| --- | --- |
-| L6.1 flip `_DEFAULT_MODE = "exclusive"` | Done. `qt/aqt/pgrep_host.py:39`. Deck browser redirects to pgrep (`redirect_state`), admin menus hidden (`apply_menu_chrome`). |
-| L6.2 window and menu title | Done. Window title is "pgrep" (`qt/aqt/main.py:517`), pgrep window icon (`main.py:981`), macOS "About pgrep" label (`main.py:1475`), native pgrep menus (Settings, Go). |
-| L6.2 remaining identity | Not done. The About dialog is pure Anki, sync and error dialogs still say "Anki" and "AnkiWeb". This is the de-Anki sweep below. |
-| L6.2 packaging | Not done. Bundle name and id, `.dmg` name, phone build. Needs human signing. |
-| L6.3 hardening | Not done. Crash test, benchmark. |
-| L6.4 submission | Not done. Recording. Human-run. |
+| `build-plan.md` L6 says                 | Repo reality today                                                                                                                                                      |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| L6.1 flip `_DEFAULT_MODE = "exclusive"` | Done. `qt/aqt/pgrep_host.py:39`. Deck browser redirects to pgrep (`redirect_state`), admin menus hidden (`apply_menu_chrome`).                                          |
+| L6.2 window and menu title              | Done. Window title is "pgrep" (`qt/aqt/main.py:517`), pgrep window icon (`main.py:981`), macOS "About pgrep" label (`main.py:1475`), native pgrep menus (Settings, Go). |
+| L6.2 remaining identity                 | Not done. The About dialog is pure Anki, sync and error dialogs still say "Anki" and "AnkiWeb". This is the de-Anki sweep below.                                        |
+| L6.2 packaging                          | Not done. Bundle name and id, `.dmg` name, phone build. Needs human signing.                                                                                            |
+| L6.3 hardening                          | Not done. Crash test, benchmark.                                                                                                                                        |
+| L6.4 submission                         | Not done. Recording. Human-run.                                                                                                                                         |
 
 The genuine remainder of L6 is therefore: **(a) the de-Anki sweep** (this chat), and
 **(b) re-planned follow-ons** (packaging, hardening, recording).

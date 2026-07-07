@@ -209,7 +209,7 @@ def giveaway_signals(stem: str) -> list[str]:
     text = strip_figure(stem)
     hits: list[str] = []
     for m in _GIVEAWAY_RE.finditer(text):
-        snip = text[m.start():m.start() + 60].replace("\n", " ").strip()
+        snip = text[m.start() : m.start() + 60].replace("\n", " ").strip()
         hits.append(snip)
     return hits
 

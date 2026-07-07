@@ -16,13 +16,13 @@ is real DOM positioned from anchors the renderer returns.
 
 ```js
 surface = {
-  boundary: [a0, a3, p3, a2, p2], // blob radius harmonics: R(θ) = a0 + a3·cos(3θ+p3) + a2·cos(2θ+p2)
-  bumps:  [{ x, y, h, s }],       // topic peaks. h = performance, s = footprint
-  dips:   [{ x, y, h, s }],       // rim sinks around gaps
-  holes:  [{ x, y, rx, ry, rot }],// knowledge gaps — no data, no surface
-  glows:  [{ x, y, c }],          // memory under-glow, rgb string
-  labels: [{ name, x, y, dx, dy, tf }] // 3D-view callout placements
-}
+    boundary: [a0, a3, p3, a2, p2], // blob radius harmonics: R(θ) = a0 + a3·cos(3θ+p3) + a2·cos(2θ+p2)
+    bumps: [{ x, y, h, s }], // topic peaks. h = performance, s = footprint
+    dips: [{ x, y, h, s }], // rim sinks around gaps
+    holes: [{ x, y, rx, ry, rot }], // knowledge gaps — no data, no surface
+    glows: [{ x, y, c }], // memory under-glow, rgb string
+    labels: [{ name, x, y, dx, dy, tf }], // 3D-view callout placements
+};
 ```
 
 Coordinates are unit surface space (blob radius ≈ 1). `DEFAULT_SURFACE` is
@@ -56,8 +56,16 @@ the Home hero.
 4. **Anchors** — returns `{ peaks, gaps }` in canvas px for the overlay.
 
 ```js
-const out = drawContour(canvas, { W: 560, H: 560, S: 196, dpr: 2,
-  glow: 0.85, grid: 96, indexEvery: 3, theme });
+const out = drawContour(canvas, {
+    W: 560,
+    H: 560,
+    S: 196,
+    dpr: 2,
+    glow: 0.85,
+    grid: 96,
+    indexEvery: 3,
+    theme,
+});
 // out.peaks: [{ x, y, h }]  out.gaps: [{ x, y, rx, ry, rot }]
 ```
 

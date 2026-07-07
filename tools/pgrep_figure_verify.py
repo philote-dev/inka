@@ -47,8 +47,8 @@ JUDGE_SYSTEM = (
     "nothing in the figure contradicts the text; the figure carries NO numeric "
     "values or units (those belong in the stem); and a student could use the "
     "figure to reason about the problem.\n"
-    "Return STRICT JSON only: {\"matches\": true|false, \"missing\": [str], "
-    "\"contradictions\": [str], \"has_numbers\": true|false, \"notes\": str}. "
+    'Return STRICT JSON only: {"matches": true|false, "missing": [str], '
+    '"contradictions": [str], "has_numbers": true|false, "notes": str}. '
     "List concrete gaps in missing/contradictions. Set matches=false if any "
     "named element is missing, anything contradicts the text, or numbers appear."
 )
@@ -89,8 +89,11 @@ class Judge:
                     return json.loads(raw)
                 except json.JSONDecodeError:
                     m = re.search(r"\{[\s\S]*\}", raw)
-                    return json.loads(m.group(0)) if m else {"matches": False,
-                                                              "notes": "unparseable judge reply"}
+                    return (
+                        json.loads(m.group(0))
+                        if m
+                        else {"matches": False, "notes": "unparseable judge reply"}
+                    )
             except Exception as e:  # noqa: BLE001
                 last = e
         return {"matches": False, "notes": f"judge call failed: {last}"}
@@ -101,7 +104,11 @@ def load_key(env_file: str | None) -> str:
 
     if os.environ.get("OPENAI_API_KEY"):
         return os.environ["OPENAI_API_KEY"]
-    for path in [Path(env_file) if env_file else None, REPO / "content" / ".env", REPO / ".env"]:
+    for path in [
+        Path(env_file) if env_file else None,
+        REPO / "content" / ".env",
+        REPO / ".env",
+    ]:
         if path and path.is_file():
             for line in path.read_text().splitlines():
                 if line.strip().startswith("OPENAI_API_KEY="):
@@ -112,19 +119,28 @@ def load_key(env_file: str | None) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--figures", required=True, help="JSON list of {id, stem?, svg}")
-    ap.add_argument("--bundle", default=str(DEFAULT_BUNDLE), help="fallback for stems by id")
-    ap.add_argument("--model", default="gpt-5.4-2026-03-05",
-                    help="judge snapshot (must differ from the figure generator)")
+    ap.add_argument(
+        "--bundle", default=str(DEFAULT_BUNDLE), help="fallback for stems by id"
+    )
+    ap.add_argument(
+        "--model",
+        default="gpt-5.4-2026-03-05",
+        help="judge snapshot (must differ from the figure generator)",
+    )
     ap.add_argument("--env-file", default=None)
     ap.add_argument("--out", default=None, help="write verdicts JSON here")
-    ap.add_argument("--strict", action="store_true", help="exit non-zero if any figure fails")
+    ap.add_argument(
+        "--strict", action="store_true", help="exit non-zero if any figure fails"
+    )
     args = ap.parse_args()
 
     figures = json.loads(Path(args.figures).read_text(encoding="utf-8"))
     stems_by_id: dict[str, str] = {}
     if Path(args.bundle).is_file():
         bundle = json.loads(Path(args.bundle).read_text(encoding="utf-8"))
-        stems_by_id = {p["id"]: strip_figure(p.get("stem", "")) for p in bundle.get("problems", [])}
+        stems_by_id = {
+            p["id"]: strip_figure(p.get("stem", "")) for p in bundle.get("problems", [])
+        }
 
     judge = Judge(args.model, load_key(args.env_file))
     verdicts: list[dict] = []
@@ -133,7 +149,9 @@ def main() -> int:
     for f in figures:
         svg = f.get("svg", "") or ""
         if not SVG_RE.search(svg):
-            verdicts.append({"id": f.get("id"), "matches": False, "notes": "no svg to verify"})
+            verdicts.append(
+                {"id": f.get("id"), "matches": False, "notes": "no svg to verify"}
+            )
             n_fail += 1
             print(f"  {f.get('id')}  NO-SVG")
             continue
@@ -143,7 +161,11 @@ def main() -> int:
         verdicts.append(v_out)
         ok = bool(v.get("matches"))
         n_fail += 0 if ok else 1
-        detail = "" if ok else f"  missing={v.get('missing')} contra={v.get('contradictions')} nums={v.get('has_numbers')}"
+        detail = (
+            ""
+            if ok
+            else f"  missing={v.get('missing')} contra={v.get('contradictions')} nums={v.get('has_numbers')}"
+        )
         print(f"  {f.get('id')}  {'MATCH' if ok else 'FAIL'}{detail}")
 
     out = args.out or (str(Path(args.figures).with_name("verdicts.json")))

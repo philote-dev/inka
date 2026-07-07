@@ -2,7 +2,7 @@
 
 ## Look down at your knowledge
 
-The manifold answers one question — *what does my knowledge look like?* —
+The manifold answers one question — _what does my knowledge look like?_ —
 and the top view answers it the way a hiker reads a trail map: from above,
 all at once, with names on the summits. The 3D wireframe is the emotional
 projection; the top-down map is the legible one. Peaks you can stand on,

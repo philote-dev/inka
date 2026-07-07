@@ -13,15 +13,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-import {
-    boundaryR,
-    colorAt,
-    FULL_SURFACE,
-    height,
-    type Hole,
-    type ManifoldLabel,
-    type Surface,
-} from "./manifold";
+import { boundaryR, colorAt, FULL_SURFACE, height, type Hole, type ManifoldLabel, type Surface } from "./manifold";
 
 // Whether to prefer the 3D hero. False on machines without WebGL so callers can
 // fall back to the Canvas 2D `Manifold`. Callers should also honor
@@ -631,10 +623,10 @@ export function createManifold3D(container: HTMLElement, opts: Manifold3DOpts = 
             return d1 * d2 < 0 && d3 * d4 < 0;
         };
         return (
-            segSeg(x1, y1, x2, y2, L, T, R, T) ||
-            segSeg(x1, y1, x2, y2, R, T, R, B) ||
-            segSeg(x1, y1, x2, y2, R, B, L, B) ||
-            segSeg(x1, y1, x2, y2, L, B, L, T)
+            segSeg(x1, y1, x2, y2, L, T, R, T)
+            || segSeg(x1, y1, x2, y2, R, T, R, B)
+            || segSeg(x1, y1, x2, y2, R, B, L, B)
+            || segSeg(x1, y1, x2, y2, L, B, L, T)
         );
     }
 
@@ -642,7 +634,7 @@ export function createManifold3D(container: HTMLElement, opts: Manifold3DOpts = 
         const ink = theme === "light" ? [38, 38, 36] : [236, 234, 227];
         const mixK = theme === "light" ? 0.18 : 0.35;
         const cc = colorAt(surface, l.x, l.y, theme, 1.6 + vibrance * 1.2).map((v, i) =>
-            Math.round(v + (ink[i] - v) * mixK),
+            Math.round(v + (ink[i] - v) * mixK)
         );
         return `rgb(${cc.join(",")})`;
     }
@@ -670,7 +662,17 @@ export function createManifold3D(container: HTMLElement, opts: Manifold3DOpts = 
             } else if (boxTop + estH > height0 - pad) {
                 ly += height0 - pad - (boxTop + estH);
             }
-            return { name: l.name, ax: a.x, ay: a.y, lx, ly, tf: l.tf, c: labelInk(l), visible: a.front, topic: l.topic };
+            return {
+                name: l.name,
+                ax: a.x,
+                ay: a.y,
+                lx,
+                ly,
+                tf: l.tf,
+                c: labelInk(l),
+                visible: a.front,
+                topic: l.topic,
+            };
         });
     }
 

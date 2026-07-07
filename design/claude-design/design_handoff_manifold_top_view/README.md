@@ -11,7 +11,7 @@ this is the second projection of one model, and the small-screen default.
 - `Manifold Top View.dc.html` — dark reference page, fully self-contained
 - `Manifold Top View Light.dc.html` — light twin
 - `manifold-core.js` — zero-dependency renderer (surface math + `drawContour`
-  + `drawManifold`). ES module, no build step required.
+  - `drawManifold`). ES module, no build step required.
 - `PHILOSOPHY.md` — why the map looks and behaves the way it does
 - `TECHNICAL-SPEC.md` — data contract, stat mapping, render pipeline,
   overlay spec, theming, interaction, production notes

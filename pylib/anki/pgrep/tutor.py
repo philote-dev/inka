@@ -167,7 +167,9 @@ def _reframe(total: int, correct: int) -> str:
     if total == 0:
         return "No problems landed this session."
     if correct >= total:
-        return "A clean run today. The value now is keeping the mix hard enough to miss."
+        return (
+            "A clean run today. The value now is keeping the mix hard enough to miss."
+        )
     return (
         "In-session accuracy understates your learning. The misses are where "
         "today's work happened; here is what they share."
@@ -232,7 +234,9 @@ def _ai_patterns(
         f"METHOD (never state the final answer): {m['method'] or 'n/a'}"
         for m in misses[:8]
     ]
-    user = f"SESSION: {correct}/{total} first-try correct.\nMISSES:\n" + "\n".join(lines)
+    user = f"SESSION: {correct}/{total} first-try correct.\nMISSES:\n" + "\n".join(
+        lines
+    )
     raw = llm.LLMClient(ai_config.resolve_model(col)).complete_json(SYNTH_SYSTEM, user)
     out: list[dict[str, Any]] = []
     for p in raw.get("patterns", []) or []:

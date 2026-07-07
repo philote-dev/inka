@@ -34,6 +34,7 @@ Reference spec: `docs_pgrep/plan/2026-07-06-content-pipeline-triple-pool-design.
 ## Task 1: Stage A tooling in `content/tools/generate_content_set.py`
 
 **Files:**
+
 - Modify: `content/tools/generate_content_set.py`
 - Test: `content/tools/test_generate_content_set.py` (new, stdlib unittest, no API)
 
@@ -140,6 +141,7 @@ def test_textonly_area_low():
 ## Task 3: Stage B tooling (figures)
 
 **Files:**
+
 - Create: `tools/pgrep_figure_verify.py` (fidelity judge, uses a judge snapshot)
 - Create: `content/tools/check_figure_necessity.py` (necessity/reference checks, stdlib)
 - Test: `content/tools/test_check_figure_necessity.py` (new)
