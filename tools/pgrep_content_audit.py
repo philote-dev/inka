@@ -187,6 +187,33 @@ def difficulty_range(problems: list[dict]) -> dict:
     }
 
 
+# A stem that hands over the solving relation reads like "using <symbol> = ...",
+# "recall that ...", or "apply the ... formula/relation/law". This is a cheap,
+# offline signal (the AI judge in content/tools/check_technique_giveaway.py is the
+# thorough check); it deliberately ignores plain given constants like "g = 9.8".
+_GIVEAWAY_RE = re.compile(
+    r"(?i)\b(?:using|use|apply(?:ing)?)\b[^.]{0,40}"
+    r"(?:\brelation\b|\bformula\b|\bequation\b|\bidentity\b|\blaw\b|"
+    r"[A-Za-z_](?:_\{?[A-Za-z0-9]+\}?)?\s*=)"
+    r"|\brecall that\b|\bthe (?:key|trick|method) (?:is|to)\b"
+)
+
+
+def giveaway_signals(stem: str) -> list[str]:
+    """Phrases in a stem that likely hand over the solving relation, empty if none.
+
+    Strips the figure markup first. This is a heuristic tripwire, not the final
+    word; the AI judge is authoritative. It exists so the standard audit surfaces
+    obvious regressions without needing an API key.
+    """
+    text = strip_figure(stem)
+    hits: list[str] = []
+    for m in _GIVEAWAY_RE.finditer(text):
+        snip = text[m.start():m.start() + 60].replace("\n", " ").strip()
+        hits.append(snip)
+    return hits
+
+
 def figure_violations(stem: str) -> list[str]:
     """Convention problems in an embedded figure, empty when it is clean.
 
@@ -274,6 +301,11 @@ def build_report(bundle: dict) -> dict:
             "problem_stems": duplicates(problems, "stem"),
         },
         "difficulty": difficulty_range(problems),
+        "technique_giveaways": [
+            {"id": p.get("id"), "signals": sig}
+            for p in problems
+            if (sig := giveaway_signals(p.get("stem", "")))
+        ],
         "figures": figures(problems),
         "excluded_ids": bundle.get("provenance", {}).get("excluded_ids", {}),
     }
@@ -333,6 +365,14 @@ def print_report(r: dict) -> None:
     )
     if d["non_numeric_ids"]:
         print(f"  non-numeric: {d['non_numeric_ids']}")
+
+    tg = r.get("technique_giveaways", [])
+    print("\n== TECHNIQUE GIVEAWAYS (heuristic; AI judge is authoritative) ==")
+    print(f"  stems that may hand over the solving relation: {len(tg)}")
+    for h in tg[:15]:
+        print(f"    {h['id']}: {h['signals'][0]}")
+    if len(tg) > 15:
+        print(f"    ... and {len(tg) - 15} more")
 
     f = r["figures"]
     print("\n== FIGURES ==")
