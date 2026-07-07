@@ -116,3 +116,38 @@ in build scripts/tests is fine.
 ## Individual preferences
 
 See @.claude/user.md
+
+## Cursor Cloud specific instructions
+
+This repo builds and runs on the cloud Linux VM. Toolchains (Rust, `n2`, `just`,
+system libs) are installed in the VM snapshot, and the startup update script runs
+`./ninja node_modules pyenv` to refresh the JS and Python dependencies. The build
+system downloads node, yarn, protoc and (when `UV_BINARY` is unset) `uv` itself
+into `out/`, so the standard recipes work directly. Build/lint/test/run use the
+normal `just` recipes documented above (`just build`, `just lint`, `just test`,
+`just check`, `just run`).
+
+Non-obvious caveats:
+
+- Leave `UV_BINARY` unset. The build then downloads its own pinned `uv` into
+  `out/extracted/uv`; hardcoding a different `uv` path just causes `pyenv` to be
+  rebuilt unnecessarily.
+- The desktop app is a PyQt6 GUI. It needs an X display (the cloud VM exposes
+  `DISPLAY=:1`); drive and screenshot it through the desktop / computer-use, not
+  headless. Launch it with `just run` (or `just fresh` for a throwaway first-run
+  profile) and expect roughly 15-20s before the window appears.
+- First launch shows a one-time language dialog, then a "Let's place your topics"
+  diagnostic. Completing the diagnostic (answer the multiple-choice questions,
+  then "See placement") is the quickest way to exercise the core study + scoring
+  path end to end.
+- Set `ANKI_BASE` to a throwaway dir (for example `ANKI_BASE=/tmp/pgrep-demo`) to
+  get a clean profile; a profile left corrupt by a killed run makes the next
+  start fail in `profiles.py` until the base dir is cleared.
+- If the app aborts during `QApplication.__init__` (SIGABRT with no traceback),
+  the Qt `xcb` platform plugin is missing libraries beyond the `setup-anki`
+  action's list. Install `libxcb-cursor0 libxcb-icccm4 libxcb-image0
+  libxcb-keysyms1 libxcb-render-util0` (see `docs/linux.md`, "Missing Libraries").
+  These are already present in the VM snapshot.
+- The embedded mediasrv (port 40000) and Qt remote-debug server (port 8080) bind
+  to `127.0.0.1` only, and only after the window is up. They are not required for
+  GUI testing.
