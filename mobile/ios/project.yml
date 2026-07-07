@@ -91,6 +91,10 @@ targets:
       # them (ChoiceListView, ReliabilityDiagramView) stay in the app target only.
       - path: PgrepStudy/ChoiceList.swift
       - path: PgrepStudy/ReliabilityDiagram.swift
+      # Pure interleave + commit grading for the interleaved study session,
+      # exercised by StudySessionTests. The model/view (StudySessionView) that
+      # drives it against the Engine stays in the app target only.
+      - path: PgrepStudy/StudySession.swift
       - path: PgrepStudy/Generated
       - path: ../sample-deck/collection.anki2
         buildPhase: resources
