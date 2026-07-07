@@ -25,6 +25,15 @@ UI polish (audited 2026-07-06; most were already fixed in later L5.9 work):
 - [ ] Hardening: crash test and benchmark
 - [ ] Record the submission and demo
 
+## Deferred from the structural de-Anki pass
+
+The `feat/l6-structural-de-anki` worktree rebuilds the exclusive menu bar (pgrep's own
+app/Edit/Go menus, Anki's never built), makes Anki's profile chooser unreachable, and adds the
+macOS unified title bar. Parked, not merged. It defers:
+
+- [ ] First-run login gate: a pgrep sign-in with a configurable server URL and a "continue offline" escape, reusing the existing sync sign-in. Best after the hosting decision (see `2026-07-06-l6-hosting-roadmap.md`)
+- [ ] pgrep's own card template, to migrate off Anki's stock `Basic` note type (touches the seeder, card sets, and generation)
+
 ## Done
 
 - [x] Standalone desktop chrome: window titled "pgrep", Anki admin menus hidden, exclusive surface is the default (the takeover flip); dev keeps the hatch via `PGREP_SURFACE_MODE=hosted`

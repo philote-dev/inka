@@ -128,6 +128,36 @@ def enter_pgrep(mw: aqt.main.AnkiQt) -> None:
     if not getattr(web, "_pgrep_loaded", False):
         web.load_sveltekit_page("pgrep")
         setattr(web, "_pgrep_loaded", True)
+        # macOS product only: the window uses an expanded client area under a
+        # transparent title bar, so tag the surface to give the rail a top
+        # safe-area under the traffic lights. The eval queues until the DOM is
+        # ready (see AnkiWebView.eval).
+        from anki.utils import is_mac
+
+        if is_mac and surface_mode(mw) == "exclusive":
+            web.eval("document.body.classList.add('pgrep-native-titlebar');")
+
+
+def apply_native_titlebar(mw: aqt.main.AnkiQt) -> None:
+    """Extend the product surface under a transparent macOS title bar.
+
+    Uses Qt 6.9+'s expanded client area (a cross-platform window flag), so the
+    pgrep web surface fills the window edge to edge and the traffic lights float
+    over it, with no separate title strip. ``WA_ContentsMarginsRespectsSafeArea``
+    is turned off so the central webview is not inset below the title bar; the
+    rail's own top safe-area (so it clears the traffic lights) rides the
+    ``pgrep-native-titlebar`` body class set in :func:`enter_pgrep`.
+
+    Scoped to exclusive on macOS; no-op elsewhere. Run before the window is shown
+    so Qt does not have to recreate it.
+    """
+    from anki.utils import is_mac
+
+    if not is_mac or surface_mode(mw) != "exclusive":
+        return
+    mw.setWindowFlag(Qt.WindowType.ExpandedClientAreaHint, True)
+    mw.setWindowFlag(Qt.WindowType.NoTitleBarBackgroundHint, True)
+    mw.setAttribute(Qt.WidgetAttribute.WA_ContentsMarginsRespectsSafeArea, False)
 
 
 def sync_central_surface(mw: aqt.main.AnkiQt, state: str) -> None:
@@ -145,32 +175,6 @@ def sync_central_surface(mw: aqt.main.AnkiQt, state: str) -> None:
     mw.bottomWeb.setVisible(not pgrep_active)
 
 
-def apply_menu_chrome(mw: aqt.main.AnkiQt) -> None:
-    """Hide Anki's collection-admin menus in the shipped standalone surface.
-
-    In ``exclusive`` mode pgrep is the whole app, so the native File, View,
-    Tools, and Help menus (import/export, note types, add-ons, database checks,
-    Anki's own docs) are hidden and only Edit stays for text fields. Anki's
-    Preferences is dropped from the macOS app menu too, since pgrep carries its
-    own Settings. ``hosted`` and ``off`` keep every menu, the dev hatch.
-
-    Reversible: it only toggles action visibility. About and Quit keep their
-    macOS app-menu slots because Qt relocates their role actions when the
-    menubar is built, before this runs.
-    """
-    if surface_mode(mw) != "exclusive":
-        return
-    form = mw.form
-    for menu in (
-        form.menuCol,
-        form.menuqt_accel_view,
-        form.menuTools,
-        form.menuHelp,
-    ):
-        menu.menuAction().setVisible(False)
-    form.actionPreferences.setVisible(False)
-
-
 def profile_to_autoload(
     mode: str, profiles: list[str], last_loaded: str | None
 ) -> str | None:
@@ -186,3 +190,13 @@ def profile_to_autoload(
     if last_loaded and last_loaded in profiles:
         return last_loaded
     return profiles[0]
+
+
+def suppress_profile_chooser(mode: str) -> bool:
+    """True when Anki's profile chooser must never surface (the product).
+
+    pgrep is single-user, so ``exclusive`` collapses to one implicit account and
+    the chooser and Switch Profile are unreachable. ``hosted`` and ``off`` keep
+    the chooser as the dev hatch.
+    """
+    return mode == "exclusive"

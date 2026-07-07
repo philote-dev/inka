@@ -228,6 +228,22 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         color: var(--text);
     }
 
+    /* macOS product: the window uses an expanded client area under a transparent
+       title bar (pgrep_host.apply_native_titlebar), so the surface fills to the
+       very top. Inset it by the title-bar height so the rail and its collapsed
+       controls clear the floating traffic lights. */
+    :global(body.pgrep-native-titlebar) .shell {
+        padding-top: 28px;
+    }
+
+    :global(body.pgrep-native-titlebar) .rail-burger {
+        top: 42px;
+    }
+
+    :global(body.pgrep-native-titlebar) .rail-edge {
+        top: 28px;
+    }
+
     .page {
         flex: 1 1 auto;
         min-width: 0;

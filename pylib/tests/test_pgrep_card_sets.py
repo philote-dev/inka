@@ -127,3 +127,19 @@ def test_add_card_authors_into_the_category_deck_without_ai():
     sets = list_card_sets(col)
     quantum = next(s for s in sets if s["category"] == "quantum")
     assert any(c["note_id"] == res["note_id"] for c in quantum["cards"])
+
+
+def test_card_sets_never_expose_stock_anki_defaults():
+    col = getEmptyCol()
+    seed_sample_content(col)
+
+    sets = list_card_sets(col)
+    names = {s["name"] for s in sets}
+    cats = {s["category"] for s in sets}
+
+    # The product's Library only surfaces blueprint categories. The collection
+    # still carries Anki's stock Default deck and Basic/Cloze note types (Basic is
+    # load-bearing), but no pgrep card set is ever named for them, so a fresh
+    # account never reads as "polluted" by Anki defaults.
+    assert "Default" not in names and "Default" not in cats
+    assert "Cloze" not in names and "Cloze" not in cats
