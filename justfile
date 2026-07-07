@@ -18,6 +18,24 @@ run *args:
 run-optimized *args:
     {{ if os() == "windows" { "$env:RELEASE='1'; .\\run.bat" } else { "RELEASE=1 ./run" } }} {{ args }}
 
+# Stage a feature the way a user sees it: the clean product surface (exclusive
+# mode, no Anki chrome, no dev lab) on your normal profile. macOS/Linux.
+[unix]
+stage *args:
+    PGREP_SURFACE_MODE=exclusive {{ run_script }} {{ args }}
+
+# Stage as a brand-new first-time user: a throwaway profile in the clean product
+# surface. Delete the folder (or change PGREP_FRESH_BASE) to reset. macOS/Linux.
+[unix]
+fresh *args:
+    ANKI_BASE="${PGREP_FRESH_BASE:-/tmp/pgrep-newuser}" PGREP_SURFACE_MODE=exclusive {{ run_script }} {{ args }}
+
+# Pre-prod gate: full build + lint + unit tests (`check`), then the Playwright
+# end-to-end suite against the real UI. Run this before you ship.
+verify:
+    just check
+    just test-e2e
+
 # Run a self-hosted Anki sync server for pgrep (reuses Anki's sync unmodified). macOS/Linux.
 # Defaults to port 8090 (8080 is taken by `just run`'s Qt remote-debug/hot-reload
 # server). Auth via the user arg (SYNC_USER1); SYNC_HOST/SYNC_PORT/SYNC_BASE via env.

@@ -138,9 +138,9 @@ renders only the content area. Card fronts are typeset with the shared renderMat
         "translateY(-15px) translateZ(-3px)",
     ];
     const PEEK = [
-        "translateY(-12px) translateZ(-1px)",
-        "translateY(-23px) translateZ(-2px)",
-        "translateY(-34px) translateZ(-3px)",
+        "translateY(-16px) translateZ(-1px)",
+        "translateY(-30px) translateZ(-2px)",
+        "translateY(-44px) translateZ(-3px)",
     ];
 
     // Reactive UI state (changes rarely, so Svelte re-renders are cheap).
@@ -169,6 +169,7 @@ renders only the content area. Card fronts are typeset with the shared renderMat
 
     let stageEl: HTMLElement;
     let gridEl: HTMLElement | undefined;
+    let scrollEl: HTMLElement | undefined;
     let frontEl: HTMLTextAreaElement | undefined;
     const deckEls: HTMLElement[] = [];
 
@@ -451,6 +452,32 @@ renders only the content area. Card fronts are typeset with the shared renderMat
             : [];
     }
 
+    // Whether a cell is currently within the scroll viewport. The deal and the
+    // collect only animate cells you can actually see, so a 60-card set costs the
+    // same as a handful: off-screen cells are placed (or cleared) instantly.
+    function inView(el: HTMLElement): boolean {
+        if (!scrollEl) {
+            return true;
+        }
+        const vr = scrollEl.getBoundingClientRect();
+        const r = el.getBoundingClientRect();
+        return r.bottom > vr.top - 4 && r.top < vr.bottom + 4;
+    }
+
+    // Split cells into on-screen and off-screen. Visibility must be sampled
+    // before any transform is applied, since moving a cell changes its rect.
+    function partitionByView(els: HTMLElement[]): {
+        seen: HTMLElement[];
+        rest: HTMLElement[];
+    } {
+        const seen: HTMLElement[] = [];
+        const rest: HTMLElement[] = [];
+        for (const el of els) {
+            (inView(el) ? seen : rest).push(el);
+        }
+        return { seen, rest };
+    }
+
     async function startAdd(): Promise<void> {
         adding = true;
         await tick();
@@ -494,8 +521,15 @@ renders only the content area. Card fronts are typeset with the shared renderMat
         if (!c) {
             return;
         }
-        const els = gridCellEls();
-        els.forEach((el, i) => {
+        // Sample visibility first, then only deal the on-screen cells; the rest
+        // sit ready below the fold.
+        const { seen, rest } = partitionByView(gridCellEls());
+        for (const el of rest) {
+            el.style.transition = "none";
+            el.style.transform = "none";
+            el.style.opacity = "1";
+        }
+        seen.forEach((el, i) => {
             const r = el.getBoundingClientRect();
             const dx = c.x - (r.left + r.width / 2);
             const dy = c.y - (r.top + r.height / 2);
@@ -504,11 +538,11 @@ renders only the content area. Card fronts are typeset with the shared renderMat
             el.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px) rotate(${scatter.toFixed(1)}deg) scale(0.82)`;
             el.style.opacity = "0";
         });
-        if (els[0]) {
-            void els[0].offsetHeight; // force reflow so the from-state commits
+        if (seen[0]) {
+            void seen[0].offsetHeight; // force reflow so the from-state commits
         }
-        els.forEach((el, i) => {
-            el.style.transition = `transform 460ms var(--ease-spring) ${i * 16}ms, opacity 300ms ease ${i * 16 + 40}ms`;
+        seen.forEach((el, i) => {
+            el.style.transition = `transform 460ms var(--ease-spring) ${i * 14}ms, opacity 300ms ease ${i * 14 + 40}ms`;
             el.style.transform = "none";
             el.style.opacity = "1";
         });
@@ -529,32 +563,37 @@ renders only the content area. Card fronts are typeset with the shared renderMat
         void closeFlyBack();
     }
 
-    // Reverse of the deal: cards fly back into the stack, top-left last, then the
-    // grid unmounts (TECHNICAL-SPEC section 7).
+    // Reverse of the deal: the on-screen cards gather back into the stack while
+    // the wheel fades in beneath them, then the grid unmounts. Off-screen cards
+    // are dropped at once, so the collect stays short (and in step with the wheel
+    // reveal) no matter how many cards the set holds.
     async function closeFlyBack(): Promise<void> {
         await tick();
         const c = deckCenter();
-        const els = gridCellEls();
-        const cells = els.length;
-        els.forEach((el, i) => {
+        const { seen, rest } = partitionByView(gridCellEls());
+        for (const el of rest) {
+            el.style.transition = "none";
+            el.style.opacity = "0";
+        }
+        const DUR = 280;
+        const STAG = 6;
+        seen.forEach((el, i) => {
             const r = el.getBoundingClientRect();
             const dx = c ? c.x - (r.left + r.width / 2) : 0;
             const dy = c ? c.y - (r.top + r.height / 2) : 0;
-            const delay = (cells - 1 - i) * 10;
-            const scatter = (((i * 29) % 7) - 3) * 1.8;
-            el.style.transition = `transform 420ms var(--ease-spring) ${delay}ms, opacity 240ms ease ${delay + 140}ms`;
+            const delay = i * STAG;
+            const scatter = (((i * 29) % 7) - 3) * 1.6;
+            el.style.transition = `transform ${DUR}ms var(--ease-spring) ${delay}ms, opacity ${Math.round(DUR * 0.7)}ms ease ${delay}ms`;
             el.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px) rotate(${scatter.toFixed(1)}deg) scale(0.8)`;
             el.style.opacity = "0";
         });
         clearTimeout(closeTimer);
-        closeTimer = window.setTimeout(
-            () => {
-                open = null;
-                closing = false;
-                adding = false;
-            },
-            420 + (cells - 1) * 10 + 100,
-        );
+        const total = DUR + Math.max(0, seen.length - 1) * STAG + 60;
+        closeTimer = window.setTimeout(() => {
+            open = null;
+            closing = false;
+            adding = false;
+        }, total);
     }
 
     function studyOpen(): void {
@@ -609,7 +648,11 @@ renders only the content area. Card fronts are typeset with the shared renderMat
         </div>
     {:else}
         <!-- Wheel layer -->
-        <div class="wheel-layer" class:hidden={open !== null && !closing}>
+        <div
+            class="wheel-layer"
+            class:hidden={open !== null && !closing}
+            class:revealing={closing}
+        >
             <header class="wheel-head">
                 <h1>Your sets</h1>
                 <p class="subline">
@@ -717,7 +760,7 @@ renders only the content area. Card fronts are typeset with the shared renderMat
                         </button>
                     {/if}
                 </div>
-                <div class="grid-scroll">
+                <div class="grid-scroll" bind:this={scrollEl}>
                     <div class="grid" bind:this={gridEl}>
                         {#each openCards as c, i (c.note_id ?? i)}
                             <article class="grid-cell grid-card">
@@ -822,7 +865,9 @@ renders only the content area. Card fronts are typeset with the shared renderMat
         }
     }
 
-    /* Wheel layer fades and shrinks behind the opened grid (360ms). */
+    /* Wheel layer fades/shrinks behind the opened grid. On close it fades back in
+       after a short delay so it lands in step with the cards gathering into the
+       stack, rather than appearing while they are still collecting. */
     .wheel-layer {
         position: absolute;
         inset: 0;
@@ -831,13 +876,17 @@ renders only the content area. Card fronts are typeset with the shared renderMat
         opacity: 1;
         transform: scale(1);
         transition:
-            opacity 360ms var(--ease-spring),
-            transform 360ms var(--ease-spring);
+            opacity 300ms var(--ease-spring),
+            transform 300ms var(--ease-spring);
 
         &.hidden {
             opacity: 0;
             transform: scale(0.965);
             pointer-events: none;
+        }
+
+        &.revealing {
+            transition-delay: 90ms;
         }
     }
 
@@ -921,10 +970,13 @@ renders only the content area. Card fronts are typeset with the shared renderMat
         border-radius: var(--radius-card);
         padding: 22px 24px;
         box-shadow: var(--shadow-card);
-        transition: border-color 240ms var(--ease-spring);
+        transition:
+            border-color 240ms var(--ease-spring),
+            transform 240ms var(--ease-spring);
 
         &.hovered {
             border-color: var(--muted);
+            transform: translateY(-3px);
         }
     }
 
@@ -992,6 +1044,19 @@ renders only the content area. Card fronts are typeset with the shared renderMat
         display: flex;
         align-items: center;
         justify-content: center;
+
+        /* No square hit-area box; the affordance lives on the dot itself. */
+        &:focus {
+            outline: none;
+        }
+
+        &:focus-visible .dot {
+            box-shadow: 0 0 0 3px var(--focus-ring);
+        }
+
+        &:hover .dot {
+            background: var(--text);
+        }
     }
 
     .dot {
@@ -1002,6 +1067,7 @@ renders only the content area. Card fronts are typeset with the shared renderMat
         transform: scale(1);
         transition:
             background 240ms var(--ease-spring),
+            box-shadow 240ms var(--ease-spring),
             transform 240ms var(--ease-spring);
 
         &.active {

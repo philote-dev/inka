@@ -259,6 +259,11 @@ def test_sync_round_trip(sync_server: str, tmp_path: Path) -> None:
             "answered_at": int(time.time()),
         },
     )
+    # Space the two devices' appends by a millisecond: note ids are timestamps
+    # (TimestampMillis::now), and Anki merges notes by numeric id, so two notes
+    # created in the same ms on the two devices would collide and one would be
+    # dropped on sync. Mirrors the spacing between reviews in section 1.
+    time.sleep(0.01)
     id_b = attempt_log.append_attempt(
         dev_b,
         {
