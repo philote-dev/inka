@@ -241,7 +241,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         {#if status.profile}
                             {committedLabel} is currently injected.
                         {/if}
-                        Click <strong>Inject</strong> to commit and sync.
+                        Click
+                        <strong>Inject</strong>
+                         to commit and sync.
                     </span>
                 {:else if status.injected}
                     <span class="dot on"></span>
@@ -252,8 +254,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 {:else}
                     <span class="dot"></span>
                     <span>
-                        No demo injected. Pick a stage to preview its scores, then Inject
-                        to commit.
+                        No demo injected. Pick a stage to preview its scores, then
+                        Inject to commit.
                     </span>
                 {/if}
             </div>

@@ -139,8 +139,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         JSON.stringify(vals) ===
         JSON.stringify({ ...WHEEL_FEELS[preset], ...WHEEL_SPRING });
 
-    const fmt = (v: number): string =>
-        Number.isInteger(v) ? String(v) : v.toFixed(2);
+    const fmt = (v: number): string => (Number.isInteger(v) ? String(v) : v.toFixed(2));
     $: valuesText =
         `{ R: ${vals.R}, sp: ${vals.sp}, dim: ${vals.dim}, maxPhi: ${vals.maxPhi}, ` +
         `push: ${vals.push}, fwd: ${vals.fwd}, rotK: ${vals.rotK} }\n` +
@@ -332,12 +331,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <div class="head">
     <h1>Card sets wheel</h1>
     <p>
-        The Library browser as a live playground. Topic sets ride a 3D wheel you
-        scroll, drag, arrow through, or click open into a dealt grid. Every geometry
-        and spring number below is wired straight into
-        <code>CardWheel.svelte</code>, so drag a slider and watch the motion change.
-        Reduced motion snaps instead of springing; the loop idles when the wheel is
-        at rest.
+        The Library browser as a live playground. Topic sets ride a 3D wheel you scroll,
+        drag, arrow through, or click open into a dealt grid. Every geometry and spring
+        number below is wired straight into
+        <code>CardWheel.svelte</code>
+        , so drag a slider and watch the motion change. Reduced motion snaps instead of
+        springing; the loop idles when the wheel is at rest.
     </p>
 </div>
 
@@ -414,7 +413,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         </details>
 
         {#if studied}
-            <p class="studied">Would study: <code>{studied}</code></p>
+            <p class="studied">
+                Would study: <code>{studied}</code>
+            </p>
         {/if}
     </aside>
 

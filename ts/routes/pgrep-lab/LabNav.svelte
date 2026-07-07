@@ -157,7 +157,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
 <nav class="labnav" aria-label="Lab navigation">
     <div class="labnav__bar">
-        <span class="labnav__mark">pgrep<span class="labnav__slash">/</span>lab</span>
+        <span class="labnav__mark">
+            pgrep
+            <span class="labnav__slash">/</span>
+            lab
+        </span>
 
         <div class="switch" style="--seg: {segIndex}">
             <span class="switch__indicator" aria-hidden="true"></span>
