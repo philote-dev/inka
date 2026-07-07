@@ -86,6 +86,11 @@ targets:
       # The math renderer's document builder, exercised by MathTextTests to prove
       # the offline (bundled MathJax, no CDN) references without a full app host.
       - path: PgrepStudy/MathText.swift
+      # Pure logic for the shared MCQ list and reliability diagram, exercised by
+      # ChoiceListTests / ReliabilityDiagramTests. The SwiftUI views that draw
+      # them (ChoiceListView, ReliabilityDiagramView) stay in the app target only.
+      - path: PgrepStudy/ChoiceList.swift
+      - path: PgrepStudy/ReliabilityDiagram.swift
       - path: PgrepStudy/Generated
       - path: ../sample-deck/collection.anki2
         buildPhase: resources
