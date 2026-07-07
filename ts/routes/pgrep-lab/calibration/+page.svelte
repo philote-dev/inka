@@ -405,6 +405,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
 <div class="head">
     <h1>Calibration walkthrough</h1>
+    <p class="lede">A synthetic review playground: no backend, no live collection, just the redesigned flow end to end.</p>
     <p>
         The redesigned first-run calibration, end to end on synthetic data. It walks the <strong
         >
@@ -603,6 +604,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             font-size: var(--text-body);
             line-height: 1.55;
             color: var(--muted);
+        }
+
+        .lede {
+            margin-bottom: var(--space-2);
+            font-size: var(--text-body-lg, var(--text-body));
+            font-weight: 500;
+            color: var(--text);
         }
 
         strong {
