@@ -16,6 +16,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import review_sheet  # noqa: E402
 
 
 def recommend(r: dict) -> str:
@@ -72,7 +77,7 @@ def main() -> None:
 
     review = json.load(open(args.review, encoding="utf-8"))
     review.sort(key=lambda r: r.get("id", ""))
-    recs = {r["id"]: recommend(r) for r in review}
+    recs = review_sheet.manifest(review, recommend=recommend, id_of=lambda r: r["id"])
     from collections import Counter
     c = Counter(recs.values())
 
@@ -102,7 +107,8 @@ def main() -> None:
         "",
     ]
     with open(os.path.join(args.out, "02-figures.md"), "w", encoding="utf-8") as fh:
-        fh.write("\n".join(head) + "\n" + "\n".join(block(r) for r in review))
+        fh.write(review_sheet.build(review, header=head, recommend=recommend,
+                                    block=block, id_of=lambda r: r["id"]))
     json.dump({"review": recs}, open(os.path.join(args.out, "02-figures.manifest.json"),
                                      "w", encoding="utf-8"), indent=2, ensure_ascii=False)
     print(f"figure review: {len(review)}  recs={dict(c)}")

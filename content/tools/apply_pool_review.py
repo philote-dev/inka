@@ -18,17 +18,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import merge_pool  # noqa: E402
-
-
-def parse_verdicts(md: str) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for b in re.split(r"\n### ", "\n" + md):
-        m = re.match(r"(p4-prob-\d+)", b)
-        if not m:
-            continue
-        cm = re.search(r"-> your call:\s*(.+)", b)
-        out[m.group(1)] = cm.group(1).strip() if cm else "KEEP"
-    return out
+import review_sheet  # noqa: E402
 
 
 def main() -> None:
@@ -39,7 +29,8 @@ def main() -> None:
     ap.add_argument("--log", default="content/run/triple/pool/merged/review_applied.json")
     args = ap.parse_args()
 
-    verdicts = parse_verdicts(open(args.reviewed, encoding="utf-8").read())
+    verdicts = review_sheet.parse(open(args.reviewed, encoding="utf-8").read(),
+                                  review_sheet.PROBLEM_ID_RE)
     flagged = {it["id"]: it for it in json.load(open(args.flagged, encoding="utf-8"))}
 
     kept: list[dict] = []
