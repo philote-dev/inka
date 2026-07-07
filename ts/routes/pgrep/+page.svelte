@@ -274,8 +274,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <Manifold3D
                 width={heroWidth}
                 height={heroHeight}
-                grid={84}
+                grid={90}
                 heightScale={1.2}
+                vibrance={0.7}
+                labelLayout="radial"
+                chipStrength={0.6}
+                distance={4.4}
                 {surface}
                 onTopic={openFocusDrill}
             />

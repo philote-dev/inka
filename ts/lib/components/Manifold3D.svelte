@@ -45,6 +45,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     // 0..1 strength of the subtle backing pill that fades in behind a label when
     // it sits over the mesh/lines (gives the wrap leniency). 0 = no pill.
     export let chipStrength = 0;
+    // Camera pull-back. Set it larger than the default to give the radial label
+    // ring a gutter around the figure; undefined keeps the renderer's framing.
+    export let distance: number | undefined = undefined;
 
     // Pill backing tint follows the theme so it reads on the surface behind it.
     $: pillRGB = theme === "light" ? "247, 246, 242" : "18, 20, 24";
@@ -152,6 +155,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     $: handle?.setLabelLayout(labelLayout);
     $: handle?.setAutoRotate(autoRotate);
     $: handle?.resize(width, height);
+    $: if (handle && distance !== undefined) {
+        handle.setDistance(distance);
+    }
 </script>
 
 {#if use2d}
