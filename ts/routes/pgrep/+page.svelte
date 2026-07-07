@@ -11,10 +11,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import { onMount } from "svelte";
 
     import CompactScoreCard from "$lib/components/CompactScoreCard.svelte";
-    import Manifold from "$lib/components/Manifold.svelte";
     import Manifold3D from "$lib/components/Manifold3D.svelte";
+    import ManifoldTopView from "$lib/components/ManifoldTopView.svelte";
     import { FULL_SURFACE, type Surface } from "$lib/pgrep/manifold";
     import { supportsWebGL } from "$lib/pgrep/manifold3d";
+    import { manifoldView, type ManifoldView } from "$lib/pgrep/prefs";
 
     import { pgrepCall } from "./lib/bridge";
 
@@ -59,17 +60,31 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         last_updated: number | null;
     }
 
-    // The 3D hero on capable devices, the Canvas 2D fallback otherwise or when
-    // the learner prefers reduced motion. Both draw the same FULL_SURFACE.
-    let use3d = false;
+    // Device capability, read on mount. The manifold view preference (Settings)
+    // then decides the projection: "auto" shows the 3D wireframe where WebGL and
+    // motion allow and the flat top-down map otherwise; "wire"/"map" force one.
+    let canWebGL = false;
+    let reduceMotion = false;
+    function manifoldMode(
+        pref: ManifoldView,
+        gl: boolean,
+        reduce: boolean,
+    ): "wire" | "map" {
+        if (pref === "wire") {
+            return "wire";
+        }
+        if (pref === "map") {
+            return "map";
+        }
+        return gl && !reduce ? "wire" : "map";
+    }
+    $: heroMode = manifoldMode($manifoldView, canWebGL, reduceMotion);
 
     // The hero fills the content column (bound to its measured width), so it never
     // sits as a fixed island beside a wider card row. Height tracks width at the
-    // reference's roughly 2:1 framing, and the 2D projection scale matches the
-    // design ratio (S 250 at 1152 wide) so the surface looks right at any width.
+    // reference's roughly 2:1 framing.
     let heroWidth = 960;
     $: heroHeight = Math.max(240, Math.round(heroWidth * 0.5));
-    $: heroScale = Math.round(heroWidth * 0.217);
 
     // Diagnostic is first-run and re-runnable (ux-foundation 7.6). Show the
     // prompt only until it has been completed once. null while unknown so a
@@ -154,9 +169,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     onMount(() => {
-        const reduce =
+        reduceMotion =
             window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-        use3d = supportsWebGL() && !reduce;
+        canWebGL = supportsWebGL();
         void loadScores();
         void loadDiagnosticStatus();
         void loadManifold();
@@ -255,7 +270,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     </header>
 
     <div class="hero" bind:clientWidth={heroWidth}>
-        {#if use3d}
+        {#if heroMode === "wire"}
             <Manifold3D
                 width={heroWidth}
                 height={heroHeight}
@@ -265,12 +280,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 onTopic={openFocusDrill}
             />
         {:else}
-            <Manifold
+            <ManifoldTopView
                 width={heroWidth}
                 height={heroHeight}
-                scale={heroScale}
-                grid={90}
                 {surface}
+                showReadouts={false}
+                showLegend={false}
                 onTopic={openFocusDrill}
             />
         {/if}

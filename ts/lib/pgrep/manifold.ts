@@ -39,6 +39,13 @@ export interface ManifoldLabel {
     /** Blueprint category slug for the focus-drill entry (ux-foundation 5).
      *  When set, the label becomes a launcher into a topic-scoped Study drill. */
     topic?: string;
+    /** Honesty pairing for the top-down map. A summit shows its 0-100 performance
+     *  and memory beside the name; a gap shows a coverage note ("no attempts",
+     *  "3 of 41 seen") and renders as a gap callout instead of a peak. These are
+     *  ignored by the 3D wireframe, which only reads name/position. */
+    perf?: number;
+    mem?: number;
+    note?: string;
 }
 
 export interface Surface {
@@ -107,8 +114,24 @@ export const DEFAULT_SURFACE: Surface = {
         { x: -0.05, y: 0.45, c: "196,167,214" },
     ],
     labels: [
-        { name: "Mechanics", x: -0.62, y: 0.38, dx: -48, dy: -52, tf: "translate(-100%, -100%)", topic: "mechanics" },
-        { name: "E and M", x: 0.55, y: 0.02, dx: 56, dy: -66, tf: "translate(0, -100%)", topic: "electromagnetism" },
+        {
+            name: "Mechanics",
+            x: -0.62,
+            y: 0.38,
+            dx: -48,
+            dy: -52,
+            tf: "translate(-100%, -100%)",
+            topic: "mechanics",
+        },
+        {
+            name: "E and M",
+            x: 0.55,
+            y: 0.02,
+            dx: 56,
+            dy: -66,
+            tf: "translate(0, -100%)",
+            topic: "electromagnetism",
+        },
         {
             name: "Thermodynamics",
             x: -0.3,
@@ -118,7 +141,15 @@ export const DEFAULT_SURFACE: Surface = {
             tf: "translate(-100%, 0)",
             topic: "thermodynamics",
         },
-        { name: "Quantum", x: 0.5, y: 0.55, dx: 44, dy: 60, tf: "translate(0, 0)", topic: "quantum" },
+        {
+            name: "Quantum",
+            x: 0.5,
+            y: 0.55,
+            dx: 44,
+            dy: 60,
+            tf: "translate(0, 0)",
+            topic: "quantum",
+        },
     ],
 };
 
@@ -170,7 +201,15 @@ export const FULL_SURFACE: Surface = {
             tf: "translate(0, -100%)",
             topic: "electromagnetism",
         },
-        { name: "Optics & Waves", x: 1.0, y: -0.14, dx: 54, dy: -22, tf: "translate(0, -100%)", topic: "optics_waves" },
+        {
+            name: "Optics & Waves",
+            x: 1.0,
+            y: -0.14,
+            dx: 54,
+            dy: -22,
+            tf: "translate(0, -100%)",
+            topic: "optics_waves",
+        },
         {
             name: "Thermo & Stat Mech",
             x: -1.05,
@@ -180,8 +219,24 @@ export const FULL_SURFACE: Surface = {
             tf: "translate(-100%, 0)",
             topic: "thermodynamics",
         },
-        { name: "Quantum Mechanics", x: 0.16, y: 0.6, dx: -60, dy: 190, tf: "translate(-100%, 0)", topic: "quantum" },
-        { name: "Atomic Physics", x: 0.72, y: 0.4, dx: 64, dy: 46, tf: "translate(0, 0)", topic: "atomic" },
+        {
+            name: "Quantum Mechanics",
+            x: 0.16,
+            y: 0.6,
+            dx: -60,
+            dy: 190,
+            tf: "translate(-100%, 0)",
+            topic: "quantum",
+        },
+        {
+            name: "Atomic Physics",
+            x: 0.72,
+            y: 0.4,
+            dx: 64,
+            dy: 46,
+            tf: "translate(0, 0)",
+            topic: "atomic",
+        },
         {
             name: "Special Relativity",
             x: -0.56,
@@ -191,13 +246,33 @@ export const FULL_SURFACE: Surface = {
             tf: "translate(-100%, 0)",
             topic: "special_relativity",
         },
-        { name: "Laboratory Methods", x: -0.05, y: -0.62, dx: 10, dy: -60, tf: "translate(-50%, -100%)", topic: "lab" },
-        { name: "Specialized Topics", x: 0.16, y: 0.04, dx: 30, dy: 195, tf: "translate(0, 0)", topic: "specialized" },
+        {
+            name: "Laboratory Methods",
+            x: -0.05,
+            y: -0.62,
+            dx: 10,
+            dy: -60,
+            tf: "translate(-50%, -100%)",
+            topic: "lab",
+        },
+        {
+            name: "Specialized Topics",
+            x: 0.16,
+            y: 0.04,
+            dx: 30,
+            dy: 195,
+            tf: "translate(0, 0)",
+            topic: "specialized",
+        },
     ],
 };
 
 const PALETTE = { amber: [255, 192, 84], lilac: [208, 156, 238], blue: [72, 146, 220] };
-const PALETTE_LIGHT = { amber: [169, 117, 42], lilac: [126, 101, 147], blue: [94, 129, 172] };
+const PALETTE_LIGHT = {
+    amber: [169, 117, 42],
+    lilac: [126, 101, 147],
+    blue: [94, 129, 172],
+};
 
 // Reserved score hues as canvas rgb strings, to color a region by its leading statistic.
 export const SCORE_COLORS = {
@@ -247,14 +322,21 @@ export function height(surface: Surface, x: number, y: number): number {
         const sn = Math.sin(rr);
         const u = dx * cs + dy * sn;
         const v = -dx * sn + dy * cs;
-        const e = Math.sqrt(Math.pow(u / (h.rx * 1.7), 2) + Math.pow(v / (h.ry * 1.7), 2));
+        const e = Math.sqrt(
+            Math.pow(u / (h.rx * 1.7), 2) + Math.pow(v / (h.ry * 1.7), 2),
+        );
         const w = Math.max(0, Math.min(1, (e - 0.588) / 0.412));
         floor *= w * w * (3 - 2 * w);
     }
     return z * taper * floor;
 }
 
-export function project(x: number, y: number, z: number, opts: ProjectOpts): { X: number; Y: number; t: number } {
+export function project(
+    x: number,
+    y: number,
+    z: number,
+    opts: ProjectOpts,
+): { X: number; Y: number; t: number } {
     const A = -0.5;
     const xr = x * Math.cos(A) - y * Math.sin(A);
     const yr = x * Math.sin(A) + y * Math.cos(A);
@@ -263,18 +345,30 @@ export function project(x: number, y: number, z: number, opts: ProjectOpts): { X
     return {
         X: opts.W / 2 + (xr - yr) * 0.92 * S * per,
         Y: opts.H * 0.52 + ((xr + yr) * 0.42 - z * 0.92) * S * per,
-        t: Math.max(0, Math.min(1, ((xr - yr) + 1.55) / 3.1)),
+        t: Math.max(0, Math.min(1, (xr - yr + 1.55) / 3.1)),
     };
 }
 
 export function palette(t: number, theme?: string): number[] {
     const { amber: a, lilac: m, blue: b } = theme === "light" ? PALETTE_LIGHT : PALETTE;
-    const lerp = (p: number[], q: number[], u: number) => p.map((v, i) => v + (q[i] - v) * u);
+    const lerp = (p: number[], q: number[], u: number) =>
+        p.map((v, i) => v + (q[i] - v) * u);
     const c = t < 0.5 ? lerp(a, m, t * 2) : lerp(m, b, (t - 0.5) * 2);
     return c.map(Math.round);
 }
 
-export function colorAt(surface: Surface, x: number, y: number, theme?: string): number[] {
+// `saturation` scales how far each channel is pushed from the local average (the
+// "loose color fitting"); `lightness` scales the theme multiplier so callers can
+// counteract the light-theme darkening for a more vivid read. Both default to the
+// original constants, so existing callers are unchanged.
+export function colorAt(
+    surface: Surface,
+    x: number,
+    y: number,
+    theme?: string,
+    saturation = 1.6,
+    lightness = 1,
+): number[] {
     let r = 0;
     let g = 0;
     let b = 0;
@@ -296,12 +390,19 @@ export function colorAt(surface: Surface, x: number, y: number, theme?: string):
     const bb = b / w;
     const avg = (rr + gg + bb) / 3;
     const cl = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
-    const mul = theme === "light" ? 0.55 : 1;
-    return [cl((avg + (rr - avg) * 1.6) * mul), cl((avg + (gg - avg) * 1.6) * mul), cl((avg + (bb - avg) * 1.6) * mul)];
+    const mul = (theme === "light" ? 0.55 : 1) * lightness;
+    return [
+        cl((avg + (rr - avg) * saturation) * mul),
+        cl((avg + (gg - avg) * saturation) * mul),
+        cl((avg + (bb - avg) * saturation) * mul),
+    ];
 }
 
 // Draws onto `canvas` and returns projected label positions.
-export function drawManifold(canvas: HTMLCanvasElement, opts: ManifoldOpts = {}): ProjectedLabel[] {
+export function drawManifold(
+    canvas: HTMLCanvasElement,
+    opts: ManifoldOpts = {},
+): ProjectedLabel[] {
     const surface = opts.surface || DEFAULT_SURFACE;
     const W = opts.W || 828;
     const H = opts.H || 540;
@@ -324,7 +425,14 @@ export function drawManifold(canvas: HTMLCanvasElement, opts: ManifoldOpts = {})
     for (const g of surface.glows) {
         const p = project(g.x, g.y, 0, po);
         const rg = ctx.createRadialGradient(p.X, p.Y, 0, p.X, p.Y, glowR);
-        rg.addColorStop(0, "rgba(" + g.c + "," + ((theme === "light" ? 0.11 : 0.07) * glow).toFixed(3) + ")");
+        rg.addColorStop(
+            0,
+            "rgba(" +
+                g.c +
+                "," +
+                ((theme === "light" ? 0.11 : 0.07) * glow).toFixed(3) +
+                ")",
+        );
         rg.addColorStop(1, "rgba(" + g.c + ",0)");
         ctx.fillStyle = rg;
         ctx.fillRect(p.X - glowR, p.Y - glowR, glowR * 2, glowR * 2);
@@ -355,10 +463,22 @@ export function drawManifold(canvas: HTMLCanvasElement, opts: ManifoldOpts = {})
         const p = project(x, y, z, po);
         const R = boundaryR(surface, Math.atan2(y, x));
         const fade = Math.max(0, Math.min(1, (R - Math.hypot(x, y)) / 0.5));
-        return { x, y, z, X: p.X, Y: p.Y, vis: visAt(x, y), c: colorAt(surface, x, y, theme), fade };
+        return {
+            x,
+            y,
+            z,
+            X: p.X,
+            Y: p.Y,
+            vis: visAt(x, y),
+            c: colorAt(surface, x, y, theme),
+            fade,
+        };
     };
 
-    const axisTicks = (cGet: (o: { x: number; y: number }) => number, rGet: (o: Hole) => number) => {
+    const axisTicks = (
+        cGet: (o: { x: number; y: number }) => number,
+        rGet: (o: Hole) => number,
+    ) => {
         const M = 400;
         const wArr: number[] = [];
         for (let k = 0; k <= M; k++) {
@@ -369,7 +489,10 @@ export function drawManifold(canvas: HTMLCanvasElement, opts: ManifoldOpts = {})
                 d += 1.6 * Math.exp(-Math.pow(v - cGet(h), 2) / (2 * s * s));
             }
             for (const b of surface.bumps) {
-                d -= 0.6 * (b.h / 0.5) * Math.exp(-Math.pow(v - cGet(b), 2) / (2 * b.s * b.s));
+                d -=
+                    0.6 *
+                    (b.h / 0.5) *
+                    Math.exp(-Math.pow(v - cGet(b), 2) / (2 * b.s * b.s));
             }
             wArr.push(Math.max(0.3, d));
         }
@@ -384,13 +507,22 @@ export function drawManifold(canvas: HTMLCanvasElement, opts: ManifoldOpts = {})
             while (k < M - 1 && cum[k + 1] < target) {
                 k++;
             }
-            const f = Math.min(1, Math.max(0, (target - cum[k]) / ((cum[k + 1] - cum[k]) || 1)));
+            const f = Math.min(
+                1,
+                Math.max(0, (target - cum[k]) / (cum[k + 1] - cum[k] || 1)),
+            );
             ticks.push(-lim + (2 * lim * (k + f)) / M);
         }
         return ticks;
     };
-    const xs = axisTicks((o) => o.x, (o) => o.rx);
-    const ys = axisTicks((o) => o.y, (o) => o.ry);
+    const xs = axisTicks(
+        (o) => o.x,
+        (o) => o.rx,
+    );
+    const ys = axisTicks(
+        (o) => o.y,
+        (o) => o.ry,
+    );
     const pts: Sample[][] = [];
     for (let i = 0; i <= n; i++) {
         pts.push([]);
@@ -426,7 +558,11 @@ export function drawManifold(canvas: HTMLCanvasElement, opts: ManifoldOpts = {})
             }
             const zc = Math.max(0, (A.z + B.z + C.z + D.z) / 4);
             const fadeC = (A.fade + B.fade + C.fade + D.fade) / 4;
-            const alpha = fill * glow * (0.35 + 0.65 * fadeC) * (fillBase + fillGain * Math.pow(zc, 1.4));
+            const alpha =
+                fill *
+                glow *
+                (0.35 + 0.65 * fadeC) *
+                (fillBase + fillGain * Math.pow(zc, 1.4));
             if (alpha < 0.004) {
                 continue;
             }
@@ -435,7 +571,16 @@ export function drawManifold(canvas: HTMLCanvasElement, opts: ManifoldOpts = {})
                 Math.round((A.c[1] + B.c[1] + C.c[1] + D.c[1]) / 4),
                 Math.round((A.c[2] + B.c[2] + C.c[2] + D.c[2]) / 4),
             ];
-            ctx.fillStyle = "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + Math.min(0.5, alpha).toFixed(3) + ")";
+            ctx.fillStyle =
+                "rgba(" +
+                c[0] +
+                "," +
+                c[1] +
+                "," +
+                c[2] +
+                "," +
+                Math.min(0.5, alpha).toFixed(3) +
+                ")";
             ctx.beginPath();
             ctx.moveTo(A.X, A.Y);
             ctx.lineTo(B.X, B.Y);
@@ -456,8 +601,12 @@ export function drawManifold(canvas: HTMLCanvasElement, opts: ManifoldOpts = {})
             Math.round((a.c[2] + b.c[2]) / 2),
         ];
         const fd = 0.6 + (0.4 * (a.fade + b.fade)) / 2;
-        const alpha = Math.min(0.85, glow * fd * ((theme === "light" ? 0.55 : 0.46) + 1.5 * Math.max(0, z)));
-        ctx.strokeStyle = "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + alpha.toFixed(3) + ")";
+        const alpha = Math.min(
+            0.85,
+            glow * fd * ((theme === "light" ? 0.55 : 0.46) + 1.5 * Math.max(0, z)),
+        );
+        ctx.strokeStyle =
+            "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + alpha.toFixed(3) + ")";
         ctx.beginPath();
         ctx.moveTo(a.X, a.Y);
         ctx.lineTo(b.X, b.Y);
@@ -494,7 +643,16 @@ export function drawManifold(canvas: HTMLCanvasElement, opts: ManifoldOpts = {})
                 Math.round((a.c[1] + b.c[1]) / 2),
                 Math.round((a.c[2] + b.c[2]) / 2),
             ];
-            ctx.strokeStyle = "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + rimAlpha.toFixed(3) + ")";
+            ctx.strokeStyle =
+                "rgba(" +
+                c[0] +
+                "," +
+                c[1] +
+                "," +
+                c[2] +
+                "," +
+                rimAlpha.toFixed(3) +
+                ")";
             ctx.beginPath();
             ctx.moveTo(a.X, a.Y);
             ctx.lineTo(b.X, b.Y);
@@ -526,7 +684,9 @@ export function drawManifold(canvas: HTMLCanvasElement, opts: ManifoldOpts = {})
     const mixK = theme === "light" ? 0.18 : 0.35;
     return surface.labels.map((l) => {
         const p = project(l.x, l.y, height(surface, l.x, l.y), po);
-        const cc = colorAt(surface, l.x, l.y, theme).map((v, i) => Math.round(v + (ink[i] - v) * mixK));
+        const cc = colorAt(surface, l.x, l.y, theme).map((v, i) =>
+            Math.round(v + (ink[i] - v) * mixK),
+        );
         return {
             name: l.name,
             ax: p.X,
@@ -572,7 +732,15 @@ export function buildSurface(topics: TopicStat[], coverageThreshold = 0.4): Surf
     for (const t of topics) {
         const footprint = 0.22 + t.weight * 0.9;
         glows.push({ x: t.x, y: t.y, c: SCORE_COLORS[t.lead] });
-        labels.push({ name: t.name, x: t.x, y: t.y, dx: t.dx, dy: t.dy, tf: t.tf, topic: t.topic });
+        labels.push({
+            name: t.name,
+            x: t.x,
+            y: t.y,
+            dx: t.dx,
+            dy: t.dy,
+            tf: t.tf,
+            topic: t.topic,
+        });
         if (t.coverage < coverageThreshold) {
             const rr = 0.1 + t.weight * 0.55;
             holes.push({ x: t.x, y: t.y, rx: rr, ry: rr * 0.7 });
@@ -581,5 +749,289 @@ export function buildSurface(topics: TopicStat[], coverageThreshold = 0.4): Surf
             bumps.push({ x: t.x, y: t.y, h: 0.1 + t.performance * 0.55, s: footprint });
         }
     }
-    return { boundary: FULL_SURFACE.boundary, spread: 0.42, bumps, dips, holes, glows, labels };
+    return {
+        boundary: FULL_SURFACE.boundary,
+        spread: 0.42,
+        bumps,
+        dips,
+        holes,
+        glows,
+        labels,
+    };
+}
+
+export interface ContourOpts {
+    W?: number;
+    H?: number;
+    S?: number;
+    dpr?: number;
+    glow?: number;
+    grid?: number;
+    /** Every Nth level is drawn heavier, topographic index-contour style. */
+    indexEvery?: number;
+    levels?: number[];
+    theme?: "light" | "dark";
+    surface?: Surface;
+}
+
+/** A projected summit anchor, canvas px. `h` is the raw peak height. */
+export interface ContourPeak {
+    x: number;
+    y: number;
+    h: number;
+}
+
+/** A projected gap anchor, canvas px, with the hole's projected radii. */
+export interface ContourGap {
+    x: number;
+    y: number;
+    rx: number;
+    ry: number;
+    rot: number;
+}
+
+export interface ContourAnchors {
+    peaks: ContourPeak[];
+    gaps: ContourGap[];
+    /** The projection actually used, so the DOM/SVG overlay can place its own
+     *  anchors in the same space: px = W/2 + x·S, py = H/2 + y·S. */
+    W: number;
+    H: number;
+    S: number;
+}
+
+// 2D top-down contour map (marching squares over the same surface). Small-screen
+// default and zero-new-dep fallback for the 3D wireframe (d3-contour in
+// production). Draws terrain only onto `canvas`; returns projected anchors in
+// canvas px so callers place summit markers, topic labels and gap callouts as an
+// HTML/SVG overlay. Ported from the design handoff (design_handoff_manifold_top_view).
+export function drawContour(
+    canvas: HTMLCanvasElement,
+    opts: ContourOpts = {},
+): ContourAnchors {
+    const surface = opts.surface || DEFAULT_SURFACE;
+    const W = opts.W || 380;
+    const H = opts.H || 380;
+    const dpr = opts.dpr || 2;
+    const S = opts.S || Math.min(W, H) / 2.7;
+    const glow = opts.glow ?? 0.8;
+    const theme = opts.theme;
+    const n = opts.grid || 80;
+    const idxEvery = opts.indexEvery || 0;
+
+    const empty: ContourAnchors = { peaks: [], gaps: [], W, H, S };
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+        return empty;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const px = (x: number) => W / 2 + x * S;
+    const py = (y: number) => H / 2 + y * S;
+
+    for (const g of surface.glows) {
+        const rg = ctx.createRadialGradient(px(g.x), py(g.y), 0, px(g.x), py(g.y), S);
+        rg.addColorStop(
+            0,
+            "rgba(" +
+                g.c +
+                "," +
+                ((theme === "light" ? 0.12 : 0.08) * glow).toFixed(3) +
+                ")",
+        );
+        rg.addColorStop(1, "rgba(" + g.c + ",0)");
+        ctx.fillStyle = rg;
+        ctx.fillRect(px(g.x) - S, py(g.y) - S, S * 2, S * 2);
+    }
+
+    // Domain boundary and hole rims, quiet.
+    ctx.strokeStyle =
+        theme === "light" ? "rgba(110,107,100,0.4)" : "rgba(165,161,153,0.3)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let k = 0; k <= 120; k++) {
+        const th = (k / 120) * Math.PI * 2;
+        const R = boundaryR(surface, th);
+        const X = px(R * Math.cos(th));
+        const Y = py(R * Math.sin(th));
+        if (k === 0) {
+            ctx.moveTo(X, Y);
+        } else {
+            ctx.lineTo(X, Y);
+        }
+    }
+    ctx.stroke();
+    ctx.setLineDash([3, 4]);
+    for (const h of surface.holes) {
+        ctx.beginPath();
+        ctx.ellipse(px(h.x), py(h.y), h.rx * S, h.ry * S, h.rot || 0, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    let lim = 0;
+    for (let k = 0; k <= 72; k++) {
+        lim = Math.max(lim, boundaryR(surface, (k / 72) * Math.PI * 2));
+    }
+    lim += 0.08;
+    const zs: number[][] = [];
+    const vis: boolean[][] = [];
+    for (let i = 0; i <= n; i++) {
+        zs.push([]);
+        vis.push([]);
+        for (let j = 0; j <= n; j++) {
+            const x = -lim + (2 * lim * i) / n;
+            const y = -lim + (2 * lim * j) / n;
+            const r = Math.hypot(x, y);
+            const R = boundaryR(surface, Math.atan2(y, x));
+            vis[i].push(r <= R && !inHole(surface, x, y));
+            zs[i].push(height(surface, x, y));
+        }
+    }
+
+    // Adaptive elevation levels. A fixed ladder stops at a set height and leaves
+    // the peak tops blank once the surface climbs past the last rung; instead
+    // space the contours evenly across the surface's actual height range so they
+    // climb all the way up every peak and carry the region color onto it. Callers
+    // may still pin an explicit ladder via opts.levels.
+    let levels: number[];
+    if (opts.levels) {
+        levels = opts.levels;
+    } else {
+        let zmax = 0;
+        for (let i = 0; i <= n; i++) {
+            for (let j = 0; j <= n; j++) {
+                if (vis[i][j] && zs[i][j] > zmax) {
+                    zmax = zs[i][j];
+                }
+            }
+        }
+        const count = 10;
+        const hi = Math.max(0.14, zmax * 0.94);
+        const lo = Math.min(0.05, hi * 0.12);
+        levels = [];
+        for (let k = 0; k < count; k++) {
+            levels.push(lo + ((hi - lo) * k) / (count - 1));
+        }
+    }
+
+    // Marching-squares edge table. Value: which cell edges a level crosses.
+    const SEG: Record<number, string[][]> = {
+        1: [["da", "ab"]],
+        2: [["ab", "bc"]],
+        3: [["da", "bc"]],
+        4: [["bc", "cd"]],
+        5: [
+            ["da", "ab"],
+            ["bc", "cd"],
+        ],
+        6: [["ab", "cd"]],
+        7: [["da", "cd"]],
+        8: [["cd", "da"]],
+        9: [["ab", "cd"]],
+        10: [
+            ["ab", "bc"],
+            ["cd", "da"],
+        ],
+        11: [["bc", "cd"]],
+        12: [["bc", "da"]],
+        13: [["ab", "bc"]],
+        14: [["ab", "da"]],
+    };
+    ctx.lineWidth = 1;
+    ctx.lineCap = "round";
+    for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+            if (!vis[i][j] || !vis[i + 1][j] || !vis[i][j + 1] || !vis[i + 1][j + 1]) {
+                continue;
+            }
+            const x0 = -lim + (2 * lim * i) / n;
+            const x1 = -lim + (2 * lim * (i + 1)) / n;
+            const y0 = -lim + (2 * lim * j) / n;
+            const y1 = -lim + (2 * lim * (j + 1)) / n;
+            const za = zs[i][j];
+            const zb = zs[i + 1][j];
+            const zc = zs[i + 1][j + 1];
+            const zd = zs[i][j + 1];
+            for (let li = 0; li < levels.length; li++) {
+                const L = levels[li];
+                const code =
+                    (za > L ? 1 : 0) |
+                    (zb > L ? 2 : 0) |
+                    (zc > L ? 4 : 0) |
+                    (zd > L ? 8 : 0);
+                const segs = SEG[code];
+                if (!segs) {
+                    continue;
+                }
+                const ept = (e: string): [number, number] => {
+                    if (e === "ab") {
+                        const t = (L - za) / (zb - za);
+                        return [x0 + t * (x1 - x0), y0];
+                    }
+                    if (e === "bc") {
+                        const t = (L - zb) / (zc - zb);
+                        return [x1, y0 + t * (y1 - y0)];
+                    }
+                    if (e === "cd") {
+                        const t = (L - zd) / (zc - zd);
+                        return [x0 + t * (x1 - x0), y1];
+                    }
+                    const t = (L - za) / (zd - za);
+                    return [x0, y0 + t * (y1 - y0)];
+                };
+                // Push the region hue a little harder than the default fit so the
+                // amber / blue / lilac reads on the peaks, not just a gray ridge.
+                const c = colorAt(
+                    surface,
+                    (x0 + x1) / 2,
+                    (y0 + y1) / 2,
+                    theme,
+                    2.1,
+                    theme === "light" ? 1.1 : 1,
+                );
+                const isIdx = idxEvery > 0 && (li + 1) % idxEvery === 0;
+                ctx.lineWidth = isIdx ? 1.6 : 1;
+                // Ramp opacity by the level's height fraction so the foot rings stay
+                // quiet and the summit rings read strong, at any level count.
+                const frac = levels.length > 1 ? li / (levels.length - 1) : 1;
+                const alpha = Math.min(
+                    0.95,
+                    glow * (0.42 + 0.46 * frac) * (isIdx ? 1.15 : 1),
+                );
+                ctx.strokeStyle =
+                    "rgba(" +
+                    c[0] +
+                    "," +
+                    c[1] +
+                    "," +
+                    c[2] +
+                    "," +
+                    alpha.toFixed(3) +
+                    ")";
+                for (const [e1, e2] of segs) {
+                    const p1 = ept(e1);
+                    const p2 = ept(e2);
+                    ctx.beginPath();
+                    ctx.moveTo(px(p1[0]), py(p1[1]));
+                    ctx.lineTo(px(p2[0]), py(p2[1]));
+                    ctx.stroke();
+                }
+            }
+        }
+    }
+
+    return {
+        peaks: surface.bumps.map((b) => ({ x: px(b.x), y: py(b.y), h: b.h })),
+        gaps: surface.holes.map((h) => ({
+            x: px(h.x),
+            y: py(h.y),
+            rx: h.rx * S,
+            ry: h.ry * S,
+            rot: h.rot || 0,
+        })),
+        W,
+        H,
+        S,
+    };
 }

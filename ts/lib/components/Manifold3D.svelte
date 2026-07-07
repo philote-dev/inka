@@ -32,9 +32,32 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     export let grid = 64;
     export let heightScale = 1.15;
     export let glow = 0.7;
+    export let vibrance = 0;
     export let autoRotate = false;
     export let interactive = true;
     export let showLabels = true;
+    // Force a theme instead of following the document's night-mode class. Used by
+    // the lab to preview light and dark side by side; undefined = follow the app.
+    export let theme: "light" | "dark" | undefined = undefined;
+    // Topic-label placement. "radial" pushes labels into the gutters outside the
+    // silhouette, stacked so they never overlap; "offset" is the original.
+    export let labelLayout: "offset" | "radial" = "offset";
+    // 0..1 strength of the subtle backing pill that fades in behind a label when
+    // it sits over the mesh/lines (gives the wrap leniency). 0 = no pill.
+    export let chipStrength = 0;
+
+    // Pill backing tint follows the theme so it reads on the surface behind it.
+    $: pillRGB = theme === "light" ? "247, 246, 242" : "18, 20, 24";
+    function pill(chip: number | undefined): string {
+        const a = (chip ?? 0) * chipStrength;
+        return a > 0.001 ? `rgba(${pillRGB}, ${a.toFixed(3)})` : "transparent";
+    }
+    // Target opacity for a label and its leader. Folds the backface flag and the
+    // renderer's fade signal together; the CSS transition eases toward it so labels
+    // dissolve in and out instead of popping.
+    function op(l: ProjectedLabel3D): number {
+        return (l.visible ? 1 : 0) * (l.opacity ?? 1);
+    }
     // When set, topic labels and surface taps launch a focus drill scoped to the
     // topic (ux-foundation 5). Threaded to the renderer for raycast taps and to
     // the 2D fallback so both paths reach the same drill.
@@ -59,6 +82,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     $: scale2d = fallbackScale ?? Math.round(width * 0.216);
 
     function currentTheme(): "light" | "dark" {
+        if (theme) {
+            return theme;
+        }
         const dark =
             document.documentElement.classList.contains("night-mode") ||
             document.body.classList.contains("night-mode");
@@ -77,6 +103,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 grid,
                 heightScale,
                 glow,
+                vibrance,
+                labelLayout,
                 autoRotate,
                 interactive,
                 width,
@@ -107,11 +135,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         handle?.resetView();
     }
 
-    // React to prop changes after mount.
+    export function orbitTo(azimuth: number, polar?: number): void {
+        handle?.orbitTo(azimuth, polar);
+    }
+
+    export function setDistance(distance: number): void {
+        handle?.setDistance(distance);
+    }
+
+    // React to prop changes after mount (theme referenced so an override re-renders).
     $: if (handle) {
+        void theme;
         handle.update(surface, currentTheme());
     }
-    $: handle?.setShape({ grid, heightScale, glow });
+    $: handle?.setShape({ grid, heightScale, glow, vibrance });
+    $: handle?.setLabelLayout(labelLayout);
     $: handle?.setAutoRotate(autoRotate);
     $: handle?.resize(width, height);
 </script>
@@ -133,41 +171,53 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         {#if showLabels}
             <svg {width} {height} class="leaders">
                 {#each labels as l (l.name)}
-                    {#if l.visible}
-                        <g>
-                            <circle cx={l.ax} cy={l.ay} r="2.5" fill="var(--muted)" />
+                    <g style="opacity: {op(l)}">
+                        <circle cx={l.ax} cy={l.ay} r="3" fill={l.c} />
+                        {#if l.lead}
+                            <polyline
+                                points={l.lead.map((p) => `${p.x},${p.y}`).join(" ")}
+                                fill="none"
+                                stroke={l.c}
+                                stroke-width="1.5"
+                                stroke-linejoin="round"
+                                stroke-linecap="round"
+                                opacity="0.9"
+                            />
+                        {:else}
                             <line
                                 x1={l.ax}
                                 y1={l.ay}
                                 x2={l.lx}
                                 y2={l.ly}
-                                stroke="var(--muted)"
-                                stroke-width="1"
-                                opacity="0.7"
+                                stroke={l.c}
+                                stroke-width="1.5"
+                                opacity="0.85"
                             />
-                        </g>
-                    {/if}
+                        {/if}
+                    </g>
                 {/each}
             </svg>
             {#each labels as l (l.name)}
-                {#if l.visible}
-                    {#if onTopic && l.topic}
-                        <button
-                            type="button"
-                            class="label label-btn"
-                            style="left: {l.lx}px; top: {l.ly}px; transform: {l.tf}; color: {l.c};"
-                            on:click={() => launch(l.topic)}
-                        >
-                            {l.name}
-                        </button>
-                    {:else}
-                        <div
-                            class="label"
-                            style="left: {l.lx}px; top: {l.ly}px; transform: {l.tf}; color: {l.c};"
-                        >
-                            {l.name}
-                        </div>
-                    {/if}
+                {#if onTopic && l.topic}
+                    <button
+                        type="button"
+                        class="label label-btn"
+                        style="left: {l.lx}px; top: {l.ly}px; transform: {l.tf}; color: {l.c}; opacity: {op(
+                            l,
+                        )}; pointer-events: {op(l) > 0.5 ? 'auto' : 'none'}; background: {pill(l.chip)};"
+                        on:click={() => launch(l.topic)}
+                    >
+                        {l.name}
+                    </button>
+                {:else}
+                    <div
+                        class="label"
+                        style="left: {l.lx}px; top: {l.ly}px; transform: {l.tf}; color: {l.c}; opacity: {op(
+                            l,
+                        )}; background: {pill(l.chip)};"
+                    >
+                        {l.name}
+                    </div>
                 {/if}
             {/each}
         {/if}
@@ -196,6 +246,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         position: absolute;
         inset: 0;
         pointer-events: none;
+
+        /* Fade a leader with its label instead of popping. Only opacity animates,
+           so the per-frame seat tracking stays crisp. */
+        g {
+            transition: opacity 220ms ease;
+        }
     }
 
     .label {
@@ -203,7 +259,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         font-size: 12px;
         white-space: nowrap;
         padding: 2px 6px;
+        border-radius: 7px;
         pointer-events: none;
+        /* Only opacity transitions; left/top/transform update live each frame. */
+        transition: opacity 220ms ease;
     }
 
     /* Topic labels wired to a focus drill become quiet buttons: same look as a
@@ -215,7 +274,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         font-family: var(--font-ui);
         cursor: pointer;
         border-radius: var(--radius-control, 8px);
-        transition: var(--transition-calm);
+        transition: var(--transition-calm), opacity 220ms ease;
 
         &:hover {
             text-decoration: underline;

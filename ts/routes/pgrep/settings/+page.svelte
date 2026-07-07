@@ -12,9 +12,18 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <script lang="ts">
     import { goto } from "$app/navigation";
     import { onDestroy, onMount } from "svelte";
+    import { manifoldView, type ManifoldView } from "$lib/pgrep/prefs";
     import { pgrepCall } from "../lib/bridge";
 
     type Theme = "Light" | "Dark" | "System";
+
+    // The knowledge-map projection. A per-device presentation choice, so it lives
+    // in localStorage (via the store) rather than the synced collection.
+    const MANIFOLD_VIEWS: { value: ManifoldView; label: string }[] = [
+        { value: "auto", label: "Auto" },
+        { value: "wire", label: "3D" },
+        { value: "map", label: "Map" },
+    ];
 
     interface AiStatus {
         enabled: boolean;
@@ -413,6 +422,26 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                 on:click={() => chooseTheme(opt)}
                             >
                                 {opt}
+                            </button>
+                        {/each}
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="row-text">
+                        <div class="row-title">Manifold</div>
+                        <div class="row-sub">
+                            How your knowledge map is drawn. Auto uses the 3D surface
+                            where it can, the flat map elsewhere.
+                        </div>
+                    </div>
+                    <div class="segmented" role="group" aria-label="Manifold view">
+                        {#each MANIFOLD_VIEWS as opt (opt.value)}
+                            <button
+                                class="seg"
+                                class:on={$manifoldView === opt.value}
+                                on:click={() => manifoldView.set(opt.value)}
+                            >
+                                {opt.label}
                             </button>
                         {/each}
                     </div>
