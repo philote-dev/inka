@@ -87,6 +87,10 @@ final class StudySessionModel: ObservableObject {
     private var sessionId = UUID().uuidString
     // When the current problem was shown, for the response-time signal (M5).
     private var problemShownAt = Date()
+    // Every clean, first-try commit this session, the input to the end-of-session
+    // synthesis. One per commit, exactly the ladder_depth 0 attempts the desktop
+    // synthesis counts (a tutor retry never appends one).
+    private var sessionOutcomes: [SessionOutcome] = []
 
     var problemsTotal: Int { problems.count }
     /// Problems still queued behind the current one (the shown item has already
@@ -94,6 +98,9 @@ final class StudySessionModel: ObservableObject {
     var problemsRemaining: Int { max(0, problems.count - problemIndex) }
     /// The 1-based number of the problem on screen (0 when none is showing).
     var currentProblemNumber: Int { problemIndex }
+    /// The end-of-session consolidation for the finished sitting, derived from
+    /// this session's clean commits. Read by the .done recap.
+    var synthesis: SessionSynthesis { SessionSynthesizer.synthesize(outcomes: sessionOutcomes) }
 
     /// Start the sitting once. Idempotent across tab reappearance, so switching
     /// away and back never discards a session in progress. Use `restart` for a
@@ -120,6 +127,7 @@ final class StudySessionModel: ObservableObject {
         problemsCommitted = 0
         problemsCorrect = 0
         startedEmpty = false
+        sessionOutcomes = []
         sessionId = UUID().uuidString
         do {
             // The seeded problem bank in study.py rotation order, capped to a
@@ -208,6 +216,11 @@ final class StudySessionModel: ObservableObject {
         )
         problemsCommitted += 1
         if correct { problemsCorrect += 1 }
+        sessionOutcomes.append(SessionOutcome(
+            category: problem.category,
+            correct: correct,
+            answeredAt: Int(Date().timeIntervalSince1970)
+        ))
         persistAttempt(problem: problem, correct: correct)
         // Only the clean first-try commit above is logged. Tutor retries never
         // write an attempt (scoring counts only ladder_depth 0), so the gated
@@ -604,56 +617,76 @@ struct StudySessionView: View {
 
     // MARK: Recap
 
+    /// The session end. An empty sitting (nothing was due) keeps the calm "All
+    /// caught up" state; a sitting with committed problems shows the synthesis
+    /// consolidation; a cards-only sitting (no problems committed) shows a brief
+    /// honest recap, since there is no problem synthesis to draw.
+    @ViewBuilder
     private var doneView: some View {
+        if model.startedEmpty {
+            caughtUpRecap
+        } else if model.problemsCommitted > 0 {
+            SessionSynthesisView(
+                synthesis: model.synthesis,
+                cardsReviewed: model.cardsReviewed,
+                onDone: { Task { await model.restart() } }
+            )
+        } else {
+            cardsOnlyRecap
+        }
+    }
+
+    private var caughtUpRecap: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.l) {
-                if model.startedEmpty {
-                    statusCard(
-                        title: "All caught up",
-                        message: "No cards are due and there is nothing to practice right now.",
-                        tint: Theme.success
-                    )
-                } else {
-                    Text("Session complete")
-                        .font(Theme.Typography.title)
-                        .foregroundStyle(Theme.text)
-                    VStack(alignment: .leading, spacing: Theme.Space.s) {
-                        summaryRow("Cards reviewed", "\(model.cardsReviewed)")
-                        summaryRow("Problems committed", "\(model.problemsCommitted)")
-                        summaryRow("First-try correct", "\(model.problemsCorrect)")
-                        if model.problemsCommitted > 0 {
-                            summaryRow(
-                                "Accuracy",
-                                "\(Int((Double(model.problemsCorrect) / Double(model.problemsCommitted) * 100).rounded()))%"
-                            )
-                        }
-                    }
-                    .padding(Theme.Space.l)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                            .stroke(Theme.border, lineWidth: 1)
-                    )
-                    Text("Your committed answers feed Performance and Readiness, once a topic has enough attempts.")
-                        .font(Theme.Typography.caption)
-                        .foregroundStyle(Theme.muted)
-                }
-
-                Button {
-                    Task { await model.restart() }
-                } label: {
-                    Text(model.startedEmpty ? "Check again" : "Start again")
-                        .font(Theme.Typography.emphasis)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, Theme.Space.m)
-                        .background(Theme.actionBg)
-                        .foregroundStyle(Theme.actionFg)
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
-                }
+                statusCard(
+                    title: "All caught up",
+                    message: "No cards are due and there is nothing to practice right now.",
+                    tint: Theme.success
+                )
+                restartButton(title: "Check again")
             }
             .padding(.bottom, Theme.Space.l)
+        }
+    }
+
+    private var cardsOnlyRecap: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Space.l) {
+                Text("Session complete")
+                    .font(Theme.Typography.title)
+                    .foregroundStyle(Theme.text)
+                VStack(alignment: .leading, spacing: Theme.Space.s) {
+                    summaryRow("Cards reviewed", "\(model.cardsReviewed)")
+                }
+                .padding(Theme.Space.l)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                        .stroke(Theme.border, lineWidth: 1)
+                )
+                Text("No problems came up this session, so there is no synthesis to show.")
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.muted)
+                restartButton(title: "Start again")
+            }
+            .padding(.bottom, Theme.Space.l)
+        }
+    }
+
+    private func restartButton(title: String) -> some View {
+        Button {
+            Task { await model.restart() }
+        } label: {
+            Text(title)
+                .font(Theme.Typography.emphasis)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Theme.Space.m)
+                .background(Theme.actionBg)
+                .foregroundStyle(Theme.actionFg)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
         }
     }
 

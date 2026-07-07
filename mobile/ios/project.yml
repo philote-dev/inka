@@ -95,6 +95,10 @@ targets:
       # exercised by StudySessionTests. The model/view (StudySessionView) that
       # drives it against the Engine stays in the app target only.
       - path: PgrepStudy/StudySession.swift
+      # Pure end-of-session synthesis derivation (score, topic bars, patterns),
+      # exercised by SessionSynthesisTests. The SwiftUI screen that renders it
+      # (SessionSynthesisView) stays in the app target only.
+      - path: PgrepStudy/SessionSynthesis.swift
       # Pure parse + variant selection + MCQ grading for the gated decomposition
       # tutor, exercised by DecompositionTutorTests. Engine.loadTutor (reads the
       # note) and SubproblemCardView (draws a step) stay in the app target only.
