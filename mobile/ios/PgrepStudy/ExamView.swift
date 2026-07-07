@@ -317,34 +317,18 @@ struct ExamView: View {
         }
     }
 
+    // The shared MCQ list, drawn blind. The exam never reveals the correct answer
+    // during the run, so the group stays pre-commit (committed false, no
+    // correctKey) and only its selection affordance is used. Selection lives in
+    // the model, keyed by note; `problem` is always `model.current` here.
     private func choiceList(_ problem: ExamProblem) -> some View {
-        VStack(spacing: Theme.Space.s) {
-            ForEach(Array(problem.choices.enumerated()), id: \.offset) { pair in
-                let letter = pair.offset < examChoiceLetters.count ? examChoiceLetters[pair.offset] : "?"
-                let selected = model.selection(for: problem) == letter
-                Button {
-                    model.select(letter)
-                } label: {
-                    HStack(alignment: .top, spacing: Theme.Space.m) {
-                        Text(letter)
-                            .font(Theme.Typography.mono(14, weight: .semibold))
-                            .foregroundStyle(selected ? Theme.actionFg : Theme.text)
-                            .frame(width: 26, height: 26)
-                            .background(selected ? Theme.actionBg : Color.clear)
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(Theme.border, lineWidth: selected ? 0 : 1))
-                        MathText(html: pair.element, fontSize: 14)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .padding(Theme.Space.m)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radius.row, style: .continuous)
-                            .stroke(selected ? Theme.text : Theme.border, lineWidth: selected ? 2 : 1)
-                    )
-                }
-            }
-        }
+        ChoiceListView(
+            choices: ChoiceList.lettered(problem.choices),
+            selected: Binding(
+                get: { model.selection(for: problem) },
+                set: { picked in if let picked { model.select(picked) } }
+            )
+        )
     }
 
     private var navigationBar: some View {

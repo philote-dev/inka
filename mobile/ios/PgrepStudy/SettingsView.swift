@@ -4,20 +4,22 @@
 // Settings, matching the desktop surface where it makes sense on a phone
 // (ts/routes/pgrep/settings/+page.svelte, pylib/anki/pgrep/settings.py):
 //
-// - Study: target retention (read-only here, adjust on desktop where it syncs
-//   from), a test date (persisted in the synced "pgrepSettings" collection blob,
-//   exactly like desktop), and the diagnostic re-run (a desktop-first flow).
+// - Study: target retention (an editable slider clamped to the supported range,
+//   written onto the sample deck's FSRS config exactly like desktop), a test
+//   date (persisted in the synced "pgrepSettings" collection blob, exactly like
+//   desktop), and the diagnostic re-run (an on-device flow that reopens
+//   DiagnosticView).
 // - Assistant: AI is off; the app scores and studies fully without it.
 // - Sync: the self-hosted server + two-way sync (login, sync, sign out).
 // - Appearance: a Light/Dark/System theme, applied app-wide.
-// - Data: Export (a .colpkg export runs on desktop; on iPhone, Sync is the
-//   backup path) and a scoped, two-step Reset wired through the shared engine.
+// - Data: Export (a .colpkg written to a temp file, then handed to the iOS share
+//   sheet to save or send) and a scoped, two-step Reset, both wired through the
+//   shared engine.
 //
-// Controls that cannot be wired safely on iOS in scope (retention writes, the
-// diagnostic quiz, colpkg export) are shown honestly as read-only or desktop-only
-// rather than faked. Everything works with AI off.
+// Everything works with AI off.
 
 import SwiftUI
+import UIKit
 
 @MainActor
 final class SettingsModel: ObservableObject {
@@ -33,10 +35,15 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var status: Status = .idle
 
     // Study settings.
-    @Published private(set) var targetRetention: Double?
+    @Published var targetRetention: Double = Retention.default
     @Published var testDateEnabled = false
     @Published var testDate = Date()
     @Published private(set) var loaded = false
+
+    // Export (.colpkg via the iOS share sheet).
+    @Published var exportFile: ExportFile?
+    @Published private(set) var exporting = false
+    @Published private(set) var exportMessage: String?
 
     // Reset (two-step, destructive).
     @Published var resetArmed = false
@@ -50,7 +57,7 @@ final class SettingsModel: ObservableObject {
 
     func load(app: AppModel) async {
         if let retention = try? await app.engine.targetRetention() {
-            targetRetention = retention
+            targetRetention = Retention.clamp(retention)
         }
         if let blob = try? await loadBlob(app: app),
            let stored = blob["test_date"] as? String,
@@ -59,6 +66,18 @@ final class SettingsModel: ObservableObject {
             testDateEnabled = true
         }
         loaded = true
+    }
+
+    // MARK: Target retention (the sample deck's FSRS config)
+
+    /// Persist the slider's value onto the sample deck's config and reconcile the
+    /// shown value with the stored truth. A no-op until the initial load has run,
+    /// so setting the control from the loaded value never writes back over it.
+    func saveRetention(app: AppModel) async {
+        guard loaded else { return }
+        if let stored = try? await app.engine.setTargetRetention(targetRetention) {
+            targetRetention = stored
+        }
     }
 
     // MARK: Test date (synced pgrepSettings blob)
@@ -133,8 +152,35 @@ final class SettingsModel: ObservableObject {
     }
 
     var retentionText: String {
-        guard let targetRetention else { return "\u{2014}" }
-        return String(format: "%.2f", targetRetention)
+        String(format: "%.2f", targetRetention)
+    }
+
+    // MARK: Export (.colpkg via the share sheet)
+
+    /// Write a `.colpkg` to a temp file through the engine, then surface it to the
+    /// iOS share sheet so the learner can save it to Files or send it on. Mirrors
+    /// desktop's Export, adapted to the phone (there is no fixed Downloads folder,
+    /// so the share sheet is the save path).
+    func exportData(app: AppModel) {
+        guard !exporting else { return }
+        exporting = true
+        exportMessage = "Exporting\u{2026}"
+        Task {
+            do {
+                let path = try await app.engine.exportCollectionPackage()
+                exportMessage = nil
+                exportFile = ExportFile(url: URL(fileURLWithPath: path))
+            } catch {
+                exportMessage = "Export failed. \(Self.describe(error))"
+            }
+            exporting = false
+        }
+    }
+
+    var exportLabel: String { exporting ? "Exporting\u{2026}" : "Export" }
+
+    var exportHint: String {
+        exportMessage ?? "Your cards, attempts, and history as a .colpkg file."
     }
 
     // MARK: Sync
@@ -168,6 +214,8 @@ final class SettingsModel: ObservableObject {
             switch try await app.engine.sync(hkey: hkey, endpoint: app.normalizedEndpoint) {
             case let .completed(message):
                 app.markSynced()
+                // A completion may have synced down from desktop; refresh the gate.
+                await app.reloadDiagnosticStatus()
                 status = .ok(message ?? "Sync complete.")
             case .conflictNeedsChoice:
                 status = .needsChoice
@@ -183,6 +231,7 @@ final class SettingsModel: ObservableObject {
         do {
             try await app.engine.resolveConflict(hkey: hkey, endpoint: app.normalizedEndpoint, upload: upload)
             app.markSynced()
+            await app.reloadDiagnosticStatus()
             status = .ok(upload ? "Uploaded to the server." : "Downloaded from the server.")
         } catch {
             handle(error: error, app: app)
@@ -247,14 +296,28 @@ struct SettingsView: View {
 
     private var studySection: some View {
         Section("Study") {
-            LabeledContent("Target retention") {
-                Text(model.retentionText)
-                    .font(Theme.Typography.mono(15))
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                HStack {
+                    Text("Target retention")
+                    Spacer()
+                    Text(model.retentionText)
+                        .font(Theme.Typography.mono(15))
+                        .foregroundStyle(Theme.muted)
+                }
+                Slider(
+                    value: $model.targetRetention,
+                    in: Retention.min...Retention.max,
+                    step: 0.01,
+                    onEditingChanged: { editing in
+                        if !editing { Task { await model.saveRetention(app: app) } }
+                    }
+                )
+                .tint(Theme.text)
+                .disabled(!model.loaded)
+                Text("How much you keep before a card comes back.")
+                    .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.muted)
             }
-            Text("How much you keep before a card comes back. Adjust it on desktop; it syncs here.")
-                .font(Theme.Typography.caption)
-                .foregroundStyle(Theme.muted)
 
             Toggle("Set a test date", isOn: $model.testDateEnabled)
             if model.testDateEnabled {
@@ -264,11 +327,18 @@ struct SettingsView: View {
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.muted)
 
-            comingSoonRow(
-                title: "Diagnostic",
-                detail: "Re-run the placement check on desktop; the result syncs here.",
-                actionTitle: "Re-run"
-            )
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                HStack {
+                    Text("Diagnostic")
+                    Spacer()
+                    Button("Re-run") { app.isPresentingDiagnostic = true }
+                        .buttonStyle(.bordered)
+                        .tint(Theme.text)
+                }
+                Text("Place each topic strong or rusty. Combines a quick check with what your reviews already show.")
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.muted)
+            }
         }
         .onChange(of: model.testDateEnabled) { _ in Task { await model.saveTestDate(app: app) } }
         .onChange(of: model.testDate) { _ in Task { await model.saveTestDate(app: app) } }
@@ -331,11 +401,19 @@ struct SettingsView: View {
 
     private var dataSection: some View {
         Section("Data") {
-            comingSoonRow(
-                title: "Export",
-                detail: "A .colpkg export runs on desktop. On iPhone, Sync backs up your cards, attempts, and history to your server.",
-                actionTitle: "Export"
-            )
+            Button {
+                model.exportData(app: app)
+            } label: {
+                HStack {
+                    Text(model.exportLabel)
+                    Spacer()
+                    if model.exporting { ProgressView() }
+                }
+            }
+            .disabled(model.exporting)
+            Text(model.exportHint)
+                .font(Theme.Typography.caption)
+                .foregroundStyle(Theme.muted)
 
             Button(role: .destructive) {
                 model.onResetTapped(app: app)
@@ -350,6 +428,9 @@ struct SettingsView: View {
             Text(model.resetHint)
                 .font(Theme.Typography.caption)
                 .foregroundStyle(model.resetArmed ? Theme.error : Theme.muted)
+        }
+        .sheet(item: $model.exportFile) { file in
+            ShareSheet(items: [file.url])
         }
     }
 
@@ -388,22 +469,6 @@ struct SettingsView: View {
         }
     }
 
-    /// A control desktop offers but iOS does not wire in scope: shown honestly as
-    /// a disabled action with a note, never a faked result.
-    private func comingSoonRow(title: String, detail: String, actionTitle: String) -> some View {
-        VStack(alignment: .leading, spacing: Theme.Space.xs) {
-            HStack {
-                Text(title)
-                Spacer()
-                Button(actionTitle) {}
-                    .buttonStyle(.bordered)
-                    .disabled(true)
-            }
-            Text(detail)
-                .font(Theme.Typography.caption)
-                .foregroundStyle(Theme.muted)
-        }
-    }
 }
 
 extension SettingsModel {
@@ -411,4 +476,23 @@ extension SettingsModel {
         if case .working = status { return true }
         return false
     }
+}
+
+/// A file to hand the iOS share sheet, made Identifiable so `.sheet(item:)` can
+/// present it once the export has written the package.
+struct ExportFile: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+/// Bridges `UIActivityViewController` into SwiftUI so an exported `.colpkg` can
+/// be saved to Files or sent onward. UIKit is available inside the SwiftUI app.
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

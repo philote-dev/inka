@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from anki.collection import Collection
-from anki.pgrep import seed
+from anki.pgrep import problem, seed
 
 # Path is relative to the repo root so the default works from any CWD.
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -54,7 +54,13 @@ def generate(output_path: Path) -> dict[str, Any]:
     col = Collection(str(output_path))
     try:
         summary = seed.seed_sample_content(col)
+        # Also seed the bundled Problems (with their stored, AI-off decomposition
+        # tutor data), mirroring the desktop pgrep_seed handler, so the phone's
+        # Study Problems door, decomposition tutor, and Exam mode have content
+        # offline without a first sync.
+        summary["problems_created"] = problem.seed_sample_problems(col)
         summary["card_count"] = col.card_count()
+        summary["note_count"] = col.note_count()
     finally:
         col.close()
     return summary
@@ -68,6 +74,11 @@ def main() -> None:
         f"Seeded {summary['card_count']} cards into deck {seed.DECK_NAME!r} "
         f"across {len(summary['categories'])} categories "
         f"(topic-tagged, points-at-stake review order)."
+    )
+    print(
+        f"Seeded {summary.get('problems_created', 0)} problems "
+        f"(with stored decomposition-tutor data) for the Problems door, "
+        f"decomposition tutor, and Exam mode."
     )
 
 

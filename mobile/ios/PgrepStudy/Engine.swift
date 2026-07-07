@@ -39,6 +39,10 @@ struct Scoreboard: Sendable, Equatable {
     var performance: PerformanceResult
     var readiness: ReadinessResult
     var coverage: CoverageResult
+    /// The stored diagnostic placement (strong/rusty per category), so the Home
+    /// manifold can fold it into the terrain exactly like desktop. Empty when the
+    /// Diagnostic has never run, so the map degrades to the Memory terrain.
+    var placement: [String: DiagnosticPlacement]
 }
 
 /// The outcome of a sync attempt.
@@ -74,6 +78,9 @@ final class Engine: @unchecked Sendable {
     // The card currently shown for review, kept here so proto types stay on the
     // engine's serial context and never cross an actor/task boundary.
     private var current: Anki_Scheduler_QueuedCards.QueuedCard?
+    // The paths the collection was opened from, kept so export (which takes the
+    // collection out of the backend) can reopen it afterwards.
+    private var openPaths: (collection: String, media: String)?
 
     /// Open the backend and collection, and select the study deck. Must be
     /// called once before any other method.
@@ -85,6 +92,7 @@ final class Engine: @unchecked Sendable {
                     try b.openCollection(path: collectionPath, mediaFolder: mediaFolder)
                     try b.selectDeck(named: StudySandbox.studyDeckName)
                     self.backend = b
+                    self.openPaths = (collectionPath, mediaFolder)
                     cont.resume(returning: ())
                 } catch {
                     cont.resume(throwing: error)
@@ -170,11 +178,13 @@ final class Engine: @unchecked Sendable {
             )
             let readiness = ReadinessScore.compute(performance: performance)
             let coverage = CoverageScore.compute(memory: memory)
+            let placement = try Engine.diagnosticPlacement(backend)
             return Scoreboard(
                 memory: memory,
                 performance: performance,
                 readiness: readiness,
-                coverage: coverage
+                coverage: coverage,
+                placement: placement
             )
         }
     }
@@ -221,6 +231,79 @@ final class Engine: @unchecked Sendable {
         }
         events.sort { $0.answeredAt < $1.answeredAt }
         return events
+    }
+
+    // MARK: Diagnostic (topic placement)
+
+    /// Load the topics to place: every blueprint category in blueprint order,
+    /// with its stored placement, reviewed-card count (from Memory), and
+    /// objective quick check. Mirrors the desktop pgrep_diagnostic_topics handler
+    /// (anki.pgrep.diagnostic.topics): one Memory pass gives the counts, and the
+    /// quick-check content is the ported Diagnostic.quickChecks constant (desktop
+    /// keeps it as a backend constant, not as cards / notes / tags, so there is no
+    /// engine-readable source to read it from).
+    func diagnosticTopics() async throws -> [DiagnosticTopic] {
+        try await perform { backend in
+            let memory = try Engine.memoryResult(backend)
+            var nCards: [String: Int] = [:]
+            for topic in memory.byTopic { nCards[topic.category] = topic.nCards }
+            return Diagnostic.topics(
+                stored: try Engine.diagnosticSnapshot(backend),
+                nCards: nCards
+            )
+        }
+    }
+
+    /// Whether the Diagnostic has been completed at least once: a non-empty
+    /// stored placement snapshot. Mirrors the desktop pgrep_diagnostic_status
+    /// handler exactly (a completed run persists a non-empty dict; a never-run
+    /// collection has none), so Home / Progress gate identically and a completion
+    /// synced down from desktop is honoured here.
+    func diagnosticCompleted() async throws -> Bool {
+        try await perform { backend in
+            !(try Engine.diagnosticSnapshot(backend)).isEmpty
+        }
+    }
+
+    /// Record a placement pass and persist it: grade each category's quick-check
+    /// answer against its key, combine it with the Memory prior, place every
+    /// blueprint category, and write the rolled-up snapshot to the collection
+    /// config under the SAME key and shape the desktop uses (so it syncs and
+    /// pgrep_diagnostic_status matches). Returns the placed topics for the results
+    /// screen. A faithful port of anki.pgrep.diagnostic.place.
+    @discardableResult
+    func placeDiagnostic(answers: [String: Int]) async throws -> [PlacedTopic] {
+        try await perform { backend in
+            let memory = try Engine.memoryResult(backend)
+            let placed = Diagnostic.place(answers: answers, memoryPoints: memory.masteryByCategory)
+            let data = try JSONSerialization.data(withJSONObject: Diagnostic.snapshot(from: placed))
+            try backend.setConfigJson(key: Diagnostic.configKey, valueJson: data)
+            return placed
+        }
+    }
+
+    /// The stored diagnostic placement snapshot ({category: placement}), or an
+    /// empty map when never run or malformed. Mirrors diagnostic._stored_snapshot;
+    /// shared by diagnosticTopics and diagnosticCompleted so the read is one seam.
+    private static func diagnosticSnapshot(_ backend: AnkiBackend) throws -> [String: String] {
+        guard let data = try backend.getConfigJson(key: Diagnostic.configKey), !data.isEmpty,
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
+        else { return [:] }
+        return object
+    }
+
+    /// The stored diagnostic placement as typed buckets for the manifold fold,
+    /// dropping any unrecognized value (mirrors manifold.py's `_diagnostic_placement`
+    /// combined with the desktop `_PLACEMENTS` guard). Empty when the Diagnostic
+    /// has never run, so the Home manifold degrades to the Memory-only terrain.
+    private static func diagnosticPlacement(_ backend: AnkiBackend) throws -> [String: DiagnosticPlacement] {
+        var out: [String: DiagnosticPlacement] = [:]
+        for (category, raw) in try diagnosticSnapshot(backend) {
+            if let placement = DiagnosticPlacement(rawValue: raw) {
+                out[category] = placement
+            }
+        }
+        return out
     }
 
     // MARK: Exam (Problems, read-only)
@@ -320,6 +403,69 @@ final class Engine: @unchecked Sendable {
         }
     }
 
+    // MARK: Decomposition tutor (Problems miss, AI off)
+
+    /// Load a Problem note's stored decomposition tutor (its pre-generated
+    /// subproblems + numeric variants), a port of the read in
+    /// decomposition._load_tutor_data via the note-reading RPC. Reads only. A note
+    /// that predates the `decomposition_tutor` field, or whose blob is empty or
+    /// malformed, reads as an empty tutor (`hasTutor == false`), so a miss on such
+    /// a problem falls back to the honest worked-solution reveal instead of a
+    /// gated tutor. Grading and variant selection are pure (DecompositionTutor).
+    func loadTutor(noteId: Int64) async throws -> DecompositionTutor {
+        try await perform { backend in
+            let note = try backend.getNote(noteId: noteId)
+            guard note.fields.count > ProblemNote.decompositionTutorIndex else {
+                return DecompositionTutor.empty
+            }
+            return DecompositionTutor.parse(json: note.fields[ProblemNote.decompositionTutorIndex])
+        }
+    }
+
+    // MARK: Library (Card Sets)
+
+    /// Load the learner's card sets for the Library browser: the Basic
+    /// topic-tagged cards in the seeded and authored decks, grouped into one set
+    /// per blueprint category (blueprint order, empty categories omitted). A read
+    /// of the same notes desktop's pgrep_card_sets reads, through the identical
+    /// grouping (CardSets.group), so the two surfaces show the same sets.
+    func loadCardSets() async throws -> [CardSet] {
+        try await perform { backend in try backend.loadCardSets() }
+    }
+
+    /// Author one card into a category's set, as-is (no AI), mirroring
+    /// card_sets.add_card -> generation.author_seed. Returns the new note id. The
+    /// card is a real Basic note in PGRE::Generated tagged for the category, so it
+    /// lands in the right set and (once studied) feeds Memory / Coverage, exactly
+    /// like a desktop-authored one, and syncs as the same kind of note.
+    @discardableResult
+    func addCard(category: String, front: String, back: String) async throws -> Int64 {
+        try await perform { backend in
+            try backend.addCard(category: category, front: front, back: back)
+        }
+    }
+
+    // MARK: Calibration (Progress evidence + Library walkthrough)
+
+    /// The embedded model-calibration evidence (Memory + Performance reliability
+    /// points + Brier), a port of anki.pgrep.calibration_evidence. These are
+    /// embedded constants, not a collection read (the desktop pgrep_calibration
+    /// handler takes no col), so this is synchronous and always available
+    /// offline. Progress' Calibration tab renders it through ReliabilityDiagramView.
+    func calibrationEvidence() -> CalibrationEvidence {
+        CalibrationEvidence.embedded
+    }
+
+    /// Read the calibration gate status ({calibrated, authored, required}), a port
+    /// of anki.pgrep.calibration.calibration_status. AI is off on the phone, so
+    /// this never gates Study; the Library uses it to drive the voluntary "Teach
+    /// pgrep your style" walkthrough (progress and honest completion) and to hide
+    /// its entry once every blueprint category has a learner-authored card. Sets
+    /// the sticky flag on completion, so calibration is durable and syncs.
+    func calibrationStatus() async throws -> CalibrationStatus {
+        try await perform { backend in try backend.calibrationStatus() }
+    }
+
     // MARK: Sync
 
     /// Log in to a self-hosted sync server and return the hkey to persist.
@@ -379,10 +525,10 @@ final class Engine: @unchecked Sendable {
         try await perform { backend in try backend.setConfigJson(key: key, valueJson: valueJson) }
     }
 
-    /// The sample deck's target retention (FSRS desiredRetention), best-effort.
-    /// Read-only on iOS (adjust on desktop, where it syncs from); falls back to
-    /// the default when the deck or value is unavailable. Mirrors the deck the
-    /// desktop settings module reads (the seeded "PGRE::Sample" group).
+    /// The sample deck's target retention (FSRS desiredRetention), best-effort;
+    /// falls back to the default when the deck or value is unavailable. Mirrors
+    /// the deck the desktop settings module reads (the seeded "PGRE::Sample"
+    /// group), the same config `setTargetRetention` writes onto.
     func targetRetention() async throws -> Double {
         try await perform { backend in
             for name in ["PGRE::Sample", StudySandbox.studyDeckName] {
@@ -396,9 +542,74 @@ final class Engine: @unchecked Sendable {
                 let fallback = Double(update.defaults.config.desiredRetention)
                 if fallback > 0 { return fallback }
             }
-            return 0.9
+            return Retention.default
         }
     }
+
+    /// Set the sample deck's target retention (FSRS desiredRetention), clamped to
+    /// the supported range, and return the persisted value. Mirrors desktop's
+    /// settings.set_target_retention: the value is written onto the sample deck's
+    /// own dedicated config group (the seeded "PGRE::Sample" group, so the user's
+    /// default config is never touched) via the lightweight legacy config write,
+    /// so no card is rescheduled and no FSRS card state is rewritten. Reads the
+    /// stored value back so the caller shows the persisted truth. On the serial
+    /// engine queue.
+    @discardableResult
+    func setTargetRetention(_ value: Double) async throws -> Double {
+        let clamped = Retention.clamp(value)
+        return try await perform { backend in
+            for name in ["PGRE::Sample", StudySandbox.studyDeckName] {
+                let did = try backend.deckId(forName: name)
+                guard did != 0 else { continue }
+                let configId = try backend.deckConfigsForUpdate(deckId: did).currentDeck.configID
+                guard configId != 0 else { continue }
+                try backend.setDeckConfigDesiredRetention(configId: configId, retention: clamped)
+                // Read the stored value back through the same seam targetRetention
+                // uses, so the UI reflects exactly what was persisted.
+                let update = try backend.deckConfigsForUpdate(deckId: did)
+                if let match = update.allConfig.first(where: { $0.config.id == update.currentDeck.configID }) {
+                    let stored = Double(match.config.config.desiredRetention)
+                    if stored > 0 { return Retention.clamp(stored) }
+                }
+                return clamped
+            }
+            return clamped
+        }
+    }
+
+    /// Export the whole collection as a `.colpkg` to a temp file and return its
+    /// path, for the Settings share sheet. Mirrors desktop's pgrep_export
+    /// (col.export_collection_package). The backend takes the collection out to
+    /// write the package, so this reopens it afterwards (like desktop's
+    /// mw.reopen()), whether or not the export succeeds. On the serial queue.
+    func exportCollectionPackage(includeMedia: Bool = true) async throws -> String {
+        try await perform { backend in
+            guard let paths = self.openPaths else { throw EngineError.notOpen }
+            self.current = nil  // the collection is briefly taken out; drop any card
+            let outPath = Engine.exportTempPath()
+            defer {
+                try? backend.openCollection(path: paths.collection, mediaFolder: paths.media)
+                try? backend.selectDeck(named: StudySandbox.studyDeckName)
+            }
+            try backend.exportCollectionPackage(outPath: outPath, includeMedia: includeMedia, legacy: false)
+            return outPath
+        }
+    }
+
+    /// A timestamped, non-clobbering `.colpkg` path in the temp directory, named
+    /// like desktop's settings.export_basename (pgrep-export-YYYYMMDD-HHMMSS).
+    private static func exportTempPath() -> String {
+        let stamp = exportTimestampFormatter.string(from: Date())
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent("pgrep-export-\(stamp).colpkg").path
+    }
+
+    private static let exportTimestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter
+    }()
 
     /// Reset pgrep progress, conservative and scoped exactly like desktop's
     /// settings.reset_progress: delete the immutable attempt notes (clearing

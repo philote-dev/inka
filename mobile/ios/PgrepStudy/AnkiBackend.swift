@@ -36,6 +36,8 @@ public struct RpcId: Sendable {
     public static let getConfigJson = RpcId(9, 0)
     public static let setConfigJson = RpcId(9, 1)
     // DeckConfigService (service 11)
+    public static let addOrUpdateDeckConfigLegacy = RpcId(11, 0)
+    public static let getDeckConfigLegacy = RpcId(11, 3)
     public static let getDeckConfigsForUpdate = RpcId(11, 6)
     // SchedulerService (service 13)
     public static let getQueuedCards = RpcId(13, 3)
@@ -54,6 +56,8 @@ public struct RpcId: Sendable {
     public static let searchNotes = RpcId(29, 2)
     // StatsService (service 43)
     public static let cardStats = RpcId(43, 0)
+    // BackendImportExportService (service 39)
+    public static let exportCollectionPackage = RpcId(39, 1)
 }
 
 /// Errors surfaced by the engine bridge.
@@ -343,11 +347,29 @@ public final class AnkiBackend {
     }
 
     /// The deck-config bundle for a deck, used to read the sample deck's target
-    /// retention (desiredRetention) for the read-only Settings display.
+    /// retention (desiredRetention) and to find the config id the Settings
+    /// surface writes retention onto.
     public func deckConfigsForUpdate(deckId: Int64) throws -> Anki_DeckConfig_DeckConfigsForUpdate {
         var req = Anki_Decks_DeckId()
         req.did = deckId
         return try call(.getDeckConfigsForUpdate, req)
+    }
+
+    /// Read the deck config `configId` as legacy (schema11) JSON, set its
+    /// `desiredRetention`, and write it back. Mirrors desktop's
+    /// `col.decks.update_config` (settings.set_target_retention): only this one
+    /// config row is touched, so no card is rescheduled and no FSRS card state is
+    /// rewritten. `retention` is written as-is (callers clamp it first).
+    public func setDeckConfigDesiredRetention(configId: Int64, retention: Double) throws {
+        var getReq = Anki_DeckConfig_DeckConfigId()
+        getReq.dcid = configId
+        let current: Anki_Generic_Json = try call(.getDeckConfigLegacy, getReq)
+        var dict = ((try? JSONSerialization.jsonObject(with: current.json)) as? [String: Any]) ?? [:]
+        dict["desiredRetention"] = retention
+        let data = try JSONSerialization.data(withJSONObject: dict)
+        var setReq = Anki_Generic_Json()
+        setReq.json = data
+        let _: Anki_DeckConfig_DeckConfigId = try call(.addOrUpdateDeckConfigLegacy, setReq)
     }
 
     /// Delete notes by id (used by Reset to clear the immutable attempt log; the
@@ -366,5 +388,20 @@ public final class AnkiBackend {
         var req = Anki_Scheduler_ScheduleCardsAsNewRequest()
         req.cardIds = cardIds
         return try call(.scheduleCardsAsNew, req)
+    }
+
+    // MARK: - Data / Export
+
+    /// Export the whole collection as a `.colpkg` (cards, media, and the attempt
+    /// notes) to `outPath`. Mirrors desktop's `col.export_collection_package`.
+    /// NOTE: the backend takes the open collection out to write the package (like
+    /// desktop's temporary close), so the caller must reopen the collection
+    /// afterwards (see `Engine.exportCollectionPackage`).
+    public func exportCollectionPackage(outPath: String, includeMedia: Bool, legacy: Bool) throws {
+        var req = Anki_ImportExport_ExportCollectionPackageRequest()
+        req.outPath = outPath
+        req.includeMedia = includeMedia
+        req.legacy = legacy
+        let _: Anki_Generic_Empty = try call(.exportCollectionPackage, req)
     }
 }

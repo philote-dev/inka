@@ -138,6 +138,11 @@ ios-xcframework:
 ios-manifold:
     ./tools/build-manifold-webview.sh
 
+# Vendor the offline MathJax build (tex-svg-full) for the native math renderer's
+# WKWebView, committed as an app resource. Re-run on the pinned mathjax version.
+ios-mathjax:
+    ./tools/build-mathjax-webview.sh
+
 # Build xcframework, regenerate the Xcode project, and run the iOS Simulator XCTest; macOS-only
 ios-smoke:
     ./tools/ios-smoke.sh

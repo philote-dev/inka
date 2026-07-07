@@ -7,18 +7,22 @@
 // math as raw delimiters, so this view renders the real thing: a self-sizing,
 // non-interactive WKWebView that loads MathJax and typesets the field.
 //
-// Offline/degradation: MathJax loads from a CDN; if it cannot load (offline),
-// the field still renders as readable HTML text (the delimiters remain visible),
-// and the view still sizes itself, so nothing breaks. Bundling MathJax for fully
-// offline typesetting is a deliberate follow-up (see TODO below) rather than a
-// heavy addition here.
+// Offline typesetting: MathJax ships inside the app (Resources/MathJax, the same
+// tex-svg-full build the ts toolchain imports) and is served, together with the
+// generated document, over a private URL scheme so nothing touches the network.
+// SVG output means the glyphs live in the script itself, so there are no CHTML
+// web-font downloads either. If MathJax somehow fails to load, the field still
+// renders as readable HTML text (the delimiters remain visible) and the view
+// still sizes itself, so nothing breaks.
+//
+// We serve through a WKURLSchemeHandler rather than loadHTMLString because a
+// string load gets an opaque origin and cannot read bundled file resources, and
+// loadFileURL needs a real file for a document that is generated per field. The
+// scheme handler hands back both the document and the bundled script from memory.
 //
 // The web view is non-interactive (allowsHitTesting false, scrolling off) so it
 // composes cleanly inside SwiftUI Buttons (choice rows) and ScrollViews without
 // stealing gestures.
-//
-// TODO(offline-math): bundle MathJax (es5/tex-mml-chtml) into the app resources
-// and load it via a file:// baseURL so typesetting works with no network.
 
 import SwiftUI
 import WebKit
@@ -57,8 +61,18 @@ enum MathHTML {
         var css: String { self == .semibold ? "600" : "400" }
     }
 
-    /// The full HTML document: theme-matched CSS, MathJax config + CDN load with
-    /// an onerror fallback, and a ResizeObserver that reports the content height.
+    /// The private scheme the document and MathJax are served over. It must not
+    /// collide with a scheme WebKit already handles (http, file, ...).
+    static let scheme = "pgrepmath"
+    /// The document's own URL path under that scheme.
+    static let indexPath = "index.html"
+    /// The bundled MathJax script, referenced by the document with a relative src
+    /// so it resolves against the scheme base and loads from the app bundle.
+    static let scriptName = "tex-svg-full.js"
+
+    /// The full HTML document: theme-matched CSS, MathJax config, the local
+    /// MathJax load with an onerror fallback, and a ResizeObserver that reports
+    /// the content height.
     static func document(body: String, fontSize: CGFloat, weight: Weight, centered: Bool) -> String {
         let align = centered ? "center" : "left"
         return """
@@ -114,12 +128,64 @@ enum MathHTML {
             new ResizeObserver(function () { reportHeight(); }).observe(document.documentElement);
           }
         </script>
-        <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" onerror="reportHeight()"></script>
+        <script async src="\(scriptName)" onerror="reportHeight()"></script>
         </head>
         <body>\(body)</body>
         </html>
         """
     }
+}
+
+// MARK: - Offline resource serving
+
+/// Serves the generated document and the bundled MathJax script over the private
+/// `pgrepmath` scheme, so the web view typesets with no network access. Both
+/// payloads are answered synchronously from memory, so a task is never left in
+/// flight for `stop(_:)` to race.
+private final class MathSchemeHandler: NSObject, WKURLSchemeHandler {
+    /// The document to answer the index request with; refreshed per field.
+    var document = ""
+
+    /// The bundled MathJax script, read once and shared by every handler so many
+    /// on-screen fields do not each hold a copy of the ~2MB build.
+    private static let scriptData: Data? = {
+        guard let url = Bundle.main.url(forResource: "tex-svg-full", withExtension: "js") else {
+            return nil
+        }
+        return try? Data(contentsOf: url)
+    }()
+
+    func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
+        guard let url = task.request.url else {
+            task.didFailWithError(URLError(.badURL))
+            return
+        }
+        let name = url.lastPathComponent
+        let payload: (data: Data, mime: String)?
+        switch name {
+        case MathHTML.indexPath:
+            payload = (Data(document.utf8), "text/html")
+        case MathHTML.scriptName:
+            payload = Self.scriptData.map { ($0, "text/javascript") }
+        default:
+            payload = nil
+        }
+        guard let payload else {
+            task.didFailWithError(URLError(.fileDoesNotExist))
+            return
+        }
+        let response = URLResponse(
+            url: url,
+            mimeType: payload.mime,
+            expectedContentLength: payload.data.count,
+            textEncodingName: "utf-8"
+        )
+        task.didReceive(response)
+        task.didReceive(payload.data)
+        task.didFinish()
+    }
+
+    func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
 }
 
 // MARK: - WKWebView bridge
@@ -136,6 +202,7 @@ private struct MathWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.userContentController.add(context.coordinator, name: "height")
+        config.setURLSchemeHandler(context.coordinator.schemeHandler, forURLScheme: MathHTML.scheme)
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.scrollView.isScrollEnabled = false
         webView.scrollView.bounces = false
@@ -149,10 +216,14 @@ private struct MathWebView: UIViewRepresentable {
         let signature = "\(fontSize)|\(weight.css)|\(centered)|\(html)"
         guard context.coordinator.loadedSignature != signature else { return }
         context.coordinator.loadedSignature = signature
-        webView.loadHTMLString(
-            MathHTML.document(body: html, fontSize: fontSize, weight: weight, centered: centered),
-            baseURL: nil
+        context.coordinator.schemeHandler.document = MathHTML.document(
+            body: html,
+            fontSize: fontSize,
+            weight: weight,
+            centered: centered
         )
+        guard let index = URL(string: "\(MathHTML.scheme)://mathjax/\(MathHTML.indexPath)") else { return }
+        webView.load(URLRequest(url: index))
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
@@ -162,6 +233,7 @@ private struct MathWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKScriptMessageHandler {
         @Binding var height: CGFloat
         var loadedSignature: String?
+        let schemeHandler = MathSchemeHandler()
 
         init(height: Binding<CGFloat>) { _height = height }
 

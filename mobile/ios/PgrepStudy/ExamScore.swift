@@ -36,13 +36,18 @@ enum ProblemNote {
     /// are out of scope for the mobile exam bank.
     static let search = "tag:\(seedTag)"
     // Field order: stem, choices, correct, distractor_rationales,
-    // solution_decomposition, difficulty, source_ref.
+    // solution_decomposition, difficulty, source_ref, decomposition_tutor.
     static let stemIndex = 0
     static let choicesIndex = 1
     static let correctIndex = 2
     static let rationalesIndex = 3
     static let solutionDecompositionIndex = 4
     static let difficultyIndex = 5
+    static let sourceRefIndex = 6
+    /// Field 7: the pre-generated gated decomposition tutor JSON (problem.py
+    /// appended it after the contract fields, so its ordinal never moves). Empty
+    /// or absent on a note that predates the field; the tutor then has no steps.
+    static let decompositionTutorIndex = 7
 
     /// Parse the `choices` JSON array field into a list of strings.
     static func parseChoices(_ raw: String) -> [String] {

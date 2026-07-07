@@ -80,9 +80,59 @@ targets:
     sources:
       - path: PgrepStudyTests
       - path: PgrepStudy/AnkiBackend.swift
+      # Pure target-retention bounds + clamp (ported from settings.py), exercised
+      # by RetentionSettingsTests alongside the AnkiBackend deck-config round-trip.
+      - path: PgrepStudy/Retention.swift
       - path: PgrepStudy/AttemptWriter.swift
+      # Pure Card Sets read-model grouping + the note-RPC read/write extension,
+      # exercised by CardSetsTests. The SwiftUI browser (LibraryView) that drives
+      # it against the Engine stays in the app target only. Pulls in the Blueprint
+      # + Topic helpers it groups on (already compiled below via MemoryScore.swift).
+      - path: PgrepStudy/CardSets.swift
+      # Pure calibration gate derivation (authored / required / calibrated) + the
+      # note/config read-write extension, exercised by CalibrationTests. The
+      # embedded offline evidence + its {p, o} -> {predicted, observed} mapping
+      # bridge (CalibrationEvidence) is pinned there too. The SwiftUI surfaces
+      # that render them (ProgressScreen's Calibration tab, LibraryView's
+      # walkthrough) stay in the app target only. Calibration pulls in CardSets
+      # (seed tag) + Blueprint/Topic (below); the evidence pulls in ReliabilityDiagram.
+      - path: PgrepStudy/Calibration.swift
+      - path: PgrepStudy/CalibrationEvidence.swift
       - path: PgrepStudy/SyncRpc.swift
       - path: PgrepStudy/StudySandbox.swift
+      # The math renderer's document builder, exercised by MathTextTests to prove
+      # the offline (bundled MathJax, no CDN) references without a full app host.
+      - path: PgrepStudy/MathText.swift
+      # Pure logic for the shared MCQ list and reliability diagram, exercised by
+      # ChoiceListTests / ReliabilityDiagramTests. The SwiftUI views that draw
+      # them (ChoiceListView, ReliabilityDiagramView) stay in the app target only.
+      - path: PgrepStudy/ChoiceList.swift
+      - path: PgrepStudy/ReliabilityDiagram.swift
+      # Pure interleave + commit grading for the interleaved study session,
+      # exercised by StudySessionTests. The model/view (StudySessionView) that
+      # drives it against the Engine stays in the app target only.
+      - path: PgrepStudy/StudySession.swift
+      # Pure end-of-session synthesis derivation (score, topic bars, patterns),
+      # exercised by SessionSynthesisTests. The SwiftUI screen that renders it
+      # (SessionSynthesisView) stays in the app target only.
+      - path: PgrepStudy/SessionSynthesis.swift
+      # Pure parse + variant selection + MCQ grading for the gated decomposition
+      # tutor, exercised by DecompositionTutorTests. Engine.loadTutor (reads the
+      # note) and SubproblemCardView (draws a step) stay in the app target only.
+      - path: PgrepStudy/DecompositionTutor.swift
+      # Pure placement logic for the on-device Diagnostic, exercised by
+      # DiagnosticTests. It folds over the Blueprint table defined in
+      # MemoryScore.swift, so that pure file (Foundation-only) joins the bundle
+      # too; the SwiftUI DiagnosticView that drives it stays in the app target.
+      - path: PgrepStudy/MemoryScore.swift
+      - path: PgrepStudy/Diagnostic.swift
+      # Pure Memory + Performance + diagnostic-placement fold into the manifold
+      # Surface, exercised by ManifoldSurfaceTests. The WKWebView host that draws
+      # it (ManifoldWebView) stays in the app target only; the fold pulls in the
+      # Performance score (and the attempt-log read type it references) it folds.
+      - path: PgrepStudy/PerformanceScore.swift
+      - path: PgrepStudy/AttemptLog.swift
+      - path: PgrepStudy/ManifoldSurface.swift
       - path: PgrepStudy/Generated
       - path: ../sample-deck/collection.anki2
         buildPhase: resources
@@ -92,6 +142,7 @@ targets:
         embed: false
       - sdk: Security.framework
       - sdk: SystemConfiguration.framework
+      - sdk: WebKit.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: net.ankiweb.pgrep.PgrepStudyTests

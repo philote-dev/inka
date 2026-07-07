@@ -1,9 +1,10 @@
 // Copyright: Ankitects Pty Ltd and contributors
 // License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 //
-// The app shell: a bottom tab bar with the companion subset (Home, Study,
-// Progress, Settings, per design/ux-foundation.md §4 and §9), gated on opening
-// the shared collection once. Library stays desktop-first.
+// The app shell: a bottom tab bar with the companion surfaces (Home, Study,
+// Progress, Library, Settings, per design/ux-foundation.md §4 and §9), gated on
+// opening the shared collection once. Library shows the Card Sets browser (AI is
+// off / offline-first on the phone), mirroring the desktop nav order.
 
 import SwiftUI
 
@@ -11,6 +12,7 @@ enum RootTab: Hashable {
     case home
     case study
     case progress
+    case library
     case settings
 }
 
@@ -26,6 +28,25 @@ struct RootView: View {
             .environmentObject(app)
             .preferredColorScheme((AppTheme(rawValue: themeRaw) ?? .system).colorScheme)
             .task { await app.bootstrap() }
+            .task(id: app.phase) { offerFirstRunDiagnosticIfNeeded() }
+            .fullScreenCover(isPresented: $app.isPresentingDiagnostic) {
+                DiagnosticView()
+                    .environmentObject(app)
+                    .preferredColorScheme((AppTheme(rawValue: themeRaw) ?? .system).colorScheme)
+            }
+    }
+
+    /// Route the first run into the Diagnostic once the collection is open,
+    /// mirroring the desktop landing -> diagnostic. Once per launch, and only
+    /// while it has never been completed; "Maybe later" or completing it stops the
+    /// offer for the session.
+    private func offerFirstRunDiagnosticIfNeeded() {
+        guard app.phase == .ready,
+              app.diagnosticDone == false,
+              !app.hasOfferedFirstRunDiagnostic
+        else { return }
+        app.hasOfferedFirstRunDiagnostic = true
+        app.isPresentingDiagnostic = true
     }
 
     @ViewBuilder
@@ -44,6 +65,9 @@ struct RootView: View {
                 ProgressScreen(selectedTab: $tab)
                     .tabItem { Label("Progress", systemImage: "chart.bar") }
                     .tag(RootTab.progress)
+                LibraryView()
+                    .tabItem { Label("Library", systemImage: "rectangle.stack") }
+                    .tag(RootTab.library)
                 SettingsView()
                     .tabItem { Label("Settings", systemImage: "gearshape") }
                     .tag(RootTab.settings)

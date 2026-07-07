@@ -42,6 +42,9 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.m) {
+                if app.diagnosticDone == false {
+                    DiagnosticCTA { app.isPresentingDiagnostic = true }
+                }
                 ManifoldWebView(surface: manifoldSurface, colorScheme: colorScheme)
                     .frame(height: 160)
                 today
@@ -54,12 +57,18 @@ struct HomeView: View {
         .task(id: app.dataVersion) { await model.load(engine: app.engine) }
     }
 
-    /// The live 3D manifold reads the same synced Memory the score cards do: an
-    /// area lights and rises as it is studied, a weak one opens a gap. Before the
-    /// first read it shows the honest unlit syllabus, so the hero is never blank.
+    /// The live 3D manifold reads the same synced scores the cards do: an area
+    /// lights and rises as it is studied (amber -> blue -> lilac as Memory,
+    /// Performance, and readiness build), a strong diagnostic area is affirmed,
+    /// and a rusty or weak one opens a gap. Before the first read it shows the
+    /// honest unlit syllabus, so the hero is never blank.
     private var manifoldSurface: ManifoldSurface {
         if case let .loaded(board) = model.state {
-            return ManifoldSurface.build(memory: board.memory)
+            return ManifoldSurface.build(
+                memory: board.memory,
+                performance: board.performance,
+                placement: board.placement
+            )
         }
         return .baseline
     }
