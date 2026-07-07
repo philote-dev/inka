@@ -180,20 +180,18 @@ def test_unbalanced_latex_fails() -> None:
     assert any("unbalanced LaTeX" in f for f in ci.hard_failures(report))
 
 
-def test_cases_row_break_reads_as_unbalanced() -> None:
-    # A display equation whose cases row break is written \\[4pt] places a "\["
-    # next to the real display-math "\[", so the literal delimiter count is odd.
-    # This mirrors the shipped p4-prob-0258 finding: the check reports it rather
-    # than silently accepting it.
+def test_cases_row_break_reads_as_balanced() -> None:
+    # A display equation whose cases row break is written \\[4pt] places a literal
+    # "\[" next to the real display-math "\[". The check excludes escaped line
+    # breaks from the delimiter count, so this valid LaTeX is not flagged. This
+    # mirrors the shipped p4-prob-0258 stem, which renders correctly.
     b = _good_bundle()
     b["problems"][0]["stem"] = (
         r"\[ f(x)=\begin{cases} 1, & x>0,\\[4pt] 0, & x<0. \end{cases} \]"
     )
     report = ci.check_bundle(b)
-    assert any(
-        d["id"] == "p-1" and d["field"] == "stem"
-        for d in report["violations"]["unbalanced_latex"]
-    )
+    assert report["violations"]["unbalanced_latex"] == []
+    assert ci.hard_failures(report) == []
 
 
 def test_odd_unescaped_dollar_fails() -> None:

@@ -37,7 +37,7 @@ _AI_CORE = REPO / "pylib" / "anki"
 if _AI_CORE.is_dir() and str(_AI_CORE) not in sys.path:
     sys.path.append(str(_AI_CORE))
 
-from pgrep.ai import llm  # noqa: E402
+from pgrep.ai import llm  # type: ignore[import-not-found]  # noqa: E402
 
 SYSTEM = r"""You draw a single clean black-and-white line-art SVG diagram for a Physics GRE problem, in the style of ETS practice-test figures.
 

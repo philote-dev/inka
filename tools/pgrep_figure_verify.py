@@ -40,7 +40,7 @@ _AI_CORE = REPO / "pylib" / "anki"
 if _AI_CORE.is_dir() and str(_AI_CORE) not in sys.path:
     sys.path.append(str(_AI_CORE))
 
-from pgrep.ai import llm  # noqa: E402
+from pgrep.ai import llm  # type: ignore[import-not-found]  # noqa: E402
 
 SVG_RE = re.compile(r"<svg[\s\S]*?</svg>", re.IGNORECASE)
 FIGURE_DIV_RE = re.compile(r'<div class="pg-figure">[\s\S]*?</div>', re.IGNORECASE)

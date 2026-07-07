@@ -26,9 +26,9 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import pgrep_content_audit as audit  # noqa: E402
-import pgrep_figure_gen as figgen  # noqa: E402
-import pgrep_figure_verify as figverify  # noqa: E402
+import pgrep_content_audit as audit  # type: ignore[import-not-found]  # noqa: E402
+import pgrep_figure_gen as figgen  # type: ignore[import-not-found]  # noqa: E402
+import pgrep_figure_verify as figverify  # type: ignore[import-not-found]  # noqa: E402
 
 
 def conventions(svg: str) -> list[str]:

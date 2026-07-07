@@ -67,6 +67,15 @@ _WORD_RE = re.compile(r"[a-z0-9]+")
 # An unescaped dollar: a "$" not immediately preceded by a backslash.
 _DOLLAR_RE = re.compile(r"(?<!\\)\$")
 
+# Math delimiters, counted so an escaped line break ("\\[" or "\\(", optionally
+# with a spacing arg like "\\[4pt]") is not mistaken for a math opener: a
+# delimiter backslash that is itself preceded by a backslash is a LaTeX line
+# break, not the start of inline or display math.
+_MATH_INLINE_OPEN_RE = re.compile(r"(?<!\\)\\\(")
+_MATH_INLINE_CLOSE_RE = re.compile(r"(?<!\\)\\\)")
+_MATH_DISPLAY_OPEN_RE = re.compile(r"(?<!\\)\\\[")
+_MATH_DISPLAY_CLOSE_RE = re.compile(r"(?<!\\)\\\]")
+
 # Phrases that promise a figure to the reader (check_figure_necessity.FIG_REF).
 _FIG_REF_RE = re.compile(
     r"\b(as shown|shown (?:above|below)|shown in the (?:figure|diagram)|"
@@ -97,18 +106,20 @@ def _normalize(text: str) -> str:
 
 
 def _latex_balanced(text: str) -> bool:
-    """True when a field's LaTeX delimiters balance.
+    """True when a field's LaTeX math delimiters balance.
 
-    Uses the same naive token counting as ``pgrep_content_audit.balanced``: equal
-    counts of ``\\(``/``\\)`` and ``\\[``/``\\]``, plus an even number of
-    unescaped ``$``. It is deliberately literal, so content that happens to place
-    a ``\\[`` next to a real display-math ``\\[`` (for example a ``cases`` row
-    break written ``\\\\[4pt]``) is reported rather than silently accepted.
+    Counts genuine inline ``\\(``/``\\)`` and display ``\\[``/``\\]`` delimiters and
+    requires an even number of unescaped ``$``. A delimiter whose backslash is
+    itself preceded by a backslash is an escaped LaTeX line break, not math (for
+    example a ``cases`` row break written ``\\\\[4pt]``), so it is excluded from the
+    count. This is stricter than ``pgrep_content_audit.balanced``'s literal token
+    count, which false-positives on such row breaks.
     """
     t = text or ""
     return (
-        t.count(r"\(") == t.count(r"\)")
-        and t.count(r"\[") == t.count(r"\]")
+        len(_MATH_INLINE_OPEN_RE.findall(t)) == len(_MATH_INLINE_CLOSE_RE.findall(t))
+        and len(_MATH_DISPLAY_OPEN_RE.findall(t))
+        == len(_MATH_DISPLAY_CLOSE_RE.findall(t))
         and len(_DOLLAR_RE.findall(t)) % 2 == 0
     )
 

@@ -32,10 +32,10 @@ for _tool_dir in (REPO / "tools", REPO / "content" / "tools"):
     if _tool_dir.is_dir() and str(_tool_dir) not in sys.path:
         sys.path.insert(0, str(_tool_dir))
 
-import check_technique_giveaway as giveaway  # noqa: E402
-import pgrep_figure_gen as figgen  # noqa: E402
-import pgrep_figure_verify as figverify  # noqa: E402
-from pgrep.ai import llm  # noqa: E402
+import check_technique_giveaway as giveaway  # type: ignore[import-not-found]  # noqa: E402
+import pgrep_figure_gen as figgen  # type: ignore[import-not-found]  # noqa: E402
+import pgrep_figure_verify as figverify  # type: ignore[import-not-found]  # noqa: E402
+from pgrep.ai import llm  # type: ignore[import-not-found]  # noqa: E402
 
 _DATED = "gpt-test-2026-01-01"
 
@@ -103,7 +103,7 @@ class _RaisingClient:
 @contextlib.contextmanager
 def _fake_openai():
     mod = types.ModuleType("openai")
-    mod.OpenAI = _FakeOpenAI
+    mod.OpenAI = _FakeOpenAI  # type: ignore[attr-defined]
     saved = sys.modules.get("openai")
     sys.modules["openai"] = mod
     try:
