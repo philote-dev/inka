@@ -10,11 +10,16 @@ build status, location, and owner. Update the status column as builds land.
 - **Tracked plan and methodology** live here in `docs_pgrep/`. This board, the
   build plan, the eval methodology, and the decisions are tracked so they are
   part of the project record.
-- **Private data and its manifests** live in `content/` (git-ignored). That
-  folder holds copyrighted and held-out material plus the manifests that list
-  those private files by path, so it cannot be committed. The manifests
-  (`content/manifests/` and the `docs_pgrep/ai/` specs) stay next to the data they
-  describe. This board is the tracked summary of them.
+- **Tracked pipeline code** lives in `content/tools/` (version-controlled) plus
+  the deep modules under `pylib/anki/pgrep/`, so the pipeline is reviewable and
+  reproducible. Its architecture is in
+  [`../reference/content-pipeline.md`](../reference/content-pipeline.md).
+- **Private data and its manifests** live in `content/` and stay git-ignored: the
+  corpus, the gold and held-out material, the index, the run artifacts, the ETS
+  constants, `content/.env`, and the local databases, plus the manifests that
+  list those private files by path, so the data cannot be committed. The
+  manifests (`content/manifests/` and the `docs_pgrep/ai/` specs) stay next to the
+  data they describe. This board is the tracked summary of them.
 
 ---
 

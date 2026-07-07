@@ -45,6 +45,7 @@
 ### Reference (operational how-to)
 
 - [`reference/content-and-dependencies.md`](reference/content-and-dependencies.md) — content sourcing, provenance, the leakage firewall, the data assets, and the external toolchain.
+- [`reference/content-pipeline.md`](reference/content-pipeline.md): the content pipeline's deep modules (one LLM seam, one Judge), the per-commit bundle invariant gate, and the on-demand AI audits.
 - [`reference/dev-harness.md`](reference/dev-harness.md) — dev + test harness notes.
 
 ### AI layer (methodology + evaluation)
@@ -55,9 +56,9 @@
 - [`ai/heldout-and-leakage.md`](ai/heldout-and-leakage.md) — the held-out splits and the leakage firewall.
 - [`ai/blueprint.md`](ai/blueprint.md), [`ai/slugs.md`](ai/slugs.md) — the PGRE topic taxonomy.
 
-### Private data workspace (`content/`, git-ignored)
+### Content workspace (`content/`: pipeline code tracked, data private)
 
-The private data the AI layer operates on lives in `content/`, which is never committed (the corpus, the gold items, the held-out ETS forms, the index, and the harness). It carries its own map:
+The content pipeline code under `content/tools/` is version-controlled, so the pipeline is reviewable and reproducible. The private data the AI layer operates on stays git-ignored: the corpus, the gold and held-out ETS sets, the index, the run artifacts, the ETS constants, and `content/.env`. The copyrighted and held-out material is never committed; the code that operates on it is. The tracked pipeline architecture is in [`reference/content-pipeline.md`](reference/content-pipeline.md); the private workspace carries its own map:
 
 - [`../content/README.md`](../content/README.md) — the workspace map: every folder and its data.
 

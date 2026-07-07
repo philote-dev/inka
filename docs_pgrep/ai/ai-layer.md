@@ -3,9 +3,12 @@
 The durable reference for pgrep's AI layer: what it generates, the data it is
 built on and graded against, the decisions that are locked, the leakage firewall
 that keeps the evaluation honest, and where everything lives. This is the tracked
-reference for the AI layer. The private data it operates on (the corpus, the gold
-items, the held-out forms, the index) lives in the git-ignored `content/`
-workspace.
+reference for the AI layer. The pipeline code that produces and grades the content
+is version-controlled under `content/tools/` and `pylib/anki/pgrep/`, while the
+private data it operates on (the corpus, the gold items, the held-out forms, the
+index) stays in the git-ignored `content/` workspace. The pipeline's deep-module
+architecture and its gates are in
+[`../reference/content-pipeline.md`](../reference/content-pipeline.md).
 
 **State (2026-07-05).** L4 is built and merged to `main`, off by default, so the
 app demos and ships with AI on or off. The gold is verified and frozen (157
@@ -244,7 +247,11 @@ would have been wrong here. Both human touchpoints are complete.
 
 ## 9. The pipeline scripts
 
-Under `content/tools/`.
+Under `content/tools/`, now version-controlled (the private data they read stays
+git-ignored). They share the deep modules under `pylib/anki/pgrep/` (one LLM
+client, one Judge, the bundle invariants); the pipeline architecture, the
+per-commit bundle gate, and the on-demand AI audits are in
+[`../reference/content-pipeline.md`](../reference/content-pipeline.md).
 
 | Script                  | What it does                                                     |
 | ----------------------- | ---------------------------------------------------------------- |
@@ -261,6 +268,10 @@ Under `content/tools/`.
 | `fill_confirmed.py`     | Fill the one distractor left blank when gpt-4o slipped           |
 | `author_card_gold.py`   | Author the 50 corpus-grounded card-gold items                    |
 | `validate_gold.py`      | Structural check over all gold files                             |
+| `assemble_bundle.py`    | Land, convert math, wire figures, then run the invariant gate    |
+| `audit_bundle_ai.py`    | The five on-demand AI content audits (via `just audit-bundle-ai`) |
+| `review_sheet.py`       | Shared make/apply review-sheet plumbing (pool, figure, giveaway) |
+| `check_technique_giveaway.py` | Judge whether a stem hands over the tested relation        |
 
 ---
 
@@ -277,7 +288,8 @@ docs_pgrep/ai/
   blueprint.md, slugs.md   the topic taxonomy
 ```
 
-The private, git-ignored workspace (the data and the harness):
+The `content/` workspace (the pipeline code under `tools/` is version-controlled;
+the data folders stay git-ignored):
 
 ```
 content/
@@ -293,6 +305,6 @@ content/
   heldout/                hidden tests, never indexed or prompted
   tier3-private/          ETS forms, items, constants, sealed mock
   run/                    the generated batch and the score outputs
-  tools/                  the pipeline scripts and the eval harness
+  tools/                  the pipeline scripts (version-controlled)
   reference/              copyrighted lookup PDFs, never indexed
 ```
