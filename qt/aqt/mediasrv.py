@@ -837,6 +837,14 @@ def _check_dynamic_request_permissions():
     if _have_api_access():
         return
 
+    # pgrep first-party endpoints. Our own SvelteKit surface calls these with the
+    # application/binary content type enforced above, which an opaque cross-origin
+    # request cannot set, so they are same-origin by construction. Treat them like
+    # the whitelisted reviewer endpoints so a trusted pgrep page never trips the
+    # "unexpected API access" guard when the bearer header is not yet attached.
+    if request.path.startswith("/_anki/pgrep"):
+        return
+
     # whitelisted API endpoints for reviewer/previewer
     if request.path in (
         "/_anki/getSchedulingStatesWithContext",

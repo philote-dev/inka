@@ -98,9 +98,9 @@ def test_grade_subgoal_giveaway_probe_is_blocked(monkeypatch):
     assert "2.48" not in res["probe"]
 
 
-def test_session_synthesis_ai_off_recap():
+def test_session_synthesis_ai_off_score():
     col = getEmptyCol()
-    now = int(time.time())
+    base = int(time.time())
     for i in range(3):
         attempt_log.append_attempt(
             col,
@@ -109,10 +109,99 @@ def test_session_synthesis_ai_off_recap():
                 "topic": "topic::atomic",
                 "correct": i != 0,
                 "session_id": "sess-1",
-                "answered_at": now,
+                # spread across ~4 minutes so the wall-clock duration is exercised
+                "answered_at": base + i * 120,
             },
         )
     res = tutor.session_synthesis(col, "sess-1")
     assert res["ai"] == "off"
-    assert res["recap"]["attempted"] == 3
-    assert res["recap"]["correct"] == 2
+    assert res["score"] == {"correct": 2, "total": 3}
+    assert res["duration_min"] == 4
+    assert len(res["by_topic"]) == 1
+    only = res["by_topic"][0]
+    assert (only["correct"], only["total"]) == (2, 3)
+    # AI off still names the weak topic as a miss card, with no invented evidence.
+    assert res["patterns"] and res["patterns"][0]["kind"] == "miss"
+    assert res["patterns"][0]["evidence"] == ""
+
+
+def test_session_synthesis_preview_matches_contract():
+    col = getEmptyCol()
+    res = tutor.session_synthesis_preview(col)
+    assert res["score"] == {"correct": 14, "total": 20}
+    assert res["duration_min"] == 48
+    assert len(res["by_topic"]) == 4
+    kinds = {p["kind"] for p in res["patterns"]}
+    assert kinds == {"miss", "save"}
+
+
+class _CaptureLLM:
+    """Records the user prompt so a test can assert the grounding fed to the model."""
+
+    def __init__(self, model, seen, response, **_kw):
+        self.model = model
+        self._seen = seen
+        self._response = response
+
+    def complete_json(self, system, user):
+        self._seen["user"] = user
+        return dict(self._response)
+
+
+def test_session_synthesis_ai_on_grounds_real_misses(monkeypatch):
+    col = getEmptyCol()
+    nid = _make_problem(col)
+    ai_config.set_ai_enabled(col, True)
+    ai_config.set_ai_model(col, "gpt-x-2026-01-01")
+    seen: dict[str, str] = {}
+    response = {
+        "patterns": [
+            {
+                "title": "Inverted the photon energy relation",
+                "count": 1,
+                "evidence": r"Treats \(E \propto \lambda\) instead of \(E = hc/\lambda\).",
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        llm_module,
+        "LLMClient",
+        lambda m, **kw: _CaptureLLM(m, seen, response),
+    )
+    # One clean first-try miss on a real problem (picked A, whose stored rationale
+    # is "inverted"; the key is C), plus one clean correct, in one session.
+    base = int(time.time())
+    attempt_log.append_attempt(
+        col,
+        {
+            "event_id": "sx-0",
+            "item_note_id": nid,
+            "topic": "topic::atomic",
+            "correct": False,
+            "selected_option": "A",
+            "session_id": "sess-x",
+            "answered_at": base,
+        },
+    )
+    attempt_log.append_attempt(
+        col,
+        {
+            "event_id": "sx-1",
+            "item_note_id": nid,
+            "topic": "topic::atomic",
+            "correct": True,
+            "selected_option": "C",
+            "session_id": "sess-x",
+            "answered_at": base + 60,
+        },
+    )
+    res = tutor.session_synthesis(col, "sess-x")
+    assert res["ai"] == "on"
+    assert res["score"] == {"correct": 1, "total": 2}
+    assert res["patterns"] and res["patterns"][0]["kind"] == "miss"
+    assert res["patterns"][0]["title"] == "Inverted the photon energy relation"
+    # The model was grounded in the real miss: the stem, the picked wrong choice,
+    # and that choice's stored rationale ("inverted").
+    grounded = seen["user"].lower()
+    assert "photon" in grounded
+    assert "inverted" in grounded
