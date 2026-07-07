@@ -129,6 +129,18 @@ GIVEAWAY_SYSTEM = (
 )
 
 _FIGURE_DIV = re.compile(r'<div class="pg-figure">[\s\S]*?</div>')
+_FIGURE_SVG = re.compile(r'<div class="pg-figure">([\s\S]*?)</div>')
+
+
+def _strip_figure(stem: str) -> str:
+    """The stem with any ``pg-figure`` block removed (the words a solver reads)."""
+    return _FIGURE_DIV.sub(" ", stem or "").strip()
+
+
+def _extract_svg(stem: str) -> str:
+    """The SVG source inside a stem's ``pg-figure`` block, or "" when absent."""
+    m = _FIGURE_SVG.search(stem or "")
+    return m.group(1).strip() if m else ""
 
 
 @dataclass
@@ -164,7 +176,7 @@ class GiveawayVerdict:
 
 
 def _giveaway_stem(problem: dict) -> str:
-    return _FIGURE_DIV.sub(" ", problem.get("stem", "")).strip()
+    return _strip_figure(problem.get("stem", ""))
 
 
 def _giveaway_payload(problem: dict) -> str:
@@ -173,6 +185,151 @@ def _giveaway_payload(problem: dict) -> str:
         f"TOPIC: {problem.get('topic', '')}\n\nSTEM:\n{_giveaway_stem(problem)}\n\n"
         f"CHOICES:\n{choices}\n\nCORRECT: {problem.get('correct', '')}"
     )
+
+
+# --- answer key (independent solve) ----------------------------------------
+
+_LETTERS = ("A", "B", "C", "D", "E")
+
+ANSWER_KEY_SYSTEM = (
+    "You solve one Physics GRE multiple-choice problem from physics. You are given "
+    "the stem, an optional line-art figure as SVG source (it carries no numeric "
+    "values; every given number is in the stem text), and the five options A-E. "
+    "Reason it out, then choose the single best option. You are NOT told the "
+    "intended answer; decide independently and do not assume any option is "
+    "correct.\n"
+    'Return STRICT JSON only: {"answer": "A"|"B"|"C"|"D"|"E", "confidence": '
+    '0..1, "reasoning": "one or two sentences of physics justification"}.'
+)
+
+
+def _as_float(value: object) -> float:
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _labeled_choices(choices: list) -> str:
+    return "\n".join(
+        f"  {lab}. {choices[i]}" for i, lab in enumerate(_LETTERS) if i < len(choices)
+    )
+
+
+@dataclass
+class AnswerKeyVerdict:
+    """An independent solve of an MCQ, compared to the stored key.
+
+    ``predicted_letter`` is the judge's own answer, blank when it produced no
+    valid letter (a failed or unparseable call), which the auditor treats as
+    inconclusive rather than a disagreement. ``agrees`` is that letter against the
+    stored ``correct``. Unlike the two legacy verdicts, ``to_dict`` serializes the
+    typed fields, since ``agrees`` is derived and has no place in the raw reply.
+    """
+
+    predicted_letter: str = ""
+    agrees: bool = False
+    confidence: float = 0.0
+    reasoning: str = ""
+    raw: dict | None = field(default=None, repr=False, compare=False)
+
+    @classmethod
+    def from_reply(cls, reply: dict, correct: str) -> AnswerKeyVerdict:
+        data = reply if isinstance(reply, dict) else {}
+        letter = str(data.get("answer", "")).strip().upper()[:1]
+        if letter not in _LETTERS:
+            letter = ""
+        stored = str(correct or "").strip().upper()[:1]
+        return cls(
+            predicted_letter=letter,
+            agrees=bool(letter) and letter == stored,
+            confidence=_as_float(data.get("confidence")),
+            reasoning=str(data.get("reasoning", "")),
+            raw=reply,
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "predicted_letter": self.predicted_letter,
+            "agrees": self.agrees,
+            "confidence": self.confidence,
+            "reasoning": self.reasoning,
+        }
+
+
+def _answer_key_payload(problem: dict) -> str:
+    # Deliberately omits the stored key so the solve stays blind to it.
+    stem = _strip_figure(problem.get("stem", ""))
+    svg = _extract_svg(problem.get("stem", ""))
+    parts = [f"STEM:\n{stem}"]
+    if svg:
+        parts.append(f"FIGURE (SVG line art, no numeric values):\n{svg}")
+    parts.append(f"OPTIONS:\n{_labeled_choices(problem.get('choices', []) or [])}")
+    return "\n\n".join(parts)
+
+
+# --- distractor plausibility -----------------------------------------------
+
+DISTRACTOR_SYSTEM = (
+    "You audit the DISTRACTORS (the wrong options) of a Physics GRE "
+    "multiple-choice problem. A good distractor is tempting: it is the answer a "
+    "student reaches through a specific, plausible misconception or a common "
+    "algebra, sign, or factor slip. A bad distractor is obviously wrong (wrong "
+    "units, wrong order of magnitude, nonsensical, or a throwaway) so a test-wise "
+    "student eliminates it for free.\n"
+    "You are given the stem, all options with the correct one marked, and the "
+    "author's intended misconception for each wrong option. For each wrong option "
+    "decide whether it is genuinely tempting and tied to a real misconception.\n"
+    'Return STRICT JSON only: {"implausible_labels": [letters of the wrong '
+    'options that are obviously wrong or free to eliminate], "notes": "one or two '
+    'sentences"}. Judge only the wrong options; never list the correct option.'
+)
+
+
+@dataclass
+class DistractorVerdict:
+    """Which wrong options are too weak to tempt anyone (a soft, report-only audit)."""
+
+    implausible_labels: list[str] = field(default_factory=list)
+    notes: str = ""
+    raw: dict | None = field(default=None, repr=False, compare=False)
+
+    @classmethod
+    def from_reply(cls, reply: dict) -> DistractorVerdict:
+        data = reply if isinstance(reply, dict) else {}
+        labels: list[str] = []
+        for item in data.get("implausible_labels") or []:
+            lab = str(item).strip().upper()[:1]
+            if lab in _LETTERS and lab not in labels:
+                labels.append(lab)
+        return cls(
+            implausible_labels=labels, notes=str(data.get("notes", "")), raw=reply
+        )
+
+    def to_dict(self) -> dict:
+        return {"implausible_labels": self.implausible_labels, "notes": self.notes}
+
+
+def _distractor_payload(problem: dict) -> str:
+    stem = _strip_figure(problem.get("stem", ""))
+    choices = problem.get("choices", []) or []
+    correct = str(problem.get("correct", "")).strip().upper()[:1]
+    options = []
+    for i, lab in enumerate(_LETTERS):
+        if i >= len(choices):
+            break
+        mark = "  (correct)" if lab == correct else ""
+        options.append(f"  {lab}. {choices[i]}{mark}")
+    parts = [f"STEM:\n{stem}", "OPTIONS:\n" + "\n".join(options)]
+    rationales = []
+    for d in problem.get("distractors", []) or []:
+        if isinstance(d, dict) and d.get("label"):
+            tag = d.get("misconception", "") or d.get("misconception_tag", "")
+            rationales.append(f"  {d['label']}: {tag} - {d.get('rationale', '')}")
+    if rationales:
+        joined = "\n".join(rationales)
+        parts.append(f"AUTHOR INTENDED MISCONCEPTION PER WRONG OPTION:\n{joined}")
+    return "\n\n".join(parts)
 
 
 # --- the judge -------------------------------------------------------------
@@ -214,6 +371,35 @@ class Judge:
             on_unparseable={"gives_away": False},
         )
         return GiveawayVerdict.from_reply(reply)
+
+    def answer_key(self, problem: dict) -> AnswerKeyVerdict:
+        """Independently solve ``problem`` (blind to the stored key), then compare.
+
+        The payload never carries ``correct``; the judge returns its own letter and
+        this compares it to the stored key. A call that yields no valid letter
+        leaves ``predicted_letter`` blank, which the auditor reports as
+        inconclusive rather than a disagreement.
+        """
+        reply = self._verdict(
+            ANSWER_KEY_SYSTEM,
+            _answer_key_payload(problem),
+            on_error=lambda e: {"reasoning": f"judge call failed: {e}"},
+            on_unparseable={"reasoning": "unparseable judge reply"},
+        )
+        return AnswerKeyVerdict.from_reply(reply, problem.get("correct", ""))
+
+    def distractor_plausibility(self, problem: dict) -> DistractorVerdict:
+        """Judge whether ``problem``'s wrong options are tempting (a soft audit)."""
+        reply = self._verdict(
+            DISTRACTOR_SYSTEM,
+            _distractor_payload(problem),
+            on_error=lambda e: {
+                "implausible_labels": [],
+                "notes": f"judge call failed: {e}",
+            },
+            on_unparseable={"implausible_labels": []},
+        )
+        return DistractorVerdict.from_reply(reply)
 
     def _verdict(
         self,

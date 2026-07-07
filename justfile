@@ -170,6 +170,22 @@ gen-decompositions *args:
     fi
     out/pyenv/bin/python content/tools/generate_decompositions.py {{ args }}
 
+# Run the five on-demand AI content audits over the shipped bundle: an independent
+# answer-key solve, figure fidelity, decomposition leak, distractor plausibility,
+# and citation resolution. A pre-release / nightly scan, not a per-commit gate: it
+# exits nonzero only when a HARD audit (answer_key, figure_fidelity,
+# decomposition_leak) finds something. Sources content/.env for the key (needed by
+# the LLM audits); the deterministic audits run without one and the citation audit
+# skips when the private corpus index is absent. Run `just pgrep-ai-deps` once first
+# for the LLM audits. Example: `just audit-bundle-ai --only answer_key --limit 20`. macOS/Linux.
+[unix]
+audit-bundle-ai *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ ninja }} pyenv
+    if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
+    out/pyenv/bin/python content/tools/audit_bundle_ai.py {{ args }}
+
 # Reproduce the AI-eval methodology on a committed synthetic sample, offline, with no
 # API key and no private content/ tree, so anyone cloning the public repo gets the same
 # result. Mirrors the gold-set gate: headline metrics with bootstrap CIs, a keyword
