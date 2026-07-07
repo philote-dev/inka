@@ -7,8 +7,10 @@ The Home manifold is a qualitative map of the nine exam areas, and it is honest
 by construction. The nine areas always sit on the map, because the syllabus
 exists, but the terrain is the learner's real state, not decoration:
 
-- an area the learner has studied rises and lights up in amber (the Memory hue),
-  its height growing with the mean FSRS retrievability of its cards;
+- an area the learner has studied rises and lights up, tinted by how far it has
+  come: amber once memorized, blue once its problem performance is measured, and
+  lilac once that performance clears the ready bar. Its height grows with the mean
+  FSRS retrievability of its cards (or measured performance when unreviewed);
 - an area the diagnostic marked rusty, or whose Memory has dropped below a floor,
   opens a hole (a known gap);
 - a fresh collection shows the unlit syllabus, gentle and even, with no peaks,
@@ -26,6 +28,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from anki.pgrep.memory import memory_score
+from anki.pgrep.performance import performance_score
 
 if TYPE_CHECKING:
     from anki.collection import Collection
@@ -122,8 +125,15 @@ _LAYOUT: tuple[dict[str, Any], ...] = (
 _BOUNDARY: tuple[float, ...] = (1.12, 0.09, 2.6, 0.2, 0.55)
 _SPREAD = 0.42
 
-# Amber, the reserved Memory hue (matches SCORE_COLORS.memory in manifold.ts).
-_MEMORY_HUE = "235,203,139"
+# The reserved score hues (match SCORE_COLORS in manifold.ts). An area is tinted
+# by the furthest stage it has reached, so the map travels muted -> amber (memorized)
+# -> blue (practiced) -> lilac (ready) as the learner progresses.
+_MEMORY_HUE = "235,203,139"  # amber
+_PERFORMANCE_HUE = "129,161,193"  # blue
+_READINESS_HUE = "196,167,214"  # lilac
+# Performance at or above this reads as exam-ready (lilac); below it but measured,
+# practiced (blue). Mirrors READY_PERF in the manifold lab.
+_READY_PERF = 0.7
 
 # Terrain tuning. Every area shows a modest base so the syllabus reads even when
 # unlit; mastery adds up to ``_MASTERY_GAIN`` more height. A scored area below the
@@ -143,6 +153,17 @@ def _diagnostic_placement(col: Collection) -> dict[str, str]:
     return dict(stored) if isinstance(stored, dict) else {}
 
 
+def _region_hue(mem_point: float | None, perf_point: float | None) -> str:
+    """The glow hue for a lit area: the furthest progression stage it has reached.
+
+    Blue once problem performance is measured, lilac once that performance clears
+    the ready bar, amber for a memorized-only (or diagnostic-strong) area.
+    """
+    if perf_point is not None:
+        return _READINESS_HUE if float(perf_point) >= _READY_PERF else _PERFORMANCE_HUE
+    return _MEMORY_HUE
+
+
 def manifold_surface(col: Collection, deck_id: int | None = None) -> dict[str, Any]:
     """Build the Home manifold surface from live Memory and the diagnostic.
 
@@ -153,6 +174,11 @@ def manifold_surface(col: Collection, deck_id: int | None = None) -> dict[str, A
     """
     by_category = {
         e["category"]: e for e in memory_score(col, deck_id=deck_id)["by_topic"]
+    }
+    # Problem performance per area, so a practiced area travels from amber to blue,
+    # and a well-practiced one to lilac (the progression coloring; the L5.9 lab).
+    perf_by_category = {
+        e["category"]: e for e in performance_score(col, deck_id=deck_id)["by_topic"]
     }
     placement = _diagnostic_placement(col)
 
@@ -167,12 +193,19 @@ def manifold_surface(col: Collection, deck_id: int | None = None) -> dict[str, A
         x, y = area["x"], area["y"]
         entry = by_category.get(category, {})
         point = entry.get("point")
+        perf_point = perf_by_category.get(category, {}).get("point")
         place = placement.get(category)
 
+        # Height follows Memory first (the honest retrievability), then measured
+        # performance, then a diagnostic-strong half-lit rise. The hue then tints
+        # the lit area by the furthest stage it has reached.
         height = _BASE_HEIGHT
         lit = False
         if point is not None:
             height = _BASE_HEIGHT + _MASTERY_GAIN * float(point)
+            lit = True
+        elif perf_point is not None:
+            height = _BASE_HEIGHT + _MASTERY_GAIN * float(perf_point)
             lit = True
         elif place == "strong":
             height = _BASE_HEIGHT + _MASTERY_GAIN * _STRONG_WITHOUT_REVIEWS
@@ -180,7 +213,7 @@ def manifold_surface(col: Collection, deck_id: int | None = None) -> dict[str, A
 
         bumps.append({"x": x, "y": y, "h": round(height, 3), "s": _BASE_SPREAD})
         if lit:
-            glows.append({"x": x, "y": y, "c": _MEMORY_HUE})
+            glows.append({"x": x, "y": y, "c": _region_hue(point, perf_point)})
 
         known_weak = place == "rusty" or (
             point is not None and float(point) < _WEAK_MEMORY
