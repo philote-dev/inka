@@ -45,12 +45,22 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             performance: OverallScore;
             readiness: ReadinessScore;
         };
+        // Set by the "preview" action: the scores are a projection of the selected
+        // stage, not yet committed. injected/profile still report committed state.
+        preview?: boolean;
+        preview_profile?: string;
     }
 
+    // The displayed snapshot. It is either the committed status or a stage preview
+    // (status.preview === true). Selecting a stage shows its preview; Inject commits.
     let status: DemoStatus | null = null;
-    let profile = "strong";
+    let profile = "diagnostic";
     let busy = false;
     let error = "";
+
+    // Stage previews are deterministic, so cache each one after its first compute:
+    // stepping back and forth between stages is then instant and hits no backend.
+    const previewCache: Record<string, DemoStatus> = {};
 
     // Sync uses the same one-click flow the Settings surface uses: the URL is the
     // self-hosted server default and the account is the sync-server's default user
@@ -62,17 +72,59 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let syncing = false;
     let syncMsg = "";
 
-    async function refresh(action: "status" | "inject" | "clear"): Promise<void> {
+    async function call(
+        action: "status" | "preview" | "inject" | "clear",
+        profileKey = profile,
+    ): Promise<DemoStatus> {
+        return await pgrepCall<DemoStatus>("pgrepDemoProfile", {
+            action,
+            profile: profileKey,
+        });
+    }
+
+    // Select a stage and show its scores. If the stage is the one committed, its
+    // live status is the truth; otherwise show a (cached) preview projection.
+    async function selectProfile(key: string): Promise<void> {
+        profile = key;
+        error = "";
+        if (status && !status.preview && status.injected && status.profile === key) {
+            return;
+        }
+        if (previewCache[key]) {
+            status = previewCache[key];
+            return;
+        }
+        busy = true;
+        try {
+            const snapshot = await call("preview", key);
+            previewCache[key] = snapshot;
+            status = snapshot;
+        } catch (e) {
+            error = `${e}`;
+        } finally {
+            busy = false;
+        }
+    }
+
+    // Commit the selected stage so it can be synced. This is the only action that
+    // writes to the collection.
+    async function injectProfile(): Promise<void> {
         busy = true;
         error = "";
         try {
-            status = await pgrepCall<DemoStatus>("pgrepDemoProfile", {
-                action,
-                profile,
-            });
-            if (status.profile) {
-                profile = status.profile;
-            }
+            status = await call("inject");
+        } catch (e) {
+            error = `${e}`;
+        } finally {
+            busy = false;
+        }
+    }
+
+    async function clearDemo(): Promise<void> {
+        busy = true;
+        error = "";
+        try {
+            status = await call("clear");
         } catch (e) {
             error = `${e}`;
         } finally {
@@ -103,12 +155,41 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     $: profiles = status?.profiles ?? [
-        { key: "strong", label: "Strong learner" },
-        { key: "rusty", label: "Rusty learner" },
+        { key: "diagnostic", label: "Diagnostic" },
+        { key: "training", label: "Training" },
+        { key: "nearing_exam", label: "Nearing exam" },
     ];
 
-    onMount(() => {
-        void refresh("status");
+    function labelFor(key: string | null): string | null {
+        if (!key) {
+            return null;
+        }
+        return profiles.find((p) => p.key === key)?.label ?? key;
+    }
+
+    $: isPreview = status?.preview === true;
+    $: selectedLabel = labelFor(profile);
+    $: committedLabel = labelFor(status?.profile ?? null);
+
+    onMount(async () => {
+        busy = true;
+        try {
+            const snapshot = await call("status");
+            status = snapshot;
+            if (snapshot.injected && snapshot.profile) {
+                // Land on the committed stage so its live scores show on open.
+                profile = snapshot.profile;
+                return;
+            }
+        } catch (e) {
+            error = `${e}`;
+        } finally {
+            busy = false;
+        }
+        // Nothing committed: preview the default stage so scores are visible now.
+        if (!error) {
+            await selectProfile(profile);
+        }
     });
 </script>
 
@@ -116,39 +197,33 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     <header class="head">
         <h1>Demo control</h1>
         <p>
-            Inject a hypothetical study history so the three scores light up on demand,
-            then sync that account so the same data lands on the phone. This is a dev
-            tool for hands-on testing and the desktop to mobile sync demo. It is never
-            part of the shipped app, so real accounts still abstain until they earn a
-            score.
+            Pick a stage to preview the three scores, then Inject to commit that
+            hypothetical history and sync it so the same data lands on the phone. The
+            stages step from a day-one diagnostic to exam-ready. This is a dev tool for
+            hands-on testing and the desktop to mobile sync demo, never part of the
+            shipped app, so real accounts still abstain until they earn a score.
         </p>
     </header>
 
     <section class="controls">
         <div class="control-row">
-            <div class="seg" role="group" aria-label="Profile">
+            <div class="seg" role="group" aria-label="Stage">
                 {#each profiles as p (p.key)}
                     <button
                         class:on={profile === p.key}
                         disabled={busy}
-                        on:click={() => (profile = p.key)}
+                        on:click={() => selectProfile(p.key)}
                     >
                         {p.label}
                     </button>
                 {/each}
             </div>
-            <button
-                class="btn strong"
-                disabled={busy}
-                on:click={() => refresh("inject")}
-            >
-                Inject profile
+            <button class="btn strong" disabled={busy} on:click={injectProfile}>
+                Inject
             </button>
-            <button class="btn" disabled={busy} on:click={() => refresh("clear")}>
-                Clear demo
-            </button>
+            <button class="btn" disabled={busy} on:click={clearDemo}>Clear demo</button>
             {#if busy}
-                <span class="hint">Working...</span>
+                <span class="hint">Working…</span>
             {/if}
         </div>
         {#if error}
@@ -159,23 +234,32 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     {#if status}
         <section class="state">
             <div class="state-line">
-                {#if status.injected}
+                {#if isPreview}
+                    <span class="dot preview"></span>
+                    <span>
+                        Preview of {selectedLabel}, not committed.
+                        {#if status.profile}
+                            {committedLabel} is currently injected.
+                        {/if}
+                        Click <strong>Inject</strong> to commit and sync.
+                    </span>
+                {:else if status.injected}
                     <span class="dot on"></span>
                     <span>
-                        Injected ({status.profile}). {status.demo_cards} demo cards,
+                        Injected ({committedLabel}). {status.demo_cards} demo cards,
                         {status.demo_attempts} attempts.
                     </span>
                 {:else}
                     <span class="dot"></span>
                     <span>
-                        No demo injected. The scores below abstain, as a real account
-                        would.
+                        No demo injected. Pick a stage to preview its scores, then Inject
+                        to commit.
                     </span>
                 {/if}
             </div>
         </section>
 
-        <section class="scores">
+        <section class="scores" class:preview={isPreview}>
             <div class="score" style="--accent: var(--memory);">
                 <div class="score-label">Memory</div>
                 {#if status.scores.memory.abstain}
@@ -272,7 +356,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 {/if}
             </div>
             <ol class="steps">
-                <li>Inject a profile above, then Sync now to upload it.</li>
+                <li>Pick a stage and Inject it above, then Sync now to upload it.</li>
                 <li>
                     On the phone, open pgrep Settings, keep the same server and account,
                     and sync down.
@@ -412,6 +496,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         &.on {
             background: var(--readiness);
         }
+
+        // A previewed stage is not committed yet: a hollow ring, not a filled dot.
+        &.preview {
+            background: transparent;
+            border: 2px solid var(--readiness);
+        }
     }
 
     .scores {
@@ -428,6 +518,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         box-shadow: var(--shadow-card);
         padding: var(--space-3);
         border-top: 3px solid var(--accent);
+    }
+
+    // Previewed scores are a projection, not committed: dash the accent edge.
+    .scores.preview .score {
+        border-top-style: dashed;
     }
 
     .score-label {

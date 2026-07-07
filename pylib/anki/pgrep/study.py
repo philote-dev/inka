@@ -293,10 +293,13 @@ def commit_problem(
     ``ladder_depth == 0``). Tutor retries never count as clean first-try attempts.
 
     On a **hit** it returns ``{"correct": true, "correct_choice": ...}`` (the
-    answer the learner themselves picked). On a **miss** it never reveals the
-    parent answer; it returns the gated decomposition tutor to work
-    (``{"correct": false, "tutor": {...}}``) and re-queues the note so it recurs
-    later in this same session with the next numeric variant.
+    answer the learner themselves picked). On a **miss** of a problem that has a
+    gated decomposition it never reveals the parent answer; it returns the tutor
+    to work (``{"correct": false, "tutor": {...}}``) and re-queues the note so it
+    recurs later in this same session with the next numeric variant. On a **miss**
+    of a problem with no decomposition (nothing to gate, never re-queued) it
+    reveals the worked solution instead of stranding the learner
+    (``{"correct": false, "correct_choice": ..., "explanation": {...}}``).
 
     ``response_ms`` is the client-measured time from the item being shown to the
     commit. It rides into the attempt payload as the M5 data-quality signal so the
@@ -354,11 +357,20 @@ def commit_problem(
         # The answer is confirmed only because the learner picked it themselves.
         return {"correct": True, "correct_choice": correct_letter}
 
-    # Miss: the parent answer stays hidden. Open the decomposition tutor and, when
-    # the item has one, re-queue it to recur later this session with the next
-    # variant so the numbers differ and no result carries over.
+    # Miss. A problem that carries a gated decomposition opens the tutor with the
+    # parent answer withheld, and is re-queued to recur later this session with the
+    # next numeric variant (numbers differ, no result carries over). A problem with
+    # no decomposition has nothing to gate and is never re-queued, so hiding its
+    # answer would only strand the learner: reveal the worked solution and move on.
     tutor = decomposition.load_tutor(col, note_id, round_index)
-    if tutor["count"] > 0 and problems_session:
+    if tutor["count"] == 0:
+        return {
+            "correct": False,
+            "correct_choice": correct_letter,
+            "tutor": tutor,
+            "explanation": decomposition.parent_explanation(col, note_id),
+        }
+    if problems_session:
         session["queue"].append({"note_id": note_id, "round": round_index + 1})
     return {"correct": False, "tutor": tutor}
 

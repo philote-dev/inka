@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)']], displayMath: [['\\[', '\\]']] },
+      startup: { typeset: false }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-chtml.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; background: #FBFAF8; }
+    * { box-sizing: border-box; }
+    mjx-container { color: inherit; }
+    textarea::placeholder { color: #A5A199; }
+    a { color: #262624; }
+    a:hover { color: #000000; }
+  </style>
+</helmet>
+
+<div data-screen-label="Card sets browse light" style="width: 1440px; height: 900px; overflow: hidden; position: relative; background: #FBFAF8; color: #262624; font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; display: flex;">
+
+  <sc-if value="{{ railShell }}" hint-placeholder-val="{{ false }}">
+    <nav style="width: 216px; flex: 0 0 216px; border-right: 1px solid #E8E4DA; display: flex; flex-direction: column; padding: 28px 16px 24px 16px; position: relative; z-index: 40;">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 0 12px; margin-bottom: 36px;">
+        <svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-label="pgrep logo">
+          <path d="M16 3.5 C22 3.5 28.5 7.5 28.5 14 C28.5 19 25 21 24 24.5 C23 27.5 20 29 16 28.5 C10.5 28 6.5 25.5 4.5 21 C2.5 16.5 3.5 10.5 7.5 7 C10 4.8 13 3.5 16 3.5 Z" stroke="#262624" stroke-width="1.4"/>
+          <path d="M16 8 C20 8 24 10.5 24 14.5 C24 17.5 22 19 21.2 21.2 C20.5 23.2 18.5 24.3 16 24 C12.5 23.6 10 22 8.8 19 C7.6 16 8.2 12.5 10.6 10.3 C12.2 8.9 14 8 16 8 Z" stroke="#262624" stroke-width="1.4"/>
+          <path d="M16 12.5 C18.2 12.5 20 13.8 20 15.8 C20 17.3 19 18.1 18.6 19.2 C18.2 20.2 17.2 20.8 16 20.6 C14.2 20.4 13 19.5 12.4 18 C11.8 16.5 12.1 14.8 13.3 13.7 C14.1 13 15 12.5 16 12.5 Z" stroke="#262624" stroke-width="1.4"/>
+        </svg>
+        <span style="font-size: 15px; font-weight: 600; letter-spacing: -0.01em;">pgrep</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 2px;">
+        <a href="#" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; color: #6E6B64; text-decoration: none; font-size: 14px; font-weight: 500;" style-hover="color: #262624; background: #F5F2EC;">
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 L10 3.5 L17 9.5 V16 a1 1 0 0 1 -1 1 H4 a1 1 0 0 1 -1 -1 Z"/></svg>
+          Home
+        </a>
+        <a href="#" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; color: #6E6B64; text-decoration: none; font-size: 14px; font-weight: 500;" style-hover="color: #262624; background: #F5F2EC;">
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5 C4.5 3.3 7 3.3 9 4.5 V16 C7 14.8 4.5 14.8 2.5 16 Z"/><path d="M17.5 4.5 C15.5 3.3 13 3.3 11 4.5 V16 C13 14.8 15.5 14.8 17.5 16 Z"/></svg>
+          Study
+        </a>
+        <a href="#" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; color: #6E6B64; text-decoration: none; font-size: 14px; font-weight: 500;" style-hover="color: #262624; background: #F5F2EC;">
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5,14.5 7,10 10,13 17.5,5"/><polyline points="12.5,5 17.5,5 17.5,10"/></svg>
+          Progress
+        </a>
+        <a href="#" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; background: #FFFFFF; border: 1px solid #E8E4DA; color: #262624; text-decoration: none; font-size: 14px; font-weight: 500;">
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.5 h3 v13 h-3 z"/><path d="M8 3.5 h3 v13 h-3 z"/><path d="M13.2 4.2 l2.9 -0.8 3.4 12.6 -2.9 0.8 z"/></svg>
+          Library
+        </a>
+        <a href="#" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; color: #6E6B64; text-decoration: none; font-size: 14px; font-weight: 500;" style-hover="color: #262624; background: #F5F2EC;">
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="5.5" x2="17" y2="5.5"/><circle cx="7.5" cy="5.5" r="1.8" fill="#FBFAF8"/><line x1="3" y1="10" x2="17" y2="10"/><circle cx="12.5" cy="10" r="1.8" fill="#FBFAF8"/><line x1="3" y1="14.5" x2="17" y2="14.5"/><circle cx="6" cy="14.5" r="1.8" fill="#FBFAF8"/></svg>
+          Settings
+        </a>
+      </div>
+      <div style="margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 10px 12px; color: #6E6B64; font-size: 13px;">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5 C10 6 6 7 6 11 a4 4 0 0 0 8 0 C14 8.5 11.5 7.5 11.5 5 C11 5.8 10 6.2 10 2.5 Z"/><path d="M8.5 12.5 a1.5 1.8 0 0 0 3 0"/></svg>
+        <span style="font-variant-numeric: tabular-nums;">12 day streak</span>
+      </div>
+    </nav>
+  </sc-if>
+
+  <div style="position: relative; flex: 1 1 auto; min-width: 0; height: 100%; overflow: hidden;">
+
+    <!-- Wheel layer -->
+    <div style="position: absolute; inset: 0; display: flex; flex-direction: column; opacity: {{ wheelOpacity }}; transform: scale({{ wheelScale }}); pointer-events: {{ wheelPointer }}; transition: opacity 360ms cubic-bezier(0.32, 0.72, 0, 1), transform 360ms cubic-bezier(0.32, 0.72, 0, 1);">
+
+      <sc-if value="{{ immersive }}" hint-placeholder-val="{{ true }}">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 26px 44px 0 44px; position: relative; z-index: 2000;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-label="pgrep logo">
+              <path d="M16 3.5 C22 3.5 28.5 7.5 28.5 14 C28.5 19 25 21 24 24.5 C23 27.5 20 29 16 28.5 C10.5 28 6.5 25.5 4.5 21 C2.5 16.5 3.5 10.5 7.5 7 C10 4.8 13 3.5 16 3.5 Z" stroke="#262624" stroke-width="1.4"/>
+              <path d="M16 8 C20 8 24 10.5 24 14.5 C24 17.5 22 19 21.2 21.2 C20.5 23.2 18.5 24.3 16 24 C12.5 23.6 10 22 8.8 19 C7.6 16 8.2 12.5 10.6 10.3 C12.2 8.9 14 8 16 8 Z" stroke="#262624" stroke-width="1.4"/>
+              <path d="M16 12.5 C18.2 12.5 20 13.8 20 15.8 C20 17.3 19 18.1 18.6 19.2 C18.2 20.2 17.2 20.8 16 20.6 C14.2 20.4 13 19.5 12.4 18 C11.8 16.5 12.1 14.8 13.3 13.7 C14.1 13 15 12.5 16 12.5 Z" stroke="#262624" stroke-width="1.4"/>
+            </svg>
+            <span style="font-size: 15px; font-weight: 600; letter-spacing: -0.01em;">pgrep</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; color: #6E6B64; font-size: 13px;">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5 C10 6 6 7 6 11 a4 4 0 0 0 8 0 C14 8.5 11.5 7.5 11.5 5 C11 5.8 10 6.2 10 2.5 Z"/><path d="M8.5 12.5 a1.5 1.8 0 0 0 3 0"/></svg>
+            <span style="font-variant-numeric: tabular-nums;">12 day streak</span>
+          </div>
+        </div>
+      </sc-if>
+
+      <header style="padding: 26px 44px 0 44px; position: relative; z-index: 2000;">
+        <h1 style="margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -0.02em;">Your sets</h1>
+        <p style="margin: 8px 0 0 0; font-size: 14px; color: #6E6B64;">Eight topics, {{ totalCards }} cards. Scroll or drag, click the front set to open it.</p>
+      </header>
+
+      <!-- Stage -->
+      <div ref="{{ stageRef }}" onPointerDown="{{ stageDown }}" style="flex: 1 1 auto; position: relative; z-index: 1; touch-action: none; user-select: none; -webkit-user-select: none; perspective: 1500px; perspective-origin: 50% 45%; cursor: {{ stageCursor }};">
+        <sc-for list="{{ decks }}" as="d" hint-placeholder-count="3">
+          <div data-index="{{ $index }}" style="position: absolute; left: 50%; top: 52%; width: 300px; height: 380px; transform: translate(-50%, -50%); transform-style: preserve-3d; will-change: transform;">
+            <div role="button" aria-label="{{ d.aria }}" onClick="{{ d.click }}" onMouseEnter="{{ d.enter }}" onMouseLeave="{{ d.leave }}" style="position: relative; width: 100%; height: 100%; cursor: pointer; transform-style: preserve-3d;">
+              <div style="position: absolute; inset: 0; background: #F5F2EC; border: 1px solid #EAE6DC; border-radius: 16px; transform: {{ d.b2 }}; transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1);"></div>
+              <div style="position: absolute; inset: 0; background: #F5F2EC; border: 1px solid #EAE6DC; border-radius: 16px; transform: {{ d.b1 }}; transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1);"></div>
+              <div style="position: absolute; inset: 0; background: #F5F2EC; border: 1px solid #EAE6DC; border-radius: 16px; transform: {{ d.b0 }}; transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1);"></div>
+              <div style="position: absolute; inset: 0; background: #FFFFFF; border: 1px solid #E8E4DA; border-radius: 16px; padding: 22px 24px; display: flex; flex-direction: column; box-shadow: 0 1px 2px rgba(38, 38, 36, 0.06), 0 4px 16px rgba(38, 38, 36, 0.04); transition: border-color 240ms cubic-bezier(0.32, 0.72, 0, 1);" style-hover="border-color: #A5A199;">
+                <span style="font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: #6E6B64;">{{ d.name }}</span>
+                <div style="flex: 1 1 auto; display: flex; align-items: center;">
+                  <p style="margin: 0; font-size: 15px; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden;">{{ d.preview }}</p>
+                </div>
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A5A199; font-variant-numeric: tabular-nums;">{{ d.count }}</span>
+                  <sc-if value="{{ d.isSel }}" hint-placeholder-val="{{ false }}">
+                    <span style="font-size: 12px; color: #A5A199;">Click to open</span>
+                  </sc-if>
+                </div>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+      <!-- Dots -->
+      <div style="display: flex; align-items: center; justify-content: center; gap: 12px; padding: 0 0 30px 0; position: relative; z-index: 2000;">
+        <sc-for list="{{ dots }}" as="dot" hint-placeholder-count="8">
+          <button aria-label="{{ dot.label }}" onClick="{{ dot.go }}" style="width: 20px; height: 20px; padding: 0; background: none; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+            <span style="width: 6px; height: 6px; border-radius: 999px; background: {{ dot.bg }}; transform: scale({{ dot.s }}); transition: background 240ms cubic-bezier(0.32, 0.72, 0, 1), transform 240ms cubic-bezier(0.32, 0.72, 0, 1); display: block;"></span>
+          </button>
+        </sc-for>
+      </div>
+    </div>
+
+    <!-- Opened set grid -->
+    <sc-if value="{{ open }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Set grid" style="position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column; pointer-events: {{ gridPointer }};">
+        <div style="display: flex; align-items: center; gap: 20px; padding: 30px 64px 22px 64px; opacity: {{ gridChromeOpacity }}; transition: opacity 220ms ease;">
+          <button onClick="{{ closeGrid }}" style="display: flex; align-items: center; gap: 8px; background: none; border: 1px solid #E8E4DA; border-radius: 10px; padding: 9px 14px 9px 11px; color: #6E6B64; font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; transition: border-color 240ms cubic-bezier(0.32, 0.72, 0, 1), color 240ms cubic-bezier(0.32, 0.72, 0, 1);" style-hover="border-color: #A5A199; color: #262624;">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="13" y1="8" x2="3" y2="8"/><polyline points="7,4 3,8 7,12"/></svg>
+            All sets
+          </button>
+          <div style="flex: 1 1 auto; min-width: 0;">
+            <h1 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em;">{{ openName }}</h1>
+            <p style="margin: 5px 0 0 0; font-size: 13px; color: #6E6B64;"><span style="font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums;">{{ openCount }}</span> cards. Esc returns you to your sets.</p>
+          </div>
+          <button style="background: #262624; color: #FBFAF8; border: none; border-radius: 10px; padding: 11px 22px; font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 240ms cubic-bezier(0.32, 0.72, 0, 1);" style-hover="background: #000000;">Study this set</button>
+        </div>
+        <div style="flex: 1 1 auto; overflow-y: auto; padding: 6px 64px 44px 64px;">
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; width: 100%; max-width: 1240px; margin: 0 auto;">
+            <sc-for list="{{ openCards }}" as="c" hint-placeholder-count="8">
+              <article data-gi="{{ $index }}" style="background: #FFFFFF; border: 1px solid #E8E4DA; border-radius: 14px; padding: 18px 20px; min-height: 136px; box-shadow: 0 1px 2px rgba(38, 38, 36, 0.06); will-change: transform;" style-hover="border-color: #A5A199;">
+                <p style="margin: 0; font-size: 14px; line-height: 1.6;">{{ c.q }}</p>
+              </article>
+            </sc-for>
+            <sc-if value="{{ notAdding }}" hint-placeholder-val="{{ false }}">
+              <button data-gi="99" onClick="{{ startAdd }}" style="background: none; border: 1px dashed #E8E4DA; border-radius: 14px; min-height: 136px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #6E6B64; font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; transition: border-color 240ms cubic-bezier(0.32, 0.72, 0, 1), color 240ms cubic-bezier(0.32, 0.72, 0, 1); will-change: transform;" style-hover="border-color: #A5A199; color: #262624;">
+                <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="8" y1="2.5" x2="8" y2="13.5"/><line x1="2.5" y1="8" x2="13.5" y2="8"/></svg>
+                Add a card
+              </button>
+            </sc-if>
+            <sc-if value="{{ adding }}" hint-placeholder-val="{{ false }}">
+              <div style="background: #FFFFFF; border: 1px solid #E8E4DA; border-radius: 14px; padding: 12px; min-height: 136px; display: flex; flex-direction: column; gap: 8px;">
+                <textarea data-add-front rows="2" placeholder="Front. Write it in your own words." style="width: 100%; background: #F5F2EC; border: 1px solid #E8E4DA; border-radius: 8px; padding: 9px 11px; font-family: 'Inter', sans-serif; font-size: 13px; line-height: 1.5; color: #262624; resize: none; outline: none;" style-focus="border-color: #262624;"></textarea>
+                <textarea data-add-back rows="1" placeholder="Back. The answer, stated plainly." style="width: 100%; background: #F5F2EC; border: 1px solid #E8E4DA; border-radius: 8px; padding: 9px 11px; font-family: 'Inter', sans-serif; font-size: 13px; line-height: 1.5; color: #262624; resize: none; outline: none;" style-focus="border-color: #262624;"></textarea>
+                <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: auto;">
+                  <button onClick="{{ cancelAdd }}" style="background: none; border: none; border-radius: 8px; padding: 8px 12px; color: #6E6B64; font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; transition: color 240ms cubic-bezier(0.32, 0.72, 0, 1);" style-hover="color: #262624;">Cancel</button>
+                  <button onClick="{{ submitAdd }}" style="background: none; border: 1px solid #A5A199; border-radius: 8px; padding: 8px 14px; color: #262624; font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; transition: border-color 240ms cubic-bezier(0.32, 0.72, 0, 1);" style-hover="border-color: #262624;">Add card</button>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: 1440, &quot;height&quot;: 900}, &quot;shell&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;options&quot;: [&quot;Immersive&quot;, &quot;App rail&quot;], &quot;default&quot;: &quot;Immersive&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;Layout&quot;}, &quot;wheelFeel&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;options&quot;: [&quot;Ferris&quot;, &quot;Shallow&quot;, &quot;Deep&quot;], &quot;default&quot;: &quot;Ferris&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;Wheel&quot;}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.SETS = [
+      { name: 'Classical Mechanics', cards: [
+        'A bead slides on a frictionless hoop spinning about a vertical diameter. Where are the equilibria?',
+        'Write the Lagrangian for a simple pendulum and derive its equation of motion.',
+        'A coordinate is missing from the Lagrangian. What is conserved?',
+        'Two masses collide elastically in one dimension. Which quantities survive the collision?',
+        'Why does a spinning top precess instead of falling over?',
+        'State Kepler\u2019s second law and name the conserved quantity behind it.',
+        'What does the effective potential \\(V_{\\mathrm{eff}}(r)\\) add to the true potential?',
+        'When is mechanical energy conserved while momentum is not?',
+        'A uniform rod pivots about one end. What is its moment of inertia?',
+        'For small oscillations, how do you read the frequency off the potential?',
+        'Two identical pendulums couple through a weak spring. What happens to the normal modes?',
+        'In a rotating frame, which fictitious forces act on a moving mass?'
+      ]},
+      { name: 'Electromagnetism', cards: [
+        'Relate the flux of \\(\\mathbf{E}\\) through a closed surface to the charge it encloses.',
+        'Why can electrostatic field lines never cross?',
+        'A point charge sits above a grounded plane. What replaces the plane in the image solution?',
+        'What boundary conditions does \\(\\mathbf{E}\\) satisfy at a conductor\u2019s surface?',
+        'Derive the field inside a uniformly charged sphere.',
+        'What does Lenz\u2019s law say about the sign of an induced EMF?',
+        'Write the energy density stored in electric and magnetic fields.',
+        'Why does a charged capacitor pull a dielectric slab inward?',
+        'What does the Poynting vector measure, and in which direction does it point?',
+        'An RLC circuit is driven at resonance. What is the phase between current and drive?',
+        'The field of an ideal dipole falls off as which power of \\(r\\)?',
+        'A wire loop moves through a uniform field. Why is no EMF induced?'
+      ]},
+      { name: 'Quantum Mechanics', cards: [
+        'Why does a particle in a box have nonzero energy in its ground state?',
+        'What does \\([\\hat{x}, \\hat{p}] = i\\hbar\\) forbid you from measuring?',
+        'How do ladder operators act on harmonic oscillator states?',
+        'Why does tunneling probability fall off exponentially with barrier width?',
+        'Write the first order energy shift from a perturbation \\(H\u2019\\).',
+        'Which symmetry forces the accidental degeneracy in hydrogen?',
+        'A spin one half sits in a magnetic field. What precesses, and at what rate?',
+        'When do two operators share a complete eigenbasis?',
+        'What probability does the Born rule assign to a measurement outcome?',
+        'State the electric dipole selection rules.',
+        'Why must the wavefunction of two identical fermions be antisymmetric?'
+      ]},
+      { name: 'Thermo and Stat Mech', cards: [
+        'Why is entropy extensive while temperature is not?',
+        'State equipartition and where it fails at low temperature.',
+        'What efficiency does a Carnot engine reach between two reservoirs?',
+        'Write the partition function for a two level system.',
+        'Relate the Helmholtz free energy to the partition function.',
+        'A gas expands freely into vacuum. Why does entropy rise with no heat flow?',
+        'Read a Maxwell relation off \\(dF = -S\\,dT - p\\,dV\\).',
+        'Blackbody energy density scales as which power of temperature?',
+        'What separates Bose Einstein from Fermi Dirac statistics?',
+        'How does the heat capacity of a Debye solid behave at low temperature?'
+      ]},
+      { name: 'Optics and Waves', cards: [
+        'Where do the maxima land in two slit interference?',
+        'What does a quarter wave plate do to linearly polarized light?',
+        'State the Rayleigh criterion for resolving two point sources.',
+        'Why is the sky blue while the sunset is red?',
+        'Light reflects off a thin film of oil on water. Which reflection picks up a phase flip?',
+        'Group velocity or phase velocity. Which one carries the signal?',
+        'What happens to reflected light at Brewster\u2019s angle?',
+        'A string is fixed at both ends. Which wavelengths can stand on it?',
+        'Write the Doppler shift for a source moving toward you.',
+        'Where do the minima of single slit diffraction fall?'
+      ]},
+      { name: 'Atomic Physics', cards: [
+        'Bohr energy levels scale as which power of \\(n\\)?',
+        'Which interactions produce the fine structure splitting?',
+        'What does the Zeeman effect reveal about angular momentum?',
+        'State the selection rule on \\(\\Delta \\ell\\) for dipole transitions.',
+        'Why does a Stern Gerlach beam split into exactly two?',
+        'Unpack the term symbol \\(^{2}P_{3/2}\\).',
+        'What produces the K alpha line in an X ray spectrum?',
+        'Which degeneracy does the Lamb shift break?',
+        'What couples to what in hyperfine splitting?',
+        'What is the ionization energy of hydrogen from its ground state?'
+      ]},
+      { name: 'Special Relativity', cards: [
+        'Why is simultaneity frame dependent?',
+        'Time dilation. Which clock runs slow, and who says so?',
+        'What stays fixed in the invariant interval between frames?',
+        'Why does Newton\u2019s form of momentum fail near \\(c\\)?',
+        'Why can relativistic velocity addition never exceed \\(c\\)?',
+        'What does \\(E^{2} = (pc)^{2} + (mc^{2})^{2}\\) give for a photon?',
+        'Length contraction. What exactly is measured, and how?',
+        'What breaks the symmetry between the twins?',
+        'Apply four momentum conservation to a particle decaying at rest.'
+      ]},
+      { name: 'Laboratory Methods', cards: [
+        'Propagate the uncertainty through \\(f = x / y\\).',
+        'You count \\(N\\) events. What is the Poisson error on the count?',
+        'What does a lock in amplifier reject, and how?',
+        'Chi squared per degree of freedom sits near one. What does that mean?',
+        'Systematic or statistical error. Which one averages away?',
+        'Why does a 50 ohm termination matter on an oscilloscope input?',
+        'When is a straight line on a log log plot the right fit?',
+        'What kills 60 Hz pickup in a low level measurement?',
+        'How many significant figures survive subtracting two nearly equal numbers?'
+      ]}
+    ];
+    this.state = { sel: 2, hovered: -1, open: null, closing: false, dragging: false, adding: false };
+    this._prevAdding = false;
+    this.T = 2; this.A = 2; this.spread = 0.04;
+    this.drag = null; this.movedFlag = false; this._prevOpen = null; this._stageBound = null;
+    this.onWheelInput = this.onWheelInput.bind(this);
+    this.onMove = this.onMove.bind(this);
+    this.onUp = this.onUp.bind(this);
+    this.onKey = this.onKey.bind(this);
+    this.tick = this.tick.bind(this);
+    this.stageRef = React.createRef();
+  }
+
+  deckNodes() {
+    const st = this.stageRef.current;
+    if (!st) return [];
+    const map = [];
+    st.querySelectorAll('[data-index]').forEach((el) => { map[+el.dataset.index] = el; });
+    return map;
+  }
+
+  deckEl(i) { return this.deckNodes()[i] || null; }
+
+  frameEl() {
+    const st = this.stageRef.current;
+    return st ? st.closest('[data-screen-label]') : null;
+  }
+
+  gridEls() {
+    const frame = this.frameEl();
+    if (!frame) return [];
+    return Array.from(frame.querySelectorAll('[data-gi]')).sort((a, b) => +a.dataset.gi - +b.dataset.gi);
+  }
+
+  addCard() {
+    const frame = this.frameEl();
+    const f = frame ? frame.querySelector('[data-add-front]') : null;
+    const front = f ? f.value.trim() : '';
+    if (!front) { if (f) f.focus(); return; }
+    this.SETS[this.state.open].cards.push(front);
+    this.setState({ adding: false }, () => this.typeset());
+  }
+
+  bindStage() {
+    const el = this.stageRef.current;
+    if (el && el !== this._stageBound) {
+      if (this._stageBound) this._stageBound.removeEventListener('wheel', this.onWheelInput);
+      el.addEventListener('wheel', this.onWheelInput, { passive: false });
+      this._stageBound = el;
+    }
+  }
+
+  feel() {
+    const f = this.props.wheelFeel ?? 'Ferris';
+    const map = {
+      Ferris:  { R: 640, sp: 34, dim: 0.52, minO: 0, maxPhi: 76, push: 260, fwd: 70, rotK: 0.45 },
+      Shallow: { R: 920, sp: 23, dim: 0.38, minO: 0, maxPhi: 64, push: 180, fwd: 50, rotK: 0.52 },
+      Deep:    { R: 500, sp: 45, dim: 0.66, minO: 0, maxPhi: 86, push: 350, fwd: 100, rotK: 0.42 }
+    };
+    return map[f] || map.Ferris;
+  }
+
+  clampT(v) { return v; }
+  snapT() { this.T = Math.round(this.T); }
+  wrapOff(v) { const n = this.SETS.length; let o = ((v % n) + n) % n; if (o > n / 2) o -= n; return o; }
+  selIndex() { const n = this.SETS.length; return ((Math.round(this.T) % n) + n) % n; }
+
+  componentDidMount() {
+    window.addEventListener('pointermove', this.onMove);
+    window.addEventListener('pointerup', this.onUp);
+    window.addEventListener('keydown', this.onKey);
+    this.bindStage();
+    this.raf = requestAnimationFrame(this.tick);
+    this.typeset();
+  }
+
+  componentWillUnmount() {
+    cancelAnimationFrame(this.raf);
+    window.removeEventListener('pointermove', this.onMove);
+    window.removeEventListener('pointerup', this.onUp);
+    window.removeEventListener('keydown', this.onKey);
+    if (this._stageBound) this._stageBound.removeEventListener('wheel', this.onWheelInput);
+    clearTimeout(this.wheelTimer); clearTimeout(this.closeTimer);
+  }
+
+  componentDidUpdate() {
+    this.bindStage();
+    const o = this.state.open;
+    if (o !== this._prevOpen) {
+      this._prevOpen = o;
+      if (o != null && !this.state.closing) {
+        this.typeset();
+        this.flyIn();
+      }
+    }
+    if (this.state.adding !== this._prevAdding) {
+      this._prevAdding = this.state.adding;
+      if (this.state.adding) {
+        const frame = this.frameEl();
+        const f = frame ? frame.querySelector('[data-add-front]') : null;
+        if (f) f.focus();
+      }
+    }
+  }
+
+  typeset() {
+    if (window.MathJax && window.MathJax.typesetPromise) {
+      window.MathJax.typesetPromise().catch(() => {});
+    } else {
+      clearTimeout(this.mjTimer);
+      this.mjTimer = setTimeout(() => this.typeset(), 300);
+    }
+  }
+
+  tick() {
+    const cfg = this.feel();
+    this.A += (this.T - this.A) * (this.drag ? 0.4 : 0.16);
+    this.spread += (1 - this.spread) * 0.09;
+    const spRad = cfg.sp * Math.PI / 180;
+    const maxRad = cfg.maxPhi * Math.PI / 180;
+    const deckEls = this.deckNodes();
+    for (let i = 0; i < this.SETS.length; i++) {
+      const el = deckEls[i];
+      if (!el) continue;
+      const off = this.wrapOff(i - this.A);
+      let phi = off * spRad * this.spread;
+      phi = Math.max(-maxRad, Math.min(maxRad, phi));
+      const d = Math.abs(off) * this.spread;
+      const dx = cfg.R * Math.sin(phi);
+      const dz = cfg.R * (Math.cos(phi) - 1) - cfg.push * d + cfg.fwd * Math.sin(Math.PI * Math.min(d, 1));
+      const rot = phi * cfg.rotK * 180 / Math.PI;
+      const op = Math.max(cfg.minO, Math.min(1, 1 - cfg.dim * (d - 1)));
+      el.style.transform = 'translate(-50%, -50%) translate3d(' + dx.toFixed(2) + 'px, 0px, ' + dz.toFixed(2) + 'px) rotateY(' + rot.toFixed(3) + 'deg)';
+      el.style.zIndex = String(1000 - Math.round(d * 100));
+      el.style.opacity = op.toFixed(3);
+      el.style.pointerEvents = op < 0.08 ? 'none' : 'auto';
+    }
+    const sel = this.selIndex();
+    if (sel !== this.state.sel) this.setState({ sel });
+    this.raf = requestAnimationFrame(this.tick);
+  }
+
+  onWheelInput(e) {
+    if (this.state.open != null) return;
+    e.preventDefault();
+    this.T = this.clampT(this.T + (e.deltaY + e.deltaX) * 0.0032);
+    clearTimeout(this.wheelTimer);
+    this.wheelTimer = setTimeout(() => this.snapT(), 150);
+  }
+
+  pxPerIndex() { const cfg = this.feel(); return cfg.R * cfg.sp * Math.PI / 180; }
+
+  onMove(e) {
+    if (!this.drag) return;
+    const dx = e.clientX - this.drag.x;
+    if (Math.abs(dx) > 6) { this.drag.moved = true; this.movedFlag = true; }
+    this.T = this.clampT(this.drag.T - dx / this.pxPerIndex());
+  }
+
+  onUp() {
+    if (!this.drag) return;
+    this.drag = null;
+    this.snapT();
+    this.setState({ dragging: false });
+    setTimeout(() => { this.movedFlag = false; }, 80);
+  }
+
+  onKey(e) {
+    if (e.key === 'Escape' && this.state.open != null) {
+      if (this.state.adding) this.setState({ adding: false });
+      else this.close();
+      return;
+    }
+    if (this.state.open != null) return;
+    if (e.key === 'ArrowRight') { this.T = Math.round(this.T) + 1; }
+    else if (e.key === 'ArrowLeft') { this.T = Math.round(this.T) - 1; }
+    else if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'A') { this.openSet(this.state.sel); }
+  }
+
+  deckClick(i) {
+    if (this.movedFlag || this.state.open != null) return;
+    if (i !== this.state.sel) { this.T = Math.round(this.T) + this.wrapOff(i - this.state.sel); }
+    else { this.openSet(i); }
+  }
+
+  openSet(k) {
+    if (this.state.open != null) return;
+    this.setState({ open: k, closing: false, adding: false });
+  }
+
+  deckCenter() {
+    const el = this.deckEl(this.state.open != null ? this.state.open : this.state.sel);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
+
+  flyIn() {
+    const c = this.deckCenter();
+    if (!c) return;
+    const els = this.gridEls();
+    els.forEach((el, i) => {
+      const r = el.getBoundingClientRect();
+      const dx = c.x - (r.left + r.width / 2);
+      const dy = c.y - (r.top + r.height / 2);
+      el.style.transition = 'none';
+      el.style.transform = 'translate(' + dx.toFixed(1) + 'px, ' + dy.toFixed(1) + 'px) rotate(' + (((i * 37) % 9 - 4) * 1.6).toFixed(1) + 'deg) scale(0.82)';
+      el.style.opacity = '0';
+    });
+    void (els[0] && els[0].offsetHeight);
+    els.forEach((el, i) => {
+      el.style.transition = 'transform 460ms cubic-bezier(0.32, 0.72, 0, 1) ' + (i * 16) + 'ms, opacity 300ms ease ' + (i * 16 + 40) + 'ms';
+      el.style.transform = 'none';
+      el.style.opacity = '1';
+    });
+  }
+
+  close() {
+    if (this.state.open == null || this.state.closing) return;
+    this.setState({ closing: true }, () => {
+      const c = this.deckCenter();
+      const els = this.gridEls();
+      const n = els.length;
+      els.forEach((el, i) => {
+        const r = el.getBoundingClientRect();
+        const dx = c ? c.x - (r.left + r.width / 2) : 0;
+        const dy = c ? c.y - (r.top + r.height / 2) : 0;
+        const delay = (n - 1 - i) * 10;
+        el.style.transition = 'transform 420ms cubic-bezier(0.32, 0.72, 0, 1) ' + delay + 'ms, opacity 240ms ease ' + (delay + 140) + 'ms';
+        el.style.transform = 'translate(' + dx.toFixed(1) + 'px, ' + dy.toFixed(1) + 'px) rotate(' + (((i * 29) % 7 - 3) * 1.8).toFixed(1) + 'deg) scale(0.8)';
+        el.style.opacity = '0';
+      });
+      clearTimeout(this.closeTimer);
+      this.closeTimer = setTimeout(() => this.setState({ open: null, closing: false, adding: false }), 420 + (n - 1) * 10 + 100);
+    });
+  }
+
+  renderVals() {
+    const { sel, hovered, open, closing, dragging, adding } = this.state;
+    const base = ['translateY(-5px) translateZ(-1px)', 'translateY(-10px) translateZ(-2px)', 'translateY(-15px) translateZ(-3px)'];
+    const peek = ['translateY(-12px) translateZ(-1px)', 'translateY(-23px) translateZ(-2px)', 'translateY(-34px) translateZ(-3px)'];
+    const decks = this.SETS.map((s, i) => {
+      const t = (hovered === i && sel === i && open == null) ? peek : base;
+      return {
+        name: s.name,
+        preview: s.cards[0],
+        count: s.cards.length + ' cards',
+        aria: s.name + ', ' + s.cards.length + ' cards',
+        isSel: i === sel && open == null,
+        b0: t[0], b1: t[1], b2: t[2],
+        click: () => this.deckClick(i),
+        enter: () => this.setState({ hovered: i }),
+        leave: () => this.setState({ hovered: -1 })
+      };
+    });
+    const dots = this.SETS.map((s, i) => ({
+      bg: i === sel ? '#262624' : '#A5A199',
+      s: i === sel ? '1.3' : '1',
+      label: 'Go to ' + s.name,
+      go: () => { if (this.state.open == null) this.T = Math.round(this.T) + this.wrapOff(i - this.selIndex()); }
+    }));
+    const openSet = open != null ? this.SETS[open] : null;
+    return {
+      railShell: (this.props.shell ?? 'Immersive') === 'App rail',
+      immersive: (this.props.shell ?? 'Immersive') !== 'App rail',
+      totalCards: this.SETS.reduce((a, s) => a + s.cards.length, 0),
+      decks, dots,
+      stageRef: this.stageRef,
+      stageDown: (e) => { if (this.state.open != null) return; this.drag = { x: e.clientX, T: this.T, moved: false }; this.setState({ dragging: true }); },
+      stageCursor: dragging ? 'grabbing' : 'grab',
+      wheelOpacity: open != null && !closing ? 0 : 1,
+      wheelScale: open != null && !closing ? 0.965 : 1,
+      wheelPointer: open != null ? 'none' : 'auto',
+      open: open != null,
+      openName: openSet ? openSet.name : '',
+      openCount: openSet ? openSet.cards.length : 0,
+      openCards: openSet ? openSet.cards.map((q) => ({ q })) : [],
+      gridChromeOpacity: closing ? 0 : 1,
+      gridPointer: closing ? 'none' : 'auto',
+      closeGrid: () => this.close(),
+      adding: open != null && adding,
+      notAdding: open != null && !adding,
+      startAdd: () => this.setState({ adding: true }),
+      cancelAdd: () => this.setState({ adding: false }),
+      submitAdd: () => this.addCard()
+    };
+  }
+}
+</script>
+</body>
+</html>

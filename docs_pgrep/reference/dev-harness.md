@@ -187,19 +187,22 @@ diagrams on Progress, which come from embedded offline evaluations rather than
 user data. That is expected.
 
 The module is `pylib/anki/pgrep/demo_profile.py`
-(`inject_demo_profile`, `clear_demo_profile`, `demo_status`), driven by the
-dev-only bridge handler `pgrep_demo_profile` in `qt/aqt/pgrep.py`. Every reviewed
-card carries the `pgrep::demo` tag and every attempt carries a `demo` payload
-flag, so injection is idempotent and `Clear demo` removes exactly the demo data.
+(`inject_demo_profile`, `clear_demo_profile`, `demo_status`, and
+`preview_demo_profile`, which projects a stage's scores without committing),
+driven by the dev-only bridge handler `pgrep_demo_profile` in `qt/aqt/pgrep.py`.
+Every reviewed card carries the `pgrep::demo` tag and every attempt carries a
+`demo` payload flag, so injection is idempotent and `Clear demo` removes exactly
+the demo data. There are three stages, a day-one to exam-ready progression:
+`diagnostic`, `training`, and `nearing_exam` (the default).
 
 ### Inject on the desktop
 
 The dev lab (`/pgrep-lab`, opened from **Tools -> pgrep: open dev lab** in an
-`ANKIDEV` build) is split into two groups so it reads clearly on camera: **Design
-decisions** (the manifold, component gallery, home layouts, flashcard face, and
-math sandboxes, which show how the look and behavior were chosen) and **Demo
-control** (the injector at `/pgrep-lab/demo`). It is a dev surface with no link
-from the shipped Home / Study / Progress flow, so reach it one of two ways.
+`ANKIDEV` build) uses a single top switcher so it reads clearly on camera:
+**Home**, **Design** (the manifold, gallery, home layouts, flashcard face, and
+math sandboxes, which show how the look and behavior were chosen), and **Demo**
+(the injector at `/pgrep-lab/demo`). It is a dev surface with no link from the
+shipped Home / Study / Progress flow, so reach it one of two ways.
 
 - Inside the running app (no flags). Run `just run`. The `just run` log prints a
   remote debugging URL (for example `http://127.0.0.1:8080`, the Qt debug port,
@@ -214,10 +217,11 @@ from the shipped Home / Study / Progress flow, so reach it one of two ways.
 
 Then the click path is the same:
 
-1. Pick **Strong learner** or **Rusty learner**, then click **Inject profile**.
-   The three score cards switch from "Abstains" to real numbers and the coverage
-   bar clears the 70% Readiness gate. Both profiles clear every gate; the strong
-   learner just projects a higher score.
+1. Pick a stage (**Diagnostic**, **Training**, or **Nearing exam**). The three
+   score cards preview that stage immediately, with a dashed accent to mark them
+   as a projection. Then click **Inject** to commit it: the accent goes solid and
+   the coverage bar clears the 70% Readiness gate. Every stage clears every gate;
+   the later stages just project higher scores.
 2. Open the real **Progress** surface to confirm Memory, Performance, and
    Readiness now render live scores with ranges. **Clear demo** on the lab page
    removes it again.
@@ -237,8 +241,8 @@ just sync down on each device:
 1. Start the server: `just sync-server` (serves `pgrep:pgrep` on `0.0.0.0:8090`).
 2. `just pgrep-demo-sync`. This seeds the real cards and problems, injects the
    made-up stats and a couple of settings, uploads it as `pgrep`, then verifies a
-   second engine downloads it and recomputes the same scores. Pass a profile with
-   `PGREP_DEMO_PROFILE=rusty just pgrep-demo-sync`.
+   second engine downloads it and recomputes the same scores. Pass a stage with
+   `PGREP_DEMO_PROFILE=diagnostic just pgrep-demo-sync`.
 3. Desktop: pgrep **Settings** -> **Sync** (server and account are pre-filled).
 4. iOS: `just ios-run`, then **Settings** -> **Sync** (also pre-filled). The
    Simulator shares the Mac network, so `127.0.0.1:8090` works.
@@ -249,9 +253,9 @@ on the shared engine from the synced account.
 **In-app path (shows the injection live).** If you want the injection on camera:
 
 1. Start the server: `just sync-server`.
-2. On the desktop, open **Demo control** (`/pgrep-lab/demo` from the lab hub),
-   pick a profile, **Inject profile**, then **Sync now** right there on the page
-   (it reuses the same sign-in as Settings). The three score cards switch from
+2. On the desktop, open **Demo** (`/pgrep-lab/demo` from the lab hub),
+   pick a stage (its scores preview), **Inject**, then **Sync now** right there on
+   the page (it reuses the same sign-in as Settings). The three score cards switch from
    "Abstains" to real numbers first.
 3. On iOS: `just ios-run`, open **Settings**, and Sync. Record it with
    `xcrun simctl io booted recordVideo pgrep-ios.mp4`.

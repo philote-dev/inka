@@ -11,6 +11,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     Progress. Mirrors the iOS CompactScoreCard (mobile/ios/PgrepStudy).
 -->
 <script lang="ts">
+    import MemoryGlyph from "./MemoryGlyph.svelte";
+
     export let kind: "memory" | "performance" | "readiness" = "memory";
     export let label: string | undefined = undefined;
     export let value: number | undefined = undefined;
@@ -43,9 +45,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             style="color: {accent}"
         >
             {#if kind === "memory"}
-                <polyline points="3,10 10,6.5 17,10" />
-                <polyline points="3,13.5 10,10 17,13.5" />
-                <polygon points="10,3 14,5.2 10,7.4 6,5.2" />
+                <MemoryGlyph />
             {:else if kind === "performance"}
                 <circle cx="10" cy="10" r="7" />
                 <circle cx="10" cy="10" r="3.5" />

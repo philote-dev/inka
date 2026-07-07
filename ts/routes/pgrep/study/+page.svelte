@@ -28,6 +28,7 @@ The data flow through pgrepCall is unchanged.
     import GradeBar from "$lib/components/GradeBar.svelte";
     import MemoryGlyph from "$lib/components/MemoryGlyph.svelte";
     import SessionSynthesis from "$lib/components/SessionSynthesis.svelte";
+    import SolutionReveal from "$lib/components/SolutionReveal.svelte";
     import StudyFrame from "$lib/components/StudyFrame.svelte";
     import SubproblemCard from "$lib/components/SubproblemCard.svelte";
     import { renderMath } from "$lib/pgrep/math";
@@ -84,10 +85,25 @@ The data flow through pgrepCall is unchanged.
         subproblems: Subproblem[];
     }
 
+    // A missed Problem with no decomposition reveals its worked solution instead
+    // of a gated tutor: the correct choice (shown by the ChoiceList) plus the
+    // stored solution steps, each a sub-goal and its rubric.
+    interface SolutionStep {
+        subgoal: string;
+        rubric: string;
+    }
+
+    interface Explanation {
+        correct_choice: string;
+        correct_text: string;
+        steps: SolutionStep[];
+    }
+
     interface CommitResult {
         correct: boolean;
         correct_choice?: string;
         tutor?: TutorState;
+        explanation?: Explanation;
     }
 
     interface McqResult {
@@ -398,9 +414,10 @@ The data flow through pgrepCall is unchanged.
                 // M5 seam: think time from the item being shown to this commit.
                 response_ms: responseMs,
             });
-            // A miss opens the decomposition tutor (the parent answer stays
-            // hidden). A hit, or a miss with no decomposition available, just
-            // moves on.
+            // A miss on a problem with a decomposition opens the gated tutor (the
+            // parent answer stays hidden). A miss on one with no decomposition
+            // reveals its worked solution instead (committed.explanation, rendered
+            // below); a hit just moves on. Both non-tutor paths mark the tutor done.
             resetTutorState();
             tutor = committed.tutor ?? null;
             if (!committed.correct && tutor && tutor.count > 0) {
@@ -1056,19 +1073,23 @@ The data flow through pgrepCall is unchanged.
                         onContinue={continueSubproblem}
                     />
                 {/key}
+            {:else if committed.explanation}
+                <div class="verdict miss">Not correct.</div>
+                <SolutionReveal steps={committed.explanation.steps} />
+                <div class="actions next">
+                    <button class="btn primary" on:click={loadNext} disabled={busy}>
+                        Next
+                    </button>
+                    <span class="muted small">
+                        {problem.remaining} left in this door.
+                    </span>
+                </div>
             {:else}
                 <div class="verdict miss">Not correct.</div>
-                {#if tutorDone && tutor && tutor.count > 0}
-                    <p class="tutor-lead muted small">
-                        Nicely worked through. You'll see this one again later with
-                        different numbers.
-                    </p>
-                {:else}
-                    <p class="tutor-lead muted small">
-                        Take another look at the idea. The answer stays hidden, and
-                        you'll get another go.
-                    </p>
-                {/if}
+                <p class="tutor-lead muted small">
+                    Nicely worked through. You'll see this one again later with
+                    different numbers.
+                </p>
                 <div class="actions next">
                     <button class="btn primary" on:click={loadNext} disabled={busy}>
                         Next

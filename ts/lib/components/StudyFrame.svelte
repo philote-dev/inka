@@ -15,6 +15,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     export let topicTone: "neutral" | "memory" | "performance" = "neutral";
     export let columnWidth = 640;
     export let onClose: (() => void) | undefined = undefined;
+    // Center the column's content in the available height (used by the Cards
+    // door so a short card sits balanced at any screen size instead of hugging
+    // the top). Left off for Problems, whose content changes height per step.
+    export let center = false;
 </script>
 
 <div class="frame">
@@ -49,7 +53,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <span></span>
         {/if}
     </div>
-    <div class="column" style="max-width: {columnWidth}px;">
+    <div class="column" class:center style="max-width: {columnWidth}px;">
         <slot />
     </div>
 </div>
@@ -147,5 +151,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         padding: 24px 24px 64px;
         box-sizing: border-box;
         flex: 1 1 auto;
+    }
+
+    /* Cards door: center the card in the available height so it sits balanced at
+       any screen size rather than hugging the top. `safe` keeps content taller
+       than the viewport from being clipped at the top edge. */
+    .column.center {
+        display: flex;
+        flex-direction: column;
+        justify-content: safe center;
+        padding-bottom: 24px;
     }
 </style>

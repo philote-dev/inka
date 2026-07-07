@@ -9,6 +9,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
      with clearly synthetic sample data. The manifold keeps its own richer lab,
      linked from the top nav. -->
 <script lang="ts">
+    import CardFace from "$lib/components/CardFace.svelte";
     import ChoiceList from "$lib/components/ChoiceList.svelte";
     import CompactScoreCard from "$lib/components/CompactScoreCard.svelte";
     import CoverageBar from "$lib/components/CoverageBar.svelte";
@@ -18,9 +19,40 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import NavRail from "$lib/components/NavRail.svelte";
     import ReliabilityDiagram from "$lib/components/ReliabilityDiagram.svelte";
     import ScoreCard from "$lib/components/ScoreCard.svelte";
+    import SolutionReveal from "$lib/components/SolutionReveal.svelte";
     import StudyFrame from "$lib/components/StudyFrame.svelte";
     import SubproblemCard from "$lib/components/SubproblemCard.svelte";
     import { FULL_SURFACE } from "$lib/pgrep/manifold";
+    import { renderMath } from "$lib/pgrep/math";
+
+    // Card face: a computational card in delimited LaTeX. MathJax typesets each
+    // \( ... \) span while the surrounding prose stays plain. card.answer() renders
+    // {{FrontSide}}<hr id=answer>{{Back}}, so the raw answer repeats the prompt and
+    // trails the source; CardFace shows the front once and lifts the source to a pill.
+    const faceQuestionHtml =
+        "<p>A bead of mass \\(m\\) rides inside a vertical loop of radius \\(R\\). What minimum speed \\(v\\) at the top keeps it on the track, and what is its kinetic energy \\(K\\) there?</p>";
+    const faceAnswerBody =
+        "<p>At the top, gravity alone supplies the centripetal force, so \\(mg=\\frac{mv^2}{R}\\) and \\(v=\\sqrt{gR}\\). The kinetic energy is then \\(K=\\tfrac{1}{2}mv^2=\\tfrac{1}{2}mgR\\). Over the descent the work-energy theorem \\(W_{\\mathrm{net}}=\\Delta K\\) fixes the release height.</p>";
+    const faceSourceRef =
+        "OpenStax University Physics Volume 1, pp. 337-338, §7.3 Work-Energy Theorem";
+    const faceAnswerHtml = `${faceQuestionHtml}\n\n<hr id=answer>\n\n${faceAnswerBody}\n\nSource: ${faceSourceRef}`;
+
+    // Math: a card plus a raw-versus-typeset notation panel, same renderer as above.
+    const mathQuestionHtml =
+        "<p>A car of mass \\(m\\) rounds a vertical loop of radius \\(R\\). What minimum speed at the top keeps it on the track, and from what release height \\(h\\) must it start?</p>";
+    const mathAnswerHtml =
+        "<p>At the threshold of contact the track force is zero, so gravity alone supplies the centripetal force: \\(mg = \\frac{mv^2}{R}\\), giving \\(v^2 = gR\\) and \\(v = \\sqrt{gR}\\). Energy conservation from height \\(h\\) gives \\(mgh = \\tfrac{1}{2}mv^2 + mg(2R)\\), so the minimum height is \\(h = \\tfrac{5R}{2}\\).</p>";
+    const mathSamples = [
+        "\\(\\frac{mv^2}{R}\\)",
+        "\\(v^2 = gR\\)",
+        "\\(\\sqrt{2gR}\\)",
+        "\\(\\tfrac{1}{2}mv^2\\)",
+        "\\(\\frac{p^2}{2m}\\)",
+        "\\(K_f - K_i\\)",
+        "\\(v_0,\\ x_i,\\ \\omega_c\\)",
+        "\\(E = hf,\\quad p = \\frac{h}{\\lambda}\\)",
+        "\\[\\oint \\vec{E}\\cdot d\\vec{A} = \\frac{Q_{\\text{enc}}}{\\varepsilon_0}\\]",
+    ];
 
     type Hue = "memory" | "performance" | "readiness";
 
@@ -37,6 +69,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         { id: "choice-list", label: "Choice list" },
         { id: "hint-rung", label: "Hint rung" },
         { id: "subproblem", label: "Decomposition tutor" },
+        { id: "solution-reveal", label: "Worked solution" },
         { id: "grade-bar", label: "Grade bar" },
         { id: "coverage-bar", label: "Coverage bar" },
         { id: "reliability", label: "Reliability diagram" },
@@ -45,6 +78,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         { id: "exam", label: "Exam" },
         { id: "nav-rail", label: "Nav rail" },
         { id: "manifold", label: "Manifold" },
+        { id: "card-face", label: "Card face" },
+        { id: "math", label: "Math" },
     ];
 
     // ScoreCard: full honesty anatomy for each of the three reserved hues.
@@ -138,19 +173,35 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         { key: "D", html: "It rises by a factor of four" },
         { key: "E", html: "It halves" },
     ];
-    const subPrompt =
-        "First, pin down how kinetic energy depends on speed before you touch the numbers.";
     const subStem =
         "For a nonrelativistic particle, how does kinetic energy scale with speed \\( v \\)?";
     const subExplainWhy =
         "Kinetic energy goes as \\( v^2 \\), so scaling the speed by \\( k \\) scales the energy by \\( k^2 \\).";
 
+    // SolutionReveal: the worked solution shown after a miss on a Problem with no
+    // gated decomposition. The correct choice is revealed by the ChoiceList; these
+    // steps walk the stored sub-goals so the learner leaves with the idea.
+    const revealSteps: { subgoal: string; rubric: string }[] = [
+        {
+            subgoal: "Name the conserved quantity",
+            rubric: "The ramp is frictionless, so mechanical energy is conserved from release to the bottom.",
+        },
+        {
+            subgoal: "Set potential equal to kinetic",
+            rubric: "Equate \\( mgh \\) at the top with \\( \\tfrac12 m v^2 \\) at the bottom; the mass cancels.",
+        },
+        {
+            subgoal: "Solve for the speed",
+            rubric: "Isolating \\( v \\) gives \\( v = \\sqrt{2gh} \\), independent of the mass.",
+        },
+    ];
+
     // GradeBar: the four FSRS grades with their next intervals.
     const grades: { label: string; value: number; interval: string }[] = [
-        { label: "Again", value: 1, interval: "Under 1 min" },
-        { label: "Hard", value: 2, interval: "About 8 min" },
-        { label: "Good", value: 3, interval: "4 days" },
-        { label: "Easy", value: 4, interval: "9 days" },
+        { label: "No clue", value: 1, interval: "Under 1 min" },
+        { label: "Barely", value: 2, interval: "About 8 min" },
+        { label: "Got it", value: 3, interval: "4 days" },
+        { label: "Easily", value: 4, interval: "9 days" },
     ];
 
     // CoverageBar: nine PGRE units weighted by blueprint share. This set dips
@@ -485,7 +536,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                 <SubproblemCard
                                     index={1}
                                     total={2}
-                                    prompt={subPrompt}
                                     stemHtml={subStem}
                                     choices={subChoices}
                                     selected=""
@@ -499,7 +549,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                 <SubproblemCard
                                     index={1}
                                     total={2}
-                                    prompt={subPrompt}
                                     stemHtml={subStem}
                                     choices={subChoices}
                                     selected="B"
@@ -514,7 +563,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                 <SubproblemCard
                                     index={1}
                                     total={2}
-                                    prompt={subPrompt}
                                     stemHtml={subStem}
                                     choices={subChoices}
                                     selected="D"
@@ -530,7 +578,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                 <SubproblemCard
                                     index={2}
                                     total={2}
-                                    prompt={subPrompt}
                                     stemHtml={subStem}
                                     choices={subChoices}
                                     selected="D"
@@ -542,6 +589,40 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                     isLast={true}
                                     onContinue={noop}
                                 />
+                            </div>
+                        </div>
+                    {/each}
+                </div>
+            </section>
+
+            <!-- Worked solution (no decomposition) -->
+            <section id="solution-reveal" class="section">
+                <div class="section-head">
+                    <h2>Worked solution</h2>
+                    <p>
+                        A miss on a Problem that has no gated decomposition has nothing
+                        to gate and is never re-queued, so hiding its answer would only
+                        strand the learner. The ChoiceList reveals the correct choice
+                        and this walks the stored solution steps, each a sub-goal and
+                        its rubric, then the learner moves on.
+                    </p>
+                </div>
+                <div class="split">
+                    {#each THEMES as t (t.id)}
+                        <div class="pane pgrep {t.cls}">
+                            <span class="pane-label">{t.label}</span>
+                            <div class="stage stack">
+                                <span class="state-label">
+                                    Correct choice revealed above, solution below
+                                </span>
+                                <ChoiceList
+                                    choices={subChoices}
+                                    selected="B"
+                                    committed={true}
+                                    correctKey="D"
+                                    onSelect={noop}
+                                />
+                                <SolutionReveal steps={revealSteps} />
                             </div>
                         </div>
                     {/each}
@@ -1016,10 +1097,106 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                 showLabels={false}
                             />
                         </div>
-                        <a class="manifold-link" href="/pgrep-lab">
+                        <a class="manifold-link" href="/pgrep-lab/manifold">
                             Open the manifold lab
                         </a>
                     </div>
+                </div>
+            </section>
+
+            <!-- Card face -->
+            <section id="card-face" class="section">
+                <div class="section-head">
+                    <h2>Card face</h2>
+                    <p>
+                        The Cards-door review face with math-rich content. Before reveal
+                        the prompt shows alone; on reveal the front shows once and the
+                        source tucks behind a click-to-expand pill (shown collapsed and
+                        expanded). Delimited LaTeX typesets through the face while the
+                        surrounding prose stays plain.
+                    </p>
+                </div>
+                <div class="split">
+                    {#each THEMES as t (t.id)}
+                        <div class="pane pgrep {t.cls}">
+                            <span class="pane-label">{t.label}</span>
+                            <div class="stage">
+                                <span class="state-label">Prompt, before reveal</span>
+                                <div class="face-frame">
+                                    <CardFace
+                                        questionHtml={faceQuestionHtml}
+                                        answerHtml={faceAnswerHtml}
+                                        answerShown={false}
+                                    />
+                                </div>
+                                <span class="state-label">
+                                    Revealed, source collapsed
+                                </span>
+                                <div class="face-frame">
+                                    <CardFace
+                                        questionHtml={faceQuestionHtml}
+                                        answerHtml={faceAnswerHtml}
+                                        answerShown={true}
+                                    />
+                                </div>
+                                <span class="state-label">
+                                    Revealed, source expanded
+                                </span>
+                                <div class="face-frame">
+                                    <CardFace
+                                        questionHtml={faceQuestionHtml}
+                                        answerHtml={faceAnswerHtml}
+                                        answerShown={true}
+                                        sourceOpenByDefault={true}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    {/each}
+                </div>
+            </section>
+
+            <!-- Math -->
+            <section id="math" class="section">
+                <div class="section-head">
+                    <h2>Math</h2>
+                    <p>
+                        Real MathJax typesetting, the same engine Anki's reviewer uses.
+                        Delimited LaTeX renders across cards, problems, and exams:
+                        aligned fractions, radicals, Greek, and display equations. Raw
+                        source on the left, typeset on the right.
+                    </p>
+                </div>
+                <div class="split">
+                    {#each THEMES as t (t.id)}
+                        <div class="pane pgrep {t.cls}">
+                            <span class="pane-label">{t.label}</span>
+                            <div class="stage">
+                                <span class="state-label">In a card</span>
+                                <div class="face-frame">
+                                    <CardFace
+                                        questionHtml={mathQuestionHtml}
+                                        answerHtml={mathAnswerHtml}
+                                        answerShown={true}
+                                    />
+                                </div>
+                                <span class="state-label">LaTeX, typeset</span>
+                                <div class="math-rows">
+                                    {#each mathSamples as raw (raw)}
+                                        <div class="math-row">
+                                            <code class="math-raw">{raw}</code>
+                                            <span class="math-arrow" aria-hidden="true">
+                                                &rarr;
+                                            </span>
+                                            <span class="math-rendered">
+                                                {@html renderMath(raw)}
+                                            </span>
+                                        </div>
+                                    {/each}
+                                </div>
+                            </div>
+                        </div>
+                    {/each}
                 </div>
             </section>
         </main>
@@ -1392,6 +1569,44 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             flex-direction: row;
             flex-wrap: wrap;
         }
+    }
+
+    .face-frame {
+        max-width: 560px;
+        width: 100%;
+    }
+
+    .math-rows {
+        display: grid;
+        gap: var(--space-1);
+        max-width: 560px;
+    }
+
+    .math-row {
+        display: grid;
+        grid-template-columns: minmax(0, 200px) 20px minmax(0, 1fr);
+        align-items: center;
+        gap: var(--space-2);
+        padding: 10px 14px;
+        border: var(--hairline);
+        border-radius: var(--radius-row, 10px);
+        background: var(--surface);
+    }
+
+    .math-raw {
+        font-family: var(--font-mono);
+        font-size: var(--text-small);
+        color: var(--muted);
+        overflow-x: auto;
+    }
+
+    .math-arrow {
+        color: var(--muted);
+        text-align: center;
+    }
+
+    .math-rendered {
+        font-size: var(--text-content);
     }
 
     @media (max-width: 720px) {

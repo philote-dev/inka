@@ -56,7 +56,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     on:click={finish}
 >
     <span class="mark">
-        <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <svg
+            viewBox="0 0 32 32"
+            fill="none"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+        >
             <path
                 pathLength="1"
                 d="M16 3.5 C22 3.5 28.5 7.5 28.5 14 C28.5 19 25 21 24 24.5 C23 27.5 20 29 16 28.5 C10.5 28 6.5 25.5 4.5 21 C2.5 16.5 3.5 10.5 7.5 7 C10 4.8 13 3.5 16 3.5 Z"

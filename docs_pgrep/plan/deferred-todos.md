@@ -1,46 +1,36 @@
-# pgrep deferred to-dos
+# pgrep to-dos
 
-Single-line backlog for work deferred after the 2026-07-06 UI/UX and
-decomposition-tutor pass. Checkboxes are the source of truth. Items marked
-[demo] are natural stop-and-review checkpoints. Keep lines short.
+Two buckets. **Finish the app** is everything a learner still sees or does that
+is incomplete. **Ship the app** is turning it into an installable product.
+Checkboxes are the source of truth. `[demo]` marks natural stop-and-review points.
 
-## A. Finish the decomposition tutor (headline feature)
+## 1. Finish the app (learner-facing)
 
-- [ ] A1. Generate tutor data for the remaining problems (40/137 done) `just gen-decompositions --apply` [demo]
-- [ ] A2. Port iOS Problems flow from old ladder to the decomposition tutor [demo]
+Content and features:
 
-## B. Copy cleanup stragglers (WS6)
+- [ ] Generate decomposition tutor data for every problem (only 40/137 today, so most misses do not open the tutor) `just gen-decompositions --apply` [demo]
+- [ ] Port the iOS Problems flow from the old ladder to the decomposition tutor [demo]
+- [ ] Content quality: gold-set gate hardening (cut the refusal and malformed-MCQ rate, rerun the batch)
+- [ ] Optional Bragg diffraction figure for problem p4-prob-0136
 
-- [ ] B1. Sweep any pages no workstream touched for gratuitous subtitles/helper text
+UI polish (audited 2026-07-06; most were already fixed in later L5.9 work):
 
-## C. L5.9 UX punch-list (verify each; some may be stale)
+- [ ] Exam-answer failure already shows "Something went wrong. Try again." (not silent). Optional: a quiet auto-retry so a dropped call self-heals
+- [ ] Final copy sweep of any page we have not already trimmed (subjective, wants a review pass)
 
-- [ ] C1. Progress "Scores" tab missing the Memory card
-- [ ] C2. Settings sync URL not persisted + default port mismatch (8080)
-- [ ] C3. Theme-token leak on armed reset button (raw #fff)
-- [ ] C4. Study topic chip shows raw slug instead of human label
-- [ ] C5. Silent exam-answer failure (add quiet retry or non-blocking notice)
-- [ ] C6. Home manifold hero is decorative, wire to live scores/coverage read-model
-- [ ] C7. Exam figures not served (pass stem figure through exam read model)
-- [ ] C8. Diagnostic quick-checks hardcoded in frontend + no LaTeX
-- [ ] C9. Gold-set gate hardening (cut refusal/malformed-MCQ rate, rerun batch)
-- [ ] C10. Optional Bragg diffraction figure for p4-prob-0136
+## 2. Ship the app (packaging and release)
 
-## E. Exterior UI / chrome fixes (2026-07-06 pass 2)
+- [ ] Final identity and app icon
+- [ ] Signed installer plus the phone build
+- [ ] Hardening: crash test and benchmark
+- [ ] Record the submission and demo
 
-- [x] E1. Desktop: retitle main window, drop "User 1 - pgrep" -> "pgrep" (main.py)
-- [x] E2. Desktop: exclusive default strips File/View/Tools/Help; Edit only; About rebranded. Dev keeps hosted (hatch); PGREP_SURFACE_MODE overrides. Note: app-menu name shows the process in dev, becomes "pgrep" when packaged
-- [x] E2b. Desktop: added pgrep's own menus: Settings (Cmd+,) in app menu + a Go menu (Home/Study/Progress/Library, Cmd+1..4) that navigates the surface
-- [x] E3. Desktop + iOS: trimmed session copy to one action ("Cards and problems, interleaved" + "Start session"); Study launcher tightened; removed Home "shown honestly" subtitle
-- [x] E4. Desktop + iOS: compact responsive score tiles; stay side-by-side and shrink, full anatomy stays on Progress
-- [x] E5. Desktop + iOS: "Today" now uses a play glyph, distinct from the Diagnostic pulse
-- [x] E6. iOS: removed the redundant "pgrep" greeting; the manifold leads
-- [x] E7. iOS: Today play icon added for parity; compact ranges use "to" not a dash
+## Done
 
-## D. L6 ship track (out of scope for now)
-
-- [ ] D1. Exclusive-takeover flip
-- [ ] D2. Final identity / app icon
-- [ ] D3. Signed installer + phone build
-- [ ] D4. Hardening (crash test, benchmark)
-- [ ] D5. Submission recording
+- [x] Standalone desktop chrome: window titled "pgrep", Anki admin menus hidden, exclusive surface is the default (the takeover flip); dev keeps the hatch via `PGREP_SURFACE_MODE=hosted`
+- [x] Native pgrep menus: Settings (Cmd+,) and a Go menu (Home/Study/Progress/Library, Cmd+1..4)
+- [x] Home (desktop + iOS): compact responsive score tiles, one-action Today band, play icon, removed the greeting and the "shown honestly" subtitle
+- [x] Study launcher copy tightened; iOS/desktop session copy aligned; ranges read "X to Y"
+- [x] Decomposition tutor engine and desktop UI (gated MCQ + AI-graded explanation, re-queues the missed problem)
+- [x] Earlier passes: card-reveal and exam render bugs, desktop nav/shell, Library vertical layout, reset clears the demo profile, iOS parity (real 3D manifold, fuller Settings)
+- [x] UI-polish audit (2026-07-06): Progress Memory card present, Settings sync URL persisted with 8090 aligned, reset button uses a token, Study chip shows a human label, Home manifold reads a live backend, exam figures served, diagnostic quick-checks are backend + LaTeX

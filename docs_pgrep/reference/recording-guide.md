@@ -22,7 +22,7 @@ Light up the three scores before recording (a fresh account honestly shows
 "not enough yet", which is correct but not what you want on camera):
 
 1. In the app, open the dev lab at http://127.0.0.1:40000/pgrep-lab.
-2. Go to Demo control, pick "Strong learner", click Inject profile.
+2. Go to Demo, pick a stage such as "Nearing exam" (the scores preview), then click Inject.
 3. Home now shows Memory, Performance, and Readiness with real numbers and ranges.
 
 Turn AI on in Settings (it is off by default) so you can demo generation.

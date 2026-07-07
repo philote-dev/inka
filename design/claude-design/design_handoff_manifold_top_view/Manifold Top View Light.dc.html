@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+  <style>
+    html, body { margin: 0; padding: 0; background: #EFECE6; }
+    * { box-sizing: border-box; }
+    a { color: #262624; text-decoration: none; }
+    a:hover { color: #000000; }
+  </style>
+</helmet>
+
+<section style="font-family: 'Inter', sans-serif; color: #262624; -webkit-font-smoothing: antialiased; min-height: 100vh; display: flex; justify-content: center;">
+<div data-screen-label="Manifold top view" style="width: 1160px; background: #FBFAF8; border: 1px solid #E8E4DA; border-radius: 16px; margin: 56px; padding: 44px 56px 48px; display: flex; flex-direction: column;">
+
+  <header style="display: flex; align-items: baseline; gap: 16px; border-bottom: 1px solid #E8E4DA; padding-bottom: 16px;">
+    <h1 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em;">Knowledge manifold · top view</h1>
+    <span style="font-size: 13px; color: #6E6B64;">2D contour projection. Small-screen default and fallback for the 3D wireframe.</span>
+  </header>
+
+  <div style="position: relative; width: 960px; height: 660px; margin: 12px auto 0;">
+    <canvas ref="{{ contourRef }}" width="1120" height="1120" style="position: absolute; left: 200px; top: 40px; width: 560px; height: 560px; background: #F5F2EC; border: 1px solid #E8E4DA; border-radius: 16px;"></canvas>
+    <svg width="960" height="660" style="position: absolute; inset: 0; pointer-events: none;">
+      <sc-for list="{{ topPeaks }}" as="pk" hint-placeholder-count="0">
+        <g>
+          <line x1="{{ pk.ax }}" y1="{{ pk.ay }}" x2="{{ pk.lx }}" y2="{{ pk.ly }}" stroke="#A5A199" stroke-width="1"/>
+          <circle cx="{{ pk.ax }}" cy="{{ pk.ay }}" r="7" fill="none" stroke="{{ pk.c }}" stroke-width="1" opacity="0.5"/>
+          <circle cx="{{ pk.ax }}" cy="{{ pk.ay }}" r="2.5" fill="{{ pk.c }}"/>
+        </g>
+      </sc-for>
+      <sc-for list="{{ topGaps }}" as="gp" hint-placeholder-count="0">
+        <g>
+          <line x1="{{ gp.ax }}" y1="{{ gp.ay }}" x2="{{ gp.lx }}" y2="{{ gp.ly }}" stroke="#A5A199" stroke-width="1" stroke-dasharray="3 3"/>
+          <circle cx="{{ gp.ax }}" cy="{{ gp.ay }}" r="3" fill="none" stroke="#6E6B64" stroke-width="1"/>
+        </g>
+      </sc-for>
+    </svg>
+    <sc-for list="{{ topPeaks }}" as="pk" hint-placeholder-count="0">
+      <div style="position: absolute; left: {{ pk.lx }}px; top: {{ pk.ly }}px; transform: {{ pk.tf }}; white-space: nowrap; padding: 1px 5px; display: flex; flex-direction: column; gap: 2px;">
+        <span style="font-size: 13px; font-weight: 500; color: {{ pk.c }};">{{ pk.name }}</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6E6B64;">perf {{ pk.perf }} · mem {{ pk.mem }}</span>
+      </div>
+    </sc-for>
+    <sc-for list="{{ topGaps }}" as="gp" hint-placeholder-count="0">
+      <div style="position: absolute; left: {{ gp.lx }}px; top: {{ gp.ly }}px; transform: {{ gp.tf }}; white-space: nowrap; padding: 1px 5px; display: flex; flex-direction: column; gap: 2px;">
+        <span style="font-size: 13px; font-weight: 500; color: #262624;">{{ gp.name }}</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6E6B64;">{{ gp.note }}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 24px; margin-top: 4px;">
+    <div style="display: flex; align-items: center; gap: 7px;">
+      <svg width="22" height="12" viewBox="0 0 22 12"><path d="M1 9.5 C6 7.5 16 7.5 21 9.5" fill="none" stroke="#6E6B64" stroke-width="1"/><path d="M1 4.5 C6 2 16 2 21 4.5" fill="none" stroke="#6E6B64" stroke-width="1.6"/></svg>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6E6B64;">contour = performance, every 3rd indexed</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 7px;">
+      <svg width="22" height="12" viewBox="0 0 22 12"><ellipse cx="11" cy="6" rx="9" ry="4.5" fill="none" stroke="#6E6B64" stroke-width="1" stroke-dasharray="3 3"/></svg>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6E6B64;">dashed rim = knowledge gap</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 7px;">
+      <svg width="22" height="12" viewBox="0 0 22 12"><circle cx="11" cy="6" r="5.5" fill="#A9752A" opacity="0.18"/><circle cx="11" cy="6" r="2.5" fill="#A9752A" opacity="0.35"/></svg>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6E6B64;">under-glow = memory</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 7px;">
+      <svg width="22" height="12" viewBox="0 0 22 12"><circle cx="11" cy="6" r="5" fill="none" stroke="#6E6B64" stroke-width="1" opacity="0.8"/></svg>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6E6B64;">outer rim = blueprint weight</span>
+    </div>
+  </div>
+
+  <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6E6B64; text-align: center; margin-top: 10px;">d3-contour in production · same surface data as the 3D wireframe</div>
+
+  <p style="margin: 24px auto 0; font-size: 12px; color: #6E6B64; line-height: 1.7; max-width: 760px;">Height is Performance. Glow is Memory. Holes are knowledge gaps and low coverage leaves the surface visibly incomplete. Footprint tracks the exam blueprint weight. Each peak carries a summit marker with topic name and perf / mem readout; gaps get a datum point, dashed rim and a named callout with its coverage note. Tapping a region drills into that topic.</p>
+
+</div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: 1280, &quot;height&quot;: 1080}, &quot;glow&quot;: {&quot;editor&quot;: &quot;range&quot;, &quot;default&quot;: 0.85, &quot;min&quot;: 0.4, &quot;max&quot;: 1.2, &quot;step&quot;: 0.05, &quot;tsType&quot;: &quot;number&quot;, &quot;section&quot;: &quot;Render&quot;}, &quot;grid&quot;: {&quot;editor&quot;: &quot;range&quot;, &quot;default&quot;: 96, &quot;min&quot;: 48, &quot;max&quot;: 144, &quot;step&quot;: 8, &quot;tsType&quot;: &quot;number&quot;, &quot;section&quot;: &quot;Render&quot;}, &quot;showCallouts&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Overlay&quot;}}">
+class Component extends DCLogic {
+  state = { topPeaks: [], topGaps: [] };
+  contourRef = React.createRef();
+
+  componentDidMount() {
+    this.draw();
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.glow !== this.props.glow || prevProps.grid !== this.props.grid) this.draw();
+  }
+
+  async draw() {
+    const M = await import('./manifold-core.js');
+    const cont = this.contourRef.current;
+    if (!cont) return;
+    const out = M.drawContour(cont, {
+      W: 560, H: 560, S: 196, dpr: 2,
+      glow: this.props.glow ?? 0.85,
+      grid: Math.round(this.props.grid ?? 96),
+      indexEvery: 3, theme: 'light'
+    });
+    this.placeTopLabels(M, out, 200, 40, 1.4, 'light');
+  }
+
+  // Overlay geometry. OX/OY = canvas offset inside the relative container,
+  // k scales the label offsets (tuned at S = 140 base scale).
+  placeTopLabels(M, out, OX, OY, k, theme) {
+    const SD = M.DEFAULT_SURFACE;
+    const ink = theme === 'light' ? [38, 38, 36] : [236, 234, 227];
+    const mixK = theme === 'light' ? 0.18 : 0.35;
+    const tint = (x, y) => {
+      const c = M.colorAt(SD, x, y, theme).map((v, i) => Math.round(v + (ink[i] - v) * mixK));
+      return 'rgb(' + c.join(',') + ')';
+    };
+    const pd = [
+      { name: 'Mechanics', mem: 64, dx: -73, dy: 35, tf: 'translate(-100%, -50%)' },
+      { name: 'E and M', mem: 58, dx: 84, dy: -26, tf: 'translate(0, -50%)' },
+      { name: 'Thermodynamics', mem: 47, dx: 34, dy: 74, tf: 'translate(0, -50%)' },
+      { name: 'Quantum', mem: 52, dx: -16, dy: -68, tf: 'translate(-100%, -50%)' }
+    ];
+    const peaks = out.peaks.map((p, i) => ({
+      name: pd[i].name, perf: Math.round(p.h * 138), mem: pd[i].mem,
+      ax: p.x + OX, ay: p.y + OY,
+      lx: p.x + OX + pd[i].dx * k, ly: p.y + OY + pd[i].dy * k,
+      tf: pd[i].tf, c: tint(SD.bumps[i].x, SD.bumps[i].y)
+    }));
+    const gd = [
+      { name: 'Fluid dynamics', note: 'gap · no attempts', dx: -140, dy: -84, tf: 'translate(-100%, -50%)' },
+      { name: 'Optics', note: 'gap · 3 of 41 seen', dx: 118, dy: 46, tf: 'translate(0, -50%)' }
+    ];
+    const gaps = out.gaps.map((h, i) => ({
+      name: gd[i].name, note: gd[i].note,
+      ax: h.x + OX, ay: h.y + OY,
+      lx: h.x + OX + gd[i].dx * k, ly: h.y + OY + gd[i].dy * k, tf: gd[i].tf
+    }));
+    if (JSON.stringify(peaks) !== JSON.stringify(this.state.topPeaks)) this.setState({ topPeaks: peaks, topGaps: gaps });
+  }
+
+  renderVals() {
+    const show = this.props.showCallouts ?? true;
+    return {
+      contourRef: this.contourRef,
+      topPeaks: show ? this.state.topPeaks : [],
+      topGaps: show ? this.state.topGaps : []
+    };
+  }
+}
+</script>
+</body>
+</html>

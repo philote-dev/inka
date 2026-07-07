@@ -20,9 +20,11 @@
 # path; it only writes to the demo account you point it at. macOS/Linux.
 #
 # Usage:
-#   just pgrep-demo-sync                 # strong profile, http://127.0.0.1:8090/
-#   PGREP_DEMO_PROFILE=rusty just pgrep-demo-sync
+#   just pgrep-demo-sync                      # nearing_exam stage, http://127.0.0.1:8090/
+#   PGREP_DEMO_PROFILE=diagnostic just pgrep-demo-sync
 #   PGREP_SYNC_URL=http://127.0.0.1:8090/ just pgrep-demo-sync
+#
+# Stages: diagnostic, training, nearing_exam (a day-one to exam-ready progression).
 
 set -euo pipefail
 
@@ -35,7 +37,7 @@ URL="${PGREP_SYNC_URL:-http://127.0.0.1:8090/}"
 [[ "${URL}" == */ ]] || URL="${URL}/"
 USER_NAME="${PGREP_SYNC_USER:-pgrep}"
 PASS="${PGREP_SYNC_PASS:-pgrep}"
-PROFILE="${PGREP_DEMO_PROFILE:-strong}"
+PROFILE="${PGREP_DEMO_PROFILE:-nearing_exam}"
 TEST_DATE="${PGREP_DEMO_TEST_DATE:-}"
 
 # --- Preconditions ------------------------------------------------------------
@@ -63,7 +65,7 @@ from anki.sync_pb2 import SyncAuth
 endpoint = os.environ["PGREP_SYNC_URL"]
 user = os.environ["PGREP_SYNC_USER"]
 password = os.environ["PGREP_SYNC_PASS"]
-profile = os.environ.get("PGREP_DEMO_PROFILE", "strong")
+profile = os.environ.get("PGREP_DEMO_PROFILE", "nearing_exam")
 test_date = os.environ.get("PGREP_DEMO_TEST_DATE", "")
 
 

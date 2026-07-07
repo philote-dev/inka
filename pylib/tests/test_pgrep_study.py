@@ -186,11 +186,24 @@ def test_wrong_problems_return_before_correct_within_a_topic():
 
 
 def test_commit_miss_logs_one_attempt_and_withholds_the_answer():
+    from anki.pgrep import decomposition
+
     col = getEmptyCol()
     problem.seed_sample_problems(col)
     started = study.start_session(col, "problems")
-    item = study.next_item(col, started["session_id"])
-    note_id = item["note_id"]
+
+    # Use a served problem that carries a gated decomposition: a miss on it opens
+    # the tutor with the parent answer withheld. A miss on a problem with no
+    # decomposition reveals its worked solution instead (its own test below).
+    note_id = None
+    while True:
+        item = study.next_item(col, started["session_id"])
+        if item["kind"] == "empty":
+            break
+        if decomposition.has_tutor(col, item["note_id"]):
+            note_id = item["note_id"]
+            break
+    assert note_id is not None
 
     note = col.get_note(NoteId(note_id))
     correct = note[problem.FIELD_CORRECT].strip().upper()
@@ -207,9 +220,10 @@ def test_commit_miss_logs_one_attempt_and_withholds_the_answer():
     assert fold.total == 1
     assert fold.correct == 0
 
-    # A miss never reveals the parent answer: no correct choice, no reveal ladder.
-    # It opens the decomposition tutor instead, and that payload withholds every
-    # answer (no keys, no rationales) until the learner works each subproblem.
+    # A miss on a problem with a decomposition never reveals the parent answer:
+    # no correct choice, no reveal ladder. It opens the decomposition tutor
+    # instead, and that payload withholds every answer (no keys, no rationales)
+    # until the learner works each subproblem.
     assert result["correct"] is False
     assert set(result.keys()) == {"correct", "tutor"}
     for sub in result["tutor"]["subproblems"]:
@@ -460,3 +474,60 @@ def test_correct_first_try_does_not_requeue():
     assert result["correct_choice"] == "C"
     # Nothing more is queued after a clean hit.
     assert study.next_item(col, started["session_id"]) == {"kind": "empty"}
+
+
+def _add_plain_problem(col, *, correct="C") -> int:
+    """A single Problem with a worked solution but no gated decomposition."""
+    notetype = problem.ensure_problem_notetype(col)
+    note = col.new_note(notetype)
+    note[problem.FIELD_STEM] = "A plain problem with no decomposition."
+    note[problem.FIELD_CHOICES] = json.dumps(["a", "b", "c", "d", "e"])
+    note[problem.FIELD_CORRECT] = correct
+    note[problem.FIELD_DISTRACTOR_RATIONALES] = json.dumps({})
+    note[problem.FIELD_SOLUTION_DECOMPOSITION] = json.dumps(
+        [
+            {"subgoal": "Name the principle", "rubric": "Energy is conserved here."},
+            {"subgoal": "Solve for the target", "rubric": "Isolate the unknown."},
+        ]
+    )
+    note[problem.FIELD_DIFFICULTY] = "3.0"
+    note[problem.FIELD_SOURCE_REF] = "src"
+    # An empty tutor blob: nothing to gate on a miss.
+    note[problem.FIELD_DECOMPOSITION_TUTOR] = json.dumps({"subproblems": []})
+    note.tags = ["topic::mechanics"]
+    col.add_note(note, col.decks.id(problem.PROBLEM_DECK_NAME))
+    return int(note.id)
+
+
+def test_miss_without_decomposition_reveals_solution_and_does_not_requeue():
+    col = getEmptyCol()
+    nid = _add_plain_problem(col, correct="C")
+    started = study.start_session(col, "problems")
+    assert started["remaining"] == 1
+
+    served = study.next_item(col, started["session_id"])
+    assert served["note_id"] == nid
+
+    # Miss a problem with no gated decomposition: there is nothing to gate, so the
+    # worked solution is revealed (correct choice + steps) rather than withheld.
+    miss = study.commit_problem(col, nid, started["session_id"], "A")
+    assert miss["correct"] is False
+    assert miss["tutor"]["count"] == 0
+    assert miss["correct_choice"] == "C"
+    explanation = miss["explanation"]
+    assert explanation["correct_choice"] == "C"
+    assert [step["subgoal"] for step in explanation["steps"]] == [
+        "Name the principle",
+        "Solve for the target",
+    ]
+    assert explanation["steps"][0]["rubric"] == "Energy is conserved here."
+
+    # A no-decomp miss is never re-queued, so the sitting is now empty (it does not
+    # come back around like a decomposable miss does).
+    assert study.next_item(col, started["session_id"]) == {"kind": "empty"}
+
+    # Still exactly one clean immutable Attempt for the miss (scoring unchanged).
+    events = attempt_log.attempts(col)
+    assert len(events) == 1
+    assert events[0].correct is False
+    assert events[0].payload["ladder_depth"] == 0

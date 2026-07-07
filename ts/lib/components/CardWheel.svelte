@@ -15,6 +15,48 @@ springing and skips the deal. The rail is provided by the surface shell, so this
 renders only the content area. Card fronts are typeset with the shared renderMath
 (the app's MathJax), never a CDN build.
 -->
+<script lang="ts" context="module">
+    // Geometry presets and spring rates, exported so the dev gallery playground
+    // can seed its live-tuning sliders from the real numbers instead of copying
+    // them (a copy would silently drift). R px, sp/maxPhi degrees; rest px/unitless.
+    export interface WheelFeel {
+        R: number;
+        sp: number;
+        dim: number;
+        maxPhi: number;
+        push: number;
+        fwd: number;
+        rotK: number;
+    }
+
+    // TECHNICAL-SPEC section 4. Ferris is the shipped default; the others exist
+    // for the dev gallery to inspect the feel.
+    export const WHEEL_FEELS: Record<"Ferris" | "Shallow" | "Deep", WheelFeel> = {
+        Ferris: { R: 640, sp: 34, dim: 0.52, maxPhi: 76, push: 260, fwd: 70, rotK: 0.45 },
+        Shallow: { R: 920, sp: 23, dim: 0.38, maxPhi: 64, push: 180, fwd: 50, rotK: 0.52 },
+        Deep: { R: 500, sp: 45, dim: 0.66, maxPhi: 86, push: 350, fwd: 100, rotK: 0.42 },
+    };
+
+    // Per-frame spring rates: how fast the wheel chases its target on release
+    // (follow) and how fast the decks fan out on mount (spreadRate).
+    export const WHEEL_SPRING = { follow: 0.16, spreadRate: 0.09 };
+
+    // Dev-only live override (the gallery playground). Every field is optional and
+    // falls back to the active preset / default spring rate, so production callers
+    // pass nothing and get exactly the shipped feel.
+    export interface WheelTune {
+        R?: number;
+        sp?: number;
+        dim?: number;
+        maxPhi?: number;
+        push?: number;
+        fwd?: number;
+        rotK?: number;
+        follow?: number;
+        spreadRate?: number;
+    }
+</script>
+
 <script lang="ts">
     import { onMount, tick } from "svelte";
 
@@ -44,53 +86,17 @@ renders only the content area. Card fronts are typeset with the shared renderMat
     export let onAddCard:
         | ((category: string, front: string, back: string) => void | Promise<void>)
         | undefined = undefined;
-
-    interface Feel {
-        R: number;
-        sp: number;
-        dim: number;
-        maxPhi: number;
-        push: number;
-        fwd: number;
-        rotK: number;
-    }
-
-    // TECHNICAL-SPEC section 4. R px, sp/maxPhi degrees; the rest unitless/px.
-    const FEEL: Record<"Ferris" | "Shallow" | "Deep", Feel> = {
-        Ferris: {
-            R: 640,
-            sp: 34,
-            dim: 0.52,
-            maxPhi: 76,
-            push: 260,
-            fwd: 70,
-            rotK: 0.45,
-        },
-        Shallow: {
-            R: 920,
-            sp: 23,
-            dim: 0.38,
-            maxPhi: 64,
-            push: 180,
-            fwd: 50,
-            rotK: 0.52,
-        },
-        Deep: {
-            R: 500,
-            sp: 45,
-            dim: 0.66,
-            maxPhi: 86,
-            push: 350,
-            fwd: 100,
-            rotK: 0.42,
-        },
-    };
+    // Dev gallery only: a live geometry/spring override and a forced reduced-motion
+    // mode, so the playground can tune the feel and exercise the reduced path
+    // without touching OS settings. Production surfaces leave both unset.
+    export let tune: WheelTune | undefined = undefined;
+    export let forceReduce: boolean | undefined = undefined;
 
     // Phone-tuned geometry (used automatically below the phone breakpoint): the
     // centered set fills the screen and a swipe brings the next one in, so the
     // wheel becomes a one-up carousel without losing its motion. Neighbours are
     // pushed well off-screen (large step) so only one set reads at a time.
-    const PHONE: Feel = {
+    const PHONE: WheelFeel = {
         R: 760,
         sp: 47,
         dim: 0.92,
@@ -119,7 +125,9 @@ renders only the content area. Card fronts are typeset with the shared renderMat
     let open: number | null = null;
     let closing = false;
     let dragging = false;
-    let reduce = false;
+    // OS reduced-motion preference; the effective `reduce` is derived below so the
+    // dev gallery can force it on/off.
+    let systemReduce = false;
     // Below the phone breakpoint the wheel uses the one-up PHONE geometry.
     let narrow = false;
 
@@ -148,7 +156,23 @@ renders only the content area. Card fronts are typeset with the shared renderMat
     let rafId = 0;
     let running = false;
 
-    $: feel = narrow ? PHONE : (FEEL[wheelFeel] ?? FEEL.Ferris);
+    // Base geometry from the preset (or the one-up PHONE geometry when narrow),
+    // then the dev playground's live override on top (each field optional).
+    $: baseFeel = narrow ? PHONE : (WHEEL_FEELS[wheelFeel] ?? WHEEL_FEELS.Ferris);
+    $: feel = {
+        R: tune?.R ?? baseFeel.R,
+        sp: tune?.sp ?? baseFeel.sp,
+        dim: tune?.dim ?? baseFeel.dim,
+        maxPhi: tune?.maxPhi ?? baseFeel.maxPhi,
+        push: tune?.push ?? baseFeel.push,
+        fwd: tune?.fwd ?? baseFeel.fwd,
+        rotK: tune?.rotK ?? baseFeel.rotK,
+    };
+    // Spring rates (dev-tunable); default to the shipped constants.
+    $: follow = tune?.follow ?? WHEEL_SPRING.follow;
+    $: spreadRate = tune?.spreadRate ?? WHEEL_SPRING.spreadRate;
+    // Effective reduced motion: the OS preference, unless the gallery forces it.
+    $: reduce = forceReduce ?? systemReduce;
     $: n = sets.length;
     $: totalCards = sets.reduce((sum, s) => sum + s.cards.length, 0);
     $: openSetData = open !== null ? (sets[open] ?? null) : null;
@@ -160,9 +184,9 @@ renders only the content area. Card fronts are typeset with the shared renderMat
     $: if (n > 0) {
         ensureRaf();
     }
-    // A feel change (dev gallery) re-runs the loop so a settled wheel re-lays out
-    // with the new geometry instead of freezing at the old one.
-    $: if (wheelFeel) {
+    // A feel change (dev gallery), a live tune edit, or a forced reduced-motion
+    // toggle re-runs the loop so a settled wheel re-lays out instead of freezing.
+    $: if (wheelFeel || tune || forceReduce !== undefined) {
         ensureRaf();
     }
 

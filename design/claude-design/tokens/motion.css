@@ -1,0 +1,10 @@
+/* pgrep motion tokens. Calm spring, confident rather than bouncy.
+   Nothing may freeze the screen for more than 100ms. */
+
+:root {
+  --duration-calm: 240ms;         /* 200 to 300ms band */
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  /* Scope transitions to properties (background, border-color, color,
+     transform). A bare "transition: all" can wedge in some runtimes. */
+  --transition-calm: background 240ms cubic-bezier(0.32, 0.72, 0, 1), border-color 240ms cubic-bezier(0.32, 0.72, 0, 1), color 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}

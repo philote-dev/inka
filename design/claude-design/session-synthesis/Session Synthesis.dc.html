@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)']], displayMath: [['\\[', '\\]']] },
+      startup: { typeset: false }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-chtml.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; background: #1B1A19; }
+    * { box-sizing: border-box; }
+    a { color: #81A1C1; } a:hover { color: #ECEAE3; }
+    mjx-container { color: inherit; }
+  </style>
+</helmet>
+
+<div data-screen-label="Session synthesis" style="width: 1440px; min-height: 900px; background: #262624; color: #ECEAE3; font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; display: flex; flex-direction: column;">
+
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 20px 28px;">
+    <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #A5A199; font-variant-numeric: tabular-nums;">20 / 20</span>
+    <span style="font-size: 12px; font-weight: 500; color: #81A1C1; border: 1px solid rgba(129,161,193,0.45); border-radius: 999px; padding: 4px 12px;">Session complete</span>
+    <button aria-label="Close" style="width: 32px; height: 32px; background: none; border: none; border-radius: 8px; color: #A5A199; cursor: pointer; display: flex; align-items: center; justify-content: center;" style-hover="background: #302F2C; color: #ECEAE3;">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="4" y1="4" x2="12" y2="12"></line><line x1="12" y1="4" x2="4" y2="12"></line></svg>
+    </button>
+  </div>
+
+  <div style="width: 640px; margin: 0 auto; padding: 32px 0 56px 0; flex: 1 1 auto; display: flex; flex-direction: column;">
+    <div style="font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: #A5A199;">Session synthesis</div>
+    <div style="display: flex; align-items: baseline; gap: 14px; margin-top: 12px;">
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 44px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;">14 / 20</span>
+      <span style="font-size: 15px; color: #A5A199;">correct · 48 min</span>
+    </div>
+    <p style="margin: 12px 0 0 0; font-size: 15px; line-height: 1.6; color: #A5A199; max-width: 540px;">In-session accuracy understates your learning. The misses are where today's work happened; here is what they share.</p>
+
+    <div style="margin-top: 36px;">
+      <h2 style="margin: 0 0 14px 0; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: #A5A199;">By topic</h2>
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: grid; grid-template-columns: 150px 1fr 56px; align-items: center; gap: 16px;">
+          <span style="font-size: 14px;">Mechanics</span>
+          <div style="height: 6px; border-radius: 999px; background: #45433E; overflow: hidden;"><div style="width: 67%; height: 100%; border-radius: 999px; background: #81A1C1;"></div></div>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #A5A199; text-align: right; font-variant-numeric: tabular-nums;">4 / 6</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 150px 1fr 56px; align-items: center; gap: 16px;">
+          <span style="font-size: 14px;">E&amp;M</span>
+          <div style="height: 6px; border-radius: 999px; background: #45433E; overflow: hidden;"><div style="width: 67%; height: 100%; border-radius: 999px; background: #81A1C1;"></div></div>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #A5A199; text-align: right; font-variant-numeric: tabular-nums;">4 / 6</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 150px 1fr 56px; align-items: center; gap: 16px;">
+          <span style="font-size: 14px;">Quantum</span>
+          <div style="height: 6px; border-radius: 999px; background: #45433E; overflow: hidden;"><div style="width: 80%; height: 100%; border-radius: 999px; background: #81A1C1;"></div></div>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #A5A199; text-align: right; font-variant-numeric: tabular-nums;">4 / 5</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 150px 1fr 56px; align-items: center; gap: 16px;">
+          <span style="font-size: 14px;">Thermo</span>
+          <div style="height: 6px; border-radius: 999px; background: #45433E; overflow: hidden;"><div style="width: 67%; height: 100%; border-radius: 999px; background: #81A1C1;"></div></div>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #A5A199; text-align: right; font-variant-numeric: tabular-nums;">2 / 3</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top: 36px;">
+      <h2 style="margin: 0 0 14px 0; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: #A5A199;">Patterns across the session</h2>
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <section style="background: #302F2C; border: 1px solid #45433E; border-radius: 16px; padding: 18px 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.25);">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+            <h3 style="margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em;">Moment of inertia taken about the wrong axis</h3>
+            <span style="flex: 0 0 auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A5A199; border: 1px solid #45433E; border-radius: 999px; padding: 3px 10px; white-space: nowrap;">2 misses</span>
+          </div>
+          <p style="margin: 8px 0 0 0; font-size: 14px; line-height: 1.6; color: #A5A199;">Both used the center value \( \tfrac{1}{12}ML^{2} \) at an end pivot. Parallel axis gives \( \tfrac{1}{3}ML^{2} \).</p>
+        </section>
+        <section style="background: #302F2C; border: 1px solid #45433E; border-radius: 16px; padding: 18px 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.25);">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+            <h3 style="margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em;">Induced EMF sign dropped at the final step</h3>
+            <span style="flex: 0 0 auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A5A199; border: 1px solid #45433E; border-radius: 999px; padding: 3px 10px; white-space: nowrap;">2 misses</span>
+          </div>
+          <p style="margin: 8px 0 0 0; font-size: 14px; line-height: 1.6; color: #A5A199;">The flux setup was right both times; the direction flipped while solving. Lenz's law is the free check.</p>
+        </section>
+        <section style="background: #302F2C; border: 1px solid #45433E; border-radius: 16px; padding: 18px 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.25);">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+            <h3 style="margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em;">Limiting cases are doing real work</h3>
+            <span style="flex: 0 0 auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #81A1C1; border: 1px solid rgba(129,161,193,0.45); border-radius: 999px; padding: 3px 10px; white-space: nowrap;">2 saves</span>
+          </div>
+          <p style="margin: 8px 0 0 0; font-size: 14px; line-height: 1.6; color: #A5A199;">Sending \( L \to \infty \) and \( T \to 0 \) rejected trap options in Quantum and Thermo.</p>
+        </section>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: 36px;">
+      <span style="font-size: 13px; color: #6E6B64;">Tomorrow's selector weights these patterns.</span>
+      <button style="background: #ECEAE3; color: #262624; border: none; border-radius: 10px; padding: 11px 24px; font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.2s ease;" style-hover="background: #FFFFFF;">Done</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: 1440, &quot;height&quot;: 900}}">
+class Component extends DCLogic {
+  componentDidMount() {
+    this.typeset();
+  }
+
+  componentDidUpdate() {
+    this.typeset();
+  }
+
+  typeset() {
+    clearTimeout(this._t);
+    const run = () => {
+      const MJ = window.MathJax;
+      if (MJ && MJ.typesetPromise) {
+        MJ.typesetPromise().catch(() => {});
+      } else {
+        this._t = setTimeout(run, 200);
+      }
+    };
+    this._t = setTimeout(run, 100);
+  }
+}
+</script>
+</body>
+</html>

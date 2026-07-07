@@ -261,6 +261,31 @@ def parent_variant(
     }
 
 
+def parent_explanation(col: Collection, note_id: int) -> dict[str, Any]:
+    """The worked solution to reveal when a missed problem has no decomposition.
+
+    A miss on a problem that carries no gated decomposition is not re-queued and
+    has nothing to gate, so withholding its answer would only strand the learner.
+    Return the correct choice plus the stored solution steps (each a ``subgoal``
+    and its ``rubric``), so the learner leaves with the idea instead of a dead
+    end. Reads only; never called for a problem that has a usable decomposition.
+    """
+    from anki.notes import NoteId
+
+    key, text = _parent_answer(col, note_id)
+    note = col.get_note(NoteId(int(note_id)))
+    try:
+        raw = json.loads(note[problem.FIELD_SOLUTION_DECOMPOSITION] or "[]")
+    except (ValueError, TypeError):
+        raw = []
+    steps = [
+        {"subgoal": str(step.get("subgoal", "")), "rubric": str(step.get("rubric", ""))}
+        for step in raw
+        if isinstance(step, dict)
+    ]
+    return {"correct_choice": key, "correct_text": text, "steps": steps}
+
+
 # --- grading the two gates ---------------------------------------------------
 
 

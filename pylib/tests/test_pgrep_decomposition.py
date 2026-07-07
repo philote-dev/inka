@@ -90,7 +90,9 @@ class _FakeLLM:
         return dict(self._response)
 
 
-def _add_problem(col, *, correct="C", tutor=None, correct_text="a specific value"):
+def _add_problem(
+    col, *, correct="C", tutor=None, correct_text="a specific value", solution=None
+):
     notetype = problem.ensure_problem_notetype(col)
     note = col.new_note(notetype)
     note[problem.FIELD_STEM] = "Parent stem."
@@ -99,7 +101,7 @@ def _add_problem(col, *, correct="C", tutor=None, correct_text="a specific value
     note[problem.FIELD_CHOICES] = json.dumps(choices)
     note[problem.FIELD_CORRECT] = correct
     note[problem.FIELD_DISTRACTOR_RATIONALES] = json.dumps({})
-    note[problem.FIELD_SOLUTION_DECOMPOSITION] = json.dumps([])
+    note[problem.FIELD_SOLUTION_DECOMPOSITION] = json.dumps(solution or [])
     note[problem.FIELD_DIFFICULTY] = "3.0"
     note[problem.FIELD_SOURCE_REF] = "Parent source"
     note[problem.FIELD_DECOMPOSITION_TUTOR] = json.dumps(tutor or {"subproblems": []})
@@ -268,3 +270,41 @@ def test_parent_variant_renumbers_only_on_a_reserve():
     assert variant["stem"] == "Renumbered parent stem"
     assert variant["key"] == "E"
     assert len(variant["choices"]) == 5
+
+
+# Worked-solution reveal (no decomposition)
+##########################################################################
+
+
+def test_parent_explanation_reveals_answer_and_solution_steps():
+    col = getEmptyCol()
+    nid = _add_problem(
+        col,
+        correct="C",
+        correct_text="the answer",
+        solution=[
+            {"subgoal": "Name the principle", "rubric": "Momentum is conserved."},
+            {"subgoal": "Solve for the target", "rubric": "Isolate the unknown."},
+        ],
+    )
+    reveal = decomposition.parent_explanation(col, nid)
+    # The correct choice and its text are revealed (nothing to gate here).
+    assert reveal["correct_choice"] == "C"
+    assert reveal["correct_text"] == "the answer"
+    # The stored solution steps come through in order, each a sub-goal + rubric.
+    assert [step["subgoal"] for step in reveal["steps"]] == [
+        "Name the principle",
+        "Solve for the target",
+    ]
+    assert reveal["steps"][0]["rubric"] == "Momentum is conserved."
+
+
+def test_parent_explanation_tolerates_a_missing_solution():
+    col = getEmptyCol()
+    # A problem with neither a decomposition nor stored solution steps still
+    # yields a well-formed reveal (the correct choice, an empty step list).
+    nid = _add_problem(col, correct="B", correct_text="pick B", solution=[])
+    reveal = decomposition.parent_explanation(col, nid)
+    assert reveal["correct_choice"] == "B"
+    assert reveal["correct_text"] == "pick B"
+    assert reveal["steps"] == []
