@@ -30,6 +30,7 @@ on. Reads only; no scheduling state is ever touched.
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING, Any
 
 from anki.pgrep import ai_config, problem
@@ -42,12 +43,16 @@ if TYPE_CHECKING:
 # parent answer. No em-dashes, light on colons, per the copy rule.
 GRADE_EXPLAIN_SYSTEM = (
     "You are a Physics GRE tutor judging whether a learner's short explanation "
-    "of one solution step is good enough to move on. Be lenient. Pass any "
-    "explanation that shows the learner grasped the core idea, even when it is "
-    "informal, partial, or slightly imprecise. Fail only a blank, off-topic, or "
-    "clearly wrong explanation. Give one short line of feedback either way, warm "
-    "and specific. NEVER state the final answer to the parent problem or name its "
-    'key choice. Return STRICT JSON: {"pass": bool, "feedback": str}.'
+    "of one solution step is good enough to move on. Be lenient. The learner is "
+    "typing on a keyboard, so judge the idea, not the format: a brief plain "
+    "language sentence passes, and you must NOT require numbers, formulas, "
+    "equations, or any worked math. Pass any explanation that names the core "
+    "idea, even when it is informal, qualitative, partial, or slightly "
+    "imprecise. Fail only a blank, off-topic, or clearly wrong explanation. Give "
+    "one short line of feedback either way, warm and specific, in plain "
+    "sentences with no em dashes and no colons. NEVER state the final answer to "
+    'the parent problem or name its key choice. Return STRICT JSON: {"pass": '
+    'bool, "feedback": str}.'
 )
 
 _SAFE_FEEDBACK = "Good enough. Hold onto that reasoning for the next step."
@@ -110,6 +115,67 @@ def _usable_subproblems(data: dict[str, Any]) -> list[dict[str, Any]]:
 def has_tutor(col: Collection, note_id: int) -> bool:
     """Whether a problem has any usable decomposition to run on a miss."""
     return bool(_usable_subproblems(_load_tutor_data(col, note_id)))
+
+
+def refresh_tutor_data(col: Collection) -> dict[str, Any]:
+    """Dev harness: make sure the collection's Problems carry current tutor data.
+
+    Seeds the bundled Problems if none exist yet, then refreshes every seeded
+    note's ``decomposition_tutor`` from the current bundle (matched by stem), so
+    a collection seeded before the tutor data was generated picks it up without a
+    full reseed. Returns a small report. Writes notes; dev-only.
+    """
+    from anki.notes import Note, NoteId
+
+    created = problem.seed_sample_problems(col)
+    by_stem = {
+        str(item.get("stem", "")): problem.tutor_field(item)
+        for item in problem.BUNDLE_PROBLEMS
+    }
+    nids = list(col.find_notes(f'note:"{problem.PROBLEM_NOTETYPE_NAME}"'))
+    updated: list[Note] = []
+    for nid in nids:
+        note = col.get_note(NoteId(int(nid)))
+        if problem.FIELD_DECOMPOSITION_TUTOR not in note:
+            continue
+        field = by_stem.get(str(note[problem.FIELD_STEM]))
+        if field is not None and note[problem.FIELD_DECOMPOSITION_TUTOR] != field:
+            note[problem.FIELD_DECOMPOSITION_TUTOR] = field
+            updated.append(note)
+    if updated:
+        col.update_notes(updated)
+    with_tutor = sum(1 for nid in nids if has_tutor(col, int(nid)))
+    return {
+        "created": int(created),
+        "refreshed": len(updated),
+        "with_tutor": with_tutor,
+        "total": len(nids),
+    }
+
+
+def list_tutor_problems(col: Collection, limit: int = 300) -> list[dict[str, Any]]:
+    """Dev harness: every problem that has a usable decomposition, with a label.
+
+    Reads only. Returns ``[{note_id, label, subgoals}]`` so a dev page can pick a
+    problem to run the tutor against without a real session. The label is the
+    parent stem stripped of markup and truncated (the parent answer is never
+    included), so the picker stays honest and readable.
+    """
+    from anki.notes import NoteId
+
+    out: list[dict[str, Any]] = []
+    for nid in col.find_notes(f'note:"{problem.PROBLEM_NOTETYPE_NAME}"'):
+        subs = _usable_subproblems(_load_tutor_data(col, int(nid)))
+        if not subs:
+            continue
+        note = col.get_note(NoteId(int(nid)))
+        stem = str(note[problem.FIELD_STEM]) if problem.FIELD_STEM in note else ""
+        text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", stem)).strip()
+        label = f"{text[:90]}\u2026" if len(text) > 90 else (text or f"Problem {nid}")
+        out.append({"note_id": int(nid), "label": label, "subgoals": len(subs)})
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _rationale_map(raw: Any) -> dict[str, str]:

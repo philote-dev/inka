@@ -55,6 +55,24 @@ def pgrep_seed() -> bytes:
     return _json(result)
 
 
+# Dev harness -> anki.pgrep.seed.restart_sample_cards. Refill the sample Cards
+# door so a demo always has cards: seed if needed, lift the sample deck's daily
+# caps, and forget the seeded cards back to new. Also (re)seeds the sample
+# Problems, mirroring pgrep_seed, so one call refills both doors. A normal
+# collection write, safe on the mediasrv thread like the study handlers.
+def pgrep_restart_cards() -> bytes:
+    from anki.pgrep import seed
+
+    result = seed.restart_sample_cards(aqt.mw.col)
+    try:
+        from anki.pgrep import problem
+
+        result["problems_created"] = problem.seed_sample_problems(aqt.mw.col)
+    except (NotImplementedError, ImportError):
+        pass
+    return _json(result)
+
+
 # L2.2 Home / Readiness -> anki.pgrep.memory.memory_score
 def pgrep_memory_score() -> bytes:
     from anki.pgrep import memory
@@ -278,6 +296,14 @@ def pgrep_tutor_synthesis() -> bytes:
     return _json(tutor.session_synthesis(aqt.mw.col, _args().get("session_id", "")))
 
 
+# Dev harness -> anki.pgrep.tutor.session_synthesis_preview. The consolidation
+# screen on a small fixed sample, so the dev lab can tune it without a session.
+def pgrep_tutor_synthesis_preview() -> bytes:
+    from anki.pgrep import tutor
+
+    return _json(tutor.session_synthesis_preview(aqt.mw.col))
+
+
 # Decomposition tutor (Problems miss) -> anki.pgrep.decomposition.check_mcq.
 # Grades one subproblem's MCQ pick; withholds the key on a wrong pick (unlimited
 # retries), reveals the model rationale on a correct one. No API call.
@@ -312,6 +338,43 @@ def pgrep_tutor_explain() -> bytes:
             a.get("learner_text", ""),
         )
     )
+
+
+# Decomposition tutor dev harness -> anki.pgrep.decomposition.refresh_tutor_data.
+# Seeds the bundled Problems if absent and refreshes their tutor data from the
+# current bundle, so a stale collection can run the tutor. Dev-only; writes notes.
+def pgrep_tutor_seed() -> bytes:
+    from anki.pgrep import decomposition
+
+    return _json(decomposition.refresh_tutor_data(aqt.mw.col))
+
+
+# Decomposition tutor dev harness -> anki.pgrep.decomposition.list_tutor_problems.
+# Read-only list of problems that have a usable decomposition, for the dev lab.
+def pgrep_tutor_list() -> bytes:
+    from anki.pgrep import decomposition
+
+    return _json({"problems": decomposition.list_tutor_problems(aqt.mw.col)})
+
+
+# Decomposition tutor dev harness -> anki.pgrep.decomposition.load_tutor.
+# Loads a chosen problem's subproblems (answers withheld) plus the parent stem for
+# context, so the dev lab can run the tutor without a real miss.
+def pgrep_tutor_load() -> bytes:
+    from anki.notes import NoteId
+    from anki.pgrep import decomposition, problem
+
+    a = _args()
+    note_id = a.get("note_id")
+    data = decomposition.load_tutor(aqt.mw.col, note_id, int(a.get("round_index", 0)))
+    try:
+        note = aqt.mw.col.get_note(NoteId(int(note_id)))
+        data["parent_stem_html"] = (
+            str(note[problem.FIELD_STEM]) if problem.FIELD_STEM in note else ""
+        )
+    except Exception:  # noqa: BLE001 - harness context only, never blocks
+        data["parent_stem_html"] = ""
+    return _json(data)
 
 
 # Desktop sync. Reuses Anki's own main-thread sync flow (aqt.sync) against the
@@ -365,19 +428,23 @@ def pgrep_sync() -> bytes:
 # the desktop-to-mobile sync demo. This is NOT wired into any shipped user
 # surface (Home, Study, Progress, Diagnostic, Library, Settings); it is reachable
 # only from the pgrep-lab dev gallery. Real accounts never call it, so they still
-# abstain by construction. Always returns the current status (with a scores
-# snapshot) so the lab can show the result of the action immediately.
+# abstain by construction. Returns a status snapshot (with the three scores) so
+# the lab shows the result immediately; the "preview" action returns a stage's
+# scores without committing, so a stage lights up on selection before inject.
 def pgrep_demo_profile() -> bytes:
     from anki.pgrep import demo_profile
 
     args = _args()
     action = args.get("action", "status")
+    profile = args.get("profile", demo_profile.DEFAULT_PROFILE)
     if action == "inject":
-        demo_profile.inject_demo_profile(
-            aqt.mw.col, profile=args.get("profile", demo_profile.DEFAULT_PROFILE)
-        )
+        demo_profile.inject_demo_profile(aqt.mw.col, profile=profile)
     elif action == "clear":
         demo_profile.clear_demo_profile(aqt.mw.col)
+    elif action == "preview":
+        # Preview computes a stage's scores without committing, so it returns its
+        # own snapshot (carrying the preview flags) rather than the live status.
+        return _json(demo_profile.preview_demo_profile(aqt.mw.col, profile=profile))
     return _json(demo_profile.demo_status(aqt.mw.col))
 
 
@@ -465,6 +532,7 @@ def pgrep_diagnostic_status() -> bytes:
 # Registered once into mediasrv's post_handler_list (see qt/aqt/mediasrv.py).
 pgrep_post_handlers = [
     pgrep_seed,
+    pgrep_restart_cards,
     pgrep_memory_score,
     pgrep_coverage,
     pgrep_performance_score,
@@ -487,8 +555,12 @@ pgrep_post_handlers = [
     pgrep_problem_generate,
     pgrep_tutor_grade,
     pgrep_tutor_synthesis,
+    pgrep_tutor_synthesis_preview,
     pgrep_tutor_mcq,
     pgrep_tutor_explain,
+    pgrep_tutor_seed,
+    pgrep_tutor_list,
+    pgrep_tutor_load,
     pgrep_sync,
     pgrep_demo_profile,
     pgrep_settings_get,

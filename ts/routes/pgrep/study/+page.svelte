@@ -26,10 +26,13 @@ The data flow through pgrepCall is unchanged.
     import CardFace from "$lib/components/CardFace.svelte";
     import ChoiceList from "$lib/components/ChoiceList.svelte";
     import GradeBar from "$lib/components/GradeBar.svelte";
+    import MemoryGlyph from "$lib/components/MemoryGlyph.svelte";
+    import SessionSynthesis from "$lib/components/SessionSynthesis.svelte";
     import StudyFrame from "$lib/components/StudyFrame.svelte";
     import SubproblemCard from "$lib/components/SubproblemCard.svelte";
     import { renderMath } from "$lib/pgrep/math";
     import { resetSignal, setLearning } from "$lib/pgrep/nav";
+    import type { SessionSynthesis as SessionSynthesisData } from "$lib/pgrep/synthesis";
 
     import { pgrepCall } from "../lib/bridge";
 
@@ -104,14 +107,6 @@ The data flow through pgrepCall is unchanged.
         error?: string;
     }
 
-    interface Synthesis {
-        ai: string;
-        recap: { attempted: number; correct: number; accuracy: number };
-        patterns: string[];
-        principles: string[];
-        calibration: string;
-    }
-
     const CATEGORY_LABELS: Record<string, string> = {
         mechanics: "Mechanics",
         electromagnetism: "Electromagnetism",
@@ -126,10 +121,10 @@ The data flow through pgrepCall is unchanged.
     const CATEGORY_SLUGS = Object.keys(CATEGORY_LABELS);
     const CHOICE_LETTERS = ["A", "B", "C", "D", "E"];
     const RATINGS = [
-        { label: "Again", value: 1 },
-        { label: "Hard", value: 2 },
-        { label: "Good", value: 3 },
-        { label: "Easy", value: 4 },
+        { label: "No clue", value: 1 },
+        { label: "Barely", value: 2 },
+        { label: "Got it", value: 3 },
+        { label: "Easily", value: 4 },
     ];
 
     type Door = "cards" | "problems";
@@ -188,7 +183,8 @@ The data flow through pgrepCall is unchanged.
     // AI upgrade state (L4). AI is off by default; with it on, each subproblem
     // adds the graded "explain why" gate. Read once at mount.
     let aiOn = false;
-    let synthesis: Synthesis | null = null;
+    let synthesis: SessionSynthesisData | null = null;
+    let synthLoading = false;
 
     onMount(async () => {
         try {
@@ -334,7 +330,9 @@ The data flow through pgrepCall is unchanged.
             } else {
                 doorEmpty = true;
                 if (door === "problems" && !startedEmpty) {
+                    synthLoading = true;
                     await fetchSynthesis();
+                    synthLoading = false;
                 }
             }
         } catch {
@@ -479,7 +477,7 @@ The data flow through pgrepCall is unchanged.
 
     async function fetchSynthesis(): Promise<void> {
         try {
-            synthesis = await pgrepCall<Synthesis>("pgrepTutorSynthesis", {
+            synthesis = await pgrepCall<SessionSynthesisData>("pgrepTutorSynthesis", {
                 session_id: sessionId,
             });
         } catch {
@@ -489,11 +487,15 @@ The data flow through pgrepCall is unchanged.
 
     // Seed sample content, then reload the doors for the current scope so the
     // just-seeded items are ready to study.
+    // Restart the sample set so the door has cards again: reseed if needed, lift
+    // the daily caps, and forget the seeded cards back to new (pgrepRestartCards).
+    // Reliable even after the set has been studied through, which plain seeding
+    // (idempotent) could not fix.
     async function seedContent(): Promise<void> {
         busy = true;
         errored = false;
         try {
-            await pgrepCall("pgrepSeed", {});
+            await pgrepCall("pgrepRestartCards", {});
             await loadDoors(topicArg());
             const info = door === "cards" ? cardsDoor : problemsDoor;
             if (info) {
@@ -510,7 +512,7 @@ The data flow through pgrepCall is unchanged.
 
     async function seedFromLayer(): Promise<void> {
         try {
-            await pgrepCall("pgrepSeed", {});
+            await pgrepCall("pgrepRestartCards", {});
         } catch {
             doorsError = true;
             return;
@@ -716,10 +718,10 @@ The data flow through pgrepCall is unchanged.
             </div>
         {:else if bothEmpty}
             <div class="notice">
-                <p class="lead">No items here yet.</p>
-                <p class="muted">Seed sample content to try a session.</p>
+                <p class="lead">Nothing due right now.</p>
+                <p class="muted">Restart the set to study the sample content again.</p>
                 <button class="btn primary" on:click={seedFromLayer}>
-                    Seed sample content
+                    Restart the set
                 </button>
             </div>
         {:else}
@@ -743,9 +745,7 @@ The data flow through pgrepCall is unchanged.
                                         stroke-linecap="round"
                                         stroke-linejoin="round"
                                     >
-                                        <polyline points="3,10 10,6.5 17,10" />
-                                        <polyline points="3,13.5 10,10 17,13.5" />
-                                        <polygon points="10,3 14,5.2 10,7.4 6,5.2" />
+                                        <MemoryGlyph />
                                     </svg>
                                 {:else}
                                     <svg
@@ -865,11 +865,7 @@ The data flow through pgrepCall is unchanged.
                                             stroke-linecap="round"
                                             stroke-linejoin="round"
                                         >
-                                            <polyline points="3,10 10,6.5 17,10" />
-                                            <polyline points="3,13.5 10,10 17,13.5" />
-                                            <polygon
-                                                points="10,3 14,5.2 10,7.4 6,5.2"
-                                            />
+                                            <MemoryGlyph />
                                         </svg>
                                     {:else}
                                         <svg
@@ -905,11 +901,18 @@ The data flow through pgrepCall is unchanged.
             {/if}
         {/if}
     </section>
+{:else if door === "problems" && doorEmpty && !startedEmpty && (synthLoading || (synthesis && synthesis.score.total > 0))}
+    {#if synthesis && synthesis.score.total > 0}
+        <SessionSynthesis {synthesis} onDone={endSession} onClose={endSession} />
+    {:else}
+        <div class="synth-loading">Consolidating your session.</div>
+    {/if}
 {:else}
     <StudyFrame
         count={countLabel}
         topic={prettyTopic(currentTopic)}
         {topicTone}
+        center={door === "cards"}
         onClose={endSession}
     >
         {#if busy}
@@ -922,39 +925,16 @@ The data flow through pgrepCall is unchanged.
         {:else if doorEmpty}
             <div class="notice">
                 {#if startedEmpty}
-                    <p class="lead">No items here yet.</p>
-                    <p class="muted">Seed sample content to try this door.</p>
+                    <p class="lead">Nothing due right now.</p>
+                    <p class="muted">Restart the set to study these again.</p>
                     <button class="btn primary" on:click={seedContent} disabled={busy}>
-                        {busy ? "Seeding sample content" : "Seed sample content"}
+                        {busy ? "Restarting" : "Restart the set"}
                     </button>
                 {:else}
                     <p class="lead">This door is clear for now.</p>
                     <p class="muted">
                         Come back when more is due, or try the other door.
                     </p>
-                    {#if synthesis && synthesis.recap.attempted > 0}
-                        <div class="synthesis">
-                            <p class="synth-recap">
-                                Session: {synthesis.recap.correct}/{synthesis.recap
-                                    .attempted} first-try correct.
-                            </p>
-                            {#if synthesis.patterns.length}
-                                <p class="synth-h">Patterns</p>
-                                <ul>
-                                    {#each synthesis.patterns as p}<li>{p}</li>{/each}
-                                </ul>
-                            {/if}
-                            {#if synthesis.principles.length}
-                                <p class="synth-h">Principles to remember</p>
-                                <ul>
-                                    {#each synthesis.principles as p}<li>{p}</li>{/each}
-                                </ul>
-                            {/if}
-                            {#if synthesis.calibration}
-                                <p class="muted small">{synthesis.calibration}</p>
-                            {/if}
-                        </div>
-                    {/if}
                     <button class="btn" on:click={endSession}>Back</button>
                 {/if}
             </div>
@@ -965,7 +945,7 @@ The data flow through pgrepCall is unchanged.
                 {answerShown}
             />
             {#if answerShown}
-                <div class="grade-label">How well did you recall it?</div>
+                <div class="grade-label">How well did you remember it?</div>
                 <GradeBar grades={RATINGS} disabled={busy} onGrade={grade} />
             {:else}
                 <div class="actions center">
@@ -1390,31 +1370,14 @@ The data flow through pgrepCall is unchanged.
         margin: var(--space-1) 0 var(--space-2);
     }
 
-    .synthesis {
-        align-self: stretch;
-        margin-top: var(--space-2);
-        padding-top: var(--space-2);
-        border-top: var(--hairline);
-
-        .synth-recap {
-            font-weight: 600;
-            margin: 0 0 8px;
-        }
-
-        .synth-h {
-            margin: 10px 0 4px;
-            font-size: var(--text-caption);
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            color: var(--muted);
-        }
-
-        ul {
-            margin: 0;
-            padding-left: 18px;
-            font-size: var(--text-body);
-            line-height: 1.5;
-        }
+    .synth-loading {
+        display: flex;
+        flex: 1 1 auto;
+        min-height: 60vh;
+        align-items: center;
+        justify-content: center;
+        color: var(--muted);
+        font-size: var(--text-body);
     }
 
     .actions {
