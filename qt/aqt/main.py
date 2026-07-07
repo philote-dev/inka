@@ -339,6 +339,23 @@ class AnkiQt(QMainWindow):
             self.loadProfile()
 
     def showProfileManager(self) -> None:
+        from aqt import pgrep_host
+
+        # The product is single-user and never shows Anki's chooser. Auto-open
+        # the implicit profile instead (profiles() creates one if none exist),
+        # so no failure path can surface the manager in exclusive mode.
+        if pgrep_host.suppress_profile_chooser(pgrep_host.surface_mode(self)):
+            profs = self.pm.profiles()
+            auto = (
+                pgrep_host.profile_to_autoload(
+                    "exclusive", profs, self.pm.last_loaded_profile_name()
+                )
+                or profs[0]
+            )
+            self.pm.load(auto)
+            self.loadProfile()
+            return
+
         self.pm.profile = None
         self.moveToState("profileManager")
         d = self.profileDiag = self.ProfileManager()
@@ -614,6 +631,11 @@ class AnkiQt(QMainWindow):
         self.unloadProfile(self.cleanupAndExit)
 
     def unloadProfileAndShowProfileManager(self) -> None:
+        from aqt import pgrep_host
+
+        # No profile switching in the product; the chooser must never surface.
+        if pgrep_host.suppress_profile_chooser(pgrep_host.surface_mode(self)):
+            return
         self.unloadProfile(self.showProfileManager)
 
     def cleanupAndExit(self) -> None:
@@ -1018,6 +1040,11 @@ title="{}" {}>{}</button>""".format(
             self.mainLayout.addWidget(self.pgrep_web)
         self.mainLayout.addWidget(sweb)
         self.form.centralwidget.setLayout(self.mainLayout)
+
+        # pgrep: in the exclusive product on macOS, extend the surface under a
+        # transparent title bar (Qt 6.9+ expanded client area). Set before the
+        # window is shown so Qt does not have to recreate it.
+        pgrep_host.apply_native_titlebar(self)
 
         # force webengine processes to load before cwd is changed
         if is_win:
@@ -1470,6 +1497,15 @@ title="{}" {}>{}</button>""".format(
     ##########################################################################
 
     def setupMenus(self) -> None:
+        from aqt import pgrep_host
+
+        # The shipped product (exclusive) builds pgrep's own minimal menu bar and
+        # never wires Anki's admin menus, so no menu or keyboard route into them
+        # exists. hosted and off keep Anki's full menus (the dev hatch).
+        if pgrep_host.surface_mode(self) == "exclusive":
+            self._setup_exclusive_menubar()
+            return
+
         m = self.form
 
         # File
@@ -1515,21 +1551,11 @@ title="{}" {}>{}</button>""".format(
         if dev_mode:
             pgrep_lab_action = m.menuTools.addAction("pgrep: open dev lab")
             qconnect(pgrep_lab_action.triggered, self.on_pgrep_dev_lab)
-        # Option A only. In exclusive mode (Option C) Anki's screens are hidden,
-        # so the fallback action is not created.
-        from aqt import pgrep_host
-
+        # hosted and off keep Anki reachable, so offer the fallback into Anki's
+        # screens. exclusive returned early above and never reaches here.
         if pgrep_host.anki_fallback_enabled(pgrep_host.surface_mode(self)):
             pgrep_anki_action = m.menuTools.addAction("Open Anki screens")
             qconnect(pgrep_anki_action.triggered, self.on_open_anki_screens)
-
-        # In the shipped standalone (exclusive) surface, hide Anki's admin menus
-        # so pgrep reads as its own app. Hosted/off keep them (the dev hatch).
-        pgrep_host.apply_menu_chrome(self)
-        # With Anki's menus hidden, give pgrep its own: a Settings item (Cmd+,)
-        # and a Go menu mirroring the rail.
-        if pgrep_host.surface_mode(self) == "exclusive":
-            self._setup_pgrep_menus()
 
         # View
         qconnect(
@@ -1549,31 +1575,60 @@ title="{}" {}>{}</button>""".format(
         m.actionFullScreen.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
 
     def updateTitleBar(self) -> None:
-        self.setWindowTitle("pgrep")
+        from aqt import pgrep_host
 
-    def _setup_pgrep_menus(self) -> None:
-        """pgrep's own native menus for the standalone (exclusive) surface.
+        # In the exclusive product on macOS the surface fills under a transparent
+        # title bar (pgrep_host.apply_native_titlebar), so a title string would
+        # render over the content. Keep it empty there; the app menu still names
+        # pgrep. Every other mode keeps the window title.
+        if is_mac and pgrep_host.surface_mode(self) == "exclusive":
+            self.setWindowTitle("")
+        else:
+            self.setWindowTitle("pgrep")
 
-        Anki's admin menus are hidden (``pgrep_host.apply_menu_chrome``); in
-        their place pgrep gets a Settings item in the macOS app menu (Cmd+,) and
-        a Go menu mirroring the left rail (Cmd+1..4), so the keyboard and menu
-        bar match the product rather than Anki's collection tools.
+    def _setup_exclusive_menubar(self) -> None:
+        """Build pgrep's own minimal menu bar for the product (Approach C).
+
+        In exclusive mode Anki's File, View, Tools, and Help menus are never
+        built, so their actions and keyboard shortcuts do not exist. The bar
+        carries only Edit (Undo/Redo for text fields), a Go menu mirroring the
+        left rail (Cmd+1..4), and the macOS app-menu roles (About, Settings,
+        Quit). Anki's own translated actions are reused where they fit so labels
+        stay localized.
         """
         m = self.form
-        go = m.menubar.addMenu("&Go")
+        bar = m.menubar
+        bar.clear()
 
-        # Settings lands in the macOS app menu (PreferencesRole relocates it
-        # there); elsewhere it rides in Go. Cmd+, is the platform convention.
+        # Edit: reuse Anki's translated Undo/Redo, wired to the collection ops.
+        edit = bar.addMenu("&Edit")
+        qconnect(m.actionUndo.triggered, self.undo)
+        qconnect(m.actionRedo.triggered, self.redo)
+        edit.addAction(m.actionUndo)
+        edit.addAction(m.actionRedo)
+
+        go = bar.addMenu("&Go")
+
+        # App-menu roles: macOS relocates these to the pgrep app menu; on other
+        # platforms the bar is hidden below, so they ride the window as shortcuts.
+        m.actionAbout.setText("About pgrep")
+        m.actionAbout.setMenuRole(QAction.MenuRole.AboutRole)
+        qconnect(m.actionAbout.triggered, self.onAbout)
+        go.addAction(m.actionAbout)
+
         settings_action = QAction("Settings…", self)
         settings_action.setMenuRole(QAction.MenuRole.PreferencesRole)
         settings_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Preferences))
         qconnect(
-            settings_action.triggered,
-            lambda: self.pgrep_navigate("pgrep/settings"),
+            settings_action.triggered, lambda: self.pgrep_navigate("pgrep/settings")
         )
         go.addAction(settings_action)
-        go.addSeparator()
 
+        m.actionExit.setMenuRole(QAction.MenuRole.QuitRole)
+        qconnect(m.actionExit.triggered, self.close)
+        go.addAction(m.actionExit)
+
+        go.addSeparator()
         for label, route, shortcut in (
             ("&Home", "pgrep", "Ctrl+1"),
             ("&Study", "pgrep/study", "Ctrl+2"),
@@ -1587,6 +1642,41 @@ title="{}" {}>{}</button>""".format(
                 action.triggered,
                 lambda _checked=False, r=route: self.pgrep_navigate(r),
             )
+
+        go.addSeparator()
+        # View: full screen and zoom, reusing Anki's translated actions but
+        # targeting whichever surface leads (the pgrep webview in the product).
+        qconnect(m.actionFullScreen.triggered, self.on_toggle_full_screen)
+        m.actionFullScreen.setShortcut(
+            QKeySequence("F11") if is_lin else QKeySequence.StandardKey.FullScreen
+        )
+        m.actionFullScreen.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        go.addAction(m.actionFullScreen)
+        qconnect(m.actionZoomIn.triggered, lambda: self._pgrep_zoom(0.1))
+        qconnect(m.actionZoomOut.triggered, lambda: self._pgrep_zoom(-0.1))
+        qconnect(m.actionResetZoom.triggered, lambda: self._pgrep_zoom(None))
+        go.addAction(m.actionZoomIn)
+        go.addAction(m.actionZoomOut)
+        go.addAction(m.actionResetZoom)
+
+        # Windows and Linux keep the menu bar in-window; the product navigates
+        # from the left rail, so hide the bar but keep the shortcuts alive by
+        # owning the actions on the window.
+        if not is_mac:
+            self.addActions(edit.actions())
+            self.addActions(go.actions())
+            bar.setVisible(False)
+
+    def _pgrep_zoom(self, delta: float | None) -> None:
+        """Zoom the surface that leads (the pgrep webview in the product).
+
+        ``delta`` shifts the current factor; ``None`` resets to 1.0.
+        """
+        web = getattr(self, "pgrep_web", None) or self.web
+        if delta is None:
+            web.setZoomFactor(1.0)
+        else:
+            web.setZoomFactor(web.zoomFactor() + delta)
 
     def pgrep_navigate(self, route: str) -> None:
         """Point the central pgrep surface at a route from a native menu.

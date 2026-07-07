@@ -335,8 +335,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         drag, arrow through, or click open into a dealt grid. Every geometry and spring
         number below is wired straight into
         <code>CardWheel.svelte</code>
-        , so drag a slider and watch the motion change. Reduced motion snaps instead of
-        springing; the loop idles when the wheel is at rest.
+        , so drag a slider and watch the motion change. Reduced motion snaps instead of springing;
+        the loop idles when the wheel is at rest.
     </p>
 </div>
 

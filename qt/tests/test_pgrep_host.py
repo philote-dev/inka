@@ -9,7 +9,6 @@ helpers are covered directly so no Qt main window is needed.
 """
 
 import types
-from unittest import mock
 
 import pytest
 
@@ -55,27 +54,6 @@ def test_env_override_wins(monkeypatch: pytest.MonkeyPatch) -> None:
     # An invalid env value is ignored, so the stored meta wins.
     monkeypatch.setenv("PGREP_SURFACE_MODE", "bogus")
     assert pgrep_host.surface_mode(mw) == "off"
-
-
-def test_apply_menu_chrome_hides_admin_menus_only_in_exclusive(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("PGREP_SURFACE_MODE", raising=False)
-
-    # The dev hatch (hosted) keeps every menu: nothing is hidden.
-    hosted, _ = _fake_mw({"pgrep_surface_mode": "hosted"})
-    hosted.form = mock.MagicMock()
-    pgrep_host.apply_menu_chrome(hosted)
-    hosted.form.menuTools.menuAction().setVisible.assert_not_called()
-
-    # Exclusive (the default product surface) hides the admin menus and
-    # Anki's Preferences.
-    exclusive, _ = _fake_mw()
-    exclusive.form = mock.MagicMock()
-    pgrep_host.apply_menu_chrome(exclusive)
-    exclusive.form.menuTools.menuAction().setVisible.assert_called_with(False)
-    exclusive.form.menuCol.menuAction().setVisible.assert_called_with(False)
-    exclusive.form.actionPreferences.setVisible.assert_called_with(False)
 
 
 def test_hosted_keeps_anki_reachable() -> None:
@@ -141,3 +119,10 @@ def test_profile_autoload_dev_hatch_returns_none() -> None:
 
 def test_profile_autoload_none_when_no_profiles() -> None:
     assert pgrep_host.profile_to_autoload("exclusive", [], "User 1") is None
+
+
+def test_chooser_suppressed_only_in_exclusive() -> None:
+    # the product never shows Anki's profile chooser; the dev hatch keeps it
+    assert pgrep_host.suppress_profile_chooser("exclusive") is True
+    assert pgrep_host.suppress_profile_chooser("hosted") is False
+    assert pgrep_host.suppress_profile_chooser("off") is False

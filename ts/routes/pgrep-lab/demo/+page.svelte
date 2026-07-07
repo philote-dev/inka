@@ -243,7 +243,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         {/if}
                         Click
                         <strong>Inject</strong>
-                         to commit and sync.
+                        to commit and sync.
                     </span>
                 {:else if status.injected}
                     <span class="dot on"></span>
