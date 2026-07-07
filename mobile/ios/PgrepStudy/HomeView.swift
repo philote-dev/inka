@@ -42,6 +42,9 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.m) {
+                if app.diagnosticDone == false {
+                    DiagnosticCTA { app.isPresentingDiagnostic = true }
+                }
                 ManifoldWebView(surface: manifoldSurface, colorScheme: colorScheme)
                     .frame(height: 160)
                 today

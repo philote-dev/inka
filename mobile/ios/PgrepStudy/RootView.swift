@@ -26,6 +26,25 @@ struct RootView: View {
             .environmentObject(app)
             .preferredColorScheme((AppTheme(rawValue: themeRaw) ?? .system).colorScheme)
             .task { await app.bootstrap() }
+            .task(id: app.phase) { offerFirstRunDiagnosticIfNeeded() }
+            .fullScreenCover(isPresented: $app.isPresentingDiagnostic) {
+                DiagnosticView()
+                    .environmentObject(app)
+                    .preferredColorScheme((AppTheme(rawValue: themeRaw) ?? .system).colorScheme)
+            }
+    }
+
+    /// Route the first run into the Diagnostic once the collection is open,
+    /// mirroring the desktop landing -> diagnostic. Once per launch, and only
+    /// while it has never been completed; "Maybe later" or completing it stops the
+    /// offer for the session.
+    private func offerFirstRunDiagnosticIfNeeded() {
+        guard app.phase == .ready,
+              app.diagnosticDone == false,
+              !app.hasOfferedFirstRunDiagnostic
+        else { return }
+        app.hasOfferedFirstRunDiagnostic = true
+        app.isPresentingDiagnostic = true
     }
 
     @ViewBuilder

@@ -223,6 +223,65 @@ final class Engine: @unchecked Sendable {
         return events
     }
 
+    // MARK: Diagnostic (topic placement)
+
+    /// Load the topics to place: every blueprint category in blueprint order,
+    /// with its stored placement, reviewed-card count (from Memory), and
+    /// objective quick check. Mirrors the desktop pgrep_diagnostic_topics handler
+    /// (anki.pgrep.diagnostic.topics): one Memory pass gives the counts, and the
+    /// quick-check content is the ported Diagnostic.quickChecks constant (desktop
+    /// keeps it as a backend constant, not as cards / notes / tags, so there is no
+    /// engine-readable source to read it from).
+    func diagnosticTopics() async throws -> [DiagnosticTopic] {
+        try await perform { backend in
+            let memory = try Engine.memoryResult(backend)
+            var nCards: [String: Int] = [:]
+            for topic in memory.byTopic { nCards[topic.category] = topic.nCards }
+            return Diagnostic.topics(
+                stored: try Engine.diagnosticSnapshot(backend),
+                nCards: nCards
+            )
+        }
+    }
+
+    /// Whether the Diagnostic has been completed at least once: a non-empty
+    /// stored placement snapshot. Mirrors the desktop pgrep_diagnostic_status
+    /// handler exactly (a completed run persists a non-empty dict; a never-run
+    /// collection has none), so Home / Progress gate identically and a completion
+    /// synced down from desktop is honoured here.
+    func diagnosticCompleted() async throws -> Bool {
+        try await perform { backend in
+            !(try Engine.diagnosticSnapshot(backend)).isEmpty
+        }
+    }
+
+    /// Record a placement pass and persist it: grade each category's quick-check
+    /// answer against its key, combine it with the Memory prior, place every
+    /// blueprint category, and write the rolled-up snapshot to the collection
+    /// config under the SAME key and shape the desktop uses (so it syncs and
+    /// pgrep_diagnostic_status matches). Returns the placed topics for the results
+    /// screen. A faithful port of anki.pgrep.diagnostic.place.
+    @discardableResult
+    func placeDiagnostic(answers: [String: Int]) async throws -> [PlacedTopic] {
+        try await perform { backend in
+            let memory = try Engine.memoryResult(backend)
+            let placed = Diagnostic.place(answers: answers, memoryPoints: memory.masteryByCategory)
+            let data = try JSONSerialization.data(withJSONObject: Diagnostic.snapshot(from: placed))
+            try backend.setConfigJson(key: Diagnostic.configKey, valueJson: data)
+            return placed
+        }
+    }
+
+    /// The stored diagnostic placement snapshot ({category: placement}), or an
+    /// empty map when never run or malformed. Mirrors diagnostic._stored_snapshot;
+    /// shared by diagnosticTopics and diagnosticCompleted so the read is one seam.
+    private static func diagnosticSnapshot(_ backend: AnkiBackend) throws -> [String: String] {
+        guard let data = try backend.getConfigJson(key: Diagnostic.configKey), !data.isEmpty,
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
+        else { return [:] }
+        return object
+    }
+
     // MARK: Exam (Problems, read-only)
 
     /// Load every `pgrep::Problem` note from the collection as an `ExamProblem`.

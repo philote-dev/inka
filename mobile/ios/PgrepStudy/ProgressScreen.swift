@@ -75,6 +75,9 @@ struct ProgressScreen: View {
             ProgressView("Reading your coverage…")
                 .frame(maxWidth: .infinity, minHeight: 200)
         case let .loaded(board):
+            if app.diagnosticDone == false {
+                DiagnosticCTA { app.isPresentingDiagnostic = true }
+            }
             coveragePanel(board.coverage)
             scoresSection(board)
         case let .failed(message):

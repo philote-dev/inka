@@ -40,6 +40,20 @@ final class AppModel: ObservableObject {
     /// Bumped after a sync so surfaces know to reload their data.
     @Published private(set) var dataVersion = 0
 
+    /// Whether the first-run Diagnostic has been completed at least once. nil
+    /// until the first read (loaded during bootstrap and after a sync), so a
+    /// learner who has completed it never flashes the first-run prompt; a failed
+    /// read falls open to false (show it), mirroring the desktop gate.
+    @Published private(set) var diagnosticDone: Bool?
+
+    /// Drives the shared Diagnostic sheet, which RootView presents. The first-run
+    /// auto-offer, the Home / Progress CTAs, and the Settings re-run all set this.
+    @Published var isPresentingDiagnostic = false
+
+    /// Guards the once-per-launch first-run auto-offer, so returning to Home does
+    /// not re-present the sheet after a "Maybe later".
+    var hasOfferedFirstRunDiagnostic = false
+
     private enum Keys {
         static let serverURL = "pgrep.sync.serverURL"
         static let username = "pgrep.sync.username"
@@ -70,6 +84,10 @@ final class AppModel: ObservableObject {
             let directory = documents.appendingPathComponent("PgrepStudy", isDirectory: true)
             let staged = try StudySandbox.stage(from: deckURL, in: directory, freshCopy: false)
             try await engine.open(collectionPath: staged.collectionPath, mediaFolder: staged.mediaFolderPath)
+            // Read the diagnostic gate before going ready, so the first frame
+            // already knows whether to offer it (no prompt flash for a learner who
+            // has completed it). A failed read falls open to "not done".
+            diagnosticDone = (try? await engine.diagnosticCompleted()) ?? false
             phase = .ready
         } catch {
             phase = .failed(String(describing: error))
@@ -92,6 +110,18 @@ final class AppModel: ObservableObject {
     /// Progress reflect them immediately, without waiting for a sync.
     func refreshScores() {
         dataVersion &+= 1
+    }
+
+    /// Mark the Diagnostic complete after an on-device placement pass, so the
+    /// first-run prompt and the Home / Progress CTAs clear at once.
+    func markDiagnosticComplete() {
+        diagnosticDone = true
+    }
+
+    /// Re-read the diagnostic gate from the collection (after a sync, in case
+    /// desktop completed it and the snapshot synced down).
+    func reloadDiagnosticStatus() async {
+        diagnosticDone = (try? await engine.diagnosticCompleted()) ?? false
     }
 
     /// The endpoint with a guaranteed trailing slash (the engine joins "./").

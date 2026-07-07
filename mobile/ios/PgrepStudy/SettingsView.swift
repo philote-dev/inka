@@ -6,16 +6,17 @@
 //
 // - Study: target retention (read-only here, adjust on desktop where it syncs
 //   from), a test date (persisted in the synced "pgrepSettings" collection blob,
-//   exactly like desktop), and the diagnostic re-run (a desktop-first flow).
+//   exactly like desktop), and the diagnostic re-run (an on-device flow that
+//   reopens DiagnosticView).
 // - Assistant: AI is off; the app scores and studies fully without it.
 // - Sync: the self-hosted server + two-way sync (login, sync, sign out).
 // - Appearance: a Light/Dark/System theme, applied app-wide.
 // - Data: Export (a .colpkg export runs on desktop; on iPhone, Sync is the
 //   backup path) and a scoped, two-step Reset wired through the shared engine.
 //
-// Controls that cannot be wired safely on iOS in scope (retention writes, the
-// diagnostic quiz, colpkg export) are shown honestly as read-only or desktop-only
-// rather than faked. Everything works with AI off.
+// Controls that cannot be wired safely on iOS in scope (retention writes, colpkg
+// export) are shown honestly as read-only or desktop-only rather than faked.
+// Everything works with AI off.
 
 import SwiftUI
 
@@ -168,6 +169,8 @@ final class SettingsModel: ObservableObject {
             switch try await app.engine.sync(hkey: hkey, endpoint: app.normalizedEndpoint) {
             case let .completed(message):
                 app.markSynced()
+                // A completion may have synced down from desktop; refresh the gate.
+                await app.reloadDiagnosticStatus()
                 status = .ok(message ?? "Sync complete.")
             case .conflictNeedsChoice:
                 status = .needsChoice
@@ -183,6 +186,7 @@ final class SettingsModel: ObservableObject {
         do {
             try await app.engine.resolveConflict(hkey: hkey, endpoint: app.normalizedEndpoint, upload: upload)
             app.markSynced()
+            await app.reloadDiagnosticStatus()
             status = .ok(upload ? "Uploaded to the server." : "Downloaded from the server.")
         } catch {
             handle(error: error, app: app)
@@ -264,11 +268,18 @@ struct SettingsView: View {
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.muted)
 
-            comingSoonRow(
-                title: "Diagnostic",
-                detail: "Re-run the placement check on desktop; the result syncs here.",
-                actionTitle: "Re-run"
-            )
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                HStack {
+                    Text("Diagnostic")
+                    Spacer()
+                    Button("Re-run") { app.isPresentingDiagnostic = true }
+                        .buttonStyle(.bordered)
+                        .tint(Theme.text)
+                }
+                Text("Place each topic strong or rusty. Combines a quick check with what your reviews already show.")
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.muted)
+            }
         }
         .onChange(of: model.testDateEnabled) { _ in Task { await model.saveTestDate(app: app) } }
         .onChange(of: model.testDate) { _ in Task { await model.saveTestDate(app: app) } }
