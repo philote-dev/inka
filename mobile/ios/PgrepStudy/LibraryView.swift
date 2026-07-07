@@ -3,7 +3,7 @@
 //
 // Library: the Card Sets browser (design_handoff_card_sets, ts/routes/pgrep/
 // library + CardWheel.svelte). AI is off on the phone, so this is the Card Sets
-// surface (never the AI-on calibration walkthrough, which is a separate task).
+// surface, plus the voluntary calibration walkthrough (never a wall).
 //
 // A native SwiftUI analog of the web "wheel", not a reproduction of its FLIP/3D
 // animation: a horizontal one-up carousel selects a category set (mirroring the
@@ -12,6 +12,13 @@
 // MathText. "Add a card" authors the learner's own front/back as-is into the
 // set (no AI) via Engine.addCard, then reloads so the new card lands in its set
 // and the counts update, exactly like the desktop composer.
+//
+// Because AI is off, calibration is voluntary and never gates Study. Mirroring
+// the desktop AI-off Library, an uncalibrated collection shows a dismissible
+// "Teach pgrep your style" strip that launches the walkthrough: author one card
+// per blueprint category (the generation-effect act), with no stylize/gap-fill.
+// Progress and the honest completion state read the calibration status; the
+// strip clears once every category has a learner-authored card.
 
 import SwiftUI
 
@@ -26,6 +33,12 @@ final class LibraryModel: ObservableObject {
     @Published private(set) var state: LoadState = .loading
     /// The centered set's category (drives the carousel and the cards below).
     @Published var selectedCategory: String = ""
+    /// The calibration gate status ({calibrated, authored, required}), read
+    /// alongside the sets so the Library can show the voluntary walkthrough entry
+    /// and its progress. Secondary to the sets: a hiccup leaves it nil (the entry
+    /// simply stays hidden), never failing the surface. AI is off, so this only
+    /// ever drives the voluntary entry, never a gate.
+    @Published var calibration: CalibrationStatus?
 
     var sets: [CardSet] {
         if case let .loaded(sets) = state { return sets }
@@ -49,6 +62,14 @@ final class LibraryModel: ObservableObject {
         } catch {
             state = .failed(String(describing: error))
         }
+        await reloadCalibration(engine: engine)
+    }
+
+    /// Re-read the calibration status (best-effort). Called on load and after the
+    /// walkthrough authors cards, so the voluntary entry clears once every
+    /// blueprint category has a learner-authored card.
+    func reloadCalibration(engine: Engine) async {
+        calibration = try? await engine.calibrationStatus()
     }
 
     /// Author one card, then reload so it appears in its set and the counts
@@ -79,6 +100,20 @@ struct LibraryView: View {
     @EnvironmentObject private var app: AppModel
     @StateObject private var model = LibraryModel()
     @State private var isAdding = false
+    @State private var isWalkthrough = false
+    /// The voluntary calibration entry is dismissible for the session, mirroring
+    /// the desktop's entryDismissed. AI is off, so it is never a wall.
+    @State private var entryDismissed = false
+
+    /// Whether to offer the voluntary "Teach pgrep your style" walkthrough: the
+    /// collection is not yet calibrated and the strip has not been dismissed.
+    /// Mirrors the desktop showTeachEntry with AI off (so no aiEnabled term).
+    private var showTeachEntry: Bool {
+        if let calibration = model.calibration {
+            return !calibration.calibrated && !entryDismissed
+        }
+        return false
+    }
 
     var body: some View {
         NavigationStack {
@@ -101,6 +136,15 @@ struct LibraryView: View {
             AddCardSheet(defaultCategory: model.selectedCategory) { category, front, back in
                 await model.add(engine: app.engine, category: category, front: front, back: back)
             }
+        }
+        .sheet(isPresented: $isWalkthrough, onDismiss: {
+            // Re-read the sets and calibration on any dismissal (Done or swipe),
+            // so the newly authored cards land in their sets and the entry clears
+            // once every category is covered.
+            Task { await model.load(engine: app.engine) }
+        }) {
+            CalibrationWalkthroughView()
+                .environmentObject(app)
         }
     }
 
@@ -136,12 +180,68 @@ struct LibraryView: View {
 
     private func loaded(_ sets: [CardSet]) -> some View {
         VStack(spacing: 0) {
+            if showTeachEntry {
+                teachEntry
+            }
             summary(sets)
             carousel(sets)
                 .frame(height: 210)
             Divider().background(Theme.border)
             cardsList
         }
+    }
+
+    /// The voluntary calibration entry: a calm strip, never a wall. "Start" opens
+    /// the walkthrough; the close button dismisses it for the session. Mirrors the
+    /// desktop teach-entry (AI off, uncalibrated), including the authored/required
+    /// progress so the learner sees how far along they are.
+    private var teachEntry: some View {
+        HStack(alignment: .top, spacing: Theme.Space.m) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Teach pgrep your style")
+                    .font(Theme.Typography.emphasis)
+                    .foregroundStyle(Theme.text)
+                Text("Write one card per topic in your own words. It is the fastest way to make this stick.")
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let calibration = model.calibration {
+                    Text("\(calibration.authored) of \(calibration.required) topics")
+                        .font(Theme.Typography.mono(11))
+                        .foregroundStyle(Theme.muted)
+                }
+            }
+            Spacer(minLength: 0)
+            VStack(spacing: Theme.Space.s) {
+                Button { isWalkthrough = true } label: {
+                    Text("Start")
+                        .font(Theme.Typography.body)
+                        .padding(.vertical, Theme.Space.s)
+                        .padding(.horizontal, Theme.Space.m)
+                        .background(Theme.actionBg)
+                        .foregroundStyle(Theme.actionFg)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                Button { entryDismissed = true } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Theme.muted)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss")
+            }
+        }
+        .padding(Theme.Space.m)
+        .background(Theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                .stroke(Theme.border, lineWidth: 1)
+        )
+        .padding(.horizontal, Theme.Space.l)
+        .padding(.top, Theme.Space.m)
     }
 
     private func summary(_ sets: [CardSet]) -> some View {
@@ -394,6 +494,212 @@ private struct AddCardSheet: View {
             let ok = await onAdd(category, front, back)
             busy = false
             if ok { dismiss() }
+        }
+    }
+}
+
+/// The voluntary "Teach pgrep your style" calibration walkthrough (AI off): step
+/// through the blueprint one topic at a time and author one card each, the
+/// generation-effect act. A native analog of the desktop Walkthrough.svelte's
+/// AI-off path (author only, no stylize or gap-fill). Progress and the honest
+/// completion state read the calibration status (authored / required), so
+/// authoring the last category's card calibrates the collection durably. It never
+/// gates Study; the learner can close it at any point, and authored cards are the
+/// same seed notes CardSets.addCard writes (so they merge on sync).
+private struct CalibrationWalkthroughView: View {
+    @EnvironmentObject private var app: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var topicIndex = 0
+    @State private var front = ""
+    @State private var back = ""
+    @State private var busy = false
+    @State private var error: String?
+    @State private var status: CalibrationStatus?
+
+    /// The blueprint categories, in blueprint order. One card per category, so
+    /// the walk and the calibration gate line up exactly.
+    private let slugs = Blueprint.slugs
+
+    private var slug: String { slugs[min(topicIndex, slugs.count - 1)] }
+    private var total: Int { slugs.count }
+    private var authored: Int { status?.authored ?? 0 }
+    private var calibrated: Bool { status?.calibrated ?? false }
+
+    /// Both faces are required, matching the desktop walkthrough (author needs a
+    /// front and a back), stricter than the wheel's "Add a card" (front only).
+    private var canSubmit: Bool {
+        !front.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !back.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !busy
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.Space.l) {
+                    progressHeader
+                    if calibrated {
+                        completion
+                    } else {
+                        editor
+                    }
+                }
+                .padding(Theme.Space.l)
+            }
+            .background(Theme.canvas.ignoresSafeArea())
+            .navigationTitle("Teach pgrep your style")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }.tint(Theme.text)
+                }
+            }
+        }
+        .task { await refreshStatus() }
+    }
+
+    // MARK: Sections
+
+    private var progressHeader: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            Text("\(authored) of \(total) topics authored")
+                .font(Theme.Typography.emphasis)
+                .foregroundStyle(Theme.text)
+            ProgressView(value: Double(min(authored, total)), total: Double(total))
+                .tint(Theme.memoryText)
+            Text("Write one card per topic in your own words. No AI, just you.")
+                .font(Theme.Typography.caption)
+                .foregroundStyle(Theme.muted)
+        }
+    }
+
+    private var editor: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
+            HStack {
+                Text("Card \(topicIndex + 1) of \(total)")
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.muted)
+                Spacer()
+                HStack(spacing: Theme.Space.l) {
+                    Button { step(-1) } label: { Image(systemName: "chevron.left") }
+                        .disabled(topicIndex == 0)
+                    Button { step(1) } label: { Image(systemName: "chevron.right") }
+                        .disabled(topicIndex == total - 1)
+                }
+                .tint(Theme.text)
+            }
+
+            Text(CardSets.displayName(for: slug))
+                .font(Theme.Typography.title)
+                .foregroundStyle(Theme.memoryText)
+
+            field(title: "FRONT", text: $front, placeholder: "What does this concept test?", lines: 2 ... 4)
+            field(title: "BACK", text: $back, placeholder: "Your concise answer, in your own words.", lines: 3 ... 6)
+
+            if let error {
+                Text(error)
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.caution)
+            }
+
+            Button { submit() } label: {
+                HStack(spacing: Theme.Space.s) {
+                    if busy { ProgressView().tint(Theme.actionFg) }
+                    Text(busy ? "Adding" : "Add this card")
+                        .font(Theme.Typography.emphasis)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Theme.Space.s + Theme.Space.xs)
+                .background(Theme.actionBg.opacity(canSubmit ? 1 : 0.5))
+                .foregroundStyle(Theme.actionFg)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSubmit)
+
+            Text("AI is off, so no cards are drafted for you. Write each one yourself, or close this any time.")
+                .font(Theme.Typography.caption)
+                .foregroundStyle(Theme.muted)
+        }
+    }
+
+    private var completion: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
+            Text("You taught pgrep your style")
+                .font(Theme.Typography.title)
+                .foregroundStyle(Theme.text)
+            Text("Every blueprint topic has a card in your own words. Calibration stays complete even if you edit or remove cards later.")
+                .font(Theme.Typography.body)
+                .foregroundStyle(Theme.muted)
+            Button { dismiss() } label: {
+                Text("Done")
+                    .font(Theme.Typography.emphasis)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Theme.Space.s + Theme.Space.xs)
+                    .background(Theme.actionBg)
+                    .foregroundStyle(Theme.actionFg)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func field(title: String, text: Binding<String>, placeholder: String, lines: ClosedRange<Int>) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            Text(title)
+                .font(Theme.Typography.caption)
+                .tracking(1.2)
+                .foregroundStyle(Theme.muted)
+            TextField(placeholder, text: text, axis: .vertical)
+                .lineLimit(lines)
+                .font(Theme.Typography.body)
+                .padding(Theme.Space.m)
+                .background(Theme.elevated)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                        .stroke(Theme.border, lineWidth: 1)
+                )
+        }
+    }
+
+    // MARK: Actions
+
+    private func refreshStatus() async {
+        status = try? await app.engine.calibrationStatus()
+    }
+
+    private func step(_ delta: Int) {
+        let next = topicIndex + delta
+        guard next >= 0, next < total else { return }
+        topicIndex = next
+        front = ""
+        back = ""
+        error = nil
+    }
+
+    private func submit() {
+        guard canSubmit else {
+            error = "Write both the front and the back first."
+            return
+        }
+        busy = true
+        error = nil
+        Task {
+            do {
+                _ = try await app.engine.addCard(category: slug, front: front, back: back)
+                await refreshStatus()
+                // Guide onward: advance to the next topic and clear the editor,
+                // exactly like the desktop walkthrough after a card lands.
+                if topicIndex < total - 1 { topicIndex += 1 }
+                front = ""
+                back = ""
+            } catch {
+                self.error = "Could not add this card. Try again."
+            }
+            busy = false
         }
     }
 }

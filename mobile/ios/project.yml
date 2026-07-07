@@ -86,6 +86,15 @@ targets:
       # it against the Engine stays in the app target only. Pulls in the Blueprint
       # + Topic helpers it groups on (already compiled below via MemoryScore.swift).
       - path: PgrepStudy/CardSets.swift
+      # Pure calibration gate derivation (authored / required / calibrated) + the
+      # note/config read-write extension, exercised by CalibrationTests. The
+      # embedded offline evidence + its {p, o} -> {predicted, observed} mapping
+      # bridge (CalibrationEvidence) is pinned there too. The SwiftUI surfaces
+      # that render them (ProgressScreen's Calibration tab, LibraryView's
+      # walkthrough) stay in the app target only. Calibration pulls in CardSets
+      # (seed tag) + Blueprint/Topic (below); the evidence pulls in ReliabilityDiagram.
+      - path: PgrepStudy/Calibration.swift
+      - path: PgrepStudy/CalibrationEvidence.swift
       - path: PgrepStudy/SyncRpc.swift
       - path: PgrepStudy/StudySandbox.swift
       # The math renderer's document builder, exercised by MathTextTests to prove

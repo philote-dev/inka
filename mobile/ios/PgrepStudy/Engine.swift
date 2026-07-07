@@ -441,6 +441,27 @@ final class Engine: @unchecked Sendable {
         }
     }
 
+    // MARK: Calibration (Progress evidence + Library walkthrough)
+
+    /// The embedded model-calibration evidence (Memory + Performance reliability
+    /// points + Brier), a port of anki.pgrep.calibration_evidence. These are
+    /// embedded constants, not a collection read (the desktop pgrep_calibration
+    /// handler takes no col), so this is synchronous and always available
+    /// offline. Progress' Calibration tab renders it through ReliabilityDiagramView.
+    func calibrationEvidence() -> CalibrationEvidence {
+        CalibrationEvidence.embedded
+    }
+
+    /// Read the calibration gate status ({calibrated, authored, required}), a port
+    /// of anki.pgrep.calibration.calibration_status. AI is off on the phone, so
+    /// this never gates Study; the Library uses it to drive the voluntary "Teach
+    /// pgrep your style" walkthrough (progress and honest completion) and to hide
+    /// its entry once every blueprint category has a learner-authored card. Sets
+    /// the sticky flag on completion, so calibration is durable and syncs.
+    func calibrationStatus() async throws -> CalibrationStatus {
+        try await perform { backend in try backend.calibrationStatus() }
+    }
+
     // MARK: Sync
 
     /// Log in to a self-hosted sync server and return the hkey to persist.

@@ -1,15 +1,17 @@
 // Copyright: Ankitects Pty Ltd and contributors
 // License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 //
-// Progress: the coverage ledger and the three score cards for the mobile
-// companion, mirroring the desktop Progress surface
-// (ts/routes/pgrep/progress/+page.svelte, the Coverage + Scores tabs). Coverage
-// shows how much of the blueprint has a reviewed card (a segmented bar per
-// category, the overall fraction against the Readiness gate, and a per-category
-// list reusing each topic's Memory point). The three cards then read Memory,
-// Performance, and Readiness with their 80% ranges, each abstaining honestly on
-// thin data. All computed natively over the shared engine, the same snapshot
-// Home reads. The Calibration tab (embedded offline evidence) is desktop-first.
+// Progress: the coverage ledger, the three score cards, and the calibration
+// evidence for the mobile companion, mirroring the desktop Progress surface
+// (ts/routes/pgrep/progress/+page.svelte, the Coverage + Scores + Calibration
+// tabs). Coverage shows how much of the blueprint has a reviewed card (a
+// segmented bar per category, the overall fraction against the Readiness gate,
+// and a per-category list reusing each topic's Memory point). The three cards
+// then read Memory, Performance, and Readiness with their 80% ranges, each
+// abstaining honestly on thin data. Calibration reads the embedded offline
+// evidence (calibration_evidence.py), a reliability diagram plus Brier for
+// Memory and Performance, never the private content/ tree. All computed natively
+// over the shared engine, the same snapshot Home reads.
 
 import SwiftUI
 
@@ -29,6 +31,24 @@ enum CategoryLabels {
 
     static func label(_ slug: String) -> String {
         byCategory[slug] ?? slug.replacingOccurrences(of: "_", with: " ")
+    }
+}
+
+/// The Progress facets, one segmented control, mirroring the desktop tabs so each
+/// facet of the evidence lives in its own home rather than a long scroll.
+private enum ProgressTab: String, CaseIterable, Identifiable {
+    case coverage
+    case scores
+    case calibration
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .coverage: return "Coverage"
+        case .scores: return "Scores"
+        case .calibration: return "Calibration"
+        }
     }
 }
 
@@ -56,6 +76,7 @@ struct ProgressScreen: View {
     @EnvironmentObject private var app: AppModel
     @StateObject private var model = ProgressModel()
     @Binding var selectedTab: RootTab
+    @State private var tab: ProgressTab = .coverage
 
     var body: some View {
         ScrollView {
@@ -78,8 +99,11 @@ struct ProgressScreen: View {
             if app.diagnosticDone == false {
                 DiagnosticCTA { app.isPresentingDiagnostic = true }
             }
-            coveragePanel(board.coverage)
-            scoresSection(board)
+            Picker("Section", selection: $tab) {
+                ForEach(ProgressTab.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            tabContent(board)
         case let .failed(message):
             VStack(spacing: Theme.Space.m) {
                 Image(systemName: "exclamationmark.triangle")
@@ -94,6 +118,20 @@ struct ProgressScreen: View {
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity, minHeight: 200)
+        }
+    }
+
+    /// Route the selected facet to its panel. Coverage and Scores are the
+    /// existing native reads; Calibration renders the embedded offline evidence.
+    @ViewBuilder
+    private func tabContent(_ board: Scoreboard) -> some View {
+        switch tab {
+        case .coverage:
+            coveragePanel(board.coverage)
+        case .scores:
+            scoresSection(board)
+        case .calibration:
+            calibrationSection()
         }
     }
 
@@ -234,5 +272,95 @@ struct ProgressScreen: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: Calibration
+
+    /// The embedded calibration evidence: a reliability diagram plus Brier for
+    /// Memory and Performance, from the offline evaluations (calibration_evidence).
+    /// Read straight from the engine's embedded constant, so it always renders
+    /// offline and never touches the private content/ tree. Mirrors the desktop
+    /// Calibration tab: each layer's curve in its reserved hue, the honest note,
+    /// and the provenance (n, date, source, method).
+    private func calibrationSection() -> some View {
+        let evidence = app.engine.calibrationEvidence()
+        return VStack(alignment: .leading, spacing: Theme.Space.l) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Calibration")
+                    .font(Theme.Typography.emphasis)
+                    .foregroundStyle(Theme.text)
+                Spacer()
+                Text("How honest the model is")
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.muted)
+            }
+
+            calibrationCell(title: "Memory", read: "Held-out reviews", tone: .memory, layer: evidence.memory)
+            Divider().background(Theme.border)
+            calibrationCell(title: "Performance", read: "Held-out synthetic", tone: .performance, layer: evidence.performance)
+
+            Text("Calibration compares each model's predicted chance against what actually happened on held-out data. The closer the line sits to the diagonal, the more honest the model.")
+                .font(Theme.Typography.caption)
+                .foregroundStyle(Theme.muted)
+        }
+        .padding(Theme.Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                .stroke(Theme.border, lineWidth: 1)
+        )
+    }
+
+    /// One model layer's calibration cell: the layer title in its reserved hue,
+    /// the reliability diagram (points mapped from the evidence's {p, o} shape to
+    /// the diagram's {predicted, observed} via CalibrationLayer.reliabilityPoints)
+    /// with its Brier and honest read, the caption note, and the provenance line
+    /// (n, date, source, method). Mirrors the desktop calibView.
+    private func calibrationCell(title: String, read: String, tone: ScoreKind, layer: CalibrationLayer) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            Text(title)
+                .font(Theme.Typography.emphasis)
+                .foregroundStyle(tone.textTint)
+
+            ReliabilityDiagramView(
+                points: layer.reliabilityPoints,
+                brier: layer.brier,
+                read: read,
+                tone: tone,
+                size: 200
+            )
+
+            Text(layer.note)
+                .font(Theme.Typography.caption)
+                .foregroundStyle(Theme.muted)
+
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                Text("n \(Self.formattedCount(layer.n)) · \(layer.date)")
+                    .font(Theme.Typography.mono(11))
+                    .foregroundStyle(Theme.muted)
+                Text(layer.source)
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.muted)
+                Text(layer.method)
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.muted)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Group the sample count with thousands separators, matching the desktop's
+    /// `toLocaleString("en-US")` (7,503 not 7503).
+    private static let countFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "en_US")
+        return formatter
+    }()
+
+    private static func formattedCount(_ n: Int) -> String {
+        countFormatter.string(from: NSNumber(value: n)) ?? "\(n)"
     }
 }
