@@ -36,11 +36,11 @@
 - [`plan/build-plan.md`](plan/build-plan.md) — the unified build plan: current status, the remaining trajectory (L2.7, then L3 and L4, then L5, L6), the per-layer agent split, gates, and controller prompts.
 - [`plan/dataset-pipeline.md`](plan/dataset-pipeline.md) — the status board for every dataset the AI layer needs (corpus, gold, held-out, examples): role, source, status, owner.
 
-### Contracts (durable technical contracts the code depends on)
+### Specs (durable, the code depends on)
 
-- [`contracts/L1-coordination-schema.md`](contracts/L1-coordination-schema.md) — the two-level topic tags, the Attempt-log schema, and the K1-K5 invariants.
-- [`contracts/L2-api-contract.md`](contracts/L2-api-contract.md) — the frontend-to-backend API contract, plus the desktop-takeover architecture (§6).
-- [`contracts/L3-sync-conflict-rule.md`](contracts/L3-sync-conflict-rule.md) — the sync conflict rule (union-by-id on the Attempt log).
+- [`reference/tag-and-attempt-log-schema.md`](reference/tag-and-attempt-log-schema.md) — the two-level topic tags, the Attempt-log schema, and the K1-K5 invariants.
+- [`reference/api-contract.md`](reference/api-contract.md) — the frontend-to-backend API contract, plus the desktop-takeover architecture (§6).
+- [`reference/sync-conflict-rule.md`](reference/sync-conflict-rule.md) — the sync conflict rule (union-by-id on the Attempt log).
 
 ### Reference (operational how-to)
 

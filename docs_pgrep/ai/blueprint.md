@@ -8,14 +8,14 @@ This is the single taxonomy every piece of pgrep content tags against. The
 bundled deck, the AI-generated cards and problems, the seeds, the coverage map
 that gates Readiness, and the interleaving selector all read these tags and
 weights. It aligns to the official ETS Physics GRE content breakdown and honors
-the locked tag scheme in `docs_pgrep/contracts/L1-coordination-schema.md`. It does
+the locked tag scheme in `docs_pgrep/reference/tag-and-attempt-log-schema.md`. It does
 not reinvent that scheme.
 
 ## Sources
 
 - ETS Physics GRE content specification, the public topic breakdown and its
   listed subtopics. This is the named source for the taxonomy itself.
-- `docs_pgrep/contracts/L1-coordination-schema.md`, the locked tag format and the
+- `docs_pgrep/reference/tag-and-attempt-log-schema.md`, the locked tag format and the
   category weights (the contract this file must match).
 - `docs_pgrep/README.md` for exam facts, `docs_pgrep/research/three-scores.md`
   for the coverage gate and abstain thresholds, and
@@ -175,7 +175,7 @@ the floors are the blueprint's requirement. A nominal example (a 350-card and
 
 The public ETS current breakdown and the L1 table agree on 7 of 9 categories and
 differ by one point on two. **Decision: keep L1.** No change to
-`L1-coordination-schema.md` weights.
+`tag-and-attempt-log-schema.md` weights.
 
 | Category       | L1 locked (in force) | ETS current public |
 | -------------- | -------------------: | -----------------: |

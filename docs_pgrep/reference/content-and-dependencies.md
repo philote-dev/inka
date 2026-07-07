@@ -5,7 +5,7 @@ and what the project depends on from outside the codebase. It defines the
 sourcing tiers, the provenance and leakage rules, the data assets the AI layer is
 built on, and the external tools and services the build requires. Shared product
 context is in [`../README.md`](../README.md). Live dataset status is in
-[`dataset-pipeline.md`](dataset-pipeline.md). The pipeline that builds, gates, and
+[`dataset-pipeline.md`](../plan/dataset-pipeline.md). The pipeline that builds, gates, and
 audits the content bundle is in [`content-pipeline.md`](content-pipeline.md).
 
 ---

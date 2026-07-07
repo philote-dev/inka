@@ -22,7 +22,7 @@
 //
 // The blueprint order and the category display names are duplicated here on
 // purpose, the same cross-language boundary duplication the L1 contract mandates
-// (docs_pgrep/contracts/L1-coordination-schema.md §1); the order reuses the
+// (docs_pgrep/reference/tag-and-attempt-log-schema.md §1); the order reuses the
 // Blueprint table already ported in MemoryScore.swift.
 
 import Foundation

@@ -109,7 +109,7 @@ python -m pytest pylib/tests/test_pgrep_sync_roundtrip.py
 ```
 
 iOS build and the on-device attempt-write test pass (`xcodebuild ... build` and
-`... test` both succeed). Conflict rule: `docs_pgrep/contracts/L3-sync-conflict-rule.md`.
+`... test` both succeed). Conflict rule: `docs_pgrep/reference/sync-conflict-rule.md`.
 
 [RECORD] Review a card or run an exam on the phone, Sync, then Sync on the
 desktop and show it appear. This is the headline shared-engine + sync shot.

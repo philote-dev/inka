@@ -5,7 +5,7 @@
 
 Two collections (standing in for the phone and the desktop, which drive the same
 engine over different bridges) sync through a self-hosted anki-sync-server. We
-prove the documented conflict rule end to end (docs_pgrep/contracts/L3-sync-conflict-rule.md):
+prove the documented conflict rule end to end (docs_pgrep/reference/sync-conflict-rule.md):
 
 - **revlog union by id:** distinct cards reviewed offline on each device all
   land, none lost or doubled;

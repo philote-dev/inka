@@ -7,7 +7,7 @@ not repeat the branding work that chat already finished.
 
 ## What is already done (do not redo)
 
-The branding sweep (Workstreams 1 to 4 of `2026-07-06-l6-production-de-anki-design.md`) is
+The branding sweep (Workstreams 1 to 4 of `production-de-anki-design.md`) is
 complete and parked, uncommitted, in the worktree `.worktrees/l6-de-anki` (branch
 `feat/l6-de-anki`):
 
@@ -177,7 +177,7 @@ Park web in the roadmap.
 
 ## Kickoff line
 
-"Read `docs_pgrep/plan/2026-07-06-l6-shell-profiles-login-handoff.md`. Continue the L6
+"Read `docs_pgrep/plan/shell-profiles-login-handoff.md`. Continue the L6
 production mission. The branding sweep is done and parked in `.worktrees/l6-de-anki`, do not
 redo it. Brainstorm and spec the structural de-Anki (menu removal), the profile collapse to
 one implicit account, the model-B login gate with a configurable server URL, and the

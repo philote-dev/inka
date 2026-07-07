@@ -107,7 +107,7 @@ lost or double-counted. Reviews and Attempt events union by id; for the same
 card on both devices the newer modification time wins. This reuses Anki's own
 sync engine unmodified (nothing under `rslib/src/sync/` changes) against a
 self-hosted server. The conflict rule is documented in
-`docs_pgrep/contracts/L3-sync-conflict-rule.md`.
+`docs_pgrep/reference/sync-conflict-rule.md`.
 
 Test (`pylib/tests/test_pgrep_sync_roundtrip.py`), covering different cards
 offline on two devices, the same card on both, the Attempt-log union, and

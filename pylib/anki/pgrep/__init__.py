@@ -10,5 +10,5 @@ This package holds the pure-Python data model for pgrep:
 - ``attempt_log``: the attempt log as immutable notes ("notes-as-log") plus the
   single read-model seam used by all attempt analytics.
 
-See ``docs_pgrep/contracts/L1-coordination-schema.md`` for the shared contract.
+See ``docs_pgrep/reference/tag-and-attempt-log-schema.md`` for the shared contract.
 """

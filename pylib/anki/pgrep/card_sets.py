@@ -10,7 +10,7 @@ design_handoff_card_sets``). A "set" is a category (Classical Mechanics, E&M,
 across the seeded ``PGRE::Sample`` deck and the authored / AI ``PGRE::Generated``
 deck.
 
-Honesty rule (``L2-api-contract.md`` §0): every count and preview is real. A
+Honesty rule (``api-contract.md`` §0): every count and preview is real. A
 set's card count is the true number of notes, and the deck-face preview
 (``cards[0].front``) is the first card's actual front. Categories with no cards
 are omitted, so the wheel never shows an invented set. No AI, and no scheduling

@@ -10,9 +10,9 @@ spec removes Anki's user-facing interface from the shipped product while keeping
 the engine as an invisible dependency.
 
 This is the structural half of the de-Anki work. The branding string sweep is a
-sibling effort (`2026-07-06-l6-production-de-anki-design.md`, parked in
+sibling effort (`production-de-anki-design.md`, parked in
 `feat/l6-de-anki`), and the detailed grounding lives in
-`2026-07-06-l6-shell-profiles-login-handoff.md`. Execution should land in a
+`shell-profiles-login-handoff.md`. Execution should land in a
 dedicated worktree (`feat/l6-structural-de-anki` already exists).
 
 ## Principle

@@ -15,7 +15,7 @@ tests lock the wording so it cannot silently regress.
 
 **Tech Stack:** Python (Qt About dialog), Fluent `.ftl` strings, Svelte (Settings), pytest.
 
-**Spec:** `docs_pgrep/plan/2026-07-06-l6-production-de-anki-design.md` (on `main`).
+**Spec:** `docs_pgrep/plan/production-de-anki-design.md` (on `main`).
 
 **Constraints (hard):** No em-dashes, short labels, calm voice. Keep the Anki credit in the
 About and licenses surface only. Do not change `.ftl` keys, only their English values. Do
@@ -326,7 +326,7 @@ def test_errors_app_name_is_pgrep():
       exclusive flip, `pgrep_host.py:39`) and the window title and icon work (`main.py:517`,
       `main.py:981`, `main.py:1475`) as done. Split the remainder into: (a) the de-Anki sweep
       (About and licenses, sync and error strings), pointing to
-      `2026-07-06-l6-production-de-anki-design.md`, and (b) the follow-ons: packaging (bundle
+      `production-de-anki-design.md`, and (b) the follow-ons: packaging (bundle
       name and id, `.dmg` name, `CFBundleName`, the deferred data-folder and support-link
       cleanup, phone build, needs signing), hardening (crash test, benchmark), and submission
       recording. Keep the section's existing voice and the copy rule (no em-dashes).

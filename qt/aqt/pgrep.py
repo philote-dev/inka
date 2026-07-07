@@ -13,7 +13,7 @@ JSON bytes (``mediasrv`` wraps the bytes into an ``application/binary``
 response).
 
 The L2 core handlers were scaffolded from the L2 API contract
-(``docs_pgrep/contracts/L2-api-contract.md`` §3), whose four surfaces call the
+(``docs_pgrep/reference/api-contract.md`` §3), whose four surfaces call the
 ``anki.pgrep.*`` bodies mapped here. Later L5.9 features append their own
 handlers to this file as they land, including Exam mode, Settings (with export
 and reset), the dev-only demo profile, and the Diagnostic completion gate. Each

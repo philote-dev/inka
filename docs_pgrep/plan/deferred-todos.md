@@ -31,7 +31,7 @@ The `feat/l6-structural-de-anki` worktree rebuilds the exclusive menu bar (pgrep
 app/Edit/Go menus, Anki's never built), makes Anki's profile chooser unreachable, and adds the
 macOS unified title bar. Parked, not merged. It defers:
 
-- [ ] First-run login gate: a pgrep sign-in with a configurable server URL and a "continue offline" escape, reusing the existing sync sign-in. Best after the hosting decision (see `2026-07-06-l6-hosting-roadmap.md`)
+- [ ] First-run login gate: a pgrep sign-in with a configurable server URL and a "continue offline" escape, reusing the existing sync sign-in. Best after the hosting decision (see `hosting-roadmap.md`)
 - [ ] pgrep's own card template, to migrate off Anki's stock `Basic` note type (touches the seeder, card sets, and generation)
 
 ## Done

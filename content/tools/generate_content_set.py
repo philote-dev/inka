@@ -191,7 +191,7 @@ def topup_targets(cat: dict, n: int, start_seq: int) -> tuple[list[dict], int]:
 
 # Diagram-required share per area (topic-aware figure policy). A figure is only
 # ever required where a diagram is genuinely natural; abstract areas skew
-# text-only. See docs_pgrep/plan/2026-07-06-content-pipeline-triple-pool-design.md.
+# text-only. See docs_pgrep/plan/content-pipeline-triple-pool-design.md.
 FIGURE_SHARE = {
     "mechanics": 0.50, "electromagnetism": 0.45, "quantum": 0.15,
     "thermodynamics": 0.40, "atomic": 0.15, "optics_waves": 0.55,

@@ -1,0 +1,47 @@
+---
+description: How to name, place, and create documentation files
+alwaysApply: true
+---
+
+# Documentation organization
+
+Applies to documentation files (Markdown and related docs), not source code.
+
+## Placement
+
+- Put docs under the project's docs home (`docs_pgrep/` in this repo).
+- Group by purpose: `plan/` (work not yet done), `reference/` (how things are
+  or work), `design/` (design decisions), `working/` (loose scratch and
+  transient coordination docs).
+
+## Naming
+
+- kebab-case for files and folders.
+- No date prefixes.
+- No phase or layer names in filenames (`l1`, `L2`, `l5.9`, `l6`). Name a doc
+  for its content. Phase names in prose inside a doc are fine.
+- No numeric order prefix (`01-`) unless a folder is genuinely a reading
+  sequence, and only when the user asks.
+
+## Creating a new doc
+
+- Prefer extending an existing doc over creating a new file. Create a new file
+  when the topic is genuinely distinct.
+- Name it for its content and link it from its parent or category index.
+- Never invent a new top-level folder or drop a file at the repo root or docs
+  root on a whim.
+- If the right home is genuinely unclear, stop and ask.
+- Transient coordination docs (handoffs, punchlists, orchestrators) usually
+  should not become durable files. If needed they go in `working/` and are
+  cleaned once the work lands.
+
+## Moving or renaming
+
+- Use `git mv` to preserve history.
+- Find every inbound reference across the whole repo (not just docs) and update
+  it, including code, tests, and config. Recompute relative links inside a moved
+  file for its new location.
+- Verify no broken links remain before finishing.
+
+For bulk reorganization or an alignment audit, use the `organize-files` and
+`audit-files` skills.

@@ -12,7 +12,7 @@ It is a thin, honest ledger built entirely on top of :mod:`anki.pgrep.memory`:
 the per-category reviewed-card counts and the Memory point come straight from
 :func:`anki.pgrep.memory.memory_score`, so Coverage and Memory can never
 disagree and no retrievability is recomputed here. No AI, no attempt log, no
-schedule mutation (``L2-api-contract.md`` §0).
+schedule mutation (``api-contract.md`` §0).
 
 The ``gate`` (0.70) is the Readiness coverage gate from
 ``three-scores.md`` §3/§5: Readiness abstains until coverage reaches

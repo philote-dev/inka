@@ -6,7 +6,7 @@
 Memory answers "is the raw material in your head" as ``P(recall now)`` — the
 expected fraction of your reviewed cards you would recall right now,
 blueprint-weighted. It is pure math over FSRS state and topic tags: no AI, no
-attempt log, no schedule mutation (``L2-api-contract.md`` §0).
+attempt log, no schedule mutation (``api-contract.md`` §0).
 
 Math (``three-scores.md`` §1):
 

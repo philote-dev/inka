@@ -24,7 +24,7 @@ the cold new queue is topic-varied from the first card.
 Idempotency: a marker tag (:data:`SEEDED_TAG`) on every seeded note means a
 second call creates nothing (no duplicate cards). The note adds are one batch
 under a single named undo entry. See
-``docs_pgrep/contracts/L2-api-contract.md`` §2.
+``docs_pgrep/reference/api-contract.md`` §2.
 """
 
 from __future__ import annotations

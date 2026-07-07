@@ -64,14 +64,14 @@ number the docs cannot back. Approval gate: Frank confirms this outline before P
 - Six desktop surfaces plus a native mobile companion, one shared engine, two-way sync.
   Source: `build-plan.md` (L2, L2.5, L3), `research/technical-architecture.md`.
 - Attempt log as immutable notes ("A now, C-ready"), K1 to K5. Source:
-  `research/attempt-log-storage.md`, `contracts/L1-coordination-schema.md`.
+  `research/attempt-log-storage.md`, `reference/tag-and-attempt-log-schema.md`.
 
 ### Section 4: The study selector
 
 - New `ReviewCardOrder::PointsAtStake`, a gather-then-limit second pass in Rust. Source:
   `research/anki-rooting-and-rust.md`, `proofs/mvp-proofs.md`.
 - worth = blueprint% times weakness, weakness = 1 minus mean FSRS R; band 60 to 85
-  percent; anti-blocking K=3. Source: `contracts/L1-coordination-schema.md`,
+  percent; anti-blocking K=3. Source: `reference/tag-and-attempt-log-schema.md`,
   `research/feature-interleaving.md`.
 - Safe seam: never mutates due, interval, or memory_state; no undo record; queues in
   memory. Source: `research/anki-rooting-and-rust.md`, `proofs/mvp-proofs.md`.
@@ -134,7 +134,7 @@ number the docs cannot back. Approval gate: Frank confirms this outline before P
   `content/run/ablation_results.json`.
 - Two-way sync proof: revlog and Attempt union-by-id, newer-mtime, offline-then-sync;
   reuses Anki's server unmodified. Source: `proofs/feat-proofs.md`,
-  `contracts/L3-sync-conflict-rule.md`.
+  `reference/sync-conflict-rule.md`.
 
 ### Section 8: Discussion
 
