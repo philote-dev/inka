@@ -8,6 +8,22 @@ always the same four moves: build the web, look at it, verify, ship.
 This is the curated workflow. For the exhaustive tool reference, see
 `dev-harness.md`.
 
+## Quick start
+
+```bash
+# develop: two terminals, then tune at http://127.0.0.1:40000/pgrep-lab
+just run
+just web-watch
+
+# see it as a user, then run the gate before shipping
+just stage
+just verify
+
+# review many branches at once (dashboard at http://127.0.0.1:40100)
+just review
+just sync-review   # combine mergeable branches into one "review" instance
+```
+
 ## Stage 1: Develop (the fast loop)
 
 Two terminals plus a browser tab.
@@ -20,6 +36,33 @@ Two terminals plus a browser tab.
 
 Edit under `ts/`, save, and the app's webview reloads. Refresh the browser tab to
 pick up the same rebuild. This is your build-and-tune-in-the-gallery loop.
+
+### Reviewing several branches at once
+
+You work across many worktrees, so `just review` serves a live dashboard (default
+`http://127.0.0.1:40100`) that lists every worktree, shows each one's status, and
+gives you Start and Stop buttons. Starting a branch launches its app on its own
+ports (`40000+n` for the web and lab, `8080+n` for debug) and an isolated profile,
+so several run at once without clashing. When a branch is up, the dashboard links
+straight to its dev lab. Leave `just review` running; closing it stops the
+instances it started.
+
+To launch one by hand from a worktree instead:
+
+```
+ANKI_SINGLE_INSTANCE_KEY=pgrep-inst-5 ANKI_API_HOST=0.0.0.0 ANKI_API_PORT=40005 QTWEBENGINE_REMOTE_DEBUGGING=8085 ANKI_BASE=/tmp/pgrep-inst-5 ./run
+```
+
+Each branch serves its own compiled lab, so they cannot feed one shared lab; you
+view them side by side.
+
+For a single combined view, `just sync-review` rebuilds a throwaway `review` branch
+by merging every cleanly-mergeable feature branch onto main (conflicting ones are
+skipped and reported). It then appears as its own row in the dashboard, so Start it
+to see the combined work in one lab. `just review-loop` reruns the merge on an
+interval to keep it fresh; restart the review instance from the dashboard to pick
+up changes. You can also drive the loop with the `/loop` skill or a background
+agent instead of leaving a terminal open.
 
 ## Stage 2: Stage (see it as a user)
 

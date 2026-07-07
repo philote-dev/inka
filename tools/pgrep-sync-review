@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+#
+# Rebuild a throwaway `review` branch by merging every cleanly-mergeable feature
+# branch on top of main, so one instance can show the combined work. Branches that
+# conflict are skipped and reported; nothing is pushed. The review worktree lives
+# at .worktrees/review and appears automatically in `just review`.
+#
+# Usage: pgrep-sync-review [branch ...]   (default: all local feat/* branches)
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+
+REVIEW_WT=".worktrees/review"
+BASE="${PGREP_REVIEW_BASE:-main}"
+
+branches=()
+if [ "$#" -gt 0 ]; then
+  branches=("$@")
+else
+  while IFS= read -r b; do branches+=("$b"); done \
+    < <(git for-each-ref --format='%(refname:short)' refs/heads/feat/)
+fi
+
+# Create the review branch and worktree on first run.
+if ! git show-ref --verify --quiet refs/heads/review; then
+  git branch review "$BASE"
+fi
+if [ ! -d "$REVIEW_WT" ]; then
+  git worktree add "$REVIEW_WT" review >/dev/null
+fi
+
+# Start clean from the base each run.
+git -C "$REVIEW_WT" reset --hard "$BASE" >/dev/null
+git -C "$REVIEW_WT" clean -fd >/dev/null
+
+merged=()
+skipped=()
+for b in "${branches[@]}"; do
+  [ "$b" = "review" ] && continue
+  if git -C "$REVIEW_WT" merge --no-edit --no-ff "$b" >/dev/null 2>&1; then
+    merged+=("$b")
+  else
+    git -C "$REVIEW_WT" merge --abort >/dev/null 2>&1 || true
+    skipped+=("$b")
+  fi
+done
+
+echo "Review branch rebuilt on ${BASE}."
+echo "  merged  (${#merged[@]}): ${merged[*]:-none}"
+echo "  skipped (${#skipped[@]}, conflicts): ${skipped[*]:-none}"
+echo
+echo "It shows up as the 'review' row in the dashboard (just review). Start it there,"
+echo "or run it directly from ${REVIEW_WT} with a spare port. Restart it after a"
+echo "re-sync to pick up changes."

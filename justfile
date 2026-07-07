@@ -36,6 +36,34 @@ verify:
     just check
     just test-e2e
 
+# Run this checkout as a numbered review instance on offset ports and an isolated
+# profile, so several branches/worktrees run at once without clashing. The dev lab
+# is at http://127.0.0.1:$((40000+n))/pgrep-lab. ANKI_API_HOST=0.0.0.0 lets a
+# plain browser reach the bridge, so use it only on a trusted machine. macOS/Linux.
+[unix]
+run-instance n *args:
+    ANKI_SINGLE_INSTANCE_KEY="pgrep-inst-{{ n }}" ANKI_API_HOST=0.0.0.0 ANKI_API_PORT="$((40000 + {{ n }}))" QTWEBENGINE_REMOTE_DEBUGGING="$((8080 + {{ n }}))" ANKI_BASE="${TMPDIR:-/tmp}/pgrep-inst-{{ n }}" {{ run_script }} {{ args }}
+
+# Multi-branch review dashboard: serve a live control panel (default
+# http://127.0.0.1:40100) showing each worktree's status, with Start/Stop buttons
+# to launch each branch's app on its own port. Leave it running. macOS/Linux.
+[unix]
+review:
+    ./tools/pgrep-review
+
+# Rebuild the throwaway `review` branch by merging every cleanly-mergeable feature
+# branch onto main, so one instance shows the combined work. Conflicting branches
+# are skipped and reported. Pass branch names to limit the set. macOS/Linux.
+[unix]
+sync-review *branches:
+    ./tools/pgrep-sync-review {{ branches }}
+
+# Keep the review branch fresh: rerun sync-review every <interval> seconds
+# (default 600), the simple looping agent. Ctrl-C to stop. macOS/Linux.
+[unix]
+review-loop interval="600":
+    while true; do ./tools/pgrep-sync-review || true; echo "next sync in {{ interval }}s"; sleep {{ interval }}; done
+
 # Run a self-hosted Anki sync server for pgrep (reuses Anki's sync unmodified). macOS/Linux.
 # Defaults to port 8090 (8080 is taken by `just run`'s Qt remote-debug/hot-reload
 # server). Auth via the user arg (SYNC_USER1); SYNC_HOST/SYNC_PORT/SYNC_BASE via env.
