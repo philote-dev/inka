@@ -22,6 +22,8 @@ interface RenderPayload {
     heightScale?: number;
     autoRotate?: boolean;
     interactive?: boolean;
+    vibrance?: number;
+    labelLayout?: "offset" | "radial";
 }
 
 interface ManifoldApi {
@@ -64,7 +66,10 @@ function stageEl(): HTMLElement {
 function viewport(): { width: number; height: number } {
     return {
         width: Math.max(1, window.innerWidth || document.documentElement.clientWidth),
-        height: Math.max(1, window.innerHeight || document.documentElement.clientHeight),
+        height: Math.max(
+            1,
+            window.innerHeight || document.documentElement.clientHeight,
+        ),
     };
 }
 
@@ -80,6 +85,9 @@ function render(payload: RenderPayload): void {
             theme,
             grid: payload.grid ?? 72,
             heightScale: payload.heightScale ?? 1.2,
+            // Match the desktop hero: a vibrant surface with the radial label ring.
+            vibrance: payload.vibrance ?? 0.7,
+            labelLayout: payload.labelLayout ?? "radial",
             autoRotate: payload.autoRotate ?? false,
             interactive,
             width,

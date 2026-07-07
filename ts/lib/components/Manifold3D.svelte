@@ -17,7 +17,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <script lang="ts">
     import { onDestroy, onMount } from "svelte";
 
-    import Manifold from "$lib/components/Manifold.svelte";
+    import ManifoldTopView from "$lib/components/ManifoldTopView.svelte";
     import { FULL_SURFACE, type Surface } from "$lib/pgrep/manifold";
     import {
         createManifold3D,
@@ -65,9 +65,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     // topic (ux-foundation 5). Threaded to the renderer for raycast taps and to
     // the 2D fallback so both paths reach the same drill.
     export let onTopic: ((slug: string) => void) | undefined = undefined;
-    // Projection scale for the 2D fallback. Defaults to a width-proportional
-    // value that matches the 3D framing closely enough for the fallback.
-    export let fallbackScale: number | undefined = undefined;
 
     function launch(topic: string | undefined): void {
         if (onTopic && topic) {
@@ -81,8 +78,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let labels: ProjectedLabel3D[] = [];
     // Start on the 3D path; flip to the 2D fallback if WebGL is missing or fails.
     let use2d = false;
-
-    $: scale2d = fallbackScale ?? Math.round(width * 0.216);
 
     function currentTheme(): "light" | "dark" {
         if (theme) {
@@ -161,14 +156,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 {#if use2d}
-    <Manifold
+    <ManifoldTopView
         {width}
         {height}
-        scale={scale2d}
-        {glow}
-        {grid}
         {surface}
-        {showLabels}
+        {theme}
+        showCallouts={showLabels}
+        showReadouts={false}
+        showLegend={false}
         {onTopic}
     />
 {:else}

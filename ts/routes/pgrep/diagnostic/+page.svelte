@@ -14,7 +14,9 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
     import { onDestroy, onMount } from "svelte";
 
     import ChoiceList from "$lib/components/ChoiceList.svelte";
+    import ManifoldTopView from "$lib/components/ManifoldTopView.svelte";
     import { renderMath } from "$lib/pgrep/math";
+    import { type Surface } from "$lib/pgrep/manifold";
     import { setLearning } from "$lib/pgrep/nav";
 
     import { pgrepCall } from "../lib/bridge";
@@ -80,6 +82,14 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
     let answers: Record<string, number> = {};
     let stepIndex = 0;
 
+    // The learner's knowledge as a top-down map on the results screen, built from
+    // the live surface after placement. Its width tracks the results column.
+    let resultSurface: Surface | null = null;
+    let mapWidth = 632;
+    function drillTopic(topic: string): void {
+        void goto(`/pgrep/study?topic=${encodeURIComponent(topic)}`);
+    }
+
     interface CheckItem extends QuickCheck {
         category: string;
     }
@@ -143,6 +153,13 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
         try {
             placeData = await pgrepCall<PlaceData>("pgrepDiagnosticPlace", { results });
             screen = "results";
+            // Show the freshly placed knowledge as the top-down map. Best-effort:
+            // if the surface read fails, the results still stand on the chips below.
+            try {
+                resultSurface = await pgrepCall<Surface>("pgrepManifold", {});
+            } catch {
+                resultSurface = null;
+            }
         } catch {
             screen = "error";
         } finally {
@@ -294,6 +311,18 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
             </p>
         </div>
 
+        {#if resultSurface}
+            <div class="resultmap" bind:clientWidth={mapWidth}>
+                <ManifoldTopView
+                    width={mapWidth}
+                    height={Math.round(mapWidth * 0.62)}
+                    surface={resultSurface}
+                    showReadouts={false}
+                    onTopic={drillTopic}
+                />
+            </div>
+        {/if}
+
         <ul class="grid">
             {#each placeData.topics as topic (topic.category)}
                 <li
@@ -414,6 +443,12 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
             font-size: var(--text-content);
             line-height: 1.5;
         }
+    }
+
+    .resultmap {
+        width: 100%;
+        display: flex;
+        justify-content: center;
     }
 
     .grid {
