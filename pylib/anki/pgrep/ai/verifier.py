@@ -14,7 +14,7 @@ nothing here calls a model directly.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Protocol
 
 from . import consensus as consensus_mod
@@ -69,10 +69,7 @@ class PanelVerdict:
         return [f"{c.name}: {c.evidence}" for c in self.hard_failures()]
 
     def to_dict(self) -> dict:
-        return {
-            "decision": self.decision,
-            "checks": [c.__dict__ for c in self.checks],
-        }
+        return asdict(self)
 
 
 class Verifier:

@@ -85,3 +85,46 @@ def test_soft_distractor_flag_annotates_but_does_not_reject():
     pv = v.check(_problem())
     assert pv.decision == "accept"
     assert any(c.name == "distractor" and not c.passed for c in pv.checks)
+
+
+def _figure_problem():
+    return {
+        "id": "pf",
+        "kind": "computational",
+        "stem": 'Look. <div class="pg-figure"><svg><line/></svg></div>',
+        "choices": ["a", "b", "c", "d", "e"],
+        "correct": "D",
+        "distractors": [],
+    }
+
+
+def test_clean_figure_accepts():
+    from anki.pgrep.ai.judge import FigureVerdict
+
+    j = StubJudge(figure=FigureVerdict(matches=True))
+    v = verifier.Verifier(judge=j, key_consensus=StubConsensus(_kc(True, 0.95)))
+    pv = v.check(_figure_problem())
+    assert pv.decision == "accept"
+    assert any(c.name == "figure" and c.passed for c in pv.checks)
+
+
+def test_single_gap_figure_escalates():
+    from anki.pgrep.ai.judge import FigureVerdict
+
+    j = StubJudge(figure=FigureVerdict(matches=False, missing=["a plane"]))
+    v = verifier.Verifier(judge=j, key_consensus=StubConsensus(_kc(True, 0.95)))
+    # one gap -> confidence 0.75 < certain (0.8) -> escalate, not reject
+    assert v.check(_figure_problem()).decision == "escalate"
+
+
+def test_multi_gap_figure_rejects():
+    from anki.pgrep.ai.judge import FigureVerdict
+
+    j = StubJudge(
+        figure=FigureVerdict(matches=False, missing=["a plane"], contradictions=["b"])
+    )
+    v = verifier.Verifier(judge=j, key_consensus=StubConsensus(_kc(True, 0.95)))
+    pv = v.check(_figure_problem())
+    # two gaps -> confidence 0.9 >= certain -> reject
+    assert pv.decision == "reject"
+    assert any("figure" in r for r in pv.reasons())
