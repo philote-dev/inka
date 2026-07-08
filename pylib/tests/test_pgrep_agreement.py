@@ -31,3 +31,31 @@ def test_tune_threshold_finds_precision_cutoff():
     correct = [True, True, False, True]
     # at cutoff 0.8: {0.9,0.8} both correct -> precision 1.0
     assert agreement.tune_threshold(conf, correct, target_precision=1.0) == 0.8
+
+
+def test_tune_threshold_does_not_split_tied_confidences():
+    # Both items share confidence 0.8, one wrong: precision at >=0.8 is 0.5, so a
+    # target of 1.0 is unattainable and the cutoff stays 1.0.
+    assert agreement.tune_threshold([0.8, 0.8], [True, False], target_precision=1.0) == 1.0
+
+
+def test_mismatched_lengths_return_nan():
+    import math
+
+    assert math.isnan(agreement.balanced_accuracy([True], [True, False]))
+    p, r = agreement.precision_recall([True], [True, False])
+    assert math.isnan(p) and math.isnan(r)
+    assert math.isnan(agreement.consistency_score([[True, True], [True]]))
+
+
+def test_property_report_and_build_card_serialize():
+    rep = agreement.property_report("key", [True, False, True], [True, True, True])
+    d = rep.to_dict()
+    assert set(d) == {
+        "name", "n", "raw_agreement", "balanced_accuracy", "precision", "recall",
+    }
+    assert d["name"] == "key" and d["n"] == 3
+    card = agreement.build_card([rep], consistency=0.9, thresholds={"key": 0.8})
+    assert card["consistency"] == 0.9
+    assert card["thresholds"] == {"key": 0.8}
+    assert card["properties"][0]["name"] == "key"
