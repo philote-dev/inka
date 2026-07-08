@@ -1,3 +1,6 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
 from anki.pgrep.ai import consensus
 
 
@@ -32,6 +35,9 @@ def test_solve_once_maps_shuffled_letter_back_to_original():
     solve = consensus.solve_once(client, _problem(), order=order)
     assert solve.letter == "D"  # display A -> original D
     assert solve.confidence == 0.9
+    payload = client.seen[0]
+    assert "correct" not in payload  # the stored key is never shown to the solver
+    assert "A. h = 5R/2" in payload  # original option D is presented in display slot A
 
 
 def test_majority_picks_the_mode():
