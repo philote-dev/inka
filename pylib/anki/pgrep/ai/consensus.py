@@ -120,6 +120,8 @@ BACKWARD_SYSTEM = (
 
 @dataclass
 class KeyConsensus:
+    """An independent, multi-signal verdict on whether a stored MCQ key is correct."""
+
     accepted: bool
     predicted: str
     stored: str
@@ -159,21 +161,26 @@ def backward_check(
     client: _Client | None, problem: dict, proposed_key: str
 ) -> bool | None:
     """FOBAR: mask the first numeric given, supply the proposed answer, ask the
-    model to recover the masked value. ``None`` when not applicable."""
+    model to recover the masked value. ``None`` when not applicable (no client,
+    no numeric given, an ambiguous repeated value, or an invalid key)."""
     if client is None:
         return None
     stem = _strip_figure(problem.get("stem", ""))
-    nums = _NUM.findall(stem)
-    if not nums:
+    m = _NUM.search(stem)
+    if not m:
         return None
-    target = nums[0]
-    masked = stem.replace(target, "<X>", 1)
+    target = m.group(0)
+    # If the same numeric token appears more than once we cannot say which the
+    # answer depends on; skip rather than risk a false reject.
+    if sum(1 for mm in _NUM.finditer(stem) if mm.group(0) == target) > 1:
+        return None
     choices = problem.get("choices", []) or []
     if proposed_key not in _LETTERS:
         return None
     ki = _LETTERS.index(proposed_key)
     if ki >= len(choices):
         return None
+    masked = stem[: m.start()] + "<X>" + stem[m.end():]
     user = (
         f"STEM (one value masked as <X>):\n{masked}\n\n"
         f"STATED ANSWER: {choices[ki]}\n\nRecover <X>."
@@ -184,27 +191,41 @@ def backward_check(
         tgt = float(target)
     except (TypeError, ValueError):
         return None
-    return abs(got - tgt) <= 1e-6 * max(1.0, abs(tgt))
+    return abs(got - tgt) <= 1e-3 * max(1.0, abs(tgt))
 
 
 def _decide(
-    stored: str, predicted: str, agree_count: int, n: int, stable: bool,
-    sympy_ok: bool | None, backward_ok: bool | None,
+    stored: str, predicted: str, agree_count: int, n: int, n_valid: int,
+    stable: bool, sympy_ok: bool | None, backward_ok: bool | None,
 ) -> tuple[bool, float]:
+    # Deterministic disproof wins outright, ahead of any model vote.
     if sympy_ok is True:
         return True, 0.99
     if sympy_ok is False:
         return False, 0.95
     if backward_ok is False:
         return False, 0.85
-    if n == 0:
+    # No usable model signal -> not decisive; low confidence escalates.
+    if n_valid == 0:
         return False, 0.0
-    frac = agree_count / n
-    if predicted == stored and 2 * agree_count > n:
-        conf = frac if stable else frac * 0.6
+    # Confidence is measured over the solves that actually answered. A verdict is
+    # only fully decisive when a majority of ALL clients answered (a quorum); when
+    # most calls failed we down-weight, so the panel escalates instead of trusting
+    # a sliver of votes.
+    quorum = 2 * n_valid > n
+    disagree = n_valid - agree_count
+    if predicted == stored and 2 * agree_count > n_valid:
+        conf = agree_count / n_valid
+        if not stable:
+            conf *= 0.6
+        if not quorum:
+            conf *= 0.6
         return True, round(conf, 3)
-    if predicted and predicted != stored and 2 * (n - agree_count) > n:
-        return False, round((n - agree_count) / n, 3)
+    if predicted and predicted != stored and 2 * disagree > n_valid:
+        conf = disagree / n_valid
+        if not quorum:
+            conf *= 0.6
+        return False, round(conf, 3)
     return False, 0.5
 
 
@@ -216,19 +237,21 @@ def key_consensus(
     n_choices = len(problem.get("choices", []) or [])
     opinions = [solve_once(c, problem).letter for c in clients]
     stable = True
-    if clients and n_choices > 1:
+    # Assess position stability only when the first solve actually answered.
+    if clients and n_choices > 1 and opinions and opinions[0]:
         order = list(range(n_choices))
         random.Random(seed).shuffle(order)
         shuffled = solve_once(clients[0], problem, order=order).letter
-        stable = bool(opinions[0]) and shuffled == opinions[0]
+        stable = shuffled == opinions[0]
     valid = [o for o in opinions if o]
     predicted = _majority(valid)
     agree_count = sum(1 for o in valid if o == stored)
     n = len(clients)
+    n_valid = len(valid)
     sympy_ok = sympy_check(problem) if use_sympy else None
     backward_ok = backward_check(backward_client, problem, stored)
     accepted, confidence = _decide(
-        stored, predicted, agree_count, n, stable, sympy_ok, backward_ok
+        stored, predicted, agree_count, n, n_valid, stable, sympy_ok, backward_ok
     )
     return KeyConsensus(accepted, predicted, stored, agree_count, n, stable,
                         sympy_ok, backward_ok, confidence, opinions)

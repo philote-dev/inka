@@ -117,3 +117,48 @@ def test_backward_check_recovers_masked_value():
     }
     assert consensus.backward_check(FakeClient(['{"value": 12}']), prob, "C") is True
     assert consensus.backward_check(FakeClient(['{"value": 99}']), prob, "C") is False
+
+
+def test_blank_solves_do_not_inflate_a_reject():
+    # One real solve disagreeing with the key plus four failed calls is weak
+    # evidence: it must NOT become a confident reject (it should escalate).
+    clients = [SolverFake("h = R/2")] + [FakeClient(["{}"]) for _ in range(4)]
+    kc = consensus.key_consensus(_problem("D"), clients, seed=0)
+    assert kc.accepted is False
+    assert kc.confidence < 0.8
+
+
+def test_no_valid_solves_escalates():
+    clients = [FakeClient(["{}"]) for _ in range(3)]
+    kc = consensus.key_consensus(_problem("D"), clients, seed=0)
+    assert kc.accepted is False
+    assert kc.confidence == 0.0
+
+
+def test_backward_disproof_rejects_via_key_consensus():
+    prob = {
+        "id": "p", "kind": "computational",
+        "stem": "A 3 kg mass is pushed once.",
+        "choices": ["1 J", "2 J", "3 J", "4 J", "5 J"], "correct": "C",
+    }
+    clients = [SolverFake("3 J") for _ in range(3)]  # models agree with the key
+    back = FakeClient(['{"value": 999}'])  # but backward disproves it
+    kc = consensus.key_consensus(prob, clients, backward_client=back, seed=0)
+    assert kc.backward_ok is False
+    assert kc.accepted is False
+    assert kc.confidence == 0.85
+
+
+def test_sympy_confirmation_accepts():
+    import pytest
+
+    pytest.importorskip("sympy")
+    prob = _problem("D")
+    prob["answer_expr"] = "2*R"
+    prob["answer_value"] = 2.0  # 2R == 2 for R == 1
+    prob["answer_subs"] = {"R": 1.0}
+    clients = [SolverFake("h = 5R/2") for _ in range(3)]
+    kc = consensus.key_consensus(prob, clients, use_sympy=True, seed=0)
+    assert kc.sympy_ok is True
+    assert kc.accepted is True
+    assert kc.confidence == 0.99
