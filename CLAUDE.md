@@ -124,6 +124,25 @@ when possible.
 in rslib, use error/mod.rs's AnkiError/Result and snafu. In our other Rust modules, prefer anyhow + additional context where appropriate. Unwrapping
 in build scripts/tests is fine.
 
+## Writing style
+
+Aim for clear, sophisticated communication.
+
+- Do not use em dashes. Rewrite the sentence, or use a comma, parentheses, or a period.
+- Use colons and semicolons sparingly. Prefer separate sentences. A colon may introduce a genuine list.
+
+Applies to everything you write, including docs, commit messages, PR text, code comments, and chat replies.
+
+## Worktrees
+
+Isolate feature and bugfix work in its own worktree and branch rather than working on `main` directly. `main` is the only integration branch and stays clean, so the primary checkout is always usable.
+
+- Each piece of work gets its own branch off the latest `main`, checked out as a worktree. Name the branch for its single concern (for example `feat/attempt-log`).
+- One concern per branch. Keep branches small and short lived.
+- Do quick edits, questions, doc-only changes, and exploration in the primary checkout, not a worktree.
+- Merge `main` in periodically so a branch does not drift. Finish by merging into `main` (a PR, or a fast-forward for solo work), then remove the worktree and delete the branch.
+- Each tool manages worktrees its own way (Claude Code has native worktree tooling; otherwise create them manually with `git worktree`). Whatever the mechanism, keep the worktree directory out of version control.
+
 ## Documentation organization
 
 Applies to documentation files (Markdown and related), not source code.
