@@ -72,6 +72,17 @@ ftl/core or ftl/qt. Except for features specific to our Qt interface, prefer
 the core module. When adding new strings, confirm the appropriate ftl file
 first, and try to match the existing style.
 
+Once a string is defined (for example `addons-you-have-count` in
+`addons.ftl`), the generated API exposes it in each language:
+
+- Python: `from aqt.utils import tr; msg = tr.addons_you_have_count(count=3)`
+- TypeScript: `import * as tr from "@generated/ftl"; tr.addonsYouHaveCount({count: 3})`
+- Rust: `collection.tr.addons_you_have_count(3)`
+
+In Qt `.ui` files, a widget whose text is marked translatable and matches an
+ftl key (for example a `QLabel` titled `addons_you_have_count`) automatically
+uses the registered translation.
+
 ## Protobuf and IPC
 
 Our build scripts use the .proto files to define our Rust library's
@@ -112,6 +123,44 @@ when possible.
 
 in rslib, use error/mod.rs's AnkiError/Result and snafu. In our other Rust modules, prefer anyhow + additional context where appropriate. Unwrapping
 in build scripts/tests is fine.
+
+## Documentation organization
+
+Applies to documentation files (Markdown and related), not source code.
+
+Placement:
+
+- Put docs under the project's docs home (`docs_pgrep/`).
+- Group by purpose: `plan/` (work not yet done), `reference/` (how things are
+  or work), `design/` (design decisions), `working/` (loose scratch and
+  transient coordination docs).
+
+Naming:
+
+- kebab-case for files and folders.
+- No date prefixes. No phase or layer names in filenames (`l1`, `L2`, `l5.9`,
+  `l6`); name a doc for its content. No numeric order prefix (`01-`) unless a
+  folder is genuinely a reading sequence, and only when the user asks.
+
+Creating a new doc:
+
+- Prefer extending an existing doc over creating a new file; create one only
+  when the topic is genuinely distinct. Name it for its content and link it
+  from its parent or category index.
+- Never invent a new top-level folder or drop a file at the repo root or docs
+  root on a whim. If the right home is unclear, stop and ask.
+- Transient coordination docs (handoffs, punchlists, orchestrators) usually
+  should not become durable files; if needed they go in `working/` and are
+  cleaned once the work lands.
+
+Moving or renaming:
+
+- Use `git mv` to preserve history. Find and update every inbound reference
+  across the whole repo (code, tests, config, not just docs), recompute
+  relative links in the moved file, and verify no broken links remain.
+
+For bulk reorganization or an alignment audit, use the `organize-files` and
+`audit-files` skills.
 
 ## Individual preferences
 
