@@ -9,6 +9,14 @@ yield of near-perfect problems that survive the automated loops, so almost
 nothing junky reaches the human reviewer. It is written to split into small,
 mostly independent branches that can run in parallel.
 
+Implementation plans (TDD, task-by-task):
+
+- Phase 1 verifier: [`content-foundry-and-verifier-plan.md`](content-foundry-and-verifier-plan.md)
+  (on `feat/pgrep-content-foundry` / PR until merged)
+- Phase 2 foundry loop: [`content-foundry-loop-plan.md`](content-foundry-loop-plan.md)
+- Phase 3 dataset and standing eval:
+  [`content-foundry-dataset-and-eval-plan.md`](content-foundry-dataset-and-eval-plan.md)
+
 ## Context
 
 pgrep is a Physics GRE study app forked from Anki. The AI content pipeline turns
@@ -284,13 +292,17 @@ WS9}.
 - **Tier 2, distilled verifier.** Once the panel is calibrated and there are
   enough panel-labeled items (target: a few hundred consensus-labeled problems),
   distill the panel into one cheap generative verifier (GenRM / RM-R1 style,
-  reasoning-first) so the gates run cheaply at high volume. Trigger: panel
-  accept-precision at or above target on the calibration card.
+  reasoning-first) so the gates run cheaply at high volume. Trigger: calibration
+  card accept-precision at or above `0.95` on key and figure, and at least `300`
+  panel-labeled problems available under `content/run/foundry/` (operator-counted;
+  that tree is git-ignored).
 - **Tier 3, generator fine-tune.** Start with SFT on the panel-accepted problems
   from the strong generator (per 2402.12366, SFT-first often beats a DPO/RLAIF
   pipeline). Add DPO on the chosen/rejected pairs only if SFT plateaus. Use GSA
-  aggregation for the canonical worked solutions. Trigger: a chosen/rejected
-  dataset large and diverse enough to train on (target stated at Tier 2 close).
+  aggregation for the canonical worked solutions. Trigger: preference JSONL with
+  at least `1000` validated pairs across at least `6` blueprint categories,
+  leakage check clean, and the Phase 3 standing eval green on the latest
+  calibration card.
 
 ## Testing strategy
 
