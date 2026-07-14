@@ -87,13 +87,9 @@ def test_heldout_split_rejects_item_text_fields():
 
 
 def test_evaluate_labels_returns_split_reports_and_threshold_diagnostics():
-    report = _module().evaluate_labels(
-        _labels(), foundry_summary=_foundry(), seed=17
-    )
+    report = _module().evaluate_labels(_labels(), foundry_summary=_foundry(), seed=17)
 
-    calibration = {
-        item["name"]: item for item in report["calibration"]["properties"]
-    }
+    calibration = {item["name"]: item for item in report["calibration"]["properties"]}
     heldout = {item["name"]: item for item in report["heldout"]["properties"]}
     assert calibration["key"]["raw_agreement"] == 1.0
     assert calibration["key"]["consistency"] == 1.0
@@ -220,9 +216,7 @@ def test_heldout_accepted_precision_uses_fixed_calibration_cutoff():
     )
 
     report = _module().evaluate_labels(labels)
-    key = {
-        item["name"]: item for item in report["heldout"]["properties"]
-    }["key"]
+    key = {item["name"]: item for item in report["heldout"]["properties"]}["key"]
 
     assert report["thresholds"]["key"]["cutoff"] == 0.8
     assert key["eligible"] == 2
@@ -242,9 +236,7 @@ def test_consistency_includes_original_verdicts():
     )
 
     report = _module().evaluate_labels(labels, foundry_summary=_foundry())
-    key = {
-        item["name"]: item for item in report["heldout"]["properties"]
-    }["key"]
+    key = {item["name"]: item for item in report["heldout"]["properties"]}["key"]
 
     assert key["consistency"] == 0.0
     assert not _checks(report)["heldout.key.consistency"]["pass"]
@@ -314,9 +306,7 @@ def test_main_rejects_mismatched_label_lengths(tmp_path, capsys):
     labels_path = tmp_path / "labels.json"
     labels = _labels()
     labels["heldout"]["properties"]["key"]["human"] = [True]
-    labels_path.write_text(
-        json.dumps(labels)
-    )
+    labels_path.write_text(json.dumps(labels))
 
     with pytest.raises(SystemExit) as exc:
         _module().main(["--labels", str(labels_path)])
@@ -328,9 +318,7 @@ def test_main_rejects_mismatched_label_lengths(tmp_path, capsys):
 def test_main_rejects_a_single_perturbation_run(tmp_path, capsys):
     labels_path = tmp_path / "labels.json"
     labels = _labels()
-    labels["heldout"]["properties"]["key"]["runs"] = [
-        [True, True, False, False]
-    ]
+    labels["heldout"]["properties"]["key"]["runs"] = [[True, True, False, False]]
     labels_path.write_text(json.dumps(labels))
 
     with pytest.raises(SystemExit) as exc:
@@ -354,21 +342,22 @@ def test_main_rejects_nonstandard_json_constants(tmp_path, capsys, constant):
     assert "is not allowed" in error
 
 
-def test_structurally_valid_red_main_writes_report_and_exits_nonzero(
-    tmp_path, capsys
-):
+def test_structurally_valid_red_main_writes_report_and_exits_nonzero(tmp_path, capsys):
     labels_path = tmp_path / "labels.json"
     labels_path.write_text(json.dumps(_labels()))
     out_path = tmp_path / "eval.json"
 
-    assert _module().main(
-        [
-            "--labels",
-            str(labels_path),
-            "--out",
-            str(out_path),
-        ]
-    ) == 1
+    assert (
+        _module().main(
+            [
+                "--labels",
+                str(labels_path),
+                "--out",
+                str(out_path),
+            ]
+        )
+        == 1
+    )
 
     printed = capsys.readouterr().out
     assert out_path.read_text() == printed

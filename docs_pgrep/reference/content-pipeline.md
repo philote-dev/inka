@@ -420,19 +420,19 @@ reached, and no Tier 2 or Tier 3 training has started.
 
 ## Commands
 
-| Command                      | What it does                                                                                                     |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `assemble_bundle.py`         | The single gated landing command: land, convert math, wire figures, run invariants.                              |
-| `just test-py`               | Runs the Python tests, including the content-bundle invariant gate (per-commit).                                 |
-| `just audit-bundle-ai`       | Runs the five on-demand AI audits (pre-release or nightly, needs the AI runtime).                                |
-| `just foundry-dry`           | Offline foundry smoke (`foundry.py --self-check`), no network.                                                   |
-| `just foundry`               | Best-of-N foundry loop; needs AI runtime + key when online generation is enabled.                                |
-| `foundry.py`                 | Sample, cap N by verifier accuracy, and write four JSON files plus `preferences.jsonl` under each run directory. |
-| `make_foundry_escalation.py` | Build a human review sheet from the latest run's `escalated.json` (or `--run <name>`).                           |
-| `calibrate_verifier.py`      | Offline smoke (`--self-check`) of the calibration stats and card assembly.                                       |
-| `leakage_check.py`           | Recursively validate foundry preference schema, private-root markers, and private-item copy-in.                  |
+| Command                      | What it does                                                                                                       |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `assemble_bundle.py`         | The single gated landing command: land, convert math, wire figures, run invariants.                                |
+| `just test-py`               | Runs the Python tests, including the content-bundle invariant gate (per-commit).                                   |
+| `just audit-bundle-ai`       | Runs the five on-demand AI audits (pre-release or nightly, needs the AI runtime).                                  |
+| `just foundry-dry`           | Offline foundry smoke (`foundry.py --self-check`), no network.                                                     |
+| `just foundry`               | Best-of-N foundry loop; needs AI runtime + key when online generation is enabled.                                  |
+| `foundry.py`                 | Sample, cap N by verifier accuracy, and write four JSON files plus `preferences.jsonl` under each run directory.   |
+| `make_foundry_escalation.py` | Build a human review sheet from the latest run's `escalated.json` (or `--run <name>`).                             |
+| `calibrate_verifier.py`      | Offline smoke (`--self-check`) of the calibration stats and card assembly.                                         |
+| `leakage_check.py`           | Recursively validate foundry preference schema, private-root markers, and private-item copy-in.                    |
 | `just eval-verifier`         | Fit calibration-only thresholds, score held-out labels, apply standing gates, and report slot-clustered intervals. |
-| `just check`                 | The overall gate (format, build, lint, all tests), which includes `test-py`.                                     |
+| `just check`                 | The overall gate (format, build, lint, all tests), which includes `test-py`.                                       |
 
 The LLM audits and the foundry loop need the optional AI runtime and a key when
 they call models; install it once with `just pgrep-ai-deps` and set

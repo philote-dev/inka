@@ -67,9 +67,7 @@ def test_foundry_cli_writes_preferences_in_run_directory(tmp_path: Path) -> None
         assert foundry.main() == 0
 
     path = tmp_path / "run-42" / "preferences.jsonl"
-    rows = [
-        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
-    ]
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     assert len(rows) == 1
     assert rows[0]["slot"] == {
         "topic": "optics",
@@ -167,9 +165,7 @@ def test_write_result_rejects_preference_count_mismatch(tmp_path: Path) -> None:
     assert list(tmp_path.iterdir()) == []
 
 
-def test_foundry_cli_surfaces_pair_validation_error(
-    tmp_path: Path, capsys
-) -> None:
+def test_foundry_cli_surfaces_pair_validation_error(tmp_path: Path, capsys) -> None:
     argv = [
         "foundry.py",
         "--dry-run",
@@ -197,12 +193,8 @@ def test_foundry_cli_surfaces_pair_validation_error(
     assert not (tmp_path / "invalid-pairs").exists()
 
 
-@pytest.mark.parametrize(
-    "marker", ["content/gold", "content/heldout", "tier3-private"]
-)
-def test_foundry_jsonl_flags_forbidden_private_root(
-    tmp_path: Path, marker: str
-):
+@pytest.mark.parametrize("marker", ["content/gold", "content/heldout", "tier3-private"])
+def test_foundry_jsonl_flags_forbidden_private_root(tmp_path: Path, marker: str):
     pair = _valid_pair()
     pair["chosen"]["panel"]["evidence"] = {
         "source": f"copied from {marker}/items/example.json"
@@ -213,9 +205,7 @@ def test_foundry_jsonl_flags_forbidden_private_root(
     errs = leakage_check.foundry_jsonl_is_clean(str(path))
 
     assert any(
-        "line 1" in err
-        and "$.chosen.panel.evidence.source" in err
-        and marker in err
+        "line 1" in err and "$.chosen.panel.evidence.source" in err and marker in err
         for err in errs
     )
 

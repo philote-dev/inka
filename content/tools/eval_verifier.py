@@ -106,16 +106,12 @@ def _validate_property(split: str, name: str, value: object) -> _PropertyLabels:
     return _PropertyLabels(predicted, human, confidence, runs)
 
 
-def _validated_split(
-    split: str, value: object
-) -> dict[str, _PropertyLabels]:
+def _validated_split(split: str, value: object) -> dict[str, _PropertyLabels]:
     if not isinstance(value, dict):
         raise ValueError(f"labels.{split} must be an object")
     unknown = sorted(set(value) - {"properties"})
     if unknown:
-        raise ValueError(
-            f"labels.{split} has unsupported fields: {', '.join(unknown)}"
-        )
+        raise ValueError(f"labels.{split} has unsupported fields: {', '.join(unknown)}")
     properties = value.get("properties")
     if not isinstance(properties, dict) or not properties:
         raise ValueError(f"labels.{split}.properties must be a non-empty object")
@@ -140,9 +136,7 @@ def _validated_labels(
             "labels must contain only calibration and heldout splits; "
             f"unsupported fields: {', '.join(unknown)}"
         )
-    missing = [
-        split for split in ("calibration", "heldout") if split not in payload
-    ]
+    missing = [split for split in ("calibration", "heldout") if split not in payload]
     if missing:
         raise ValueError(
             "labels must define explicit calibration and heldout splits; "
@@ -165,14 +159,10 @@ def _json_number(value: float) -> float | None:
 def _consistency(item: _PropertyLabels) -> float | None:
     if item.runs is None:
         return None
-    return _json_number(
-        agreement.consistency_score([item.predicted, *item.runs])
-    )
+    return _json_number(agreement.consistency_score([item.predicted, *item.runs]))
 
 
-def _base_report(
-    name: str, item: _PropertyLabels, *, seed: int
-) -> dict:
+def _base_report(name: str, item: _PropertyLabels, *, seed: int) -> dict:
     report = agreement.property_report(name, item.predicted, item.human).to_dict()
     for metric in ("raw_agreement", "balanced_accuracy", "precision", "recall"):
         report[metric] = _json_number(report[metric])
@@ -201,9 +191,7 @@ def _base_report(
 
 def _fit_threshold(item: _PropertyLabels) -> dict:
     eligible_labels = [
-        human
-        for predicted, human in zip(item.predicted, item.human)
-        if predicted
+        human for predicted, human in zip(item.predicted, item.human) if predicted
     ]
     diagnostic = {
         "target_precision": TARGET_PRECISION,
@@ -235,8 +223,7 @@ def _fit_threshold(item: _PropertyLabels) -> dict:
         sum(retained_labels) / len(retained_labels) if retained_labels else None
     )
     attainable = (
-        achieved_precision is not None
-        and achieved_precision >= TARGET_PRECISION
+        achieved_precision is not None and achieved_precision >= TARGET_PRECISION
     )
     diagnostic.update(
         {
@@ -263,9 +250,7 @@ def _calibration_report(
     *,
     seed: int,
 ) -> tuple[dict, dict[str, dict]]:
-    properties = [
-        _base_report(name, item, seed=seed) for name, item in labels.items()
-    ]
+    properties = [_base_report(name, item, seed=seed) for name, item in labels.items()]
     thresholds = {name: _fit_threshold(item) for name, item in labels.items()}
     return {
         "properties": properties,
@@ -295,9 +280,7 @@ def _heldout_report(
                 if predicted and confidence >= cutoff
             ]
         accepted_precision = (
-            sum(retained_labels) / len(retained_labels)
-            if retained_labels
-            else None
+            sum(retained_labels) / len(retained_labels) if retained_labels else None
         )
         report.update(
             {
@@ -355,9 +338,7 @@ def _rates(counts: dict[str, int]) -> tuple[float | None, float | None]:
     )
 
 
-def evaluate_foundry_summary(
-    payload: object, *, seed: int = BOOTSTRAP_SEED
-) -> dict:
+def evaluate_foundry_summary(payload: object, *, seed: int = BOOTSTRAP_SEED) -> dict:
     """Evaluate aggregate or per-slot foundry counts without item-level claims."""
     if not isinstance(payload, dict):
         raise ValueError("foundry summary must be an object")
@@ -391,9 +372,7 @@ def evaluate_foundry_summary(
             raise ValueError(f"{path} must be an object")
         category = raw_slot.get("blueprint_category")
         if not isinstance(category, str) or not category.strip():
-            raise ValueError(
-                f"{path}.blueprint_category must be a non-empty string"
-            )
+            raise ValueError(f"{path}.blueprint_category must be a non-empty string")
         counts = _partition_counts(raw_slot, path)
         yield_rate, escalation_rate = _rates(counts)
         if yield_rate is not None and escalation_rate is not None:
@@ -412,12 +391,11 @@ def evaluate_foundry_summary(
         )
 
     for name, expected in totals.items():
-        if name in payload and _count(
-            payload[name], f"foundry summary.{name}"
-        ) != expected:
-            raise ValueError(
-                f"foundry summary.{name} does not match its slot total"
-            )
+        if (
+            name in payload
+            and _count(payload[name], f"foundry summary.{name}") != expected
+        ):
+            raise ValueError(f"foundry summary.{name} does not match its slot total")
 
     yield_rate, escalation_rate = _rates(totals)
     enough_clusters = len(yield_values) >= 2
@@ -425,9 +403,7 @@ def evaluate_foundry_summary(
         **totals,
         "yield_rate": yield_rate,
         "escalation_rate": escalation_rate,
-        "yield_rate_ci": (
-            _interval(yield_values, seed) if enough_clusters else None
-        ),
+        "yield_rate_ci": (_interval(yield_values, seed) if enough_clusters else None),
         "escalation_rate_ci": (
             _interval(escalation_values, seed) if enough_clusters else None
         ),
@@ -460,7 +436,11 @@ def _check(
 
 
 def _at_least(value: object, required: float) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and value >= required
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and value >= required
+    )
 
 
 def _standing_gates(
@@ -471,9 +451,7 @@ def _standing_gates(
 ) -> dict:
     calibration_properties = _metric_map(calibration)
     heldout_properties = _metric_map(heldout)
-    property_names = sorted(
-        set(calibration_properties) | set(heldout_properties)
-    )
+    property_names = sorted(set(calibration_properties) | set(heldout_properties))
     checks: list[dict] = []
 
     for name in CORE_PROPERTIES:
@@ -501,9 +479,7 @@ def _standing_gates(
             ("raw_agreement", RAW_AGREEMENT_GATE),
             ("balanced_accuracy", BALANCED_ACCURACY_GATE),
         ):
-            observed = (
-                heldout_property.get(metric) if heldout_property else None
-            )
+            observed = heldout_property.get(metric) if heldout_property else None
             checks.append(
                 _check(
                     f"heldout.{name}.{metric}",
@@ -530,11 +506,7 @@ def _standing_gates(
             )
         )
 
-        consistency = (
-            heldout_property.get("consistency")
-            if heldout_property
-            else None
-        )
+        consistency = heldout_property.get("consistency") if heldout_property else None
         checks.append(
             _check(
                 f"heldout.{name}.consistency",
@@ -552,9 +524,7 @@ def _standing_gates(
     for name in CORE_PROPERTIES:
         heldout_property = heldout_properties.get(name)
         accepted_precision = (
-            heldout_property.get("accepted_precision")
-            if heldout_property
-            else None
+            heldout_property.get("accepted_precision") if heldout_property else None
         )
         checks.append(
             _check(
@@ -620,9 +590,7 @@ def evaluate_labels(
 ) -> dict:
     """Fit on calibration only, then evaluate fixed decisions on held-out labels."""
     calibration_labels, heldout_labels = _validated_labels(payload)
-    calibration, thresholds = _calibration_report(
-        calibration_labels, seed=seed
-    )
+    calibration, thresholds = _calibration_report(calibration_labels, seed=seed)
     heldout = _heldout_report(heldout_labels, thresholds, seed=seed)
     foundry = (
         evaluate_foundry_summary(foundry_summary, seed=seed)
@@ -636,9 +604,7 @@ def evaluate_labels(
         "thresholds": thresholds,
         "foundry": foundry,
     }
-    report["gates"] = _standing_gates(
-        calibration, heldout, thresholds, foundry
-    )
+    report["gates"] = _standing_gates(calibration, heldout, thresholds, foundry)
     return report
 
 
@@ -718,7 +684,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Evaluate saved verifier predictions against human labels."
     )
-    parser.add_argument("--labels", help="precomputed predictions and human labels JSON")
+    parser.add_argument(
+        "--labels", help="precomputed predictions and human labels JSON"
+    )
     parser.add_argument(
         "--foundry-summary",
         help="foundry summary JSON required for a green standing evaluation",

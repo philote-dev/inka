@@ -288,7 +288,9 @@ def test_scan_jsonl_checks_nested_keys(tmp_path: Path):
 
     errs = preference.scan_jsonl(str(path))
 
-    assert any("$.rejected.panel.gold_ref" in error and "key" in error for error in errs)
+    assert any(
+        "$.rejected.panel.gold_ref" in error and "key" in error for error in errs
+    )
 
 
 def test_validate_pair_allows_benign_marigold_text():
@@ -303,9 +305,7 @@ def test_pairs_from_slot_caps_at_max_pairs():
     accepted = [_item(i, "accept") for i in range(10)]
     rejected = [_item(i + 10, "reject") for i in range(10)]
     result = foundry_loop.SlotResult(accepted=accepted, rejected=rejected, escalated=[])
-    pairs = preference.pairs_from_slot(
-        _slot(), result, run_id="run-1", max_pairs=64
-    )
+    pairs = preference.pairs_from_slot(_slot(), result, run_id="run-1", max_pairs=64)
     assert len(pairs) == 64
 
 
@@ -317,9 +317,7 @@ def test_pairs_from_slot_nonpositive_cap_emits_no_records(max_pairs):
     )
 
     assert (
-        preference.pairs_from_slot(
-            _slot(), result, run_id="run-1", max_pairs=max_pairs
-        )
+        preference.pairs_from_slot(_slot(), result, run_id="run-1", max_pairs=max_pairs)
         == []
     )
 
