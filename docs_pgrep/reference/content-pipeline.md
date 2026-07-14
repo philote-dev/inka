@@ -187,8 +187,10 @@ The labels file has one entry per verifier property:
 
 `predicted` and `human` are required aligned boolean arrays. `confidence` and
 `runs` are optional aligned arrays. A property without confidence values is
-reported but does not receive a tuned threshold. A property without runs uses
-its primary predictions as one stable run, so its consistency is `1.0`.
+reported but does not receive a tuned threshold. A property without runs reports
+`null` consistency. When supplied, `runs` must contain at least two aligned
+boolean arrays. Overall consistency averages only properties with measured runs
+and is `null` when none are measured.
 
 ---
 

@@ -1,6 +1,11 @@
 # Copyright: Ankitects Pty Ltd and contributors
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
+"""Offline regression tests for the standing verifier evaluation.
+
+No test in this module constructs a model client or touches the network.
+"""
+
 from __future__ import annotations
 
 import importlib
@@ -35,12 +40,13 @@ def _labels() -> dict:
             "figure": {
                 "predicted": [False, False],
                 "human": [False, True],
+                "confidence": [0.9, 0.8],
             },
         }
     }
 
 
-def test_evaluate_labels_builds_card_with_bootstrap_confidence_intervals():
+def test_evaluate_labels_builds_mixed_consistency_card_with_bootstrap_intervals():
     card = _module().evaluate_labels(_labels(), seed=17)
 
     properties = {item["name"]: item for item in card["properties"]}
@@ -50,12 +56,55 @@ def test_evaluate_labels_builds_card_with_bootstrap_confidence_intervals():
     assert key["raw_agreement_ci"]["low"] <= 0.75 <= key["raw_agreement_ci"]["high"]
     assert key["accepted_precision_ci"]["point"] == 0.5
     assert key["consistency"] == 0.75
-    assert card["thresholds"] == {"key": 0.8}
+    assert card["thresholds"] == {"key": 0.9}
 
     figure = properties["figure"]
     assert figure["accepted_precision_ci"] is None
-    assert figure["consistency"] == 1.0
-    assert card["consistency"] == 0.875
+    assert figure["consistency"] is None
+    assert card["consistency"] == 0.75
+
+
+def test_threshold_tunes_precision_only_over_predicted_accepts():
+    predicted = [True, True, *([False] * 18)]
+    human = [True, False, *([False] * 18)]
+    confidence = [0.95, 0.2, *([0.1] * 18)]
+
+    card = _module().evaluate_labels(
+        {
+            "properties": {
+                "key": {
+                    "predicted": predicted,
+                    "human": human,
+                    "confidence": confidence,
+                }
+            }
+        }
+    )
+
+    threshold = card["thresholds"]["key"]
+    assert threshold == 0.95
+    surviving_accepts = [
+        label
+        for accepted, label, score in zip(predicted, human, confidence)
+        if accepted and score >= threshold
+    ]
+    assert surviving_accepts == [True]
+
+
+def test_consistency_is_null_when_no_property_has_perturbation_runs():
+    card = _module().evaluate_labels(
+        {
+            "properties": {
+                "key": {
+                    "predicted": [True, False],
+                    "human": [True, False],
+                }
+            }
+        }
+    )
+
+    assert card["properties"][0]["consistency"] is None
+    assert card["consistency"] is None
 
 
 def test_main_rejects_mismatched_label_lengths(tmp_path, capsys):
@@ -78,6 +127,43 @@ def test_main_rejects_mismatched_label_lengths(tmp_path, capsys):
 
     assert exc.value.code == 2
     assert "predicted and human must have equal lengths" in capsys.readouterr().err
+
+
+def test_main_rejects_a_single_perturbation_run(tmp_path, capsys):
+    labels_path = tmp_path / "labels.json"
+    labels_path.write_text(
+        json.dumps(
+            {
+                "properties": {
+                    "key": {
+                        "predicted": [True, False],
+                        "human": [True, False],
+                        "runs": [[True, False]],
+                    }
+                }
+            }
+        )
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        _module().main(["--labels", str(labels_path)])
+
+    assert exc.value.code == 2
+    assert "runs must contain at least 2" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_main_rejects_nonstandard_json_constants(tmp_path, capsys, constant):
+    labels_path = tmp_path / "labels.json"
+    labels_path.write_text(f'{{"properties": {constant}}}')
+
+    with pytest.raises(SystemExit) as exc:
+        _module().main(["--labels", str(labels_path)])
+
+    assert exc.value.code == 2
+    error = capsys.readouterr().err
+    assert f"non-standard JSON constant {constant}" in error
+    assert "is not allowed" in error
 
 
 def test_main_adds_foundry_summary_and_writes_printed_json(tmp_path, capsys):
