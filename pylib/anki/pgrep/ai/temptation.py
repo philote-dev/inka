@@ -75,9 +75,11 @@ def score_distractors(
             )
         except Exception:  # noqa: BLE001
             continue
-        if not picked_display:
+        if not picked_display or picked_display not in letters:
             continue
         di = letters.index(picked_display)
+        if di >= len(order):
+            continue
         orig = letters[order[di]]
         n += 1
         if orig in counts:
@@ -107,8 +109,7 @@ def select_distractors(
     if not candidates:
         return []
     base = dict(problem or {})
-    # Build a temporary problem whose choices align with candidate labels.
-    # Caller passes a full problem; we score then filter candidates by label.
+    # Score the caller's problem, then rank candidates by label temptation.
     report = score_distractors(base, weak_clients, seed=seed)
     rank = {s.label: s.temptation for s in report.scores}
     ordered = sorted(

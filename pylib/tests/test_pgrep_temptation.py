@@ -49,6 +49,31 @@ def test_temptation_counts_weak_solver_picks_on_wrong_options():
     assert "B" not in by_label  # correct option is not a distractor score
 
 
+class FixedLetterClient:
+    """Always returns one display letter, ignoring shuffle."""
+
+    def __init__(self, letter: str):
+        self.letter = letter
+
+    def complete_text(self, system, user, *, json_object=False):
+        return (
+            f'{{"answer": "{self.letter}", "reasoning": "x", "confidence": 0.5}}'
+        )
+
+
+def test_out_of_range_display_letter_ignored():
+    problem = {
+        "id": "p",
+        "stem": "Pick one.",
+        "choices": ["a", "b", "c"],
+        "correct": "B",
+    }
+    report = temptation.score_distractors(
+        problem, [FixedLetterClient("E")], seed=1
+    )
+    assert all(s.selected_by == 0 and s.n_solvers == 0 for s in report.scores)
+
+
 def test_select_distractors_keeps_most_tempting_wrong_options():
     # candidates are option dicts with label + text; correct excluded upstream
     cands = [
