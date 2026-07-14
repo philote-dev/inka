@@ -12,6 +12,7 @@ attractive each distractor is to weaker solvers.
 from __future__ import annotations
 
 import json
+import random
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
@@ -62,17 +63,25 @@ def score_distractors(
     letters = "ABCDE"[: len(choices)]
     counts = {L: 0 for L in letters if L != correct}
     n = 0
+    rng = random.Random(seed)
     for client in weak_clients:
-        user = json.dumps({"stem": problem.get("stem", ""), "choices": choices})
+        order = list(range(len(choices)))
+        rng.shuffle(order)
+        display = [choices[j] for j in order]
+        user = json.dumps({"stem": problem.get("stem", ""), "choices": display})
         try:
-            picked = _letter(client.complete_text(SOLVE_SYSTEM, user, json_object=True))
+            picked_display = _letter(
+                client.complete_text(SOLVE_SYSTEM, user, json_object=True)
+            )
         except Exception:  # noqa: BLE001
             continue
-        if not picked:
+        if not picked_display:
             continue
+        di = letters.index(picked_display)
+        orig = letters[order[di]]
         n += 1
-        if picked in counts:
-            counts[picked] += 1
+        if orig in counts:
+            counts[orig] += 1
     scores = []
     free = []
     for label, c in counts.items():
