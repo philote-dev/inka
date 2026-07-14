@@ -17,10 +17,12 @@ Checks:
      phrasing, not leakage, so the signal is a long contiguous span, not a
      single n-gram.
   3. No held-out or gold copy-in in saved prompt logs (if any exist).
-  4. The AI path never references a private root. Shipped pgrep modules under
+  4. Foundry preference JSONL has valid schema and IDs, no private-root path
+     markers, and no long verbatim spans copied from available private items.
+  5. The AI path never references a private root. Shipped pgrep modules under
      ``pylib/anki/pgrep/`` may only reference ``tier3-private`` via the
      ``constants/`` subpath (the readiness reader), never the items.
-  5. Readiness reader is constants-only. Restated by check 4 for the shipped
+  6. Readiness reader is constants-only. Restated by check 5 for the shipped
      code; the items under ``tier3-private/`` are never opened by the AI path.
 
 This is a process guard, not a model. It reads text only, never writes.
@@ -43,6 +45,12 @@ import sqlite3
 import sys
 from dataclasses import dataclass, field
 
+import _ai_path
+
+_ai_path.add_ai_core()
+
+from pgrep.ai import preference  # type: ignore[import-not-found]  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONTENT = os.path.dirname(HERE)
 REPO = os.path.dirname(CONTENT)
@@ -59,8 +67,14 @@ PROMPT_LOG_DIRS = [
     os.path.join(CONTENT, "index", "prompt_logs"),
     os.path.join(CONTENT, "run", "prompt_logs"),
 ]
+FOUNDRY_RUN_DIR = os.path.join(CONTENT, "run", "foundry")
 # Shipped AI/runtime code that must never reach a private root except constants.
 SHIPPED_AI_DIR = os.path.join(REPO, "pylib", "anki", "pgrep")
+_FORBIDDEN_FOUNDRY_PATH_MARKERS = (
+    "content/gold",
+    "content/heldout",
+    "tier3-private",
+)
 
 # The unit n-gram used to locate contiguous overlap. Small enough to place a
 # span precisely, large enough that one match is not pure noise.
@@ -273,6 +287,86 @@ def check_prompt_logs(items: list[tuple[str, str]], threshold: int) -> CheckResu
     return res
 
 
+def foundry_jsonl_is_clean(path: str) -> list[str]:
+    """Validate one preference JSONL file and reject private-root path markers."""
+    errors = preference.scan_jsonl(path)
+    try:
+        with open(path, encoding="utf-8") as file:
+            for lineno, line in enumerate(file, start=1):
+                serialized = line
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    pass
+                else:
+                    serialized = json.dumps(record, ensure_ascii=False)
+                normalized = serialized.lower().replace("\\\\", "/").replace("\\", "/")
+                for marker in _FORBIDDEN_FOUNDRY_PATH_MARKERS:
+                    if marker in normalized:
+                        errors.append(
+                            f"line {lineno}: forbidden private-root marker: {marker}"
+                        )
+    except OSError:
+        pass
+    return errors
+
+
+def check_foundry_preferences(
+    items: list[tuple[str, str]],
+    threshold: int,
+    foundry_dir: str = FOUNDRY_RUN_DIR,
+) -> CheckResult:
+    """Validate all foundry JSONL and compare it with available private items."""
+    files = sorted(
+        path
+        for path in glob.glob(
+            os.path.join(foundry_dir, "**", "*.jsonl"), recursive=True
+        )
+        if os.path.isfile(path)
+    )
+    if not files:
+        return CheckResult(
+            "foundry-preferences",
+            True,
+            "no foundry preference JSONL files on disk to scan",
+        )
+
+    hits: list[str] = []
+    texts: list[str] = []
+    for path in files:
+        rel = os.path.relpath(path, REPO)
+        hits.extend(f"{rel}:{error}" for error in foundry_jsonl_is_clean(path))
+        try:
+            texts.append(open(path, encoding="utf-8").read())
+        except OSError:
+            continue
+
+    if items and texts:
+        copyin = _copyin_check(
+            "foundry-preferences",
+            hashes_from_texts(texts),
+            items,
+            threshold,
+            "in foundry preference JSONL",
+        )
+        hits.extend(copyin.hits)
+
+    ok = not hits
+    if ok:
+        private_detail = (
+            f"; no copy-in from {len(items)} private item(s)"
+            if items
+            else "; no private items present for copy-in matching"
+        )
+        detail = (
+            f"{len(files)} foundry preference file(s), schema and paths clean"
+            f"{private_detail}"
+        )
+    else:
+        detail = f"{len(hits)} foundry preference leakage error(s)"
+    return CheckResult("foundry-preferences", ok, detail, hits[:20])
+
+
 def check_ai_path_references() -> CheckResult:
     """Shipped pgrep code may touch tier3-private only via constants/, never gold/heldout."""
     if not os.path.isdir(SHIPPED_AI_DIR):
@@ -299,12 +393,17 @@ def check_ai_path_references() -> CheckResult:
 # --- driver ----------------------------------------------------------------
 
 
-def run_checks(db_path: str = INDEX_DB, span_threshold: int = DEFAULT_SPAN_THRESHOLD) -> list[CheckResult]:
+def run_checks(
+    db_path: str = INDEX_DB,
+    span_threshold: int = DEFAULT_SPAN_THRESHOLD,
+    foundry_dir: str = FOUNDRY_RUN_DIR,
+) -> list[CheckResult]:
     items = _heldout_item_texts() + _gold_item_texts()
     return [
         check_index_paths(db_path),
         check_shingles(db_path, items, span_threshold),
         check_prompt_logs(items, span_threshold),
+        check_foundry_preferences(items, span_threshold, foundry_dir),
         check_ai_path_references(),
     ]
 

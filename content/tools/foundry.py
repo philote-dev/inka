@@ -13,7 +13,7 @@ import _ai_path  # noqa: E402
 
 _ai_path.add_ai_core()
 
-from pgrep.ai import foundry_loop  # type: ignore[import-not-found]  # noqa: E402
+from pgrep.ai import foundry_loop, preference  # type: ignore[import-not-found]  # noqa: E402
 
 
 @dataclass
@@ -137,6 +137,10 @@ def main() -> int:
     result = _dry_run(args.topic, effective_n)
     run_id = args.run or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     run_dir = _write_result(args.out, run_id, result)
+    pairs = preference.pairs_from_slot(
+        {"topic": args.topic}, result, run_id=run_id
+    )
+    preference.write_jsonl(str(run_dir / "preferences.jsonl"), pairs)
     print(
         f"requested_n={args.n}; effective_n={effective_n}; "
         f"yield={result.yield_rate:.3f}; wrote {run_dir}"
