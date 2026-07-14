@@ -1,15 +1,11 @@
 # Copyright: Ankitects Pty Ltd and contributors
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
+import json
+
 from anki.pgrep.ai import temptation
 
-
-class FakeClient:
-    def __init__(self, letter: str):
-        self.letter = letter
-
-    def complete_text(self, system, user, *, json_object=False):
-        return f'{{"answer": "{self.letter}", "reasoning": "x", "confidence": 0.5}}'
+_LETTERS = "ABCDE"
 
 
 def _problem():
@@ -19,6 +15,25 @@ def _problem():
         "choices": ["3", "4", "5", "6", "7"],
         "correct": "B",
     }
+
+
+class FakeClient:
+    """Picks the display letter for a fixed original option after shuffle."""
+
+    def __init__(self, letter: str, *, choices: list[str] | None = None):
+        self.letter = letter
+        self.choices = list(choices or _problem()["choices"])
+
+    def complete_text(self, system, user, *, json_object=False):
+        payload = json.loads(user)
+        display_choices = list(payload.get("choices") or [])
+        orig_i = _LETTERS.index(self.letter)
+        orig_text = self.choices[orig_i]
+        disp_i = display_choices.index(orig_text)
+        display_letter = _LETTERS[disp_i]
+        return (
+            f'{{"answer": "{display_letter}", "reasoning": "x", "confidence": 0.5}}'
+        )
 
 
 def test_temptation_counts_weak_solver_picks_on_wrong_options():
