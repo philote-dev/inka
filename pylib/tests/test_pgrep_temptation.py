@@ -31,9 +31,7 @@ class FakeClient:
         orig_text = self.choices[orig_i]
         disp_i = display_choices.index(orig_text)
         display_letter = _LETTERS[disp_i]
-        return (
-            f'{{"answer": "{display_letter}", "reasoning": "x", "confidence": 0.5}}'
-        )
+        return f'{{"answer": "{display_letter}", "reasoning": "x", "confidence": 0.5}}'
 
 
 def test_temptation_counts_weak_solver_picks_on_wrong_options():
@@ -56,9 +54,7 @@ class FixedLetterClient:
         self.letter = letter
 
     def complete_text(self, system, user, *, json_object=False):
-        return (
-            f'{{"answer": "{self.letter}", "reasoning": "x", "confidence": 0.5}}'
-        )
+        return f'{{"answer": "{self.letter}", "reasoning": "x", "confidence": 0.5}}'
 
 
 def test_out_of_range_display_letter_ignored():
@@ -68,10 +64,15 @@ def test_out_of_range_display_letter_ignored():
         "choices": ["a", "b", "c"],
         "correct": "B",
     }
-    report = temptation.score_distractors(
-        problem, [FixedLetterClient("E")], seed=1
-    )
+    report = temptation.score_distractors(problem, [FixedLetterClient("E")], seed=1)
     assert all(s.selected_by == 0 and s.n_solvers == 0 for s in report.scores)
+    assert report.free_elimination_labels == []
+    assert report.mean_temptation == 0.0
+
+
+def test_distractor_wrongness_means_label_is_not_stored_key():
+    report = temptation.score_distractors(_problem(), [], seed=1)
+    assert all(score.label != "B" and score.is_wrong for score in report.scores)
 
 
 def test_select_distractors_keeps_most_tempting_wrong_options():
@@ -85,8 +86,6 @@ def test_select_distractors_keeps_most_tempting_wrong_options():
     # All weak solvers pick A -> A is most tempting
     clients = [FakeClient("A"), FakeClient("A")]
     problem = _problem()
-    kept = temptation.select_distractors(
-        cands, clients, k=2, seed=1, problem=problem
-    )
+    kept = temptation.select_distractors(cands, clients, k=2, seed=1, problem=problem)
     assert [d["label"] for d in kept][:1] == ["A"]
     assert len(kept) == 2
