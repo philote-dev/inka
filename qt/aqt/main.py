@@ -562,6 +562,9 @@ class AnkiQt(QMainWindow):
             self.show()
             self.activateWindow()
             self.raise_()
+            from aqt import pgrep_titlebar
+
+            pgrep_titlebar.install(self)
 
         # import pending?
         if self.pendingImport:

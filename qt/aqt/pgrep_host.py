@@ -149,6 +149,9 @@ def enter_pgrep(mw: aqt.main.AnkiQt) -> None:
 
         if is_mac and surface_mode(mw) == "exclusive":
             web.eval("document.body.classList.add('pgrep-native-titlebar');")
+            from aqt import pgrep_titlebar
+
+            pgrep_titlebar.push_inset(mw)
 
 
 def apply_native_titlebar(mw: aqt.main.AnkiQt) -> None:
@@ -165,8 +168,9 @@ def apply_native_titlebar(mw: aqt.main.AnkiQt) -> None:
     so Qt does not have to recreate it.
     """
     from anki.utils import is_mac
+    from aqt import pgrep_titlebar
 
-    if not is_mac or surface_mode(mw) != "exclusive":
+    if not pgrep_titlebar.native_titlebar_enabled(surface_mode(mw), is_mac):
         return
     mw.setWindowFlag(Qt.WindowType.ExpandedClientAreaHint, True)
     mw.setWindowFlag(Qt.WindowType.NoTitleBarBackgroundHint, True)
