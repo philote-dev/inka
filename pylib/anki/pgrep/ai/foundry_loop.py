@@ -76,6 +76,7 @@ def run_slot(
             result.rejected.append(
                 {
                     **raw,
+                    "refused": True,
                     "panel": {"decision": "reject", "checks": []},
                     "reason": reason,
                 }

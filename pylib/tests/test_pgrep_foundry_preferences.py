@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -20,23 +21,46 @@ import leakage_check  # type: ignore[import-not-found]  # noqa: E402
 def _valid_pair() -> dict:
     return {
         "schema": 1,
-        "slot": {"topic": "optics", "blueprint_category": "optics"},
+        "synthetic": False,
+        "slot": {"topic": "thin lenses", "blueprint_category": "optics_waves"},
         "chosen": {
             "id": "candidate-1",
             "stem": "chosen stem",
             "choices": ["a", "b", "c", "d", "e"],
             "correct": "A",
-            "source_ref": "corpus://synthetic/chosen",
-            "panel": {"decision": "accept", "checks": []},
+            "source_ref": "corpus://source/chosen",
+            "panel": {
+                "decision": "accept",
+                "checks": [
+                    {
+                        "name": "key",
+                        "passed": True,
+                        "severity": "hard",
+                        "evidence": "verified",
+                    }
+                ],
+            },
         },
         "rejected": {
             "id": "candidate-2",
             "stem": "rejected stem",
             "choices": ["a", "b", "c", "d", "e"],
             "correct": "B",
-            "source_ref": "corpus://synthetic/rejected",
-            "panel": {"decision": "reject", "checks": []},
+            "source_ref": "corpus://source/rejected",
+            "panel": {
+                "decision": "reject",
+                "checks": [
+                    {
+                        "name": "answer_key",
+                        "passed": False,
+                        "severity": "hard",
+                        "evidence": "disagreed",
+                    }
+                ],
+            },
             "failing_gates": ["answer_key"],
+            "reason": "answer_key: disagree",
+            "refused": False,
         },
         "run_id": "run-1",
     }
@@ -45,6 +69,21 @@ def _valid_pair() -> dict:
 def _write_pair(path: Path, pair: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(pair) + "\n", encoding="utf-8")
+
+
+def _write_index(path: Path, source_refs: list[str]) -> None:
+    database = sqlite3.connect(path)
+    try:
+        database.execute(
+            "CREATE TABLE chunks (source_file TEXT NOT NULL, source_ref TEXT NOT NULL)"
+        )
+        database.executemany(
+            "INSERT INTO chunks(source_file, source_ref) VALUES (?, ?)",
+            [("corpus.pdf", source_ref) for source_ref in source_refs],
+        )
+        database.commit()
+    finally:
+        database.close()
 
 
 def test_foundry_cli_writes_preferences_in_run_directory(tmp_path: Path) -> None:
@@ -56,7 +95,7 @@ def test_foundry_cli_writes_preferences_in_run_directory(tmp_path: Path) -> None
         "--topic",
         "optics",
         "--category",
-        "geometric_optics",
+        "optics_waves",
         "--run",
         "run-42",
         "--out",
@@ -71,21 +110,24 @@ def test_foundry_cli_writes_preferences_in_run_directory(tmp_path: Path) -> None
     assert len(rows) == 1
     assert rows[0]["slot"] == {
         "topic": "optics",
-        "blueprint_category": "geometric_optics",
+        "blueprint_category": "optics_waves",
     }
     assert rows[0]["run_id"] == "run-42"
     assert rows[0]["chosen"]["id"] == "dry-1"
     assert rows[0]["rejected"]["id"] == "dry-2"
     assert rows[0]["chosen"]["source_ref"].startswith("synthetic://foundry/")
+    assert rows[0]["synthetic"] is True
     summary = json.loads((tmp_path / "run-42" / "summary.json").read_text())
+    assert summary["blueprint_category"] == "optics_waves"
     assert summary["preferences"] == {
-        "pair_count": 1,
-        "category_count": 1,
-        "categories": ["geometric_optics"],
+        "validated_pair_count": 1,
+        "pair_count": 0,
+        "category_count": 0,
+        "categories": [],
     }
 
 
-def test_foundry_cli_defaults_category_to_topic(tmp_path: Path) -> None:
+def test_foundry_cli_defaults_category_to_mechanics(tmp_path: Path) -> None:
     argv = [
         "foundry.py",
         "--dry-run",
@@ -107,7 +149,35 @@ def test_foundry_cli_defaults_category_to_topic(tmp_path: Path) -> None:
         .read_text(encoding="utf-8")
         .splitlines()[0]
     )
-    assert pair["slot"]["blueprint_category"] == "optics"
+    assert pair["slot"]["blueprint_category"] == "mechanics"
+
+
+@pytest.mark.parametrize(
+    "category",
+    ["optics", "Mechanics", " mechanics", "mechanics ", "special-relativity"],
+)
+def test_foundry_cli_rejects_invalid_category(
+    tmp_path: Path, capsys, category: str
+) -> None:
+    argv = [
+        "foundry.py",
+        "--dry-run",
+        "--n",
+        "3",
+        "--category",
+        category,
+        "--run",
+        "invalid-category",
+        "--out",
+        str(tmp_path),
+    ]
+
+    with patch.object(sys, "argv", argv), pytest.raises(SystemExit) as exc:
+        foundry.main()
+
+    assert exc.value.code == 2
+    assert "blueprint category" in capsys.readouterr().err.lower()
+    assert not (tmp_path / "invalid-category").exists()
 
 
 def test_foundry_cli_rejects_reused_run_id(tmp_path: Path, capsys) -> None:
@@ -134,8 +204,8 @@ def test_foundry_cli_rejects_reused_run_id(tmp_path: Path, capsys) -> None:
 
 
 def test_write_result_cleans_temporary_run_after_failure(tmp_path: Path) -> None:
-    result = foundry._dry_run("optics", 3, category="optics")
-    slot = {"topic": "optics", "blueprint_category": "optics"}
+    result = foundry._dry_run("optics", 3, category="optics_waves")
+    slot = {"topic": "optics", "blueprint_category": "optics_waves"}
 
     with (
         patch.object(
@@ -152,8 +222,8 @@ def test_write_result_cleans_temporary_run_after_failure(tmp_path: Path) -> None
 
 
 def test_write_result_rejects_preference_count_mismatch(tmp_path: Path) -> None:
-    result = foundry._dry_run("optics", 3, category="optics")
-    slot = {"topic": "optics", "blueprint_category": "optics"}
+    result = foundry._dry_run("optics", 3, category="optics_waves")
+    slot = {"topic": "optics", "blueprint_category": "optics_waves"}
 
     with (
         patch.object(foundry.preference, "write_jsonl", return_value=0),
@@ -163,6 +233,19 @@ def test_write_result_rejects_preference_count_mismatch(tmp_path: Path) -> None:
 
     assert not (tmp_path / "bad-count").exists()
     assert list(tmp_path.iterdir()) == []
+
+
+def test_write_result_uses_exclusive_publication_lock(tmp_path: Path) -> None:
+    result = foundry._dry_run("optics", 3, category="optics_waves")
+    slot = {"topic": "optics", "blueprint_category": "optics_waves"}
+    lock = tmp_path / ".locked-run.lock"
+    lock.write_text("other publisher", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="publication lock"):
+        foundry._write_result(str(tmp_path), "locked-run", result, slot)
+
+    assert lock.exists()
+    assert not (tmp_path / "locked-run").exists()
 
 
 def test_foundry_cli_surfaces_pair_validation_error(tmp_path: Path, capsys) -> None:
@@ -256,6 +339,83 @@ def test_foundry_preference_check_flags_private_copy_in(tmp_path: Path):
 
     assert not result.ok
     assert any("30-word span" in hit for hit in result.hits)
+
+
+def test_foundry_preference_check_verifies_corpus_source_refs(tmp_path: Path):
+    pair = _valid_pair()
+    path = tmp_path / "foundry" / "run-1" / "preferences.jsonl"
+    _write_pair(path, pair)
+    db_path = tmp_path / "corpus.db"
+    _write_index(
+        db_path,
+        [pair["chosen"]["source_ref"], pair["rejected"]["source_ref"]],
+    )
+
+    result = leakage_check.check_foundry_preferences(
+        [],
+        leakage_check.DEFAULT_SPAN_THRESHOLD,
+        foundry_dir=str(tmp_path / "foundry"),
+        db_path=str(db_path),
+    )
+
+    assert result.ok
+    assert "source references verified" in result.detail
+
+
+def test_foundry_preference_check_rejects_unknown_source_ref(tmp_path: Path):
+    pair = _valid_pair()
+    path = tmp_path / "foundry" / "run-1" / "preferences.jsonl"
+    _write_pair(path, pair)
+    db_path = tmp_path / "corpus.db"
+    _write_index(db_path, [pair["chosen"]["source_ref"]])
+
+    result = leakage_check.check_foundry_preferences(
+        [],
+        leakage_check.DEFAULT_SPAN_THRESHOLD,
+        foundry_dir=str(tmp_path / "foundry"),
+        db_path=str(db_path),
+    )
+
+    assert not result.ok
+    assert any("rejected.source_ref" in hit for hit in result.hits)
+
+
+def test_foundry_preference_check_requires_index_when_files_exist(tmp_path: Path):
+    path = tmp_path / "foundry" / "run-1" / "preferences.jsonl"
+    _write_pair(path, _valid_pair())
+
+    result = leakage_check.check_foundry_preferences(
+        [],
+        leakage_check.DEFAULT_SPAN_THRESHOLD,
+        foundry_dir=str(tmp_path / "foundry"),
+        db_path=str(tmp_path / "missing.db"),
+    )
+
+    assert not result.ok
+    assert any("source verification unavailable" in hit for hit in result.hits)
+
+
+def test_foundry_preference_check_rejects_cross_run_duplicates(tmp_path: Path):
+    first = _valid_pair()
+    duplicate = json.loads(json.dumps(first))
+    duplicate["run_id"] = "run-2"
+    _write_pair(tmp_path / "run-1" / "preferences.jsonl", first)
+    _write_pair(tmp_path / "run-2" / "preferences.jsonl", duplicate)
+    db_path = tmp_path / "corpus.db"
+    _write_index(
+        db_path,
+        [first["chosen"]["source_ref"], first["rejected"]["source_ref"]],
+    )
+
+    result = leakage_check.check_foundry_preferences(
+        [],
+        leakage_check.DEFAULT_SPAN_THRESHOLD,
+        foundry_dir=str(tmp_path),
+        db_path=str(db_path),
+    )
+
+    assert not result.ok
+    assert any("duplicate chosen/rejected pair" in hit for hit in result.hits)
 
 
 def test_run_checks_includes_foundry_preference_check(tmp_path: Path):
