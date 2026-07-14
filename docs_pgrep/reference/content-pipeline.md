@@ -131,6 +131,46 @@ and a Markdown summary under `content/run/audit/`.
 
 ---
 
+## The verifier panel and calibration (Phase 1)
+
+Beyond the on-demand audits, the pipeline has a calibrated verifier panel that
+renders a single accept / reject / escalate decision per problem, built to gate
+generated content before it reaches a human.
+
+`pylib/anki/pgrep/ai/consensus.py` decides whether a stored answer key is correct
+from three independent signals: several diverse model solves through the `llm`
+seam (with the option order shuffled to check position stability), an optional
+SymPy check (`verify.cas_check_value`) for items that carry an explicit answer
+expression, and an optional FOBAR backward check (mask a given value, then try
+to recover it from the proposed answer). A deterministic disproof wins outright.
+Otherwise a stable majority carries. Confidence is measured over the solves that
+actually answered and is down-weighted when most calls failed, so a couple of
+failed API calls never masquerade as a confident reject.
+
+`pylib/anki/pgrep/ai/verifier.py` composes that key consensus with the existing
+single-check judges (figure fidelity, technique giveaway, distractor
+plausibility) into a `PanelVerdict`. Key and figure are hard gates. Giveaway and
+distractor are soft, so they annotate the verdict but do not change the
+decision. The rule is one threshold: a hard check that fails with confidence at
+or above `certain` (default 0.8) rejects, any hard check below `certain`
+escalates, and otherwise the panel accepts. The panel and the audits share the
+same underlying checks.
+
+`pylib/anki/pgrep/ai/agreement.py` holds the calibration statistics, stdlib-only
+so they ship with the app: per-property raw agreement, balanced accuracy,
+precision and recall, verdict consistency under perturbation, and a
+precision-target threshold sweep. Together they form a calibration card that
+reports, property by property, how well the panel agrees with human judgment.
+This replaces the single, misleading Cohen's kappa the old audit reported.
+
+`content/tools/calibrate_verifier.py` produces the card. Its `--self-check` runs
+an offline smoke. The full run (`--labels`) consumes a per-property
+human-labeled set (the calibration pass) and writes the card and the tuned
+thresholds under `content/run/calibration/`. It is run directly, like the other
+content tools. A `just` recipe will land alongside the other pgrep-ai recipes.
+
+---
+
 ## Commands
 
 | Command                          | What it does                                                                      |
@@ -138,6 +178,7 @@ and a Markdown summary under `content/run/audit/`.
 | `assemble_bundle.py`             | The single gated landing command: land, convert math, wire figures, run invariants. |
 | `just test-py`                   | Runs the Python tests, including the content-bundle invariant gate (per-commit).  |
 | `just audit-bundle-ai`           | Runs the five on-demand AI audits (pre-release or nightly, needs the AI runtime). |
+| `calibrate_verifier.py`          | Offline smoke (`--self-check`) of the calibration stats and card assembly.        |
 | `just check`                     | The overall gate (format, build, lint, all tests), which includes `test-py`.      |
 
 The LLM audits need the optional AI runtime and a key; install it once with
