@@ -6,11 +6,14 @@ Runnable as ``python3 -m pytest content/tools/test_foundry_escalation.py`` or
 
 from __future__ import annotations
 
+import json
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import foundry  # noqa: E402
 import make_foundry_escalation as me  # noqa: E402
 import review_sheet  # noqa: E402
 
@@ -51,6 +54,27 @@ def test_render_includes_header_and_all_items():
     assert md.startswith("# Foundry escalation\n")
     assert "### p4-prob-9001" in md
     assert "### p4-prob-9002" in md
+
+
+def test_foundry_caps_requested_n_by_verifier_accuracy():
+    assert foundry._effective_n(8, 0.8) == 6
+    assert foundry._effective_n(3, 0.8) == 3
+
+
+def test_foundry_writes_partition_files_for_escalation_cli(tmp_path: Path):
+    result = foundry.foundry_loop.SlotResult(
+        accepted=[{"id": "a"}],
+        rejected=[{"id": "r"}],
+        escalated=[{"id": "e"}],
+    )
+    run_dir = foundry._write_result(str(tmp_path), "run-1", result)
+
+    assert run_dir == tmp_path / "run-1"
+    assert json.loads((run_dir / "accepted.json").read_text()) == [{"id": "a"}]
+    assert json.loads((run_dir / "rejected.json").read_text()) == [{"id": "r"}]
+    assert json.loads((run_dir / "escalated.json").read_text()) == [{"id": "e"}]
+    summary = json.loads((run_dir / "summary.json").read_text())
+    assert summary["yield_rate"] == 1 / 3
 
 
 if __name__ == "__main__":

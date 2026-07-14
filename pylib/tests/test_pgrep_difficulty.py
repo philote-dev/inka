@@ -30,9 +30,7 @@ class FakeClient:
         orig_text = self.choices[orig_i]
         disp_i = display_choices.index(orig_text)
         display_letter = _LETTERS[disp_i]
-        return (
-            f'{{"answer": "{display_letter}", "reasoning": "x", "confidence": 0.5}}'
-        )
+        return f'{{"answer": "{display_letter}", "reasoning": "x", "confidence": 0.5}}'
 
 
 def test_hard_band_when_weak_solvers_mostly_miss():
@@ -49,6 +47,14 @@ def test_easy_band_when_weak_solvers_mostly_hit():
     assert est.band == "easy"
     assert est.p_correct == 1.0
     assert est.out_of_band is True  # >= 0.95
+
+
+def test_unknown_band_without_valid_weak_solver_evidence():
+    est = difficulty.estimate_difficulty(_problem("B"), [], seed=0)
+    assert est.band == "unknown"
+    assert est.p_correct == 0.0
+    assert est.n_solvers == 0
+    assert est.out_of_band is False
 
 
 def test_pearson_correlation_perfect_line():

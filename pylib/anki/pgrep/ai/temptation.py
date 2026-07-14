@@ -1,12 +1,12 @@
 # Copyright: Ankitects Pty Ltd and contributors
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
-"""Distractor wrongness and temptation (WS3).
+"""Distractor structural wrongness and temptation (WS3).
 
 Temptation is the fraction of weaker or proficiency-simulated solvers that
-select a wrong option. Zero temptation is a free elimination. Wrongness of the
-stored key is still the consensus panel's job; this module only scores how
-attractive each distractor is to weaker solvers.
+select an option other than the stored key. With solver evidence, zero
+temptation is a free elimination. ``is_wrong`` means only that a label differs
+from the stored key; the consensus panel owns whether that key is correct.
 """
 
 from __future__ import annotations
@@ -19,7 +19,9 @@ from typing import Protocol
 
 
 class _Client(Protocol):
-    def complete_text(self, system: str, user: str, *, json_object: bool = False) -> str: ...
+    def complete_text(
+        self, system: str, user: str, *, json_object: bool = False
+    ) -> str: ...
 
 
 SOLVE_SYSTEM = (
@@ -30,6 +32,12 @@ SOLVE_SYSTEM = (
 
 @dataclass
 class DistractorScore:
+    """A candidate's temptation and structural relation to the stored key.
+
+    ``is_wrong`` means ``label != stored key``. It is not an independent
+    solver-based judgment of option correctness.
+    """
+
     label: str
     is_wrong: bool
     temptation: float
@@ -39,6 +47,8 @@ class DistractorScore:
 
 @dataclass
 class TemptationReport:
+    """Temptation evidence; free eliminations require at least one valid solve."""
+
     scores: list[DistractorScore]
     free_elimination_labels: list[str]
     mean_temptation: float
@@ -88,10 +98,8 @@ def score_distractors(
     free = []
     for label, c in counts.items():
         tempt = (c / n) if n else 0.0
-        scores.append(
-            DistractorScore(label, True, tempt, c, n)
-        )
-        if tempt == 0.0:
+        scores.append(DistractorScore(label, label != correct, tempt, c, n))
+        if n > 0 and tempt == 0.0:
             free.append(label)
     mean = (sum(s.temptation for s in scores) / len(scores)) if scores else 0.0
     return TemptationReport(scores, free, round(mean, 3))
@@ -105,7 +113,7 @@ def select_distractors(
     seed: int = 0,
     problem: dict | None = None,
 ) -> list[dict]:
-    """Keep the k most tempting wrong options (DisGeM-style second stage)."""
+    """Keep the k most tempting candidates known not to be the stored key."""
     if not candidates:
         return []
     base = dict(problem or {})

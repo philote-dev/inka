@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import _ai_path  # noqa: E402
@@ -53,21 +54,31 @@ def _dry_run(topic: str, n: int) -> foundry_loop.SlotResult:
     )
 
 
-def _payload(result: foundry_loop.SlotResult) -> dict:
+def _summary(result: foundry_loop.SlotResult) -> dict:
     return {
-        "accepted": result.accepted,
-        "rejected": result.rejected,
-        "escalated": result.escalated,
+        "accepted": len(result.accepted),
+        "rejected": len(result.rejected),
+        "escalated": len(result.escalated),
         "yield_rate": result.yield_rate,
     }
 
 
-def _write_result(out: str, topic: str, result: foundry_loop.SlotResult) -> Path:
-    output_dir = Path(out)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{topic}.json"
-    output_path.write_text(json.dumps(_payload(result), indent=2) + "\n")
-    return output_path
+def _effective_n(requested_n: int, verifier_accuracy: float) -> int:
+    return min(requested_n, foundry_loop.max_n_for_accuracy(verifier_accuracy))
+
+
+def _write_result(out: str, run_id: str, result: foundry_loop.SlotResult) -> Path:
+    run_dir = Path(out) / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    payloads = {
+        "accepted.json": result.accepted,
+        "rejected.json": result.rejected,
+        "escalated.json": result.escalated,
+        "summary.json": _summary(result),
+    }
+    for filename, payload in payloads.items():
+        (run_dir / filename).write_text(json.dumps(payload, indent=2) + "\n")
+    return run_dir
 
 
 def _self_check() -> int:
@@ -85,9 +96,22 @@ def _self_check() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the best-of-N content foundry.")
     parser.add_argument("--dry-run", action="store_true", help="use offline fakes")
-    parser.add_argument("--n", type=int, default=8)
+    parser.add_argument("--n", type=int, default=8, help="requested candidates per slot")
+    parser.add_argument(
+        "--verifier-accuracy",
+        type=float,
+        default=0.8,
+        help=(
+            "calibrated verifier accuracy used to cap N "
+            "(default: 0.8, which caps N at 6)"
+        ),
+    )
     parser.add_argument("--topic", default="classical_mechanics")
     parser.add_argument("--out", default="content/run/foundry")
+    parser.add_argument(
+        "--run",
+        help="run directory name under --out (default: current UTC timestamp)",
+    )
     parser.add_argument(
         "--self-check", action="store_true", help="run an offline smoke and exit"
     )
@@ -106,10 +130,17 @@ def main() -> int:
         parser.error("online generation is not available yet; use --dry-run")
     if args.n < 0:
         parser.error("--n must be non-negative")
+    if not 0.0 <= args.verifier_accuracy <= 1.0:
+        parser.error("--verifier-accuracy must be between 0 and 1")
 
-    result = _dry_run(args.topic, args.n)
-    output_path = _write_result(args.out, args.topic, result)
-    print(f"yield={result.yield_rate:.3f}; wrote {output_path}")
+    effective_n = _effective_n(args.n, args.verifier_accuracy)
+    result = _dry_run(args.topic, effective_n)
+    run_id = args.run or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    run_dir = _write_result(args.out, run_id, result)
+    print(
+        f"requested_n={args.n}; effective_n={effective_n}; "
+        f"yield={result.yield_rate:.3f}; wrote {run_dir}"
+    )
     return 0
 
 

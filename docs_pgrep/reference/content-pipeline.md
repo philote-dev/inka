@@ -116,13 +116,13 @@ pre-release or nightly scan of the shipped bundle, not a per-commit gate. Every
 audit rides the shared `Judge` seam (a real judge in production, a fake in
 tests). It runs five audits:
 
-| Audit | Kind | Severity | What it checks |
-| ---------------------------- | ------------- | -------- | ------------------------------------------------------------------------- |
-| `answer_key`                 | LLM           | HARD     | Independently re-solve each problem, blind to the stored key, and flag disagreements. |
-| `figure_fidelity`            | LLM           | HARD     | For each `pg-figure` problem, judge whether the SVG faithfully depicts the figure-stripped stem. |
-| `decomposition_leak`         | deterministic | HARD     | Run the giveaway verifier on each decomposition variant against the parent's answer. |
-| `distractor_plausibility`    | LLM           | SOFT     | Flag wrong options that are obviously wrong and free to eliminate. |
-| `citation`                   | deterministic | SOFT     | Check each `source_ref` resolves against the corpus index; skips when the index is absent. |
+| Audit                     | Kind          | Severity | What it checks                                                                                   |
+| ------------------------- | ------------- | -------- | ------------------------------------------------------------------------------------------------ |
+| `answer_key`              | LLM           | HARD     | Independently re-solve each problem, blind to the stored key, and flag disagreements.            |
+| `figure_fidelity`         | LLM           | HARD     | For each `pg-figure` problem, judge whether the SVG faithfully depicts the figure-stripped stem. |
+| `decomposition_leak`      | deterministic | HARD     | Run the giveaway verifier on each decomposition variant against the parent's answer.             |
+| `distractor_plausibility` | LLM           | SOFT     | Flag wrong options that are obviously wrong and free to eliminate.                               |
+| `citation`                | deterministic | SOFT     | Check each `source_ref` resolves against the corpus index; skips when the index is absent.       |
 
 The HARD audits (`answer_key`, `figure_fidelity`, `decomposition_leak`) make the
 run exit non-zero when they find something; the SOFT audits
@@ -182,12 +182,16 @@ and the task plan
 
 ### Temptation (soft panel check)
 
-`pylib/anki/pgrep/ai/temptation.py` scores each distractor by how often weaker
-or proficiency-simulated solvers select it. Zero temptation is a free elimination
-(the same failure mode the `distractor_plausibility` audit flags). When
-`weak_clients` are wired into `Verifier`, a `temptation` check joins the panel
-as SOFT: it records free-elimination labels in the verdict but does not change
-the accept / reject / escalate decision until temptation is calibrated.
+`pylib/anki/pgrep/ai/temptation.py` scores each candidate whose label differs
+from the stored key by how often weaker or proficiency-simulated solvers select
+it. Here "wrong" means only "not the stored key"; the panel's key consensus owns
+whether that stored key is correct. With at least one valid weak solve, zero
+temptation is a free elimination (the same failure mode the
+`distractor_plausibility` audit flags). With no valid solves, the report has no
+free eliminations. When `weak_clients` are wired into `Verifier`, a `temptation`
+check joins the panel as SOFT: it records free-elimination labels in the verdict
+but does not change the accept / reject / escalate decision until temptation is
+calibrated.
 
 ### Difficulty estimate (caveat)
 
@@ -195,7 +199,9 @@ the accept / reject / escalate decision until temptation is calibrated.
 weak solvers, not from a frontier model's solve-rate. Per
 [2512.18880](https://huggingface.co/papers/2512.18880), that distinction matters:
 a hard item for a strong model can look easy when scored by solve-rate alone.
-Validate estimates against held-out ETS item difficulty offline; the Pearson helper
+The module is available, but difficulty estimation is not yet wired into the
+foundry or verifier loop. That integration is deferred. Validation against
+held-out ETS item difficulty is an offline evaluation only; the Pearson helper
 is for content tools, not CI.
 
 ### Foundry partition and N cap
@@ -207,18 +213,20 @@ panel, and partitions results into `accepted`, `rejected`, and `escalated`.
 8) so a weak verifier cannot over-prune a large candidate pool.
 
 `content/tools/foundry.py` is the CLI. Offline modes never touch the network:
-`--self-check` for smoke, `--dry-run` for a full partition with fakes. Online
-generation will use the same partition once wired. Comparative multi-candidate
-selection (`--compare`) is deferred to Phase 2.1.
+`--self-check` for smoke, `--dry-run` for a full partition with fakes. The CLI
+caps requested `--n` using `--verifier-accuracy` (conservative default 0.8).
+Online generation will use the same partition once wired. Comparative
+multi-candidate selection (`--compare`) is deferred to Phase 2.1.
 
 ### Escalation sheet and firewall path
 
-Low-confidence panel verdicts land in `escalated.json`. Run
-`content/tools/make_foundry_escalation.py` to render a Markdown review sheet
-(`ESCALATE` / `KEEP` / `DROP` per item) via the shared `review_sheet.py`
-contract. Foundry run artifacts stay under git-ignored `content/run/foundry/`
-(accepted, rejected, and escalated JSON per run). Generation still reads only
-`content/corpus/`; the leakage firewall is unchanged.
+Each foundry invocation writes
+`content/run/foundry/<run>/accepted.json`, `rejected.json`, `escalated.json`,
+and `summary.json`. Run `content/tools/make_foundry_escalation.py` to render a
+Markdown review sheet (`ESCALATE` / `KEEP` / `DROP` per item) from the latest
+run by default, or pass `--run <name>`. The artifacts stay git-ignored.
+Generation still reads only `content/corpus/`; the leakage firewall is
+unchanged.
 
 Accepted survivors still land only through `assemble_bundle.py` and the
 per-commit invariant gate.
@@ -227,17 +235,17 @@ per-commit invariant gate.
 
 ## Commands
 
-| Command                          | What it does                                                                      |
-| -------------------------------- | --------------------------------------------------------------------------------- |
-| `assemble_bundle.py`             | The single gated landing command: land, convert math, wire figures, run invariants. |
-| `just test-py`                   | Runs the Python tests, including the content-bundle invariant gate (per-commit).  |
-| `just audit-bundle-ai`           | Runs the five on-demand AI audits (pre-release or nightly, needs the AI runtime). |
-| `just foundry-dry`               | Offline foundry smoke (`foundry.py --self-check`), no network.                    |
-| `just foundry`                   | Best-of-N foundry loop; needs AI runtime + key when online generation is enabled. |
-| `foundry.py`                     | Sample, verify, partition; `--dry-run` offline, writes under `content/run/foundry/`. |
-| `make_foundry_escalation.py`     | Build a human review sheet from `escalated.json` under `content/run/foundry/`.    |
-| `calibrate_verifier.py`          | Offline smoke (`--self-check`) of the calibration stats and card assembly.        |
-| `just check`                     | The overall gate (format, build, lint, all tests), which includes `test-py`.      |
+| Command                      | What it does                                                                                                   |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `assemble_bundle.py`         | The single gated landing command: land, convert math, wire figures, run invariants.                            |
+| `just test-py`               | Runs the Python tests, including the content-bundle invariant gate (per-commit).                               |
+| `just audit-bundle-ai`       | Runs the five on-demand AI audits (pre-release or nightly, needs the AI runtime).                              |
+| `just foundry-dry`           | Offline foundry smoke (`foundry.py --self-check`), no network.                                                 |
+| `just foundry`               | Best-of-N foundry loop; needs AI runtime + key when online generation is enabled.                              |
+| `foundry.py`                 | Sample, cap N by verifier accuracy, and write four partition/summary files under `content/run/foundry/<run>/`. |
+| `make_foundry_escalation.py` | Build a human review sheet from the latest run's `escalated.json` (or `--run <name>`).                         |
+| `calibrate_verifier.py`      | Offline smoke (`--self-check`) of the calibration stats and card assembly.                                     |
+| `just check`                 | The overall gate (format, build, lint, all tests), which includes `test-py`.                                   |
 
 The LLM audits and the foundry loop need the optional AI runtime and a key when
 they call models; install it once with `just pgrep-ai-deps` and set

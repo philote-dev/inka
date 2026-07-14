@@ -20,7 +20,9 @@ from typing import Protocol
 
 
 class _Client(Protocol):
-    def complete_text(self, system: str, user: str, *, json_object: bool = False) -> str: ...
+    def complete_text(
+        self, system: str, user: str, *, json_object: bool = False
+    ) -> str: ...
 
 
 SOLVE_SYSTEM = (
@@ -74,6 +76,8 @@ def estimate_difficulty(
         n += 1
         if orig == correct:
             hits += 1
+    if n == 0:
+        return DifficultyEstimate("unknown", 0.0, 0, False)
     p = (hits / n) if n else 0.0
     if p >= 0.7:
         band = "easy"
