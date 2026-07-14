@@ -1,6 +1,9 @@
 # pgrep content foundry and calibrated verifier, design
 
-Date: 2026-07-07. Status: approved for planning. Author: pair session.
+Date: 2026-07-07. Updated: 2026-07-14. Status: Phase 1 and Phase 2 are
+merged. Phase 3 is implemented on `feat/pgrep-foundry-dataset-eval`. The human
+calibration set and the numeric Tier trigger counts are not yet achieved.
+Author: pair session.
 
 This spec describes a verification-guided content foundry for pgrep: generate
 many candidate problems, pass each through a calibrated verifier panel, and emit
@@ -11,11 +14,14 @@ mostly independent branches that can run in parallel.
 
 Implementation plans (TDD, task-by-task):
 
-- Phase 1 verifier: [`content-foundry-and-verifier-plan.md`](content-foundry-and-verifier-plan.md)
-  (on `feat/pgrep-content-foundry` / PR until merged)
-- Phase 2 foundry loop: [`content-foundry-loop-plan.md`](content-foundry-loop-plan.md)
+- Phase 1 verifier:
+  [`content-foundry-and-verifier-plan.md`](content-foundry-and-verifier-plan.md)
+  (merged)
+- Phase 2 foundry loop:
+  [`content-foundry-loop-plan.md`](content-foundry-loop-plan.md) (merged)
 - Phase 3 dataset and standing eval:
   [`content-foundry-dataset-and-eval-plan.md`](content-foundry-dataset-and-eval-plan.md)
+  (implemented on `feat/pgrep-foundry-dataset-eval`)
 
 ## Context
 
@@ -30,7 +36,7 @@ The pipeline already has a research-grade eval scaffold: a gold ruler (157
 verified items in `content/gold/`), held-out ETS forms (`content/tier3-private/`),
 pre-registered cutoffs with bootstrap CIs (`content/tools/eval_metrics.py`), an
 LLM judge (`pylib/anki/pgrep/ai/judge.py`), and an independent SymPy verifier
-(`pylib/anki/pgrep/ai/verify.py`). What it lacks is a verifier we can *trust*,
+(`pylib/anki/pgrep/ai/verify.py`). What it lacks is a verifier we can _trust_,
 and a loop that uses it to lift generation quality.
 
 ### The problem, in numbers
@@ -287,7 +293,11 @@ WS9}.
 - Acceptance: the recipe runs and prints the calibration card and yield; the
   offline smoke runs in `test-py`.
 
-## Staged tiers (not in this phase)
+## Staged tiers (future gates)
+
+These are future training gates, not claims that training has started. The
+human calibration set is not complete, the `300`-problem and `1000`-pair
+counts have not been reached, and no Tier 2 or Tier 3 training has begun.
 
 - **Tier 2, distilled verifier.** Once the panel is calibrated and there are
   enough panel-labeled items (target: a few hundred consensus-labeled problems),
@@ -349,6 +359,7 @@ preference dataset. The foundry outputs stay git-ignored under `content/run/`.
 ## Module map
 
 New:
+
 - `pylib/anki/pgrep/ai/verifier.py` (panel)
 - `pylib/anki/pgrep/ai/consensus.py` (multi-model key consensus, backward check)
 - `pylib/anki/pgrep/ai/difficulty.py` (proficiency-simulated difficulty)
@@ -358,6 +369,7 @@ New:
   `test_pgrep_calibration.py`, `test_pgrep_foundry.py`
 
 Touched:
+
 - `pylib/anki/pgrep/ai/judge.py` (sub-verdict confidence)
 - `content/tools/eval_metrics.py` (balanced accuracy, per-property agreement,
   consistency helpers)
