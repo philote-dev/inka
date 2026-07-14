@@ -15,9 +15,9 @@ Definitions follow ``docs_pgrep/ai/gold-set-spec.md`` section 5:
 
 from __future__ import annotations
 
-import math
-import random
 from dataclasses import dataclass
+
+import numpy as np
 
 
 @dataclass
@@ -30,32 +30,17 @@ class Interval:
         return {"point": self.point, "low": self.low, "high": self.high}
 
 
-def _quantile(sorted_values: list[float], quantile: float) -> float:
-    index = (len(sorted_values) - 1) * quantile
-    lower = math.floor(index)
-    upper = math.ceil(index)
-    if lower == upper:
-        return sorted_values[lower]
-    weight = index - lower
-    return sorted_values[lower] * (1 - weight) + sorted_values[upper] * weight
-
-
 def bootstrap_ci(values, n_boot: int = 2000, alpha: float = 0.05, seed: int = 0) -> Interval:
     """Percentile bootstrap CI for the mean of 0/1 (or real) values."""
-    sample = [float(value) for value in values]
-    if not sample:
+    arr = np.asarray(list(values), dtype=float)
+    if arr.size == 0:
         return Interval(float("nan"), float("nan"), float("nan"))
-    point = sum(sample) / len(sample)
-    rng = random.Random(seed)
-    means = sorted(
-        sum(sample[rng.randrange(len(sample))] for _ in sample) / len(sample)
-        for _ in range(n_boot)
-    )
-    return Interval(
-        point,
-        _quantile(means, alpha / 2),
-        _quantile(means, 1 - alpha / 2),
-    )
+    point = float(arr.mean())
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, arr.size, size=(n_boot, arr.size))
+    means = arr[idx].mean(axis=1)
+    return Interval(point, float(np.quantile(means, alpha / 2)),
+                    float(np.quantile(means, 1 - alpha / 2)))
 
 
 def paired_advantage_ci(ai_values, base_values, n_boot: int = 2000,
@@ -65,8 +50,6 @@ def paired_advantage_ci(ai_values, base_values, n_boot: int = 2000,
     Resamples items (rows) with replacement and recomputes the difference of
     means, so the CI reflects the paired comparison on the same targets.
     """
-    import numpy as np
-
     ai = np.asarray(list(ai_values), dtype=float)
     base = np.asarray(list(base_values), dtype=float)
     if ai.size == 0 or ai.size != base.size:
@@ -81,8 +64,6 @@ def paired_advantage_ci(ai_values, base_values, n_boot: int = 2000,
 
 def cohens_kappa(labels_a, labels_b) -> float:
     """Cohen's kappa for two raters over aligned categorical labels."""
-    import numpy as np
-
     a = list(labels_a)
     b = list(labels_b)
     if not a or len(a) != len(b):
@@ -172,8 +153,6 @@ def beat_baseline(ai_judgments: list[dict], baseline_judgments: dict[str, list[d
     the bootstrap CI of the advantage excludes zero. The gate uses the better
     (harder to beat) baseline.
     """
-    import numpy as np
-
     ai_by_target = {j.get("target_id"): headline_value(j, kind) for j in ai_judgments}
     results: dict[str, dict] = {}
     best_name = None

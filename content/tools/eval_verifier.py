@@ -33,7 +33,7 @@ class _PropertyLabels:
     predicted: list[bool]
     human: list[bool]
     confidence: list[float] | None
-    runs: list[list[bool]]
+    runs: list[list[bool]] | None
 
 
 def _bool_list(value: object, path: str) -> list[bool]:
@@ -78,11 +78,13 @@ def _validate_property(name: str, value: object) -> _PropertyLabels:
         )
 
     if "runs" not in value:
-        runs = [predicted]
+        runs = None
     else:
         raw_runs = value["runs"]
-        if not isinstance(raw_runs, list) or not raw_runs:
-            raise ValueError(f"{path}.runs must be a non-empty array of boolean arrays")
+        if not isinstance(raw_runs, list) or len(raw_runs) < 2:
+            raise ValueError(
+                f"{path}.runs must contain at least 2 aligned boolean arrays"
+            )
         runs = []
         for index, raw_run in enumerate(raw_runs):
             run = _bool_list(raw_run, f"{path}.runs[{index}]")
@@ -127,17 +129,21 @@ def evaluate_labels(payload: object, *, seed: int = BOOTSTRAP_SEED) -> dict:
 
     for name, item in labels.items():
         reports.append(agreement.property_report(name, item.predicted, item.human))
-        consistency = agreement.consistency_score(item.runs)
-        consistency_values.append(consistency)
+        consistency = (
+            agreement.consistency_score(item.runs) if item.runs is not None else None
+        )
+        if consistency is not None:
+            consistency_values.append(consistency)
         raw_matches = [
             float(predicted == human)
             for predicted, human in zip(item.predicted, item.human)
         ]
-        accepted_labels = [
-            float(human)
+        accepted_human = [
+            human
             for predicted, human in zip(item.predicted, item.human)
             if predicted
         ]
+        accepted_labels = [float(human) for human in accepted_human]
         additions[name] = {
             "consistency": consistency,
             "raw_agreement_ci": _interval(raw_matches, seed),
@@ -146,19 +152,25 @@ def evaluate_labels(payload: object, *, seed: int = BOOTSTRAP_SEED) -> dict:
             ),
         }
         if item.confidence is not None:
-            correct = [
-                predicted == human
-                for predicted, human in zip(item.predicted, item.human)
+            accepted_confidence = [
+                confidence
+                for predicted, confidence in zip(item.predicted, item.confidence)
+                if predicted
             ]
-            thresholds[name] = agreement.tune_threshold(
-                item.confidence,
-                correct,
-                target_precision=TARGET_PRECISION,
-            )
+            if accepted_confidence:
+                thresholds[name] = agreement.tune_threshold(
+                    accepted_confidence,
+                    accepted_human,
+                    target_precision=TARGET_PRECISION,
+                )
 
     card = agreement.build_card(
         reports,
-        consistency=sum(consistency_values) / len(consistency_values),
+        consistency=(
+            sum(consistency_values) / len(consistency_values)
+            if consistency_values
+            else None
+        ),
         thresholds=thresholds,
     )
     for property_report in card["properties"]:
@@ -220,9 +232,16 @@ def evaluate_foundry_summary(
     }
 
 
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON constant {value} is not allowed")
+
+
 def _load_json(path: str, description: str) -> object:
     try:
-        return json.loads(Path(path).read_text(encoding="utf8"))
+        return json.loads(
+            Path(path).read_text(encoding="utf8"),
+            parse_constant=_reject_json_constant,
+        )
     except OSError as err:
         raise ValueError(f"could not read {description} {path}: {err}") from err
     except json.JSONDecodeError as err:
