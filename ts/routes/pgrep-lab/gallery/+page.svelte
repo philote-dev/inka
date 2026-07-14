@@ -15,6 +15,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import CoverageBar from "$lib/components/CoverageBar.svelte";
     import GradeBar from "$lib/components/GradeBar.svelte";
     import HintRung from "$lib/components/HintRung.svelte";
+    import LoginGate from "$lib/components/LoginGate.svelte";
     import Manifold from "$lib/components/Manifold.svelte";
     import NavRail from "$lib/components/NavRail.svelte";
     import ReliabilityDiagram from "$lib/components/ReliabilityDiagram.svelte";
@@ -80,6 +81,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         { id: "manifold", label: "Manifold" },
         { id: "card-face", label: "Card face" },
         { id: "math", label: "Math" },
+        { id: "login-gate", label: "Login gate" },
     ];
 
     // ScoreCard: full honesty anatomy for each of the three reserved hues.
@@ -1199,6 +1201,82 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     {/each}
                 </div>
             </section>
+
+            <!-- Login gate -->
+            <section id="login-gate" class="section">
+                <div class="section-head">
+                    <h2>Login gate</h2>
+                    <p>
+                        The two-step first-run screen a beta tester meets before Home.
+                        It hands off from the opening splash, so neither step repeats
+                        the logo. Welcome carries the wordmark, a filled Beta pill, and
+                        the two choices; Sign in takes the username and password we sent
+                        the tester, with the baked server URL tucked under Advanced.
+                        Continue offline lands on the full product, since study and
+                        AI-off scoring never need an account. Chrome stays monochrome by
+                        the token rule, so the Beta pill is the action color, not a
+                        score hue. Shown as Welcome, Sign-in ready with Advanced open,
+                        mid sign-in, and after a failed attempt.
+                    </p>
+                </div>
+                <div class="split">
+                    {#each THEMES as t (t.id)}
+                        <div class="pane pgrep {t.cls}">
+                            <span class="pane-label">{t.label}</span>
+                            <div class="stage stack">
+                                <span class="state-label">
+                                    Welcome, first step after the splash
+                                </span>
+                                <div class="gate-frame">
+                                    <LoginGate
+                                        initialStep="welcome"
+                                        onSignIn={async () => ({ ok: true })}
+                                        onContinueOffline={noop}
+                                    />
+                                </div>
+                                <span class="state-label">
+                                    Sign in, ready with Advanced open
+                                </span>
+                                <div class="gate-frame">
+                                    <LoginGate
+                                        initialStep="signin"
+                                        initialUrl="http://127.0.0.1:8090/"
+                                        advancedOpen={true}
+                                        onSignIn={async () => ({ ok: true })}
+                                        onContinueOffline={noop}
+                                    />
+                                </div>
+                                <span class="state-label">Signing in</span>
+                                <div class="gate-frame">
+                                    <LoginGate
+                                        initialStep="signin"
+                                        initialUrl="http://100.92.0.4:8090/"
+                                        initialUsername="frank"
+                                        initialPassword="physics"
+                                        busy={true}
+                                        onSignIn={async () => ({ ok: true })}
+                                        onContinueOffline={noop}
+                                    />
+                                </div>
+                                <span class="state-label">
+                                    Sign-in failed, calm and in place
+                                </span>
+                                <div class="gate-frame">
+                                    <LoginGate
+                                        initialStep="signin"
+                                        initialUrl="http://127.0.0.1:8090/"
+                                        initialUsername="frank"
+                                        initialPassword="physics"
+                                        error="That username or password did not match. Try again."
+                                        onSignIn={async () => ({ ok: true })}
+                                        onContinueOffline={noop}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    {/each}
+                </div>
+            </section>
         </main>
     </div>
 </div>
@@ -1491,6 +1569,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     .frame-preview {
         height: 340px;
+        overflow: hidden;
+        border: var(--hairline);
+        border-radius: var(--radius-card);
+    }
+
+    /* The login gate is a full surface, not a primitive, so it renders at its
+       natural height inside a plain framed viewport rather than a fixed crop. */
+    .gate-frame {
         overflow: hidden;
         border: var(--hairline);
         border-radius: var(--radius-card);

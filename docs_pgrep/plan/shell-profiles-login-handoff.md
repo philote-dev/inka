@@ -108,6 +108,10 @@ pgrep's own deck and note types so a new account is not "polluted" by Anki defau
 
 ## Work item 3: the product login gate (model B)
 
+> Superseded for execution by `login-gate-beta-handoff.md`, the current source of truth for the
+> sign-in page (fields, copy, and the built artifacts). The intent below still holds; the beta
+> handoff narrows it to the page and the office-beta hookup.
+
 First launch shows a pgrep sign-in screen (email or username plus password) with a "continue
 offline" escape, so it feels like a real app you log into while offline-first still holds
 (study and AI-off scoring must work with no account). Sign-in reuses the existing
@@ -171,7 +175,7 @@ Park web in the roadmap.
 
 ## Decisions to confirm with the user first
 
-- The first-run login flow copy and the "continue offline" wording.
+- The first-run login flow copy and the "continue offline" wording (settled in `login-gate-beta-handoff.md`).
 - The default-deck and stock note-type handling (hide, rename, or scope).
 - The production stack above (or one of the noted alternatives) before the roadmap is final.
 

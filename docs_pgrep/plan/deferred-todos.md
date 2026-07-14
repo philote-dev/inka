@@ -31,7 +31,7 @@ The `feat/l6-structural-de-anki` worktree rebuilds the exclusive menu bar (pgrep
 app/Edit/Go menus, Anki's never built), makes Anki's profile chooser unreachable, and adds the
 macOS unified title bar. Parked, not merged. It defers:
 
-- [ ] First-run login gate: a pgrep sign-in with a configurable server URL and a "continue offline" escape, reusing the existing sync sign-in. Best after the hosting decision (see `hosting-roadmap.md`)
+- [ ] First-run login gate, hookup: wire the startup routing (show the gate before Home until signed in or skipped) and persist the gate-dismissed flag. The page artifacts are built (`LoginGate.svelte`, the `/pgrep/login` route, and a gallery fixture) per `login-gate-beta-handoff.md`; the hookup lands with the office beta. Only the production credential source (self-serve signup) stays delegated to the hosting decision (see `hosting-roadmap.md`)
 - [ ] pgrep's own card template, to migrate off Anki's stock `Basic` note type (touches the seeder, card sets, and generation)
 
 ## Done
