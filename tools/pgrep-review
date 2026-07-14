@@ -83,16 +83,21 @@ def start(n: int, path: str, port: int) -> None:
         return
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
-    env["ANKI_API_HOST"] = "0.0.0.0"  # let a browser tab reach the bridge
+    # Stay bound to 127.0.0.1: browser tabs at 127.0.0.1:port reach pgrep
+    # endpoints without unlocking the full API (ANKI_API_HOST=0.0.0.0 would).
+    env.pop("ANKI_API_HOST", None)
     env["ANKI_API_PORT"] = str(port)
     env["QTWEBENGINE_REMOTE_DEBUGGING"] = str(8080 + n)
     env["ANKI_BASE"] = f"{TMP}/pgrep-inst-{n}"
     # Unique single-instance key, or Anki forwards to the already-running app and
     # this one exits without binding its port.
     env["ANKI_SINGLE_INSTANCE_KEY"] = f"pgrep-inst-{n}"
+    # Headless: no desktop window pop-ups; view each branch in a browser tab.
+    env["PGREP_HEADLESS"] = "1"
+    env.setdefault("PGREP_SURFACE_MODE", "exclusive")
     log = open(LOG_DIR / f"inst-{n}.log", "ab")
     # ./run exists in every worktree, so this does not depend on that branch
-    # having the run-instance recipe. Own session so we can kill the whole tree.
+    # having the _review-instance recipe. Own session so we can kill the whole tree.
     PROCS[n] = subprocess.Popen(
         ["./run"], cwd=path, env=env, stdout=log, stderr=log, start_new_session=True
     )
@@ -136,9 +141,9 @@ PAGE = """<!doctype html>
 </style></head>
 <body>
  <h1>pgrep review</h1>
- <p class="sub">Start a branch to launch its app on its own port, then open its lab. Leave this tab open.</p>
+ <p class="sub">Start a branch to serve it headless on its own port, then open it in a browser tab. Leave this tab open.</p>
  <table>
-  <thead><tr><th>Branch</th><th>Port</th><th>Status</th><th>Lab</th><th></th></tr></thead>
+  <thead><tr><th>Branch</th><th>Port</th><th>Status</th><th>Open</th><th></th></tr></thead>
   <tbody id="rows"></tbody>
  </table>
 <script>
@@ -148,13 +153,16 @@ async function refresh(){
   const tb = document.getElementById('rows'); tb.innerHTML = '';
   for (const w of rows){
     const status = w.up ? 'up' : (w.running ? 'starting' : 'stopped');
+    const app = 'http://127.0.0.1:' + w.port + '/pgrep';
     const lab = 'http://127.0.0.1:' + w.port + '/pgrep-lab';
     const tr = document.createElement('tr');
     tr.innerHTML =
       '<td class="name">' + w.name + '</td>' +
       '<td><code>' + w.port + '</code></td>' +
       '<td><span class="pill ' + status + '">' + status + '</span></td>' +
-      '<td>' + (w.up ? '<a class="lab" target="_blank" href="'+lab+'">open lab &#8599;</a>' : '<a class="lab off">open lab</a>') + '</td>' +
+      '<td>' + (w.up
+        ? '<a class="lab" target="_blank" href="'+app+'">app</a> · <a class="lab" target="_blank" href="'+lab+'">lab</a>'
+        : '<a class="lab off">app · lab</a>') + '</td>' +
       '<td>' + (w.running
         ? '<button class="stop" onclick="act(\\'stop\\','+w.n+')">Stop</button>'
         : '<button onclick="act(\\'start\\','+w.n+')">Start</button>') + '</td>';

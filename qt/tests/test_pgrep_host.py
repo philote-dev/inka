@@ -126,3 +126,12 @@ def test_chooser_suppressed_only_in_exclusive() -> None:
     assert pgrep_host.suppress_profile_chooser("exclusive") is True
     assert pgrep_host.suppress_profile_chooser("hosted") is False
     assert pgrep_host.suppress_profile_chooser("off") is False
+
+
+def test_headless_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PGREP_HEADLESS", raising=False)
+    assert pgrep_host.headless() is False
+    monkeypatch.setenv("PGREP_HEADLESS", "1")
+    assert pgrep_host.headless() is True
+    monkeypatch.setenv("PGREP_HEADLESS", "0")
+    assert pgrep_host.headless() is False

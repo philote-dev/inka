@@ -16,20 +16,19 @@ Anki is a spaced repetition flashcard program with a multi-layered architecture.
 - Protobuf definitions in proto/ that are used by the different layers to
   talk to each other.
 
-## Running Anki
+## Running
 
-To build and run Anki in development mode:
+Browser-first develop (headless serve, no window):
 
 ```
-just run
+just dev
 ```
 
-This builds pylib and qt, then launches Anki with debugging enabled. Web
-views are served at http://localhost:40000/_anki/pages/ (e.g.,
-deckconfig.html). Use `just run-optimized` for a release-optimized build.
-For live-reloading during web development, run `just web-watch` in a
-separate terminal — it monitors ts/, sass/, and qt/aqt/data/web/ and
-auto-rebuilds on changes (`just rebuild-web` triggers a one-off rebuild).
+Open http://127.0.0.1:40000 (or /pgrep-lab). Edits live-reload. AI is on by
+default (`just dev --ai off` to disable). Optional: `just dev-window` for the
+product window on the same serve; `just serve-tail` for phone preview via
+Tailscale. Faithful product window: `just preview` / `just preview-fresh` /
+`just preview-optimized`. Sync testing: `just serve-sync`.
 
 ## Building/checking
 

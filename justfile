@@ -2,195 +2,355 @@ set windows-shell := ["pwsh", "-NoLogo", "-NoProfileLoadTime", "-Command"]
 
 mod release
 
-# Show available commands
+# Show available commands (in lifecycle order: develop -> review -> preview -> verify -> ship)
 default:
-    @just --list
+    @just --list --unsorted
 
-# Build the project
-build:
-    {{ ninja }} pylib qt
+# Back-compat aliases for renamed recipes. Muscle-memory bridge; removed once the
+# rename settles (after the serve-* / dev-* code phases land).
+alias stage := preview
+alias fresh := preview-fresh
+alias run-optimized := preview-optimized
+alias sync-review := review-sync
+alias review-loop := review-sync
+alias fmt := format
+alias fix-fmt := format-fix
+alias fix-lint := lint-fix
+alias pgrep-ai-deps := ai-deps
+alias sync-server := serve-sync
 
-# Build and run Anki in development mode
-run *args:
-    {{ run_script }} {{ args }}
+# ---------------------------------------------------------------------------
+# develop
+# ---------------------------------------------------------------------------
 
-# Build and run Anki in optimized (release) mode
-run-optimized *args:
-    {{ if os() == "windows" { "$env:RELEASE='1'; .\\run.bat" } else { "RELEASE=1 ./run" } }} {{ args }}
-
-# Stage a feature the way a user sees it: the clean product surface (exclusive
-# mode, no Anki chrome, no dev lab) on your normal profile. macOS/Linux.
+# Headless dev serve on :40000 (no window); browse /pgrep or /pgrep-lab. AI on (--ai off to disable)
+[group('develop')]
 [unix]
-stage *args:
-    PGREP_SURFACE_MODE=exclusive {{ run_script }} {{ args }}
+dev *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -- {{ args }}
+    ai="on"
+    passthrough=()
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --ai) ai="${2:-on}"; shift 2 || shift;;
+            --ai=*) ai="${1#--ai=}"; shift;;
+            --no-ai) ai="off"; shift;;
+            *) passthrough+=("$1"); shift;;
+        esac
+    done
+    # Headless: serve the web, never show the desktop window. Exclusive so the
+    # profile chooser is suppressed and a profile auto-loads without a GUI.
+    export PGREP_HEADLESS=1
+    export PGREP_SURFACE_MODE="${PGREP_SURFACE_MODE:-exclusive}"
+    if [ "$ai" = "on" ]; then
+        if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
+        if [ -n "${OPENAI_API_KEY:-}" ]; then
+            export PGREP_AI_MODEL="${PGREP_AI_MODEL:-gpt-5.5-2026-04-23}"
+            echo ">>> dev: headless serve on :40000, AI on (model ${PGREP_AI_MODEL})."
+        else
+            echo ">>> dev: headless serve on :40000. AI off: no OPENAI_API_KEY (add it to content/.env, and run 'just ai-deps' once)."
+        fi
+    else
+        echo ">>> dev: headless serve on :40000, AI off (--ai off)."
+    fi
+    echo ">>> Open http://127.0.0.1:40000 (or /pgrep-lab) in your browser. Edits reload automatically. Ctrl-C to stop."
+    # Bundle the web watcher: it rebuilds on save and browser/phone tabs reload
+    # by polling the build token. Headless-aware, so it skips its initial build
+    # (dev's own build covers it) and never runs ninja at the same time as dev.
+    watch_pid=""
+    cleanup() { [ -n "${watch_pid}" ] && kill "${watch_pid}" 2>/dev/null || true; }
+    trap cleanup EXIT INT TERM
+    ./tools/web-watch &
+    watch_pid=$!
+    # Expand safely even when empty (macOS bash 3.2 + set -u).
+    ./run ${passthrough[@]+"${passthrough[@]}"}
 
-# Stage as a brand-new first-time user: a throwaway profile in the clean product
-# surface. Delete the folder (or change PGREP_FRESH_BASE) to reset. macOS/Linux.
+# Show the product window onto a running `dev` serve (starts `dev` if needed)
+[group('develop')]
 [unix]
-fresh *args:
-    ANKI_BASE="${PGREP_FRESH_BASE:-/tmp/pgrep-newuser}" PGREP_SURFACE_MODE=exclusive {{ run_script }} {{ args }}
+dev-window:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    port="${ANKI_API_PORT:-40000}"
+    url="http://127.0.0.1:${port}/_anki/pgrepDevShowWindow"
+    show() { curl -sf "$url"; }
+    if show >/dev/null; then
+        echo ">>> Window shown (same serve as http://127.0.0.1:${port})."
+        exit 0
+    fi
+    echo ">>> No headless serve on :${port}. Starting \`just dev\` in the background..."
+    # Detach so closing this terminal does not kill the serve. Logs go to out/.
+    mkdir -p out
+    nohup just dev >>out/dev.log 2>&1 &
+    disown || true
+    for _ in $(seq 1 180); do
+        if show >/dev/null 2>&1; then
+            echo ">>> Window shown. Serve log: out/dev.log. Stop later with: kill \$(lsof -t -iTCP:${port} -sTCP:LISTEN)"
+            exit 0
+        fi
+        sleep 1
+    done
+    echo ">>> Timed out waiting for :${port}. Check out/dev.log." >&2
+    exit 1
 
-# Pre-prod gate: full build + lint + unit tests (`check`), then the Playwright
-# end-to-end suite against the real UI. Run this before you ship.
-verify:
-    just check
-    just test-e2e
-
-# Run this checkout as a numbered review instance on offset ports and an isolated
-# profile, so several branches/worktrees run at once without clashing. The dev lab
-# is at http://127.0.0.1:$((40000+n))/pgrep-lab. ANKI_API_HOST=0.0.0.0 lets a
-# plain browser reach the bridge, so use it only on a trusted machine. macOS/Linux.
+# Expose the running `dev` serve to your phone over Tailscale (no LAN bind)
+[group('develop')]
 [unix]
-run-instance n *args:
-    ANKI_SINGLE_INSTANCE_KEY="pgrep-inst-{{ n }}" ANKI_API_HOST=0.0.0.0 ANKI_API_PORT="$((40000 + {{ n }}))" QTWEBENGINE_REMOTE_DEBUGGING="$((8080 + {{ n }}))" ANKI_BASE="${TMPDIR:-/tmp}/pgrep-inst-{{ n }}" {{ run_script }} {{ args }}
+serve-tail:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v tailscale >/dev/null 2>&1; then
+        echo "Install Tailscale first (macOS app is best):" >&2
+        echo "  brew install --cask tailscale-app" >&2
+        echo "Then open Tailscale from Applications, sign in, and re-run \`just serve-tail\`." >&2
+        exit 1
+    fi
+    # Prefer the default system socket; fall back to a userspace-networking socket
+    # used when the brew formula runs without root / without the Mac app.
+    ts=(tailscale)
+    if ! tailscale status >/dev/null 2>&1; then
+        sock="${TS_SOCKET:-$HOME/Library/Application Support/Tailscale/tailscaled.sock}"
+        if [ -S "$sock" ] && tailscale --socket="$sock" status >/dev/null 2>&1; then
+            ts=(tailscale --socket="$sock")
+        else
+            echo ">>> Tailscale CLI is installed but not logged in / not running." >&2
+            echo ">>> Open the Tailscale app and sign in, or run:" >&2
+            echo ">>>   brew install --cask tailscale-app   # needs your password once" >&2
+            echo ">>>   open -a Tailscale" >&2
+            exit 1
+        fi
+    fi
+    if ! "${ts[@]}" status 2>/dev/null | head -1 | grep -qiE 'offers|active|idle|online|tagged|logged'; then
+        # status prints a node table when connected; "Logged out." when not
+        if "${ts[@]}" status 2>&1 | grep -qi 'logged out'; then
+            echo ">>> Tailscale is running but logged out. Open the app (or \`tailscale login\`) and sign in." >&2
+            exit 1
+        fi
+    fi
+    port="${ANKI_API_PORT:-40000}"
+    if ! curl -sf "http://127.0.0.1:${port}/" >/dev/null; then
+        echo ">>> No serve on :${port}. Start \`just dev\` in another terminal first." >&2
+        exit 1
+    fi
+    mkdir -p out
+    # Clear any previous serve config so we own the HTTPS endpoint cleanly.
+    "${ts[@]}" serve reset >/dev/null 2>&1 || true
+    echo ">>> Starting Tailscale Serve for :${port}..."
+    if "${ts[@]}" serve --help 2>&1 | grep -q -- '--bg'; then
+        "${ts[@]}" serve --bg "${port}"
+    else
+        nohup "${ts[@]}" serve "${port}" >>out/serve-tail.log 2>&1 &
+        disown || true
+        sleep 1
+    fi
+    origin=""
+    for _ in $(seq 1 20); do
+        status="$("${ts[@]}" serve status 2>/dev/null || true)"
+        origin="$(printf '%s\n' "$status" | sed -nE 's#.*(https://[a-zA-Z0-9.-]+\.ts\.net).*#\1#p' | head -1)"
+        if [ -n "$origin" ]; then
+            break
+        fi
+        sleep 0.5
+    done
+    if [ -z "$origin" ]; then
+        echo ">>> Tailscale Serve started but no *.ts.net URL found yet." >&2
+        echo ">>> Run \`tailscale serve status\` and set PGREP_DEV_ALLOWED_ORIGIN to the https URL," >&2
+        echo ">>> or write that URL into out/dev-allowed-origin." >&2
+        exit 1
+    fi
+    printf '%s\n' "$origin" > out/dev-allowed-origin
+    echo ">>> Phone preview: ${origin}"
+    echo ">>> Origin allowlisted in out/dev-allowed-origin (dev-only; full API stays locked)."
+    echo ">>> Open that URL on a phone on the same tailnet. When finished: \`tailscale serve reset\`."
 
-# Multi-branch review dashboard: serve a live control panel (default
-# http://127.0.0.1:40100) showing each worktree's status, with Start/Stop buttons
-# to launch each branch's app on its own port. Leave it running. macOS/Linux.
+# Self-hosted sync server for testing sync + demo data, port 8090
+[group('develop')]
+serve-sync user="pgrep:pgrep":
+    {{ ninja }} pylib
+    SYNC_USER1={{ user }} SYNC_PORT="${SYNC_PORT:-8090}" out/pyenv/bin/python tools/sync-server.py
+
+# Rebuild and reload the web stack once, without restarting
+[group('develop')]
+rebuild-web:
+    ./tools/rebuild-web
+
+# ---------------------------------------------------------------------------
+# review
+# ---------------------------------------------------------------------------
+
+# Multi-branch review dashboard (http://127.0.0.1:40100): start/stop each worktree
+[group('review')]
 [unix]
 review:
     ./tools/pgrep-review
 
-# Rebuild the throwaway `review` branch by merging every cleanly-mergeable feature
-# branch onto main, so one instance shows the combined work. Conflicting branches
-# are skipped and reported. Pass branch names to limit the set. macOS/Linux.
+# Merge mergeable branches into a combined `review` branch, looping on an interval
+[group('review')]
 [unix]
-sync-review *branches:
-    ./tools/pgrep-sync-review {{ branches }}
+review-sync *branches:
+    #!/usr/bin/env bash
+    # PGREP_REVIEW_INTERVAL seconds between merges (default 600). Runs once now,
+    # then loops; Ctrl-C to stop. Conflicting branches are skipped and reported.
+    interval="${PGREP_REVIEW_INTERVAL:-600}"
+    while true; do
+        ./tools/pgrep-sync-review {{ branches }} || true
+        echo "next sync in ${interval}s (Ctrl-C to stop)"
+        sleep "$interval"
+    done
 
-# Keep the review branch fresh: rerun sync-review every <interval> seconds
-# (default 600), the simple looping agent. Ctrl-C to stop. macOS/Linux.
+# ---------------------------------------------------------------------------
+# preview (faithful product: exclusive surface, dev mode OFF)
+# ---------------------------------------------------------------------------
+
+# Preview the product as users get it: exclusive surface, dev off, your profile
+[group('preview')]
 [unix]
-review-loop interval="600":
-    while true; do ./tools/pgrep-sync-review || true; echo "next sync in {{ interval }}s"; sleep {{ interval }}; done
+preview *args:
+    ANKIDEV= PGREP_SURFACE_MODE=exclusive {{ run_script }} {{ args }}
 
-# Run a self-hosted Anki sync server for pgrep (reuses Anki's sync unmodified). macOS/Linux.
-# Defaults to port 8090 (8080 is taken by `just run`'s Qt remote-debug/hot-reload
-# server). Auth via the user arg (SYNC_USER1); SYNC_HOST/SYNC_PORT/SYNC_BASE via env.
-sync-server user="pgrep:pgrep":
-    {{ ninja }} pylib
-    SYNC_USER1={{ user }} SYNC_PORT="${SYNC_PORT:-8090}" out/pyenv/bin/python tools/sync-server.py
+# Preview the product on a brand-new-user throwaway profile (set PGREP_FRESH_BASE)
+[group('preview')]
+[unix]
+preview-fresh *args:
+    ANKIDEV= ANKI_BASE="${PGREP_FRESH_BASE:-/tmp/pgrep-newuser}" PGREP_SURFACE_MODE=exclusive {{ run_script }} {{ args }}
 
-# Watch web sources and rebuild/reload Anki's web stack on change (macOS/Linux)
-web-watch:
-    ./tools/web-watch
+# Preview the product release-compiled, to feel true performance
+[group('preview')]
+[unix]
+preview-optimized *args:
+    ANKIDEV= PGREP_SURFACE_MODE=exclusive RELEASE=1 {{ run_script }} {{ args }}
 
-# Rebuild and reload Anki's web stack without restarting (macOS/Linux)
-rebuild-web:
-    ./tools/rebuild-web
+# ---------------------------------------------------------------------------
+# verify (gates)
+# ---------------------------------------------------------------------------
 
-# Build wheels (needed for some platforms)
-wheels:
-    {{ ninja }} wheels
+# Pre-ship gate: check (build + lint + unit) then the e2e suite
+[group('verify')]
+verify:
+    just check
+    just test-e2e
 
-# Build and run all checks (lint + test) - lets ninja handle dependencies
+# Build + lint + unit tests (the fast gate)
+[group('verify')]
 check:
     {{ ninja }} pylib qt check
 
-# Run all tests (Rust, Python, TypeScript). Pass --coverage to enforce coverage, and --html to include HTML reports.
+# Fastest sanity check: import smoke + Rust tests
+[group('verify')]
+smoke:
+    {{ if os() == "windows" { "$env:SKIP_RUN='1'; " + run_script } else { "SKIP_RUN=1 " + run_script } }}
+    just test-rust
+
+# ---------------------------------------------------------------------------
+# ship
+# ---------------------------------------------------------------------------
+
+# Build the real installer artifact (.dmg / .msi / .tar.zst); run `verify` first
+[group('ship')]
+ship:
+    ./tools/build-installer
+
+# ---------------------------------------------------------------------------
+# quality (tests, lint, format, perf)
+# ---------------------------------------------------------------------------
+
+# Run all tests (Rust, Python, TypeScript). Pass --coverage and/or --html.
+[group('quality')]
 [arg("coverage", long="coverage", value="--coverage")]
 [arg("html", long="html", value="--html")]
 test coverage='' html='':
     just {{ if coverage == "--coverage" { "coverage " + html } else { "_test" } }}
 
-# Run coverage for all test stacks. Pass --html to also generate HTML reports.
+# Run Rust tests. Pass --coverage and/or --html.
+[group('quality')]
+[arg("coverage", long="coverage", value="--coverage")]
+[arg("html", long="html", value="--html")]
+test-rust coverage='' html='':
+    just {{ if coverage == "--coverage" { "_coverage-rust " + html } else { "_test-rust" } }}
+
+# Run Python tests (pylib + qt). Pass --coverage and/or --html.
+[group('quality')]
+[arg("coverage", long="coverage", value="--coverage")]
+[arg("html", long="html", value="--html")]
+test-py coverage='' html='':
+    just {{ if coverage == "--coverage" { "_coverage-py " + html } else { "_test-py" } }}
+
+# Run TypeScript/Svelte Vitest tests. Pass --coverage and/or --html.
+[group('quality')]
+[arg("coverage", long="coverage", value="--coverage")]
+[arg("html", long="html", value="--html")]
+test-ts coverage='' html='':
+    just {{ if coverage == "--coverage" { "_coverage-ts " + html } else { "_test-ts" } }}
+
+# Run Playwright end-to-end tests. Pass --ui for the interactive UI.
+[group('quality')]
+[arg("ui", long="ui", value="--ui")]
+test-e2e ui='': _install-playwright-browsers
+    {{ ninja }} pyenv ts:generated pylib qt
+    {{ playwright_env }} {{ yarn }} test:e2e {{ ui }}
+
+# Run linting and type checking (requires build outputs)
+[group('quality')]
+lint:
+    {{ ninja }} \
+        check:clippy \
+        check:mypy \
+        check:ruff \
+        check:eslint \
+        check:svelte \
+        check:typescript
+
+# Auto-fix lint issues (ruff + eslint)
+[group('quality')]
+lint-fix:
+    {{ ninja }} fix:ruff fix:eslint
+
+# Check formatting (fast, no build needed)
+[group('quality')]
+format:
+    {{ ninja }} check:format
+
+# Apply formatting
+[group('quality')]
+format-fix:
+    {{ ninja }} format
+
+# Run coverage across all stacks. Pass --html for reports.
+[group('quality')]
 [arg("html", long="html", value="--html")]
 coverage html='':
     just _coverage-rust {{ html }}
     just _coverage-py {{ html }}
     just _coverage-ts {{ html }}
 
-# Run Rust tests. Pass --coverage to enforce Rust coverage, and --html to include an HTML report.
-[arg("coverage", long="coverage", value="--coverage")]
-[arg("html", long="html", value="--html")]
-test-rust coverage='' html='':
-    just {{ if coverage == "--coverage" { "_coverage-rust " + html } else { "_test-rust" } }}
+# Benchmark engine latency (p50/p95/worst). Example: just bench --cards 50000
+[group('quality')]
+[unix]
+bench *args:
+    {{ ninja }} pylib
+    out/pyenv/bin/python tools/pgrep_bench.py {{ args }}
 
-# Run Python tests (pylib + qt). Pass --coverage to enforce coverage, and --html to include HTML reports.
-[arg("coverage", long="coverage", value="--coverage")]
-[arg("html", long="html", value="--html")]
-test-py coverage='' html='':
-    just {{ if coverage == "--coverage" { "_coverage-py " + html } else { "_test-py" } }}
+# Crash/corruption test: mid-review SIGKILLs, then reopen + integrity check
+[group('quality')]
+[unix]
+crash-test *args:
+    {{ ninja }} pylib
+    out/pyenv/bin/python tools/pgrep_crash_test.py {{ args }}
 
-# Run TypeScript/Svelte Vitest tests. Pass --coverage to enforce coverage, and --html to include an HTML report.
-[arg("coverage", long="coverage", value="--coverage")]
-[arg("html", long="html", value="--html")]
-test-ts coverage='' html='':
-    just {{ if coverage == "--coverage" { "_coverage-ts " + html } else { "_test-ts" } }}
+# ---------------------------------------------------------------------------
+# content (AI + bundle tooling)
+# ---------------------------------------------------------------------------
 
-# Run Playwright end-to-end tests. Pass --ui to open the interactive UI.
-[arg("ui", long="ui", value="--ui")]
-test-e2e ui='': _install-playwright-browsers
-    {{ ninja }} pyenv ts:generated pylib qt
-    {{ playwright_env }} {{ yarn }} test:e2e {{ ui }}
-
-# Fast desktop sanity check: import smoke (libs importable) + Rust tests
-smoke:
-    {{ if os() == "windows" { "$env:SKIP_RUN='1'; " + run_script } else { "SKIP_RUN=1 " + run_script } }}
-    just test-rust
-
-# Build the iOS FFI xcframework (out/ios/AnkiFfi.xcframework); macOS-only
-ios-xcframework:
-    ./tools/build-xcframework.sh
-
-# Bundle the 3D knowledge manifold (Three.js + shared renderer) for the native
-# Home's WKWebView, committed as an app resource. Re-run on manifold/three changes.
-ios-manifold:
-    ./tools/build-manifold-webview.sh
-
-# Vendor the offline MathJax build (tex-svg-full) for the native math renderer's
-# WKWebView, committed as an app resource. Re-run on the pinned mathjax version.
-ios-mathjax:
-    ./tools/build-mathjax-webview.sh
-
-# Build xcframework, regenerate the Xcode project, and run the iOS Simulator XCTest; macOS-only
-ios-smoke:
-    ./tools/ios-smoke.sh
-
-# Build + launch the pgrep iOS app in the Simulator (visible review UI); macOS-only
-ios-run:
-    ./tools/ios-run.sh
-
-# Prove the iOS FFI sync path end to end (phone -> server -> desktop); macOS-only
-ios-sync-proof:
-    ./tools/ios-sync-proof.sh
-
-# Prime + verify the shared demo account on a running sync server (real content +
-# made-up stats + settings), then sync it down on desktop and iOS. Needs a server
-# from `just sync-server` first. macOS/Linux. See docs_pgrep/reference/dev-harness.md.
-pgrep-demo-sync:
-    ./tools/pgrep-demo-sync.sh
-
-# Install the optional AI runtime deps into out/pyenv so live generation and the
-# tutor work when AI is toggled on. Not part of the default build; the app scores
-# and studies with AI off and these absent. macOS/Linux.
-pgrep-ai-deps:
+# Install optional AI runtime deps (needed only when AI is toggled on)
+[group('content')]
+ai-deps:
     {{ ninja }} pyenv
     {{ uv }} pip install --python out/pyenv/bin/python fastembed openai sympy sqlite-vec numpy
 
-# Build + run with the AI key loaded from the environment (or content/.env if
-# present), so the in-app AI toggle can grade the ladder and generate live. Run
-# `just pgrep-ai-deps` once first. macOS/Linux.
-[unix]
-run-ai *args:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
-    if [ -z "${OPENAI_API_KEY:-}" ]; then
-        echo "Set OPENAI_API_KEY (export it or add it to content/.env) to run with AI." >&2
-        exit 1
-    fi
-    # Pin a known-good dated chat snapshot. Without this the auto-picker can land
-    # on a non-chat gpt-5 model on some accounts. Override with PGREP_AI_MODEL.
-    export PGREP_AI_MODEL="${PGREP_AI_MODEL:-gpt-5.5-2026-04-23}"
-    echo ">>> Launching pgrep with AI available (model ${PGREP_AI_MODEL}). Toggle it on in Settings."
-    ./run {{ args }}
-
-# Batch-generate the gated decomposition tutor data for the Problems door (WS4)
-# and merge it into content_bundle.json (with --apply), grounded in the private
-# corpus and verified with the shipped core (giveaway guard, independent solve).
-# Needs the content/ tree (corpus + key); run `just pgrep-ai-deps` once first.
-# Example: `just gen-decompositions --per-topic 1 --apply`. macOS/Linux.
+# Batch-generate gated decomposition tutor data into the bundle (needs content/ + key)
+[group('content')]
 [unix]
 gen-decompositions *args:
     #!/usr/bin/env bash
@@ -203,14 +363,8 @@ gen-decompositions *args:
     fi
     out/pyenv/bin/python content/tools/generate_decompositions.py {{ args }}
 
-# Run the five on-demand AI content audits over the shipped bundle: an independent
-# answer-key solve, figure fidelity, decomposition leak, distractor plausibility,
-# and citation resolution. A pre-release / nightly scan, not a per-commit gate: it
-# exits nonzero only when a HARD audit (answer_key, figure_fidelity,
-# decomposition_leak) finds something. Sources content/.env for the key (needed by
-# the LLM audits); the deterministic audits run without one and the citation audit
-# skips when the private corpus index is absent. Run `just pgrep-ai-deps` once first
-# for the LLM audits. Example: `just audit-bundle-ai --only answer_key --limit 20`. macOS/Linux.
+# Run the five AI content audits over the shipped bundle (pre-release scan)
+[group('content')]
 [unix]
 audit-bundle-ai *args:
     #!/usr/bin/env bash
@@ -219,31 +373,128 @@ audit-bundle-ai *args:
     if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
     out/pyenv/bin/python content/tools/audit_bundle_ai.py {{ args }}
 
-# Reproduce the AI-eval methodology on a committed synthetic sample, offline, with no
-# API key and no private content/ tree, so anyone cloning the public repo gets the same
-# result. Mirrors the gold-set gate: headline metrics with bootstrap CIs, a keyword
-# (BM25) and an embedding-free (TF-IDF) baseline, the beat-baseline rule, and the
-# leakage firewall. Exits non-zero on contamination. macOS/Linux.
+# Reproduce the AI-eval methodology on a committed synthetic sample, offline
+[group('content')]
 [unix]
 eval-public *args:
     {{ ninja }} pyenv
     out/pyenv/bin/python -c "import numpy" 2>/dev/null || {{ uv }} pip install --python out/pyenv/bin/python numpy
     out/pyenv/bin/python tools/pgrep_eval_public.py {{ args }}
 
-# Benchmark pgrep engine latency (spec 7h/10): p50/p95/worst for next-card, answer, the
-# three scores, coverage, and the dashboard, on up to 50k cards. macOS/Linux.
-# Example: `just bench --cards 50000`.
-[unix]
-bench *args:
-    {{ ninja }} pylib
-    out/pyenv/bin/python tools/pgrep_bench.py {{ args }}
+# ---------------------------------------------------------------------------
+# ios
+# ---------------------------------------------------------------------------
 
-# Crash/corruption test (spec 7g): 20 mid-review SIGKILLs, reopen + integrity check,
-# assert zero corruption and no lost committed reviews. macOS/Linux.
+# Build the iOS FFI xcframework (out/ios/AnkiFfi.xcframework); macOS-only
+[group('ios')]
+ios-xcframework:
+    ./tools/build-xcframework.sh
+
+# Bundle the 3D manifold webview asset for iOS Home; macOS-only
+[group('ios')]
+ios-manifold:
+    ./tools/build-manifold-webview.sh
+
+# Vendor the offline MathJax webview asset for iOS; macOS-only
+[group('ios')]
+ios-mathjax:
+    ./tools/build-mathjax-webview.sh
+
+# Build xcframework, regenerate the Xcode project, run the Simulator XCTest; macOS-only
+[group('ios')]
+ios-smoke:
+    ./tools/ios-smoke.sh
+
+# Build + launch the pgrep iOS app in the Simulator; macOS-only
+[group('ios')]
+ios-run:
+    ./tools/ios-run.sh
+
+# Prove the iOS FFI sync path end to end (phone -> server -> desktop); macOS-only
+[group('ios')]
+ios-sync-proof:
+    ./tools/ios-sync-proof.sh
+
+# ---------------------------------------------------------------------------
+# build / misc
+# ---------------------------------------------------------------------------
+
+# Build the project (pylib + qt)
+[group('build')]
+build:
+    {{ ninja }} pylib qt
+
+# Sync translation files
+[group('build')]
+ftl-sync:
+    {{ ninja }} ftl-sync
+
+# Dispatch the CI workflow on a branch or tag
+[group('build')]
+ci branch:
+    gh workflow run ci.yml --ref {{ branch }}
+
+# Remove build outputs from out/ (pass keep-env to keep node_modules/pyenv)
+[group('build')]
+clean *args:
+    ./tools/clean {{ args }}
+
+# ---------------------------------------------------------------------------
+# private plumbing (hidden from `just --list`)
+# ---------------------------------------------------------------------------
+
+# Plumbing: run one worktree as a numbered instance on offset ports (used by review).
+# Bound to 127.0.0.1 (no ANKI_API_HOST=0.0.0.0), headless so no window pop-ups.
+[private]
 [unix]
-crash-test *args:
-    {{ ninja }} pylib
-    out/pyenv/bin/python tools/pgrep_crash_test.py {{ args }}
+_review-instance n *args:
+    ANKI_SINGLE_INSTANCE_KEY="pgrep-inst-{{ n }}" PGREP_HEADLESS=1 PGREP_SURFACE_MODE="${PGREP_SURFACE_MODE:-exclusive}" ANKI_API_PORT="$((40000 + {{ n }}))" QTWEBENGINE_REMOTE_DEBUGGING="$((8080 + {{ n }}))" ANKI_BASE="${TMPDIR:-/tmp}/pgrep-inst-{{ n }}" {{ run_script }} {{ args }}
+
+# Watch web sources and rebuild/reload on change (bundled into `dev`; kept for rare manual use)
+[private]
+web-watch:
+    ./tools/web-watch
+
+# Build wheels (needed for some platforms)
+[private]
+wheels:
+    {{ ninja }} wheels
+
+# Run minilints (copyright, contributors, licenses)
+[private]
+minilints:
+    {{ ninja }} check:minilints
+
+# Fix minilints (update licenses.json)
+[private]
+fix-minilints:
+    {{ ninja }} fix:minilints
+
+# Deprecate translation strings
+[private]
+ftl-deprecate:
+    {{ ninja }} ftl-deprecate
+
+# Run Complexipy in regression-only mode
+[private]
+complexipy-diff:
+    {{ ninja }} check:complexipy-diff
+
+# Build the Anki dev documentation site (upstream tooling, not the pgrep docs)
+[private]
+docs:
+    {{ uv }} run --group docs sphinx-build -b html docs out/docs/html
+    @echo "Docs built at out/docs/html/index.html"
+
+# Build and serve the Anki dev documentation site (upstream tooling)
+[private]
+docs-serve:
+    {{ uv }} run --group docs sphinx-autobuild docs out/docs/html --host 127.0.0.1 --port 8000
+
+# Build Rust API docs (upstream tooling)
+[private]
+docs-rust:
+    cargo doc --open
 
 [private]
 _test:
@@ -288,69 +539,6 @@ _coverage-ts html='':
 _install-playwright-browsers:
     {{ ninja }} node_modules
     {{ playwright_env }} {{ yarn }} playwright install chromium
-
-# Check formatting (fast, no build needed)
-fmt:
-    {{ ninja }} check:format
-
-# Fix formatting
-fix-fmt:
-    {{ ninja }} format
-
-# Run linting and type checking (requires build outputs)
-lint:
-    {{ ninja }} \
-        check:clippy \
-        check:mypy \
-        check:ruff \
-        check:eslint \
-        check:svelte \
-        check:typescript
-
-# Fix auto-fixable lint issues (ruff + eslint)
-fix-lint:
-    {{ ninja }} fix:ruff fix:eslint
-
-# Run minilints (copyright, contributors, licenses)
-minilints:
-    {{ ninja }} check:minilints
-
-# Fix minilints (update licenses.json)
-fix-minilints:
-    {{ ninja }} fix:minilints
-
-# Sync translation files
-ftl-sync:
-    {{ ninja }} ftl-sync
-
-# Deprecate translation strings
-ftl-deprecate:
-    {{ ninja }} ftl-deprecate
-
-# Build documentation site
-docs:
-    {{ uv }} run --group docs sphinx-build -b html docs out/docs/html
-    @echo "Docs built at out/docs/html/index.html"
-
-# Build and serve documentation site
-docs-serve:
-    {{ uv }} run --group docs sphinx-autobuild docs out/docs/html --host 127.0.0.1 --port 8000
-
-# Build Rust API docs
-docs-rust:
-    cargo doc --open
-
-# Dispatch CI workflow on a given branch or tag
-ci branch:
-    gh workflow run ci.yml --ref {{ branch }}
-
-# Run Complexipy in regression-only mode
-complexipy-diff:
-    {{ ninja }} check:complexipy-diff
-
-# Remove build outputs from out/ (pass keep-env to keep node_modules/pyenv); macOS/Linux
-clean *args:
-    ./tools/clean {{ args }}
 
 # Helpers to get the right commands for the platform
 
