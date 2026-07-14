@@ -219,6 +219,24 @@ audit-bundle-ai *args:
     if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
     out/pyenv/bin/python content/tools/audit_bundle_ai.py {{ args }}
 
+# Offline foundry smoke (no network): runs foundry.py --self-check. macOS/Linux.
+[unix]
+foundry-dry *args:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/foundry.py --self-check {{ args }}
+
+# Best-of-N content foundry (needs AI runtime + key when online generation is enabled).
+# Sources content/.env for OPENAI_API_KEY. Until online generation lands, pass
+# --dry-run for an offline partition test. Example: `just foundry --dry-run --topic
+# classical_mechanics --n 8`. macOS/Linux.
+[unix]
+foundry *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ ninja }} pyenv
+    if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
+    out/pyenv/bin/python content/tools/foundry.py {{ args }}
+
 # Reproduce the AI-eval methodology on a committed synthetic sample, offline, with no
 # API key and no private content/ tree, so anyone cloning the public repo gets the same
 # result. Mirrors the gold-set gate: headline metrics with bootstrap CIs, a keyword
