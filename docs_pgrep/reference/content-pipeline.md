@@ -163,35 +163,6 @@ precision-target threshold sweep. Together they form a calibration card that
 reports, property by property, how well the panel agrees with human judgment.
 This replaces the single, misleading Cohen's kappa the old audit reported.
 
-`content/tools/eval_verifier.py`, run via `just eval-verifier`, is the standing
-offline evaluation. It consumes precomputed panel predictions and human labels,
-then prints the calibration card with deterministic 95% bootstrap confidence
-intervals. Pass `--foundry-summary <summary.json>` to include foundry yield and
-escalation intervals, and `--out <path>` to save the same JSON that is printed.
-`just eval-verifier --self-check` runs on synthetic data without a model or key.
-
-The labels file has one entry per verifier property:
-
-```json
-{
-    "properties": {
-        "key": {
-            "predicted": [true, false],
-            "human": [true, true],
-            "confidence": [0.9, 0.7],
-            "runs": [[true, false], [true, false]]
-        }
-    }
-}
-```
-
-`predicted` and `human` are required aligned boolean arrays. `confidence` and
-`runs` are optional aligned arrays. A property without confidence values is
-reported but does not receive a tuned threshold. A property without runs reports
-`null` consistency. When supplied, `runs` must contain at least two aligned
-boolean arrays. Overall consistency averages only properties with measured runs
-and is `null` when none are measured.
-
 ---
 
 ## The content foundry loop (Phase 2)
@@ -243,33 +214,147 @@ multi-candidate selection (`--compare`) is deferred to Phase 2.1.
 
 ### Escalation sheet and firewall path
 
-Each foundry invocation writes
-`content/run/foundry/<run>/accepted.json`, `rejected.json`, `escalated.json`,
-and `summary.json`. Run `content/tools/make_foundry_escalation.py` to render a
-Markdown review sheet (`ESCALATE` / `KEEP` / `DROP` per item) from the latest
-run by default, or pass `--run <name>`. The artifacts stay git-ignored.
-Generation still reads only `content/corpus/`; the leakage firewall is
-unchanged.
+Each persisted foundry run writes four JSON files under
+`content/run/foundry/<run>/`: `accepted.json`, `rejected.json`,
+`escalated.json`, and `summary.json`. It writes `preferences.jsonl` beside
+them. Run `content/tools/make_foundry_escalation.py` to render a Markdown
+review sheet (`ESCALATE` / `KEEP` / `DROP` per item) from the latest run by
+default, or pass `--run <name>`. The artifacts stay git-ignored. Generation
+still reads only `content/corpus/`; the leakage firewall is unchanged.
 
 Accepted survivors still land only through `assemble_bundle.py` and the
 per-commit invariant gate.
 
 ---
 
+## The preference dataset and standing eval (Phase 3)
+
+Phase 3 adds a stable preference format and a standing offline
+evaluation. It does not start verifier distillation or generator training. The
+implementation plan is
+[`content-foundry-dataset-and-eval-plan.md`](../plan/content-foundry-dataset-and-eval-plan.md).
+
+### Preference pairs
+
+`pylib/anki/pgrep/ai/preference.py` defines schema v1 through
+`preference_schema_version = 1`. Each JSONL record has these fields:
+
+```json
+{
+    "schema": 1,
+    "slot": { "topic": "optics" },
+    "chosen": {
+        "id": "candidate-1",
+        "stem": "...",
+        "choices": ["...", "...", "...", "...", "..."],
+        "correct": "A",
+        "panel": {}
+    },
+    "rejected": {
+        "id": "candidate-2",
+        "stem": "...",
+        "choices": ["...", "...", "...", "...", "..."],
+        "correct": "B",
+        "panel": {},
+        "failing_gates": ["key"]
+    },
+    "run_id": "run-1"
+}
+```
+
+`pairs_from_slot` pairs every accepted candidate with every rejected candidate
+from the same blueprint slot, capped at 64 pairs per call. The chosen side is a
+panel accept. The rejected side is a panel reject and records its failing hard
+gates. Escalated candidates are excluded because a human still owns their
+disposition.
+
+`content/tools/foundry.py` appends validated records to
+`content/run/foundry/<run>/preferences.jsonl`, beside that run's
+`accepted.json`, `rejected.json`, `escalated.json`, and `summary.json`.
+`foundry_loop.summarize_runs` supplies the partition counts in the summary. The
+entire run tree remains git-ignored.
+
+### Leakage backstop
+
+`content/tools/leakage_check.py` recursively scans every `*.jsonl` under
+`content/run/foundry/`. It uses `preference.scan_jsonl` to validate each
+record's schema and required fields, rejects private ID and private-root path
+markers, and checks for long contiguous spans copied from any available gold or
+held-out item. These structural, private-root, and copy-in checks supplement the
+primary firewall: generation and preference pairing ground only on
+`content/corpus/`.
+
+### Standing verifier evaluation
+
+`content/tools/eval_verifier.py`, run with `just eval-verifier`, reads saved
+predictions and labels without constructing a model client or making a network
+call. Its input has one entry per verifier property:
+
+```json
+{
+    "properties": {
+        "key": {
+            "predicted": [true, false],
+            "human": [true, true],
+            "confidence": [0.9, 0.7],
+            "runs": [[true, false], [true, false]]
+        }
+    }
+}
+```
+
+`predicted` and `human` are required aligned boolean arrays. `confidence` is an
+optional aligned array of values from 0 to 1. `runs` is optional; when present,
+it contains at least two aligned boolean arrays from perturbation runs. Without
+`runs`, the property's consistency is `null`. Overall consistency averages only
+properties with measured runs and is `null` when no property has them.
+
+Run `just eval-verifier --labels <labels.json>`. Add
+`--foundry-summary <summary.json>` for foundry yield and escalation metrics, or
+`--out <path>` to save the printed card. The command reports deterministic 95%
+percentile bootstrap confidence intervals with 2,000 resamples and seed 0 for
+raw agreement and accepted precision. A foundry summary also receives yield and
+escalation intervals. `just eval-verifier --self-check` exercises the complete
+path on synthetic data.
+
+The saved arrays may contain precomputed calibration labels and a held-out
+regression slice. Held-out item text is never used for generation, prompts, or
+preference pairs. Only the precomputed evaluation labels enter the standing
+eval.
+
+### Future Tier gates
+
+These gates are prerequisites for future training, not evidence that training
+has begun:
+
+- **Tier 2, distilled verifier:** calibration-card accept-precision at or above
+  `0.95` on key and figure, plus at least `300` panel-labeled problems under
+  `content/run/foundry/`. Because that tree is git-ignored, an operator verifies
+  the count.
+- **Tier 3, SFT then optional DPO:** at least `1000` validated preference pairs
+  across at least `6` blueprint categories, a clean leakage check, and a green
+  Phase 3 standing eval on the latest calibration card.
+
+The human calibration set is not complete, neither numeric count has been
+reached, and no Tier 2 or Tier 3 training has started.
+
+---
+
 ## Commands
 
-| Command                      | What it does                                                                                                    |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `assemble_bundle.py`         | The single gated landing command: land, convert math, wire figures, run invariants.                             |
-| `just test-py`               | Runs the Python tests, including the content-bundle invariant gate (per-commit).                                |
-| `just audit-bundle-ai`       | Runs the five on-demand AI audits (pre-release or nightly, needs the AI runtime).                               |
-| `just foundry-dry`           | Offline foundry smoke (`foundry.py --self-check`), no network.                                                  |
-| `just foundry`               | Best-of-N foundry loop; needs AI runtime + key when online generation is enabled.                               |
-| `foundry.py`                 | Sample, cap N by verifier accuracy, and write four partition/summary files under `content/run/foundry/<run>/`.  |
-| `make_foundry_escalation.py` | Build a human review sheet from the latest run's `escalated.json` (or `--run <name>`).                          |
-| `calibrate_verifier.py`      | Offline smoke (`--self-check`) of the calibration stats and card assembly.                                      |
-| `just eval-verifier`         | Evaluate precomputed verifier labels offline; optionally add foundry yield and escalation confidence intervals. |
-| `just check`                 | The overall gate (format, build, lint, all tests), which includes `test-py`.                                    |
+| Command                      | What it does                                                                                                     |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `assemble_bundle.py`         | The single gated landing command: land, convert math, wire figures, run invariants.                              |
+| `just test-py`               | Runs the Python tests, including the content-bundle invariant gate (per-commit).                                 |
+| `just audit-bundle-ai`       | Runs the five on-demand AI audits (pre-release or nightly, needs the AI runtime).                                |
+| `just foundry-dry`           | Offline foundry smoke (`foundry.py --self-check`), no network.                                                   |
+| `just foundry`               | Best-of-N foundry loop; needs AI runtime + key when online generation is enabled.                                |
+| `foundry.py`                 | Sample, cap N by verifier accuracy, and write four JSON files plus `preferences.jsonl` under each run directory. |
+| `make_foundry_escalation.py` | Build a human review sheet from the latest run's `escalated.json` (or `--run <name>`).                           |
+| `calibrate_verifier.py`      | Offline smoke (`--self-check`) of the calibration stats and card assembly.                                       |
+| `leakage_check.py`           | Recursively validate foundry preference schema, private-root markers, and private-item copy-in.                  |
+| `just eval-verifier`         | Evaluate precomputed calibration or held-out labels with deterministic bootstrap confidence intervals.           |
+| `just check`                 | The overall gate (format, build, lint, all tests), which includes `test-py`.                                     |
 
 The LLM audits and the foundry loop need the optional AI runtime and a key when
 they call models; install it once with `just pgrep-ai-deps` and set
