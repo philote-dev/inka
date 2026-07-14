@@ -22,6 +22,21 @@ from typing import Any
 from .foundry_loop import SlotResult
 
 preference_schema_version = 1
+BLUEPRINT_CATEGORIES = frozenset(
+    {
+        "mechanics",
+        "electromagnetism",
+        "quantum",
+        "thermodynamics",
+        "atomic",
+        "optics_waves",
+        "special_relativity",
+        "lab",
+        "specialized",
+    }
+)
+TIER3_MIN_PAIRS = 1000
+TIER3_MIN_CATEGORIES = 6
 
 _PRIVATE_MARKER = re.compile(
     r"(?i)(?<![a-z0-9])(?:"
@@ -33,22 +48,18 @@ _CORRECT_CHOICES = frozenset("ABCDE")
 
 
 def _failing_gates(item: dict) -> list[str]:
+    if item.get("refused") is True:
+        return ["refusal"]
     panel = item.get("panel") or {}
     checks = panel.get("checks") or []
-    out = [
+    return [
         c.get("name", "")
         for c in checks
         if isinstance(c, dict)
         and not c.get("passed", True)
         and c.get("severity") == "hard"
+        and _non_empty_string(c.get("name"))
     ]
-    if not out and item.get("reason"):
-        out = [
-            part.split(":")[0].strip()
-            for part in str(item["reason"]).split(";")
-            if part.strip()
-        ]
-    return [g for g in out if g]
 
 
 def _non_empty_string(value: object) -> bool:
@@ -61,22 +72,29 @@ def _child_path(path: str, key: object) -> str:
 
 def _recursive_data_errors(value: object, path: str = "$") -> list[str]:
     errors: list[str] = []
-    if isinstance(value, float) and not math.isfinite(value):
-        errors.append(f"{path}: non-finite numbers are not allowed")
-    elif isinstance(value, str):
+    if value is None or type(value) in (bool, int):
+        return errors
+    if type(value) is float:
+        if not math.isfinite(value):
+            errors.append(f"{path}: non-finite numbers are not allowed")
+    elif type(value) is str:
         if marker := _PRIVATE_MARKER.search(value):
             errors.append(f"{path}: private marker {marker.group(0)!r}")
     elif isinstance(value, dict):
         for key, nested in value.items():
             child = _child_path(path, key)
-            if isinstance(key, str) and (marker := _PRIVATE_MARKER.search(key)):
+            if not isinstance(key, str):
+                errors.append(f"{child} (key): JSON dict keys must be strings")
+            elif marker := _PRIVATE_MARKER.search(key):
                 errors.append(f"{child} (key): private marker {marker.group(0)!r}")
-            elif isinstance(key, float) and not math.isfinite(key):
-                errors.append(f"{child} (key): non-finite numbers are not allowed")
             errors.extend(_recursive_data_errors(nested, child))
-    elif isinstance(value, (list, tuple)):
+    elif isinstance(value, list):
         for index, nested in enumerate(value):
             errors.extend(_recursive_data_errors(nested, f"{path}[{index}]"))
+    else:
+        errors.append(
+            f"{path}: value of type {type(value).__name__} is not JSON-compatible"
+        )
     return errors
 
 
@@ -115,6 +133,30 @@ def _validate_item(side: str, node: object, decision: str) -> list[str]:
         errors.append(f"{side}.panel must be an object")
     elif panel.get("decision") != decision:
         errors.append(f"{side}.panel.decision must be {decision!r}")
+    else:
+        checks = panel.get("checks")
+        if not isinstance(checks, list):
+            errors.append(f"{side}.panel.checks must be an array")
+        else:
+            for index, check in enumerate(checks):
+                path = f"{side}.panel.checks[{index}]"
+                if not isinstance(check, dict):
+                    errors.append(f"{path} must be an object")
+                    continue
+                if not _non_empty_string(check.get("name")):
+                    errors.append(f"{path}.name must be a non-empty string")
+                if type(check.get("passed")) is not bool:
+                    errors.append(f"{path}.passed must be a boolean")
+                if not _non_empty_string(check.get("severity")):
+                    errors.append(f"{path}.severity must be a non-empty string")
+                if (
+                    check.get("severity") == "hard"
+                    and check.get("passed") is False
+                    and not _non_empty_string(check.get("evidence"))
+                ):
+                    errors.append(
+                        f"{path}.evidence must be non-empty for a failed hard check"
+                    )
     return errors
 
 
@@ -131,7 +173,34 @@ def _validate_failing_gates(rejected: object) -> list[str]:
         or any(not isinstance(gate, str) or not gate.strip() for gate in gates)
     ):
         return ["rejected.failing_gates must be a non-empty list of non-empty strings"]
-    return []
+    errors: list[str] = []
+    reason = rejected.get("reason")
+    if not _non_empty_string(reason):
+        errors.append("rejected.reason must be a non-empty string")
+    refused = rejected.get("refused")
+    if type(refused) is not bool:
+        errors.append("rejected.refused must be a boolean")
+        return errors
+    if refused:
+        if gates != ["refusal"]:
+            errors.append("rejected refusal must use failing_gates ['refusal']")
+        return errors
+
+    panel = rejected.get("panel")
+    checks = panel.get("checks") if isinstance(panel, dict) else None
+    failed_hard = [
+        check.get("name")
+        for check in checks or []
+        if isinstance(check, dict)
+        and check.get("severity") == "hard"
+        and check.get("passed") is False
+        and _non_empty_string(check.get("name"))
+    ]
+    if not failed_hard:
+        errors.append("rejected panel must contain at least one failed hard check")
+    if sorted(gates) != sorted(failed_hard):
+        errors.append("rejected.failing_gates must match failed hard check names")
+    return errors
 
 
 def validate_pair(pair: object) -> list[str]:
@@ -147,6 +216,8 @@ def validate_pair(pair: object) -> list[str]:
         errors.append(f"schema must be {preference_schema_version}")
     if not _non_empty_string(pair.get("run_id")):
         errors.append("run_id must be a non-empty string")
+    if type(pair.get("synthetic")) is not bool:
+        errors.append("synthetic must be a boolean")
 
     slot = pair.get("slot")
     if not isinstance(slot, dict):
@@ -155,6 +226,11 @@ def validate_pair(pair: object) -> list[str]:
         for field in ("topic", "blueprint_category"):
             if not _non_empty_string(slot.get(field)):
                 errors.append(f"slot.{field} must be a non-empty string")
+        category = slot.get("blueprint_category")
+        if isinstance(category, str) and category not in BLUEPRINT_CATEGORIES:
+            errors.append(
+                "slot.blueprint_category must be one of the nine locked slugs"
+            )
 
     chosen = pair.get("chosen")
     rejected = pair.get("rejected")
@@ -204,7 +280,12 @@ def scan_jsonl(path: str) -> list[str]:
 
 
 def pairs_from_slot(
-    slot: dict, result: SlotResult, *, run_id: str, max_pairs: int = 64
+    slot: dict,
+    result: SlotResult,
+    *,
+    run_id: str,
+    max_pairs: int = 64,
+    synthetic: bool = False,
 ) -> list[dict]:
     if max_pairs <= 0:
         return []
@@ -214,6 +295,7 @@ def pairs_from_slot(
         for rejected in result.rejected:
             pair = {
                 "schema": preference_schema_version,
+                "synthetic": synthetic,
                 "slot": {
                     "topic": slot.get("topic"),
                     **{k: slot[k] for k in slot if k != "topic"},
@@ -234,6 +316,8 @@ def pairs_from_slot(
                     "source_ref": rejected.get("source_ref", ""),
                     "panel": copy.deepcopy(rejected.get("panel")),
                     "failing_gates": _failing_gates(rejected),
+                    "reason": rejected.get("reason", ""),
+                    "refused": rejected.get("refused") is True,
                 },
                 "run_id": run_id,
             }
@@ -271,11 +355,85 @@ def _validate_pairs(pairs: list[dict]) -> None:
 def summarize_pairs(pairs: list[dict]) -> dict[str, Any]:
     """Return validated pair and distinct-category counts for Tier 3 audits."""
     _validate_pairs(pairs)
-    categories = sorted({pair["slot"]["blueprint_category"] for pair in pairs})
+    eligible = [pair for pair in pairs if not pair["synthetic"]]
+    categories = sorted({pair["slot"]["blueprint_category"] for pair in eligible})
     return {
-        "pair_count": len(pairs),
+        "validated_pair_count": len(pairs),
+        "pair_count": len(eligible),
         "category_count": len(categories),
         "categories": categories,
+    }
+
+
+def _audit_file_label(root: Path, path: Path) -> str:
+    if root.is_file():
+        return path.name
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
+
+
+def audit_preferences(root: str | Path) -> dict[str, Any]:
+    """Validate and summarize every preferences.jsonl below ``root``."""
+    root_path = Path(root)
+    if root_path.is_file():
+        files = [root_path] if root_path.name == "preferences.jsonl" else []
+    else:
+        files = sorted(root_path.rglob("preferences.jsonl"))
+
+    errors: list[str] = []
+    duplicates: list[dict[str, str]] = []
+    seen: dict[tuple[str, str], str] = {}
+    valid_pairs: list[dict] = []
+    for path in files:
+        label = _audit_file_label(root_path, path)
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError as error:
+            errors.append(f"{label}: could not read file: {error}")
+            continue
+        for lineno, line in enumerate(lines, start=1):
+            location = f"{label}:line {lineno}"
+            try:
+                record = json.loads(line, parse_constant=_reject_json_constant)
+            except (json.JSONDecodeError, ValueError) as error:
+                errors.append(f"{location}: malformed JSON: {error}")
+                continue
+            validation_errors = validate_pair(record)
+            if validation_errors:
+                errors.extend(f"{location}: {error}" for error in validation_errors)
+                continue
+            valid_pairs.append(record)
+            identity = (record["chosen"]["id"], record["rejected"]["id"])
+            if first := seen.get(identity):
+                duplicates.append(
+                    {
+                        "chosen_id": identity[0],
+                        "rejected_id": identity[1],
+                        "first": first,
+                        "duplicate": location,
+                    }
+                )
+            else:
+                seen[identity] = location
+
+    eligible = [pair for pair in valid_pairs if not pair["synthetic"]]
+    categories = sorted({pair["slot"]["blueprint_category"] for pair in eligible})
+    return {
+        "file_count": len(files),
+        "validated_pair_count": len(valid_pairs),
+        "validated_non_synthetic_pair_count": len(eligible),
+        "categories": categories,
+        "category_count": len(categories),
+        "duplicates": duplicates,
+        "errors": errors,
+        "tier3_ready": (
+            len(eligible) >= TIER3_MIN_PAIRS
+            and len(categories) >= TIER3_MIN_CATEGORIES
+            and not duplicates
+            and not errors
+        ),
     }
 
 

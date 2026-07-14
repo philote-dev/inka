@@ -361,16 +361,46 @@ def foundry_jsonl_is_clean(path: str) -> list[str]:
     return errors
 
 
+def _indexed_source_refs(db_path: str) -> tuple[set[str] | None, str | None]:
+    if not os.path.exists(db_path):
+        return None, f"source verification unavailable: no corpus index at {db_path}"
+    database = sqlite3.connect(db_path)
+    try:
+        rows = database.execute("SELECT DISTINCT source_ref FROM chunks").fetchall()
+    except sqlite3.Error as error:
+        return None, f"source verification unavailable for {db_path}: {error}"
+    finally:
+        database.close()
+    return {str(row[0]) for row in rows}, None
+
+
+def _preference_records(path: str) -> list[tuple[int, dict]]:
+    records: list[tuple[int, dict]] = []
+    try:
+        with open(path, encoding="utf-8") as file:
+            for lineno, line in enumerate(file, start=1):
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(record, dict) and not preference.validate_pair(record):
+                    records.append((lineno, record))
+    except OSError:
+        pass
+    return records
+
+
 def check_foundry_preferences(
     items: list[tuple[str, str]],
     threshold: int,
     foundry_dir: str = FOUNDRY_RUN_DIR,
+    db_path: str = INDEX_DB,
 ) -> CheckResult:
     """Validate all foundry JSONL and compare it with available private items."""
     files = sorted(
         path
         for path in glob.glob(
-            os.path.join(foundry_dir, "**", "*.jsonl"), recursive=True
+            os.path.join(foundry_dir, "**", "preferences.jsonl"), recursive=True
         )
         if os.path.isfile(path)
     )
@@ -381,15 +411,43 @@ def check_foundry_preferences(
             "no foundry preference JSONL files on disk to scan",
         )
 
-    hits: list[str] = []
+    audit = preference.audit_preferences(foundry_dir)
+    hits: list[str] = list(audit["errors"])
+    hits.extend(
+        "duplicate chosen/rejected pair "
+        f"{duplicate['chosen_id']!r}/{duplicate['rejected_id']!r}: "
+        f"{duplicate['first']} and {duplicate['duplicate']}"
+        for duplicate in audit["duplicates"]
+    )
     texts: list[str] = []
     for path in files:
         rel = os.path.relpath(path, REPO)
-        hits.extend(f"{rel}:{error}" for error in foundry_jsonl_is_clean(path))
         try:
             texts.append(open(path, encoding="utf-8").read())
         except OSError:
             continue
+        for lineno, record in _preference_records(path):
+            hits.extend(
+                f"{rel}:line {lineno}: {error}"
+                for error in _private_root_errors(record)
+            )
+
+    source_refs, source_error = _indexed_source_refs(db_path)
+    if source_error:
+        hits.append(source_error)
+    elif source_refs is not None:
+        for path in files:
+            rel = os.path.relpath(path, REPO)
+            for lineno, record in _preference_records(path):
+                if record["synthetic"]:
+                    continue
+                for side in ("chosen", "rejected"):
+                    source_ref = record[side]["source_ref"]
+                    if source_ref not in source_refs:
+                        hits.append(
+                            f"{rel}:line {lineno}: {side}.source_ref "
+                            f"is not present in the corpus index: {source_ref!r}"
+                        )
 
     if items and texts:
         copyin = _copyin_check(
@@ -410,7 +468,7 @@ def check_foundry_preferences(
         )
         detail = (
             f"{len(files)} foundry preference file(s), schema and paths clean"
-            f"{private_detail}"
+            f"; source references verified{private_detail}"
         )
     else:
         detail = f"{len(hits)} foundry preference leakage error(s)"
@@ -458,7 +516,12 @@ def run_checks(
         check_index_paths(db_path),
         check_shingles(db_path, items, span_threshold),
         check_prompt_logs(items, span_threshold),
-        check_foundry_preferences(items, span_threshold, foundry_dir),
+        check_foundry_preferences(
+            items,
+            span_threshold,
+            foundry_dir,
+            db_path,
+        ),
         check_ai_path_references(),
     ]
 

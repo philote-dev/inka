@@ -27,7 +27,17 @@ class _DryVerdict:
     decision: str
 
     def to_dict(self) -> dict:
-        return {"decision": self.decision, "checks": []}
+        checks = []
+        if self.decision == "reject":
+            checks.append(
+                {
+                    "name": "synthetic_rejection",
+                    "passed": False,
+                    "severity": "hard",
+                    "evidence": "offline dry-run rejection",
+                }
+            )
+        return {"decision": self.decision, "checks": checks}
 
     def reasons(self) -> list[str]:
         return ["offline dry-run rejection"] if self.decision == "reject" else []
@@ -42,7 +52,7 @@ class _DryVerifier:
 def _dry_run(
     topic: str, n: int, *, category: str | None = None
 ) -> foundry_loop.SlotResult:
-    category = category or topic
+    category = category or "mechanics"
     sequence = iter(range(max(0, n)))
 
     def generate(slot: dict) -> dict:
@@ -67,8 +77,9 @@ def _dry_run(
     )
 
 
-def _summary(result: foundry_loop.SlotResult, pairs: list[dict]) -> dict:
+def _summary(result: foundry_loop.SlotResult, pairs: list[dict], category: str) -> dict:
     summary = foundry_loop.summarize_runs([result])
+    summary["blueprint_category"] = category
     summary["preferences"] = preference.summarize_pairs(pairs)
     return summary
 
@@ -92,6 +103,8 @@ def _write_result(
     run_id: str,
     result: foundry_loop.SlotResult,
     slot: dict,
+    *,
+    synthetic: bool = False,
 ) -> Path:
     """Persist a complete run through a temporary sibling directory."""
     _validate_run_id(run_id)
@@ -100,12 +113,21 @@ def _write_result(
     if run_dir.exists():
         raise ValueError(f"foundry run directory already exists: {run_dir}")
 
-    pairs = preference.pairs_from_slot(slot, result, run_id=run_id)
+    pairs = preference.pairs_from_slot(
+        slot,
+        result,
+        run_id=run_id,
+        synthetic=synthetic,
+    )
     payloads = {
         "accepted.json": result.accepted,
         "rejected.json": result.rejected,
         "escalated.json": result.escalated,
-        "summary.json": _summary(result, pairs),
+        "summary.json": _summary(
+            result,
+            pairs,
+            slot["blueprint_category"],
+        ),
     }
     rendered = {
         filename: json.dumps(payload, indent=2, allow_nan=False) + "\n"
@@ -113,8 +135,21 @@ def _write_result(
     }
 
     temporary: Path | None = None
+    lock_path = out_dir / f".{run_id}.lock"
+    lock_fd: int | None = None
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            lock_fd = os.open(
+                lock_path,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,
+            )
+        except FileExistsError as error:
+            raise ValueError(
+                f"foundry run publication lock already exists: {lock_path}"
+            ) from error
+        os.write(lock_fd, f"pid={os.getpid()}\n".encode())
         if run_dir.exists():
             raise ValueError(f"foundry run directory already exists: {run_dir}")
         temporary = Path(
@@ -138,6 +173,12 @@ def _write_result(
     finally:
         if temporary is not None:
             shutil.rmtree(temporary, ignore_errors=True)
+        if lock_fd is not None:
+            os.close(lock_fd)
+            try:
+                lock_path.unlink()
+            except FileNotFoundError:
+                pass
     return run_dir
 
 
@@ -171,7 +212,8 @@ def main() -> int:
     parser.add_argument("--topic", default="classical_mechanics")
     parser.add_argument(
         "--category",
-        help="blueprint category for the slot (default: --topic)",
+        default="mechanics",
+        help="locked blueprint category for the slot (default: mechanics)",
     )
     parser.add_argument("--out", default="content/run/foundry")
     parser.add_argument(
@@ -205,7 +247,12 @@ def main() -> int:
         parser.error("--verifier-accuracy must be between 0 and 1")
 
     effective_n = _effective_n(args.n, args.verifier_accuracy)
-    category = args.category or args.topic
+    category = args.category
+    if category not in preference.BLUEPRINT_CATEGORIES:
+        parser.error(
+            "blueprint category must be one of: "
+            + ", ".join(sorted(preference.BLUEPRINT_CATEGORIES))
+        )
     result = _dry_run(args.topic, effective_n, category=category)
     run_id = args.run or datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     try:
@@ -214,6 +261,7 @@ def main() -> int:
             run_id,
             result,
             {"topic": args.topic, "blueprint_category": category},
+            synthetic=True,
         )
     except ValueError as error:
         parser.error(str(error))
