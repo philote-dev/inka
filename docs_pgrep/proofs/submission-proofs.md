@@ -151,7 +151,10 @@ and iOS distribution steps: `docs_pgrep/reference/installer-and-distribution.md`
   pgrep, run a review. [RECORD]
 - iOS: sideload or TestFlight, install on a device or a fresh Simulator, run a
   review. [RECORD]
-- Both run with AI off: `just run` (desktop) and the iOS default. [PROVEN]
+- Desktop defaults AI **on** on first run (`ensure_first_run_defaults`); Settings
+  can turn it off. iOS companion stays AI off. AI-off scoring still works on
+  both: `just preview` / `just dev --ai off` (desktop) and the iOS default.
+  [PROVEN]
 
 ## Hard-limit status (spec section 11)
 

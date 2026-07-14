@@ -14,8 +14,9 @@ GRE (PGRE) prep app built by **forking [Anki](https://apps.ankiweb.net)**. It
 ships a desktop app and an iOS companion on **one shared Rust study engine**,
 and reports three separate, honest numbers: what you can **recall** now
 (Memory), **apply** to a new problem (Performance), and **would score** today
-(Readiness). AI (card/problem generation, tutor) is optional and **off by
-default** — both apps build, study, and score with AI switched off.
+(Readiness). Desktop AI defaults **on** on first run (Settings can turn it
+off); the iOS companion stays AI off. Both apps still build, study, and score
+with AI switched off.
 
 Think of the codebase as **two layers**:
 
@@ -151,7 +152,7 @@ a full build with `just check` first.
   review selector in `points_at_stake.rs` reorders the review queue by how many
   exam points a card is worth, not just by due date.
 
-## AI layer & content pipeline (optional, off by default)
+## AI layer & content pipeline (optional; desktop on by default, always skippable)
 
 AI only adds card/problem generation and the decomposition tutor; every AI
 output must cite a **named source** or refuse, and is checked against a gold set

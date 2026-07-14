@@ -224,8 +224,8 @@ def pgrep_exam_result() -> bytes:
     return _json(exam.finish_exam(aqt.mw.col, _args().get("session_id")))
 
 
-# L4 AI (upgrade only; AI off by default). Handlers lazily import the AI modules,
-# so an AI-off app never loads the heavy deps.
+# L4 AI (upgrade; desktop first-run default is on via ensure_first_run_defaults).
+# Handlers lazily import the AI modules, so an AI-off app never loads the heavy deps.
 
 
 def pgrep_ai_status() -> bytes:

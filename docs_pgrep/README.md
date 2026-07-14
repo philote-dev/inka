@@ -2,7 +2,7 @@
 
 **Product:** pgrep (a.k.a. "PGRE Speedrun") — a Physics GRE (PGRE) prep app built by forking Anki.
 **Owner:** Frank Gonzalez
-**Status:** Building. L0 through L4 are on `main`: desktop, mobile + two-way sync, and the AI layer (off by default). The current focus is L4's eval gate, where the gold sets are built and awaiting a short human audit. Then L5, L6. See [`plan/build-plan.md`](plan/build-plan.md).
+**Status:** Building. L0 through L4 are on `main`: desktop, mobile + two-way sync, and the AI layer (desktop on by first-run default; always skippable). The current focus is L4's eval gate, where the gold sets are built and awaiting a short human audit. Then L5, L6. See [`plan/build-plan.md`](plan/build-plan.md).
 **Governing project spec:** [`spec/Speedrun_ A Desktop + Mobile Study App Built on Anki.pdf`](spec/Speedrun_%20A%20Desktop%20+%20Mobile%20Study%20App%20Built%20on%20Anki.pdf)
 **Learning-science basis:** [`spec/Spiky POV Literature Contentions.pdf`](spec/Spiky%20POV%20Literature%20Contentions.pdf) + PGRE BrainLift (Nessie).
 **Last updated:** 2026-07-04
@@ -95,7 +95,7 @@ pgrep is a study environment for one graduate-level exam — the **Physics GRE (
 4. **Held-out evaluation** for every model, reproducibly.
 5. One **study feature** built on learning science, **ablation-tested** (full / feature-off / plain Anki).
 6. Every **AI output** traces to a **named source**, is checked against a gold set, and beats a simple baseline.
-7. Both apps **run with AI off** and still give a score.
+7. Apps **run with AI off** and still give a score (desktop first-run default is on; Settings and iOS can stay off).
 8. Ship a desktop **installer** + a phone **build**.
 9. License **AGPL-3.0-or-later**, crediting Anki.
 

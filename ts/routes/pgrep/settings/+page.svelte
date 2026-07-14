@@ -46,8 +46,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let targetRetention = 0.9;
     let retentionMin = 0.7;
     let retentionMax = 0.97;
-    // AI is off by default; the real state is read from the backend on mount so
-    // the toggle never claims AI is on when it is not.
+    // Optimistic local default before the backend responds; first-run collections
+    // come back AI-on from pgrepAiStatus (ensure_first_run_defaults).
     let aiOn = false;
     let aiBusy = false;
     let theme: Theme = "Dark";
