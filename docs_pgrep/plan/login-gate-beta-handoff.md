@@ -1,9 +1,10 @@
 # Handoff: first-run sign-in gate (beta) for another agent
 
-Date: 2026-07-14. Status: page artifacts built; host hookup pending. This is the
-single source of truth for the sign-in page. The Svelte artifacts are in the repo
-(see "Page design and artifacts" below); the host plumbing and first-run Anki
-chrome fixes land alongside the office beta.
+Date: 2026-07-14. Status: page artifacts built; host hookup planned, not yet built.
+This is the single source of truth for the sign-in page and its host hookup. The
+Svelte artifacts are in the repo (see "Page design and artifacts"); the hookup is
+specced in "Real app migration plan" and lands alongside the office beta, with the
+first-run Anki chrome fixes.
 
 ## Goal
 
@@ -80,10 +81,9 @@ or a blocking overlay owned by the shell). It must use pgrep tokens
   show a calm error (bad password, unreachable server). Do not block the UI
   >100 ms without a spinner.
 - **Continue offline:** dismiss the gate, never call sync, land on Home. Study
-  works. Gate may reappear next launch until they sign in once (product choice:
-  prefer re-prompt until success, or remember "skipped" in collection config;
-  default = remember skip for the session/profile so we do not nag every cold
-  start during beta).
+  works. Settled: remember the skip in **profile meta** (per-device) so we do not
+  nag on every cold start; signing in later resolves the gate everywhere via the
+  stored sync key. (See the migration plan below.)
 - **AI:** unrelated; leave off.
 
 **Do not:**
@@ -99,41 +99,88 @@ or a blocking overlay owned by the shell). It must use pgrep tokens
 The page is built as a reusable presentational component plus a thin route, so the
 office-beta hookup can mount it with no rework.
 
-- `ts/lib/components/LoginGate.svelte` owns the UI, states, and styling. Props:
-  `initialUrl`, `onSignIn({url, username, password}) => Promise<{ok, error?}>`, and
-  `onContinueOffline()`. State seams for fixtures: `busy`, `error`, `serverOpen`,
-  `initialUsername`, `initialPassword`. On an `ok` result the caller navigates; an
-  `ok: false` (or a thrown error) shows a calm message in place.
+- `ts/lib/components/LoginGate.svelte` owns the two steps, states, and styling.
+  Props: `initialUrl`, `onSignIn({url, username, password}) => Promise<{ok, error?}>`,
+  `onContinueOffline()`, and `initialStep` (`"welcome" | "signin"`, so the hookup can
+  open a returning-but-signed-out user straight on sign-in). Fixture seams: `busy`,
+  `error`, `advancedOpen`, `initialUsername`, `initialPassword`. On an `ok` result the
+  caller navigates; an `ok: false` (or a thrown error) shows a calm message in place.
 - `ts/routes/pgrep/login/+page.svelte` is the thin wiring: it reads the saved URL
   (`pgrepSettingsGet.sync_url`), persists it (`pgrepSettingsSet`), calls `pgrepSync`,
   then lands on Home. It renders as a full-screen overlay so a standalone preview at
   `/pgrep/login` covers the shell rail.
-- Review fixture: the "Login gate" section of `/pgrep-lab/gallery`, in light and dark,
-  showing ready, signing in, and a failed attempt.
+- Review fixture: the "Login gate" section of `/pgrep-lab/gallery` shows Welcome in
+  light and dark; the fixtures are height-capped and the sign-in step and its states
+  link to the live route, because the gallery is one long page with a ~16384px browser
+  paint ceiling (unbounded full-screen fixtures pushed the tail past it and it went
+  blank).
 
-Visual: monochrome per the token rule (the amber/blue/lilac hues stay a reserved score
-data language, never chrome), so the identity is the tri-lobe mark, a mono eyebrow, warm
-canvas, a centered surface card, and one calm load motion. Fields are Username, Password,
-a Server disclosure (prefilled, mono), a dark Sign in (with a spinner), and a Continue
-offline ghost.
+Flow and visual: two steps that hand off from the opening splash (which owns the logo),
+so neither step repeats the mark.
+
+- **Welcome:** "Welcome to pgrep" with a filled **Beta** pill in the action (opposing)
+  color, one line ("The honest way to prep for the Physics GRE."), a primary **Sign in**,
+  a ghost **Continue offline**, and a reassurance line ("Everything works offline. Sign
+  in to sync.").
+- **Sign in:** a back chevron to the left of the title, the helper "Use the username and
+  password we sent you.", Username, Password, the baked server URL under a closed
+  **Advanced** disclosure, a primary Sign in with a spinner, and a calm inline error.
+
+Chrome is monochrome per the token rule (amber/blue/lilac stay reserved for the scores),
+with one calm load motion.
 
 Known seam for the hookup: `pgrepSync` is fire-and-forget today (it returns "started" and
 Anki's own progress/error dialog handles the rest), so the route resolves success
-optimistically. The hookup should add a sign-in call that returns the real login result
-and persist the gate-dismissed flag.
+optimistically. The migration adds a sign-in call that returns the real login result and
+persists the skip flag (see the plan below).
 
-## Host / bridge hooks the implementer should use
+## Real app migration plan (host hookup)
 
-Inspect and reuse (names may vary slightly; follow call sites in Settings):
+Today the artifacts exist but nothing shows the gate on startup; `/pgrep/login` is only
+reachable directly. This migration makes the app present the gate on first run and when
+signed out, persists the choice, and returns a real sign-in result.
 
-- Read/write sync URL + stored auth used by `pgrep_sync` in `qt/aqt/pgrep.py`  
-- Collection config or profile meta key for `login_gate_dismissed` /
-  `login_gate_skipped` (pick one; document it in the PR)  
-- Startup: after exclusive surface loads `/pgrep`, if gate not dismissed and not
-  skipped, route to the login page before Home  
+Decisions (settled): the "continue offline" skip is stored in **profile meta**
+(per-device, not synced), and we **remember the skip** so a cold start does not nag.
+Signing in on any device resolves the gate everywhere via the stored sync key.
 
-iOS: same fields in Settings today; a native login screen can wait. Desktop gate
-first is enough for the DMG beta; mirror on iOS in a follow-up if time allows.
+**Phase 1, backend + bridge (`qt/aqt/pgrep.py`, `anki.pgrep`).**
+
+- `pgrepAuthStatus` returns `{ signed_in, gate_dismissed }`. `signed_in` is
+  `mw.pm.sync_auth() is not None`; `gate_dismissed` is `signed_in or skipped`, where
+  `skipped` is a profile-meta flag (for example `pm.meta["pgrep_login_gate_skipped"]`).
+- `pgrepSignIn` runs `col.sync_login(username, password, endpoint)` on a worker, stores
+  the key and URL (`pm.set_custom_sync_url`, `pm.set_sync_key`, `pm.set_sync_username`),
+  starts a sync, and returns `{ ok: true }` or `{ ok: false, error }`. This closes the
+  fire-and-forget seam. Keep `pgrep_sync` for the Settings "Sync now" button.
+- `pgrepGateSkip` sets the profile-meta skip flag.
+- Tests: extend `qt/tests/test_pgrep_bridge.py` (auth status, sign-in success and
+  failure via a fake, skip).
+
+**Phase 2, shell wiring (`ts/routes/pgrep/+layout.svelte`).**
+
+- After the splash, call `pgrepAuthStatus`; if `!signed_in && !gate_dismissed`, render
+  `<LoginGate>` as a full overlay before the app, mirroring the existing `showLanding`
+  pattern. Order: splash then gate (if needed) then app then the diagnostic Landing.
+- Wire `onSignIn` to `pgrepSignIn` (on ok, mark dismissed for the session and go to
+  Home), `onContinueOffline` to `pgrepGateSkip`, and `initialUrl` from
+  `pgrepSettingsGet.sync_url`.
+- Keep `/pgrep/login` as a thin wrapper for preview and e2e.
+
+**Phase 3, beta URL prefill.** The beta build defaults `sync_url` to the Tailscale URL so
+testers never type it (it sits under Advanced). Never hardcode a production URL in the
+page.
+
+**Phase 4, sign-out (small, optional).** A Settings "Sign out" clears the sync key and
+the skip flag so the gate returns, handy for switching test accounts.
+
+**Phase 5, testing.** The bridge tests above, plus a Playwright e2e (`ts/tests/e2e/`):
+first run shows the gate; Continue offline lands on Home and study works; sign-in against
+`just serve-sync` reaches Home and Settings shows the saved URL and user. Then
+`just check` and `just verify`. Guard that offline-first still scores with AI off.
+
+**Phase 6, iOS (later).** The same fields already live in iOS Settings; a native
+first-run gate mirrors desktop in a follow-up.
 
 ## Beta acceptance
 
