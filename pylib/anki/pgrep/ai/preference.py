@@ -92,6 +92,27 @@ def validate_pair(pair: dict) -> list[str]:
     return errs
 
 
+def scan_jsonl(path: str) -> list[str]:
+    errs: list[str] = []
+    try:
+        with open(path, encoding="utf-8") as file:
+            for lineno, line in enumerate(file, start=1):
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError as error:
+                    errs.append(f"line {lineno}: malformed JSON: {error.msg}")
+                    continue
+                if not isinstance(record, dict):
+                    errs.append(f"line {lineno}: record must be a JSON object")
+                    continue
+                errs.extend(
+                    f"line {lineno}: {error}" for error in validate_pair(record)
+                )
+    except OSError as error:
+        errs.append(f"could not read {path}: {error}")
+    return errs
+
+
 def pairs_from_slot(
     slot: dict, result: SlotResult, *, run_id: str, max_pairs: int = 64
 ) -> list[dict]:

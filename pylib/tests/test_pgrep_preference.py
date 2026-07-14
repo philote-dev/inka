@@ -129,6 +129,35 @@ def test_validate_pair_rejects_private_id_prefixes():
     assert any("gold" in e.lower() or "private" in e.lower() for e in errs)
 
 
+def test_scan_jsonl_reports_malformed_json_with_line_number(tmp_path: Path):
+    path = tmp_path / "preferences.jsonl"
+    path.write_text(json.dumps(_valid_pair()) + "\n{broken\n", encoding="utf-8")
+
+    errs = preference.scan_jsonl(str(path))
+
+    assert any("line 2" in err and "malformed json" in err.lower() for err in errs)
+
+
+def test_scan_jsonl_reports_non_object_record_with_line_number(tmp_path: Path):
+    path = tmp_path / "preferences.jsonl"
+    path.write_text("[]\n", encoding="utf-8")
+
+    errs = preference.scan_jsonl(str(path))
+
+    assert any("line 1" in err and "object" in err.lower() for err in errs)
+
+
+def test_scan_jsonl_reports_private_id_with_line_number(tmp_path: Path):
+    path = tmp_path / "preferences.jsonl"
+    path.write_text(
+        json.dumps(_valid_pair(chosen_id="gold-001")) + "\n", encoding="utf-8"
+    )
+
+    errs = preference.scan_jsonl(str(path))
+
+    assert any("line 1" in err and "private" in err.lower() for err in errs)
+
+
 def test_pairs_from_slot_caps_at_max_pairs():
     accepted = [_item(i, "accept") for i in range(10)]
     rejected = [_item(i + 10, "reject") for i in range(10)]
