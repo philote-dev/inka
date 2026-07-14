@@ -111,7 +111,7 @@ def property_report(name: str, pred: list[bool], human: list[bool]) -> PropertyR
 
 
 def build_card(
-    reports: list[PropertyReport], consistency: float, thresholds: dict
+    reports: list[PropertyReport], consistency: float | None, thresholds: dict
 ) -> dict:
     return {
         "properties": [r.to_dict() for r in reports],

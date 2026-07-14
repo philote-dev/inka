@@ -1,6 +1,10 @@
 # Copyright: Ankitects Pty Ltd and contributors
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
+"""Tests for verifier agreement statistics and card serialization."""
+
+from typing import get_type_hints
+
 from anki.pgrep.ai import agreement
 
 
@@ -59,3 +63,7 @@ def test_property_report_and_build_card_serialize():
     assert card["consistency"] == 0.9
     assert card["thresholds"] == {"key": 0.8}
     assert card["properties"][0]["name"] == "key"
+
+    missing = agreement.build_card([rep], consistency=None, thresholds={})
+    assert missing["consistency"] is None
+    assert get_type_hints(agreement.build_card)["consistency"] == float | None
