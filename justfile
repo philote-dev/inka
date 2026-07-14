@@ -373,6 +373,24 @@ audit-bundle-ai *args:
     if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
     out/pyenv/bin/python content/tools/audit_bundle_ai.py {{ args }}
 
+# Offline foundry smoke (no network): runs foundry.py --self-check
+[group('content')]
+[unix]
+foundry-dry *args:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/foundry.py --self-check {{ args }}
+
+# Best-of-N content foundry (needs AI runtime + key when online). Use --dry-run offline.
+# Example: `just foundry --dry-run --topic classical_mechanics --n 8`
+[group('content')]
+[unix]
+foundry *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ ninja }} pyenv
+    if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
+    out/pyenv/bin/python content/tools/foundry.py {{ args }}
+
 # Reproduce the AI-eval methodology on a committed synthetic sample, offline
 [group('content')]
 [unix]
