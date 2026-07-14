@@ -1215,8 +1215,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         Continue offline lands on the full product, since study and
                         AI-off scoring never need an account. Chrome stays monochrome by
                         the token rule, so the Beta pill is the action color, not a
-                        score hue. Shown as Welcome, Sign-in ready with Advanced open,
-                        mid sign-in, and after a failed attempt.
+                        score hue. The Welcome step is shown here in both themes; the
+                        Sign-in step and its states are on the live route (linked
+                        below).
                     </p>
                 </div>
                 <div class="split">
@@ -1234,48 +1235,18 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                         onContinueOffline={noop}
                                     />
                                 </div>
-                                <span class="state-label">
-                                    Sign in, ready with Advanced open
-                                </span>
-                                <div class="gate-frame">
-                                    <LoginGate
-                                        initialStep="signin"
-                                        initialUrl="http://127.0.0.1:8090/"
-                                        advancedOpen={true}
-                                        onSignIn={async () => ({ ok: true })}
-                                        onContinueOffline={noop}
-                                    />
-                                </div>
-                                <span class="state-label">Signing in</span>
-                                <div class="gate-frame">
-                                    <LoginGate
-                                        initialStep="signin"
-                                        initialUrl="http://100.92.0.4:8090/"
-                                        initialUsername="frank"
-                                        initialPassword="physics"
-                                        busy={true}
-                                        onSignIn={async () => ({ ok: true })}
-                                        onContinueOffline={noop}
-                                    />
-                                </div>
-                                <span class="state-label">
-                                    Sign-in failed, calm and in place
-                                </span>
-                                <div class="gate-frame">
-                                    <LoginGate
-                                        initialStep="signin"
-                                        initialUrl="http://127.0.0.1:8090/"
-                                        initialUsername="frank"
-                                        initialPassword="physics"
-                                        error="That username or password did not match. Try again."
-                                        onSignIn={async () => ({ ok: true })}
-                                        onContinueOffline={noop}
-                                    />
-                                </div>
                             </div>
                         </div>
                     {/each}
                 </div>
+                <p class="gate-note">
+                    The Welcome step is shown in both themes above (cropped to its
+                    chrome). The Sign-in step, the Advanced server field, the error, and
+                    the mid sign-in spinner are on the live route:
+                    <a href="/pgrep/login">open the login gate</a>
+                    . It is a full, interactive surface, so it lives at its route rather than
+                    expanded inline (the gallery has a browser paint ceiling).
+                </p>
             </section>
         </main>
     </div>
@@ -1574,12 +1545,28 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         border-radius: var(--radius-card);
     }
 
-    /* The login gate is a full surface, not a primitive, so it renders at its
-       natural height inside a plain framed viewport rather than a fixed crop. */
+    /* The login gate is a full surface, not a primitive. It renders inside a
+       fixed, cropped viewport (like the study-frame previews) so the two full
+       screens do not balloon the page past the browser's paint ceiling. The
+       gate centers its content, so a bounded frame shows it faithfully. */
     .gate-frame {
+        height: 300px;
         overflow: hidden;
         border: var(--hairline);
         border-radius: var(--radius-card);
+    }
+
+    .gate-note {
+        margin: var(--space-2) 0 0;
+        font-size: var(--text-small);
+        line-height: 1.55;
+        color: var(--muted);
+
+        a {
+            color: var(--text);
+            text-decoration: underline;
+            text-underline-offset: 3px;
+        }
     }
 
     .rail-preview {
