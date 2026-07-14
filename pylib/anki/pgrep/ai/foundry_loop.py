@@ -26,9 +26,23 @@ class SlotResult:
         return len(self.accepted) / total if total else 0.0
 
 
-def max_n_for_accuracy(
-    accuracy: float, *, floor: int = 2, ceiling: int = 8
-) -> int:
+def summarize_runs(results: list[SlotResult]) -> dict:
+    """Aggregate foundry partitions into counts and operator-facing rates."""
+    accepted = sum(len(result.accepted) for result in results)
+    rejected = sum(len(result.rejected) for result in results)
+    escalated = sum(len(result.escalated) for result in results)
+    candidates = accepted + rejected + escalated
+    return {
+        "candidates": candidates,
+        "accepted": accepted,
+        "rejected": rejected,
+        "escalated": escalated,
+        "yield_rate": accepted / candidates if candidates else 0.0,
+        "escalation_rate": escalated / candidates if candidates else 0.0,
+    }
+
+
+def max_n_for_accuracy(accuracy: float, *, floor: int = 2, ceiling: int = 8) -> int:
     """Cap N so a weak verifier cannot over-prune a large candidate set."""
     if accuracy < 0.6:
         return floor
@@ -73,9 +87,7 @@ def run_slot(
         verdict = verifier.check(item)
         decision = getattr(verdict, "decision", "escalate")
         panel = (
-            verdict.to_dict()
-            if hasattr(verdict, "to_dict")
-            else {"decision": decision}
+            verdict.to_dict() if hasattr(verdict, "to_dict") else {"decision": decision}
         )
         reasons = verdict.reasons() if hasattr(verdict, "reasons") else []
         payload = {**item, "panel": panel, "reason": "; ".join(reasons)}

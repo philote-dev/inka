@@ -163,11 +163,32 @@ precision-target threshold sweep. Together they form a calibration card that
 reports, property by property, how well the panel agrees with human judgment.
 This replaces the single, misleading Cohen's kappa the old audit reported.
 
-`content/tools/calibrate_verifier.py` produces the card. Its `--self-check` runs
-an offline smoke. The full run (`--labels`) consumes a per-property
-human-labeled set (the calibration pass) and writes the card and the tuned
-thresholds under `content/run/calibration/`. It is run directly, like the other
-content tools. A `just` recipe will land alongside the other pgrep-ai recipes.
+`content/tools/eval_verifier.py`, run via `just eval-verifier`, is the standing
+offline evaluation. It consumes precomputed panel predictions and human labels,
+then prints the calibration card with deterministic 95% bootstrap confidence
+intervals. Pass `--foundry-summary <summary.json>` to include foundry yield and
+escalation intervals, and `--out <path>` to save the same JSON that is printed.
+`just eval-verifier --self-check` runs on synthetic data without a model or key.
+
+The labels file has one entry per verifier property:
+
+```json
+{
+    "properties": {
+        "key": {
+            "predicted": [true, false],
+            "human": [true, true],
+            "confidence": [0.9, 0.7],
+            "runs": [[true, false], [true, false]]
+        }
+    }
+}
+```
+
+`predicted` and `human` are required aligned boolean arrays. `confidence` and
+`runs` are optional aligned arrays. A property without confidence values is
+reported but does not receive a tuned threshold. A property without runs uses
+its primary predictions as one stable run, so its consistency is `1.0`.
 
 ---
 
@@ -235,19 +256,20 @@ per-commit invariant gate.
 
 ## Commands
 
-| Command                      | What it does                                                                                                   |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `assemble_bundle.py`         | The single gated landing command: land, convert math, wire figures, run invariants.                            |
-| `just test-py`               | Runs the Python tests, including the content-bundle invariant gate (per-commit).                               |
-| `just audit-bundle-ai`       | Runs the five on-demand AI audits (pre-release or nightly, needs the AI runtime).                              |
-| `just foundry-dry`           | Offline foundry smoke (`foundry.py --self-check`), no network.                                                 |
-| `just foundry`               | Best-of-N foundry loop; needs AI runtime + key when online generation is enabled.                              |
-| `foundry.py`                 | Sample, cap N by verifier accuracy, and write four partition/summary files under `content/run/foundry/<run>/`. |
-| `make_foundry_escalation.py` | Build a human review sheet from the latest run's `escalated.json` (or `--run <name>`).                         |
-| `calibrate_verifier.py`      | Offline smoke (`--self-check`) of the calibration stats and card assembly.                                     |
-| `just check`                 | The overall gate (format, build, lint, all tests), which includes `test-py`.                                   |
+| Command                      | What it does                                                                                                    |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `assemble_bundle.py`         | The single gated landing command: land, convert math, wire figures, run invariants.                             |
+| `just test-py`               | Runs the Python tests, including the content-bundle invariant gate (per-commit).                                |
+| `just audit-bundle-ai`       | Runs the five on-demand AI audits (pre-release or nightly, needs the AI runtime).                               |
+| `just foundry-dry`           | Offline foundry smoke (`foundry.py --self-check`), no network.                                                  |
+| `just foundry`               | Best-of-N foundry loop; needs AI runtime + key when online generation is enabled.                               |
+| `foundry.py`                 | Sample, cap N by verifier accuracy, and write four partition/summary files under `content/run/foundry/<run>/`.  |
+| `make_foundry_escalation.py` | Build a human review sheet from the latest run's `escalated.json` (or `--run <name>`).                          |
+| `calibrate_verifier.py`      | Offline smoke (`--self-check`) of the calibration stats and card assembly.                                      |
+| `just eval-verifier`         | Evaluate precomputed verifier labels offline; optionally add foundry yield and escalation confidence intervals. |
+| `just check`                 | The overall gate (format, build, lint, all tests), which includes `test-py`.                                    |
 
 The LLM audits and the foundry loop need the optional AI runtime and a key when
 they call models; install it once with `just pgrep-ai-deps` and set
 `OPENAI_API_KEY` (or add it to `content/.env`). `just foundry-dry`, `--dry-run`,
-and the deterministic audits run without a key.
+`just eval-verifier`, and the deterministic audits run without a key.

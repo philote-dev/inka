@@ -75,3 +75,34 @@ def test_max_n_caps_by_verifier_accuracy():
     assert foundry_loop.max_n_for_accuracy(0.5) == 2
     assert foundry_loop.max_n_for_accuracy(0.9) >= 4
     assert foundry_loop.max_n_for_accuracy(0.99) == 8
+
+
+def test_summarize_runs_aggregates_partitions_and_rates():
+    results = [
+        foundry_loop.SlotResult(
+            accepted=[{}],
+            rejected=[{}, {}],
+            escalated=[{}],
+        ),
+        foundry_loop.SlotResult(accepted=[{}]),
+    ]
+
+    assert foundry_loop.summarize_runs(results) == {
+        "candidates": 5,
+        "accepted": 2,
+        "rejected": 2,
+        "escalated": 1,
+        "yield_rate": 0.4,
+        "escalation_rate": 0.2,
+    }
+
+
+def test_summarize_runs_handles_empty_input():
+    assert foundry_loop.summarize_runs([]) == {
+        "candidates": 0,
+        "accepted": 0,
+        "rejected": 0,
+        "escalated": 0,
+        "yield_rate": 0.0,
+        "escalation_rate": 0.0,
+    }

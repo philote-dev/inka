@@ -237,6 +237,12 @@ foundry *args:
     if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
     out/pyenv/bin/python content/tools/foundry.py {{ args }}
 
+# Standing verifier evaluation over precomputed labels, entirely offline
+[unix]
+eval-verifier *args:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/eval_verifier.py {{ args }}
+
 # Reproduce the AI-eval methodology on a committed synthetic sample, offline, with no
 # API key and no private content/ tree, so anyone cloning the public repo gets the same
 # result. Mirrors the gold-set gate: headline metrics with bootstrap CIs, a keyword

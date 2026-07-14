@@ -55,12 +55,7 @@ def _dry_run(topic: str, n: int) -> foundry_loop.SlotResult:
 
 
 def _summary(result: foundry_loop.SlotResult) -> dict:
-    return {
-        "accepted": len(result.accepted),
-        "rejected": len(result.rejected),
-        "escalated": len(result.escalated),
-        "yield_rate": result.yield_rate,
-    }
+    return foundry_loop.summarize_runs([result])
 
 
 def _effective_n(requested_n: int, verifier_accuracy: float) -> int:
