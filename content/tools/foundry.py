@@ -1,10 +1,16 @@
+# Copyright: Ankitects Pty Ltd and contributors
+# License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
+
 """Run the best-of-N content foundry, with an offline dry-run mode."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,7 +39,10 @@ class _DryVerifier:
         return _DryVerdict(decisions[problem["_foundry_seed"] % len(decisions)])
 
 
-def _dry_run(topic: str, n: int) -> foundry_loop.SlotResult:
+def _dry_run(
+    topic: str, n: int, *, category: str | None = None
+) -> foundry_loop.SlotResult:
+    category = category or topic
     sequence = iter(range(max(0, n)))
 
     def generate(slot: dict) -> dict:
@@ -41,38 +50,95 @@ def _dry_run(topic: str, n: int) -> foundry_loop.SlotResult:
         return {
             "id": f"dry-{index + 1}",
             "topic": slot["topic"],
+            "blueprint_category": slot["blueprint_category"],
             "stem": f"Offline candidate {index + 1}",
             "choices": ["A", "B", "C", "D", "E"],
             "key": "A",
+            "source_ref": (
+                f"synthetic://foundry/{slot['blueprint_category']}/{index + 1}"
+            ),
         }
 
     return foundry_loop.run_slot(
-        {"topic": topic},
+        {"topic": topic, "blueprint_category": category},
         generate_fn=generate,
         verifier=_DryVerifier(),
         n=n,
     )
 
 
-def _summary(result: foundry_loop.SlotResult) -> dict:
-    return foundry_loop.summarize_runs([result])
+def _summary(result: foundry_loop.SlotResult, pairs: list[dict]) -> dict:
+    summary = foundry_loop.summarize_runs([result])
+    summary["preferences"] = preference.summarize_pairs(pairs)
+    return summary
 
 
 def _effective_n(requested_n: int, verifier_accuracy: float) -> int:
     return min(requested_n, foundry_loop.max_n_for_accuracy(verifier_accuracy))
 
 
-def _write_result(out: str, run_id: str, result: foundry_loop.SlotResult) -> Path:
-    run_dir = Path(out) / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+def _validate_run_id(run_id: str) -> None:
+    if (
+        not run_id.strip()
+        or Path(run_id).name != run_id
+        or run_id in {".", ".."}
+        or "\\" in run_id
+    ):
+        raise ValueError("run ID must be a non-empty directory name")
+
+
+def _write_result(
+    out: str,
+    run_id: str,
+    result: foundry_loop.SlotResult,
+    slot: dict,
+) -> Path:
+    """Persist a complete run through a temporary sibling directory."""
+    _validate_run_id(run_id)
+    out_dir = Path(out)
+    run_dir = out_dir / run_id
+    if run_dir.exists():
+        raise ValueError(f"foundry run directory already exists: {run_dir}")
+
+    pairs = preference.pairs_from_slot(slot, result, run_id=run_id)
     payloads = {
         "accepted.json": result.accepted,
         "rejected.json": result.rejected,
         "escalated.json": result.escalated,
-        "summary.json": _summary(result),
+        "summary.json": _summary(result, pairs),
     }
-    for filename, payload in payloads.items():
-        (run_dir / filename).write_text(json.dumps(payload, indent=2) + "\n")
+    rendered = {
+        filename: json.dumps(payload, indent=2, allow_nan=False) + "\n"
+        for filename, payload in payloads.items()
+    }
+
+    temporary: Path | None = None
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        if run_dir.exists():
+            raise ValueError(f"foundry run directory already exists: {run_dir}")
+        temporary = Path(
+            tempfile.mkdtemp(prefix=f".{run_id}.", suffix=".tmp", dir=out_dir)
+        )
+        for filename, content in rendered.items():
+            (temporary / filename).write_text(content, encoding="utf-8")
+        written = preference.write_jsonl(
+            str(temporary / "preferences.jsonl"), pairs
+        )
+        if written != len(pairs):
+            raise ValueError(
+                "preference count mismatch: "
+                f"generated {len(pairs)}, wrote {written}"
+            )
+        if run_dir.exists():
+            raise ValueError(f"foundry run directory already exists: {run_dir}")
+        os.rename(temporary, run_dir)
+        temporary = None
+    except OSError as error:
+        raise ValueError(f"could not persist foundry run {run_id!r}: {error}") from error
+    finally:
+        if temporary is not None:
+            shutil.rmtree(temporary, ignore_errors=True)
     return run_dir
 
 
@@ -102,10 +168,17 @@ def main() -> int:
         ),
     )
     parser.add_argument("--topic", default="classical_mechanics")
+    parser.add_argument(
+        "--category",
+        help="blueprint category for the slot (default: --topic)",
+    )
     parser.add_argument("--out", default="content/run/foundry")
     parser.add_argument(
         "--run",
-        help="run directory name under --out (default: current UTC timestamp)",
+        help=(
+            "new run directory name under --out "
+            "(default: current UTC timestamp with microseconds)"
+        ),
     )
     parser.add_argument(
         "--self-check", action="store_true", help="run an offline smoke and exit"
@@ -129,13 +202,18 @@ def main() -> int:
         parser.error("--verifier-accuracy must be between 0 and 1")
 
     effective_n = _effective_n(args.n, args.verifier_accuracy)
-    result = _dry_run(args.topic, effective_n)
-    run_id = args.run or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    run_dir = _write_result(args.out, run_id, result)
-    pairs = preference.pairs_from_slot(
-        {"topic": args.topic}, result, run_id=run_id
-    )
-    preference.write_jsonl(str(run_dir / "preferences.jsonl"), pairs)
+    category = args.category or args.topic
+    result = _dry_run(args.topic, effective_n, category=category)
+    run_id = args.run or datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    try:
+        run_dir = _write_result(
+            args.out,
+            run_id,
+            result,
+            {"topic": args.topic, "blueprint_category": category},
+        )
+    except ValueError as error:
+        parser.error(str(error))
     print(
         f"requested_n={args.n}; effective_n={effective_n}; "
         f"yield={result.yield_rate:.3f}; wrote {run_dir}"

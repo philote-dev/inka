@@ -287,25 +287,43 @@ def check_prompt_logs(items: list[tuple[str, str]], threshold: int) -> CheckResu
     return res
 
 
+def _nested_path(path: str, key: object) -> str:
+    return f"{path}.{key}" if isinstance(key, str) else f"{path}[{key!r}]"
+
+
+def _private_root_errors(value: object, path: str = "$") -> list[str]:
+    errors: list[str] = []
+    if isinstance(value, str):
+        normalized = value.lower().replace("\\\\", "/").replace("\\", "/")
+        for marker in _FORBIDDEN_FOUNDRY_PATH_MARKERS:
+            if marker in normalized:
+                errors.append(f"{path}: forbidden private-root marker: {marker}")
+    elif isinstance(value, dict):
+        for key, nested in value.items():
+            child = _nested_path(path, key)
+            if isinstance(key, str):
+                errors.extend(_private_root_errors(key, f"{child} (key)"))
+            errors.extend(_private_root_errors(nested, child))
+    elif isinstance(value, list):
+        for index, nested in enumerate(value):
+            errors.extend(_private_root_errors(nested, f"{path}[{index}]"))
+    return errors
+
+
 def foundry_jsonl_is_clean(path: str) -> list[str]:
     """Validate one preference JSONL file and reject private-root path markers."""
     errors = preference.scan_jsonl(path)
     try:
         with open(path, encoding="utf-8") as file:
             for lineno, line in enumerate(file, start=1):
-                serialized = line
                 try:
                     record = json.loads(line)
                 except json.JSONDecodeError:
-                    pass
-                else:
-                    serialized = json.dumps(record, ensure_ascii=False)
-                normalized = serialized.lower().replace("\\\\", "/").replace("\\", "/")
-                for marker in _FORBIDDEN_FOUNDRY_PATH_MARKERS:
-                    if marker in normalized:
-                        errors.append(
-                            f"line {lineno}: forbidden private-root marker: {marker}"
-                        )
+                    continue
+                errors.extend(
+                    f"line {lineno}: {error}"
+                    for error in _private_root_errors(record)
+                )
     except OSError:
         pass
     return errors
