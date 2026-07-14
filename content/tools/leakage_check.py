@@ -3,7 +3,7 @@
 The firewall is structural first: the index build reads ``content/corpus/`` only,
 so gold, held-out, and Tier-3 text cannot reach the index or a prompt by
 construction. This guard is the automated backstop that fails loudly if that
-ever breaks. It implements the five checks written down in
+ever breaks. It implements the six checks written down in
 ``docs_pgrep/ai/heldout-and-leakage.md`` section 4 and ``docs_pgrep/ai/ai-layer.md``
 section 10.
 

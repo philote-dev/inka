@@ -391,6 +391,13 @@ foundry *args:
     if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
     out/pyenv/bin/python content/tools/foundry.py {{ args }}
 
+# Standing verifier evaluation over precomputed labels, entirely offline
+[group('content')]
+[unix]
+eval-verifier *args:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/eval_verifier.py {{ args }}
+
 # Reproduce the AI-eval methodology on a committed synthetic sample, offline
 [group('content')]
 [unix]
