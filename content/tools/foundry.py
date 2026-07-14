@@ -122,20 +122,19 @@ def _write_result(
         )
         for filename, content in rendered.items():
             (temporary / filename).write_text(content, encoding="utf-8")
-        written = preference.write_jsonl(
-            str(temporary / "preferences.jsonl"), pairs
-        )
+        written = preference.write_jsonl(str(temporary / "preferences.jsonl"), pairs)
         if written != len(pairs):
             raise ValueError(
-                "preference count mismatch: "
-                f"generated {len(pairs)}, wrote {written}"
+                f"preference count mismatch: generated {len(pairs)}, wrote {written}"
             )
         if run_dir.exists():
             raise ValueError(f"foundry run directory already exists: {run_dir}")
         os.rename(temporary, run_dir)
         temporary = None
     except OSError as error:
-        raise ValueError(f"could not persist foundry run {run_id!r}: {error}") from error
+        raise ValueError(
+            f"could not persist foundry run {run_id!r}: {error}"
+        ) from error
     finally:
         if temporary is not None:
             shutil.rmtree(temporary, ignore_errors=True)
@@ -157,7 +156,9 @@ def _self_check() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the best-of-N content foundry.")
     parser.add_argument("--dry-run", action="store_true", help="use offline fakes")
-    parser.add_argument("--n", type=int, default=8, help="requested candidates per slot")
+    parser.add_argument(
+        "--n", type=int, default=8, help="requested candidates per slot"
+    )
     parser.add_argument(
         "--verifier-accuracy",
         type=float,
@@ -191,7 +192,9 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.compare:
-        print("--compare is deferred to Phase 2.1; continuing without it", file=sys.stderr)
+        print(
+            "--compare is deferred to Phase 2.1; continuing without it", file=sys.stderr
+        )
     if args.self_check:
         return _self_check()
     if not args.dry_run:

@@ -102,7 +102,7 @@ def normalize_words(text: str) -> list[str]:
 def _ngrams(words: list[str], n: int) -> list[str]:
     if len(words) < n:
         return [" ".join(words)] if words else []
-    return [" ".join(words[i:i + n]) for i in range(len(words) - n + 1)]
+    return [" ".join(words[i : i + n]) for i in range(len(words) - n + 1)]
 
 
 def _hash(text: str) -> bytes:
@@ -117,7 +117,9 @@ def hashes_from_texts(texts: list[str], n: int = SHINGLE_N) -> set[bytes]:
     return hashes
 
 
-def longest_match_span(words: list[str], index_hashes: set[bytes], n: int = SHINGLE_N) -> tuple[int, str]:
+def longest_match_span(
+    words: list[str], index_hashes: set[bytes], n: int = SHINGLE_N
+) -> tuple[int, str]:
     """Longest run of consecutive n-grams present in the index, as a word span.
 
     A run of ``r`` consecutive matching n-grams covers ``r + n - 1`` contiguous
@@ -129,7 +131,10 @@ def longest_match_span(words: list[str], index_hashes: set[bytes], n: int = SHIN
         if gram and _hash(gram) in index_hashes:
             return len(words), gram
         return 0, ""
-    matched = [(_hash(" ".join(words[i:i + n])) in index_hashes) for i in range(len(words) - n + 1)]
+    matched = [
+        (_hash(" ".join(words[i : i + n])) in index_hashes)
+        for i in range(len(words) - n + 1)
+    ]
     best_len = 0
     best_start = 0
     run = 0
@@ -147,7 +152,7 @@ def longest_match_span(words: list[str], index_hashes: set[bytes], n: int = SHIN
     if best_len == 0:
         return 0, ""
     span_words = best_len + n - 1
-    return span_words, " ".join(words[best_start:best_start + span_words])
+    return span_words, " ".join(words[best_start : best_start + span_words])
 
 
 # --- item loading ----------------------------------------------------------
@@ -156,7 +161,9 @@ def longest_match_span(words: list[str], index_hashes: set[bytes], n: int = SHIN
 def _heldout_item_texts() -> list[tuple[str, str]]:
     """(label, text) for every parsed held-out ETS item (stem + choices)."""
     out: list[tuple[str, str]] = []
-    for path in sorted(glob.glob(os.path.join(CONTENT, "tier3-private", "items", "*.json"))):
+    for path in sorted(
+        glob.glob(os.path.join(CONTENT, "tier3-private", "items", "*.json"))
+    ):
         try:
             data = json.load(open(path, encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
@@ -212,7 +219,10 @@ def check_index_paths(db_path: str) -> CheckResult:
     finally:
         db.close()
     hits: list[str] = []
-    corpus_files = {os.path.basename(p) for p in glob.glob(os.path.join(CORPUS_DIR, "**", "*"), recursive=True)}
+    corpus_files = {
+        os.path.basename(p)
+        for p in glob.glob(os.path.join(CORPUS_DIR, "**", "*"), recursive=True)
+    }
     private_files: dict[str, str] = {}
     for label, root in PRIVATE_ROOTS.items():
         for p in glob.glob(os.path.join(root, "**", "*"), recursive=True):
@@ -220,17 +230,27 @@ def check_index_paths(db_path: str) -> CheckResult:
     for (source_file,) in rows:
         base = os.path.basename(source_file)
         if base in private_files:
-            hits.append(f"{source_file} resolves under private root {private_files[base]}")
+            hits.append(
+                f"{source_file} resolves under private root {private_files[base]}"
+            )
         elif base not in corpus_files:
             hits.append(f"{source_file} is not present under content/corpus/")
     ok = not hits
-    detail = (f"{len(rows)} distinct sources indexed, all under content/corpus/"
-              if ok else f"{len(hits)} indexed source(s) not corpus-only")
+    detail = (
+        f"{len(rows)} distinct sources indexed, all under content/corpus/"
+        if ok
+        else f"{len(hits)} indexed source(s) not corpus-only"
+    )
     return CheckResult("index-paths", ok, detail, hits)
 
 
-def _copyin_check(name: str, target_hashes: set[bytes], items: list[tuple[str, str]],
-                  threshold: int, where: str) -> CheckResult:
+def _copyin_check(
+    name: str,
+    target_hashes: set[bytes],
+    items: list[tuple[str, str]],
+    threshold: int,
+    where: str,
+) -> CheckResult:
     """Flag any item whose longest contiguous span in the target reaches threshold."""
     hits: list[str] = []
     worst = 0
@@ -240,28 +260,36 @@ def _copyin_check(name: str, target_hashes: set[bytes], items: list[tuple[str, s
         if span > worst:
             worst, worst_label = span, label
         if span >= threshold:
-            hits.append(f"{label}: {span}-word span {where}: \"{covered[:120]}\"")
+            hits.append(f'{label}: {span}-word span {where}: "{covered[:120]}"')
     ok = not hits
     if ok:
-        detail = (f"{len(items)} items, longest overlap {worst} words "
-                  f"({worst_label or 'n/a'}), under the {threshold}-word copy-in bar")
+        detail = (
+            f"{len(items)} items, longest overlap {worst} words "
+            f"({worst_label or 'n/a'}), under the {threshold}-word copy-in bar"
+        )
     else:
         detail = f"{len(hits)} item(s) with a copy-in span >= {threshold} words"
     return CheckResult(name, ok, detail, hits[:20])
 
 
-def check_shingles(db_path: str, items: list[tuple[str, str]], threshold: int) -> CheckResult:
+def check_shingles(
+    db_path: str, items: list[tuple[str, str]], threshold: int
+) -> CheckResult:
     """No held-out or gold item shares a long contiguous span with the index."""
     if not os.path.exists(db_path):
         return CheckResult("copy-in-index", False, f"no index at {db_path}")
     if not items:
-        return CheckResult("copy-in-index", True, "no held-out or gold items present to check yet")
+        return CheckResult(
+            "copy-in-index", True, "no held-out or gold items present to check yet"
+        )
     db = sqlite3.connect(db_path)
     try:
         texts = [t for (t,) in db.execute("SELECT text FROM chunks")]
     finally:
         db.close()
-    return _copyin_check("copy-in-index", hashes_from_texts(texts), items, threshold, "in index")
+    return _copyin_check(
+        "copy-in-index", hashes_from_texts(texts), items, threshold, "in index"
+    )
 
 
 def check_prompt_logs(items: list[tuple[str, str]], threshold: int) -> CheckResult:
@@ -274,15 +302,20 @@ def check_prompt_logs(items: list[tuple[str, str]], threshold: int) -> CheckResu
     if not log_files:
         return CheckResult("copy-in-prompts", True, "no prompt logs on disk to scan")
     if not items:
-        return CheckResult("copy-in-prompts", True, f"{len(log_files)} logs, no gold/held-out items to match")
+        return CheckResult(
+            "copy-in-prompts",
+            True,
+            f"{len(log_files)} logs, no gold/held-out items to match",
+        )
     texts = []
     for path in log_files:
         try:
             texts.append(open(path, encoding="utf-8", errors="ignore").read())
         except OSError:
             continue
-    res = _copyin_check("copy-in-prompts", hashes_from_texts(texts), items, threshold,
-                        "in prompt logs")
+    res = _copyin_check(
+        "copy-in-prompts", hashes_from_texts(texts), items, threshold, "in prompt logs"
+    )
     res.detail = f"{len(log_files)} prompt log(s): " + res.detail
     return res
 
@@ -321,8 +354,7 @@ def foundry_jsonl_is_clean(path: str) -> list[str]:
                 except json.JSONDecodeError:
                     continue
                 errors.extend(
-                    f"line {lineno}: {error}"
-                    for error in _private_root_errors(record)
+                    f"line {lineno}: {error}" for error in _private_root_errors(record)
                 )
     except OSError:
         pass
@@ -399,12 +431,17 @@ def check_ai_path_references() -> CheckResult:
                         allowed = token == "tier3-private" and "constants" in line
                         if not allowed:
                             rel = os.path.relpath(path, REPO)
-                            hits.append(f"{rel}:{lineno} references {token}: {line.strip()[:80]}")
+                            hits.append(
+                                f"{rel}:{lineno} references {token}: {line.strip()[:80]}"
+                            )
         except OSError:
             continue
     ok = not hits
-    detail = (f"{len(py_files)} shipped pgrep file(s), no forbidden private-root access"
-              if ok else f"{len(hits)} forbidden reference(s) in the AI path")
+    detail = (
+        f"{len(py_files)} shipped pgrep file(s), no forbidden private-root access"
+        if ok
+        else f"{len(hits)} forbidden reference(s) in the AI path"
+    )
     return CheckResult("ai-path-refs", ok, detail, hits[:20])
 
 
@@ -437,15 +474,23 @@ def report(results: list[CheckResult], verbose: bool = False) -> bool:
             for h in r.hits:
                 print(f"         - {h}")
     print("-" * 60)
-    print("OK: firewall intact" if all_ok else "FAILED: leakage detected, do not report results")
+    print(
+        "OK: firewall intact"
+        if all_ok
+        else "FAILED: leakage detected, do not report results"
+    )
     return all_ok
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="pgrep leakage guard (firewall backstop).")
     ap.add_argument("--db", default=INDEX_DB)
-    ap.add_argument("--span-threshold", type=int, default=DEFAULT_SPAN_THRESHOLD,
-                    help="contiguous verbatim word span treated as copy-in")
+    ap.add_argument(
+        "--span-threshold",
+        type=int,
+        default=DEFAULT_SPAN_THRESHOLD,
+        help="contiguous verbatim word span treated as copy-in",
+    )
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
     results = run_checks(args.db, args.span_threshold)

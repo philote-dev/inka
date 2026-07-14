@@ -79,10 +79,12 @@ normative where a sketch differs.
 ### Task 1: Preference dataset schema and emitter
 
 **Files:**
+
 - Create: `pylib/anki/pgrep/ai/preference.py`
 - Test: `pylib/tests/test_pgrep_preference.py`
 
 **Interfaces:**
+
 - Consumes: `foundry_loop.SlotResult` (or equivalent lists of accepted/rejected dicts).
 - Produces:
   - Schema version `preference_schema_version = 1`
@@ -305,11 +307,13 @@ EOF
 ### Task 2: Wire emitter into foundry CLI + leakage guard
 
 **Files:**
+
 - Modify: `content/tools/foundry.py`
 - Modify: `content/tools/leakage_check.py` (add a check that scans `content/run/foundry/**/*.jsonl` when present)
 - Test: extend `test_pgrep_preference.py` or add a pure helper test for the id/path scanner
 
 **Interfaces:**
+
 - After `run_slot`, call `preference.pairs_from_slot` and `write_jsonl(out/preferences.jsonl, pairs)`.
 - Leakage helper: `def foundry_jsonl_is_clean(path: str) -> list[str]` returning
   path- and line-aware errors if any nested key or value fails schema,
@@ -355,11 +359,13 @@ EOF
 ### Task 3: Standing eval CLI and `just eval-verifier`
 
 **Files:**
+
 - Create: `content/tools/eval_verifier.py` (or extend `calibrate_verifier.py`)
 - Modify: `justfile`
 - Modify: `docs_pgrep/reference/content-pipeline.md`
 
 **Interfaces:**
+
 - `--self-check`: offline passing calibration, held-out, and per-slot foundry
   data; prints a green JSON report and exits 0.
 - `--labels PATH`: load explicit calibration and held-out property arrays. No
@@ -428,6 +434,7 @@ EOF
 ### Task 4: Document Tier 2 / Tier 3 triggers and close the loop in docs
 
 **Files:**
+
 - Modify: `docs_pgrep/plan/content-foundry-and-verifier-design.md` (Staged tiers section)
 - Modify: `docs_pgrep/reference/content-pipeline.md`
 - Modify: `docs_pgrep/README.md` (link Phase 2 and Phase 3 plans)

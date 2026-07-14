@@ -70,9 +70,7 @@ def _recursive_data_errors(value: object, path: str = "$") -> list[str]:
         for key, nested in value.items():
             child = _child_path(path, key)
             if isinstance(key, str) and (marker := _PRIVATE_MARKER.search(key)):
-                errors.append(
-                    f"{child} (key): private marker {marker.group(0)!r}"
-                )
+                errors.append(f"{child} (key): private marker {marker.group(0)!r}")
             elif isinstance(key, float) and not math.isfinite(key):
                 errors.append(f"{child} (key): non-finite numbers are not allowed")
             errors.extend(_recursive_data_errors(nested, child))
@@ -106,9 +104,7 @@ def _validate_item(side: str, node: object, decision: str) -> list[str]:
         or len(choices) != 5
         or any(not _non_empty_string(choice) for choice in choices)
     ):
-        errors.append(
-            f"{side}.choices must contain exactly five non-empty strings"
-        )
+        errors.append(f"{side}.choices must contain exactly five non-empty strings")
 
     correct = node.get("correct")
     if not isinstance(correct, str) or correct not in _CORRECT_CHOICES:
@@ -300,9 +296,7 @@ def write_jsonl(path: str, pairs: list[dict]) -> int:
         ) as file:
             temporary_path = file.name
             for pair in pairs:
-                file.write(
-                    json.dumps(pair, ensure_ascii=False, allow_nan=False) + "\n"
-                )
+                file.write(json.dumps(pair, ensure_ascii=False, allow_nan=False) + "\n")
             file.flush()
             os.fsync(file.fileno())
         os.replace(temporary_path, destination)
