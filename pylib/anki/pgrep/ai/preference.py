@@ -17,7 +17,15 @@ from .foundry_loop import SlotResult
 
 preference_schema_version = 1
 
-_PRIVATE_ID_MARKERS = ("gold-", "heldout-", "ets-", "tier3-", "gr9677-", "gr1777-")
+_PRIVATE_ID_MARKERS = (
+    "gold-",
+    "heldout-",
+    "ets-",
+    "tier3-",
+    "gr9677-",
+    "gr1777-",
+)
+_REQUIRED_ITEM_FIELDS = ("id", "stem", "choices", "correct", "panel")
 
 
 def _failing_gates(item: dict) -> list[str]:
@@ -26,7 +34,9 @@ def _failing_gates(item: dict) -> list[str]:
     out = [
         c.get("name", "")
         for c in checks
-        if isinstance(c, dict) and not c.get("passed", True) and c.get("severity") == "hard"
+        if isinstance(c, dict)
+        and not c.get("passed", True)
+        and c.get("severity") == "hard"
     ]
     if not out and item.get("reason"):
         out = [
@@ -37,27 +47,48 @@ def _failing_gates(item: dict) -> list[str]:
     return [g for g in out if g]
 
 
+def _validate_item(side: str, node: object) -> list[str]:
+    if not isinstance(node, dict):
+        return [f"{side} missing"]
+
+    errs = [f"{side}.{key} missing" for key in _REQUIRED_ITEM_FIELDS if key not in node]
+    iid = node.get("id")
+    if "id" in node and (not isinstance(iid, str) or not iid.strip()):
+        errs.append(f"{side}.id must be a non-empty string")
+    elif isinstance(iid, str) and any(
+        marker in iid.lower() for marker in _PRIVATE_ID_MARKERS
+    ):
+        errs.append(f"{side}.id looks private: {iid.lower()}")
+    return errs
+
+
+def _validate_failing_gates(rejected: object) -> list[str]:
+    if not isinstance(rejected, dict):
+        return []
+    if "failing_gates" not in rejected:
+        return ["rejected.failing_gates missing"]
+
+    gates = rejected["failing_gates"]
+    if (
+        not isinstance(gates, list)
+        or not gates
+        or any(not isinstance(gate, str) or not gate.strip() for gate in gates)
+    ):
+        return ["rejected.failing_gates must be a non-empty list of non-empty strings"]
+    return []
+
+
 def validate_pair(pair: dict) -> list[str]:
     errs: list[str] = []
     if pair.get("schema") != preference_schema_version:
         errs.append(f"schema must be {preference_schema_version}")
     for side in ("chosen", "rejected"):
-        node = pair.get(side)
-        if not isinstance(node, dict):
-            errs.append(f"{side} missing")
-            continue
-        for k in ("id", "stem", "choices", "correct", "panel"):
-            if k not in node:
-                errs.append(f"{side}.{k} missing")
-        iid = str((node or {}).get("id", "")).lower()
-        if any(m in iid for m in _PRIVATE_ID_MARKERS):
-            errs.append(f"{side}.id looks private: {iid}")
+        errs.extend(_validate_item(side, pair.get(side)))
     if "run_id" not in pair:
         errs.append("run_id missing")
     if "slot" not in pair:
         errs.append("slot missing")
-    if isinstance(pair.get("rejected"), dict) and "failing_gates" not in pair["rejected"]:
-        errs.append("rejected.failing_gates missing")
+    errs.extend(_validate_failing_gates(pair.get("rejected")))
     return errs
 
 
