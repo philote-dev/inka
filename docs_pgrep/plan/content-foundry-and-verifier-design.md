@@ -250,9 +250,11 @@ WS9}.
   recall (extend `eval_metrics.py` with balanced-accuracy and per-property
   helpers; it already has `cohens_kappa` and bootstrap CIs). Also report intrinsic
   consistency: verdict stability under prompt perturbation and option shuffles.
-- Tune each gate threshold for high accept-precision and write the thresholds to
-  the config the panel reads. Emit a calibration card as JSON plus Markdown under
-  `content/run/calibration/`.
+- Tune each gate threshold for high accept-precision on the calibration split
+  only, then apply that fixed cutoff to the held-out split. Each threshold
+  records whether the 0.95 target is attainable, its nullable cutoff, achieved
+  precision, retained count, and eligible count. Emit a calibration card as JSON
+  plus Markdown under `content/run/calibration/`.
 - Acceptance: produces the calibration card with both axes (alignment and
   consistency) and per-gate thresholds; the panel reads the written thresholds;
   offline-tested on a tiny synthetic labeled set.
@@ -275,23 +277,37 @@ WS9}.
 
 ### WS8. Preference dataset emitter
 
-- The loop logs every candidate with its panel verdict and reason as
-  chosen/rejected pairs in a stable, documented schema under
-  `content/run/foundry/`. Chosen means passed all gates; rejected records the
-  specific failing gate and its evidence.
-- Respect the firewall: the dataset is git-ignored, grounds only on the corpus,
-  and never contains gold, held-out, or ETS material.
+- The loop emits pairs only for validated accepted by rejected combinations
+  from the same blueprint slot. Chosen means passed all gates; rejected records
+  the specific failing gate and its evidence. Escalations, invalid candidates,
+  and one-sided slots do not become preference pairs.
+- Schema v1 preserves the slot topic and blueprint category, requires source
+  references on both sides, and validates panel decisions and finite values.
+  Writes overwrite atomically within a new run and reject duplicate ID pairs.
+- Respect the firewall: default output under `content/run/foundry/` is
+  git-ignored, grounds only on the corpus, and never contains gold, held-out, or
+  ETS material. Operators are responsible for keeping custom output paths
+  private and out of version control.
 - Acceptance: the schema is documented and validated; a small run produces a
   well-formed dataset; a leakage check confirms no gold or ETS content.
 
 ### WS9. Standing eval and gate wiring
 
-- Add a `just eval-verifier` recipe that runs the calibration set plus a held-out
-  slice as a regression eval, printing the two-axis calibration card and yield
-  with bootstrap CIs. Add a tiny offline smoke to `just test-py` so the panel and
-  loop logic stay green per commit without any network.
-- Acceptance: the recipe runs and prints the calibration card and yield; the
-  offline smoke runs in `test-py`.
+- Add a `just eval-verifier` recipe that requires explicit calibration and
+  held-out property-label splits. Threshold selection reads calibration only;
+  held-out labels and confidences cannot influence the cutoff. Held-out records
+  contain labels and numbers only and remain evaluation-only.
+- Print split-specific reports, threshold diagnostics, and a standing gate card.
+  Green requires key and figure, per-property held-out agreement at least 0.90,
+  balanced accuracy at least 0.85, measured consistency at least 0.90,
+  held-out accepted precision at least 0.95 for key and figure, and foundry
+  escalation no greater than 0.15.
+- Foundry uncertainty bootstraps slot-level yield and escalation rates through
+  `eval_metrics.bootstrap_ci`. At least two non-empty slots are required for
+  intervals and a green gate. Legacy aggregate summaries report points only.
+- Acceptance: the recipe always prints or writes a structurally valid report.
+  Red exits nonzero. The offline self-check supplies passing synthetic
+  calibration, held-out, and per-slot foundry data and exits 0.
 
 ## Staged tiers (future gates)
 
@@ -312,7 +328,9 @@ counts have not been reached, and no Tier 2 or Tier 3 training has begun.
   aggregation for the canonical worked solutions. Trigger: preference JSONL with
   at least `1000` validated pairs across at least `6` blueprint categories,
   leakage check clean, and the Phase 3 standing eval green on the latest
-  calibration card.
+  calibration card. Foundry summaries expose the current validated pair and
+  distinct-category counts for this audit. The current design does not claim
+  either count has been reached.
 
 ## Testing strategy
 
@@ -328,7 +346,9 @@ counts have not been reached, and no Tier 2 or Tier 3 training has begun.
 
 Unchanged and reaffirmed. Generation reads only `content/corpus/`. Gold,
 held-out, and ETS material never enter the corpus, the index, a prompt, or the
-preference dataset. The foundry outputs stay git-ignored under `content/run/`.
+preference dataset. Default foundry output stays under the git-ignored
+`content/run/foundry/` tree. Custom output paths remain the operator's
+responsibility.
 
 ## Risks and mitigations
 
@@ -344,11 +364,11 @@ preference dataset. The foundry outputs stay git-ignored under `content/run/`.
 
 ## Success criteria
 
-- **Verifier trust:** on the calibration card, per-property raw agreement at or
-  above `0.90` and balanced accuracy at or above `0.85` (key agreement the
-  strictest), with intrinsic consistency at or above `0.90`. These are the initial
-  bars; calibration (WS6) may tighten them. This replaces the single misleading
-  kappa.
+- **Verifier trust:** on held-out labels after calibration-only threshold
+  fitting, every reported property has raw agreement at or above `0.90`,
+  balanced accuracy at or above `0.85`, and measured consistency at or above
+  `0.90`. Key and figure accepted precision is at least `0.95`. Missing evidence
+  is red. These bars replace the single misleading kappa.
 - **Content quality of the accepted set:** key correctness at or above the
   existing `0.95` cutoff, distractor quality per problem at or above `0.70`, zero
   free-elimination distractors, and figure fidelity passing.

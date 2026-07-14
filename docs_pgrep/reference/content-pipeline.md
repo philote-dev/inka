@@ -19,12 +19,14 @@ tool used to carry, so a behavior is defined and tested in one place.
 ## What is tracked, what is not
 
 The pipeline code under `content/tools/` (roughly seventy Python tools) is
-version-controlled, so the pipeline is reviewable and reproducible. The private
-data it reads and writes stays git-ignored: the corpus, the gold and held-out
-sets, the RAG index, the run artifacts, the ETS raw-to-scaled constants,
-`content/.env`, and the local databases. The copyrighted and held-out material
-never enters git, while the code that operates on it does. The deep modules the
-tools share live under `pylib/anki/pgrep/` and ship with the app.
+version-controlled, so the pipeline is reviewable and reproducible. The default
+private data and run locations under `content/` are git-ignored: the corpus, the
+gold and held-out sets, the RAG index, the run artifacts, the ETS raw-to-scaled
+constants, `content/.env`, and the local databases. The copyrighted and held-out
+material never enters git, while the code that operates on it does. An operator
+who passes a custom output path is responsible for keeping it private and out of
+version control. The deep modules the tools share live under
+`pylib/anki/pgrep/` and ship with the app.
 
 ---
 
@@ -209,6 +211,7 @@ panel, and partitions results into `accepted`, `rejected`, and `escalated`.
 `content/tools/foundry.py` is the CLI. Offline modes never touch the network:
 `--self-check` for smoke, `--dry-run` for a full partition with fakes. The CLI
 caps requested `--n` using `--verifier-accuracy` (conservative default 0.8).
+`--category` records the blueprint category and defaults to `--topic`.
 Online generation will use the same partition once wired. Comparative
 multi-candidate selection (`--compare`) is deferred to Phase 2.1.
 
@@ -219,8 +222,12 @@ Each persisted foundry run writes four JSON files under
 `escalated.json`, and `summary.json`. It writes `preferences.jsonl` beside
 them. Run `content/tools/make_foundry_escalation.py` to render a Markdown
 review sheet (`ESCALATE` / `KEEP` / `DROP` per item) from the latest run by
-default, or pass `--run <name>`. The artifacts stay git-ignored. Generation
-still reads only `content/corpus/`; the leakage firewall is unchanged.
+default, or pass `--run <name>`. The CLI refuses an existing run directory. It
+builds and validates the pairs first, writes every artifact to a temporary
+sibling, verifies the preference count, then atomically publishes the complete
+directory. Timestamp run IDs include microseconds. Default artifacts stay under
+the ignored `content/run/foundry/` tree; custom `--out` paths are the operator's
+responsibility. Generation still reads only `content/corpus/`.
 
 Accepted survivors still land only through `assemble_bundle.py` and the
 per-commit invariant gate.
@@ -242,62 +249,87 @@ implementation plan is
 ```json
 {
     "schema": 1,
-    "slot": { "topic": "optics" },
+    "slot": {
+        "topic": "thin lenses",
+        "blueprint_category": "optics"
+    },
     "chosen": {
         "id": "candidate-1",
         "stem": "...",
         "choices": ["...", "...", "...", "...", "..."],
         "correct": "A",
-        "panel": {}
+        "source_ref": "corpus://openstax/example",
+        "panel": { "decision": "accept", "checks": [] }
     },
     "rejected": {
         "id": "candidate-2",
         "stem": "...",
         "choices": ["...", "...", "...", "...", "..."],
         "correct": "B",
-        "panel": {},
+        "source_ref": "corpus://openstax/example",
+        "panel": { "decision": "reject", "checks": [] },
         "failing_gates": ["key"]
     },
     "run_id": "run-1"
 }
 ```
 
-`pairs_from_slot` pairs every accepted candidate with every rejected candidate
-from the same blueprint slot, capped at 64 pairs per call. The chosen side is a
-panel accept. The rejected side is a panel reject and records its failing hard
-gates. Escalated candidates are excluded because a human still owns their
-disposition.
+`validate_pair` enforces non-empty run and slot fields, distinct IDs, five
+non-empty choices, an `A` through `E` key, source references, the required panel
+decisions, non-empty failing gates, and finite numbers throughout the record.
+Invalid construction or writing raises `ValueError`; no record is silently
+skipped.
 
-`content/tools/foundry.py` appends validated records to
-`content/run/foundry/<run>/preferences.jsonl`, beside that run's
-`accepted.json`, `rejected.json`, `escalated.json`, and `summary.json`.
-`foundry_loop.summarize_runs` supplies the partition counts in the summary. The
-entire run tree remains git-ignored.
+Only validated accepted by rejected combinations from the same slot become
+pairs, capped at 64 per call. Escalations, invalid candidates, and slots lacking
+either side produce no pair. A non-positive cap produces zero pairs.
+
+`content/tools/foundry.py` atomically overwrites one new run's
+`preferences.jsonl`; it never appends to an earlier run. Duplicate chosen and
+rejected ID combinations fail the write. `summary.json` includes a
+`preferences` object with the validated pair count, distinct category count,
+and category names. These fields make the future 1,000-pair and six-category
+trigger countable. They do not claim that the trigger has been reached.
 
 ### Leakage backstop
 
 `content/tools/leakage_check.py` recursively scans every `*.jsonl` under
 `content/run/foundry/`. It uses `preference.scan_jsonl` to validate each
-record's schema and required fields, rejects private ID and private-root path
-markers, and checks for long contiguous spans copied from any available gold or
-held-out item. These structural, private-root, and copy-in checks supplement the
-primary firewall: generation and preference pairing ground only on
-`content/corpus/`.
+record's schema and required fields. The recursive marker scan covers every key
+and value, including slot metadata, panel evidence, choices, and source
+references. It rejects boundary-delimited identifier and path forms for gold,
+held-out, ETS, Tier 3, GR9677, and GR1777 while allowing benign words such as
+`marigold`. Errors include the JSON path and line number. The leakage tool also
+retains the forbidden private-root checks and the 25-word contiguous copy-in
+check against available private items. These checks supplement the primary
+firewall: generation and preference pairing ground only on `content/corpus/`.
 
 ### Standing verifier evaluation
 
 `content/tools/eval_verifier.py`, run with `just eval-verifier`, reads saved
 predictions and labels without constructing a model client or making a network
-call. Its input has one entry per verifier property:
+call. Its input requires distinct calibration and held-out splits:
 
 ```json
 {
-    "properties": {
-        "key": {
-            "predicted": [true, false],
-            "human": [true, true],
-            "confidence": [0.9, 0.7],
-            "runs": [[true, false], [true, false]]
+    "calibration": {
+        "properties": {
+            "key": {
+                "predicted": [true, false],
+                "human": [true, false],
+                "confidence": [0.9, 0.7],
+                "runs": [[true, false], [true, false]]
+            }
+        }
+    },
+    "heldout": {
+        "properties": {
+            "key": {
+                "predicted": [true, false],
+                "human": [true, false],
+                "confidence": [0.95, 0.6],
+                "runs": [[true, false], [true, false]]
+            }
         }
     }
 }
@@ -305,22 +337,68 @@ call. Its input has one entry per verifier property:
 
 `predicted` and `human` are required aligned boolean arrays. `confidence` is an
 optional aligned array of values from 0 to 1. `runs` is optional; when present,
-it contains at least two aligned boolean arrays from perturbation runs. Without
-`runs`, the property's consistency is `null`. Overall consistency averages only
-properties with measured runs and is `null` when no property has them.
+it contains at least two aligned boolean arrays from perturbation runs.
+Consistency compares the original `predicted` verdicts and every perturbation
+run. Without `runs`, consistency is `null` and its gate is red.
 
-Run `just eval-verifier --labels <labels.json>`. Add
-`--foundry-summary <summary.json>` for foundry yield and escalation metrics, or
-`--out <path>` to save the printed card. The command reports deterministic 95%
-percentile bootstrap confidence intervals with 2,000 resamples and seed 0 for
-raw agreement and accepted precision. A foundry summary also receives yield and
-escalation intervals. `just eval-verifier --self-check` exercises the complete
-path on synthetic data.
+Only calibration predicted positives and their human labels can fit a
+threshold. Each threshold reports `target_precision`, `attainable`, `cutoff`,
+`achieved_precision`, `retained`, and `eligible`. An unattainable 0.95 target
+has a null cutoff and fails closed. The fixed calibration cutoff is then applied
+to held-out predicted positives. Changing held-out labels or confidences cannot
+change the fitted cutoff.
 
-The saved arrays may contain precomputed calibration labels and a held-out
-regression slice. Held-out item text is never used for generation, prompts, or
-preference pairs. Only the precomputed evaluation labels enter the standing
-eval.
+The held-out split accepts only the label, confidence, and perturbation arrays
+shown above. It contains no IDs, stems, choices, source text, or other item
+content. These labels and numbers are evaluation-only. They never enter a
+prompt, generation context, or preference pair.
+
+The standing gate is green only when all checks have evidence:
+
+- key and figure exist in both splits;
+- held-out raw agreement is at least 0.90 and balanced accuracy is at least
+  0.85 for every reported property;
+- the calibration precision target is attainable for every reported property;
+- held-out accepted precision is at least 0.95 for key and figure;
+- held-out consistency is measured and at least 0.90 for every property;
+- a per-slot foundry summary has at least two non-empty slots and an escalation
+  rate no greater than 0.15.
+
+Each gate check reports `observed`, `required`, `pass`, and `evidence`.
+Structurally valid red evaluations are still printed and written, then the
+command exits 1. Invalid inputs exit 2. A green evaluation exits 0.
+
+Run `just eval-verifier` with `--labels <labels.json>` and
+`--foundry-summary <summary.json>`. Add `--out <path>` to save the identical
+printed report. `just eval-verifier --self-check` uses passing synthetic
+calibration, held-out, and foundry data and exits 0.
+
+For cluster-aware foundry uncertainty, supply per-slot counts:
+
+```json
+{
+    "slots": [
+        {
+            "blueprint_category": "mechanics",
+            "accepted": 18,
+            "rejected": 1,
+            "escalated": 1
+        },
+        {
+            "blueprint_category": "optics",
+            "accepted": 17,
+            "rejected": 2,
+            "escalated": 1
+        }
+    ]
+}
+```
+
+Yield and escalation intervals bootstrap slot-level rates through the existing
+`eval_metrics.bootstrap_ci`; reports identify `ci_unit` as `slot` and include
+the distinct category count. Fewer than two non-empty slots produce null
+intervals and a red support gate. A legacy single aggregate still reports point
+rates, but its intervals and `ci_unit` are null. Zero-candidate rates are null.
 
 ### Future Tier gates
 
@@ -353,7 +431,7 @@ reached, and no Tier 2 or Tier 3 training has started.
 | `make_foundry_escalation.py` | Build a human review sheet from the latest run's `escalated.json` (or `--run <name>`).                           |
 | `calibrate_verifier.py`      | Offline smoke (`--self-check`) of the calibration stats and card assembly.                                       |
 | `leakage_check.py`           | Recursively validate foundry preference schema, private-root markers, and private-item copy-in.                  |
-| `just eval-verifier`         | Evaluate precomputed calibration or held-out labels with deterministic bootstrap confidence intervals.           |
+| `just eval-verifier`         | Fit calibration-only thresholds, score held-out labels, apply standing gates, and report slot-clustered intervals. |
 | `just check`                 | The overall gate (format, build, lint, all tests), which includes `test-py`.                                     |
 
 The LLM audits and the foundry loop need the optional AI runtime and a key when
