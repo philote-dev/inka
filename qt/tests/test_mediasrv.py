@@ -18,6 +18,8 @@ from aqt.mediasrv import (
     _editor_content_security_policy,
     _handle_local_file_request,
     ensure_safe_path,
+    is_dev_allowed_host,
+    is_dev_allowed_origin,
     is_localhost_origin,
 )
 
@@ -100,6 +102,57 @@ class TestIsLocalhostOrigin:
     )
     def test_rejected_origins(self, origin: str) -> None:
         assert is_localhost_origin(origin) is False
+
+
+class TestDevAllowedOrigin:
+    """Phone preview allowlist: one Tailscale origin, ANKIDEV only."""
+
+    def test_env_allows_matching_origin_and_host(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import aqt.mediasrv as mediasrv
+
+        monkeypatch.setattr(mediasrv, "dev_mode", True)
+        monkeypatch.setenv(
+            "PGREP_DEV_ALLOWED_ORIGIN", "https://machine.tail1234.ts.net"
+        )
+        assert (
+            is_dev_allowed_origin("https://machine.tail1234.ts.net") is True
+        )
+        assert (
+            is_dev_allowed_origin("https://machine.tail1234.ts.net/pgrep") is True
+        )
+        assert is_dev_allowed_origin("https://evil.ts.net") is False
+        assert is_dev_allowed_host("machine.tail1234.ts.net") is True
+        assert is_dev_allowed_host("machine.tail1234.ts.net:443") is True
+        assert is_dev_allowed_host("evil.ts.net") is False
+
+    def test_ignored_when_not_dev_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import aqt.mediasrv as mediasrv
+
+        monkeypatch.setattr(mediasrv, "dev_mode", False)
+        monkeypatch.setenv(
+            "PGREP_DEV_ALLOWED_ORIGIN", "https://machine.tail1234.ts.net"
+        )
+        assert (
+            is_dev_allowed_origin("https://machine.tail1234.ts.net") is False
+        )
+        assert is_dev_allowed_host("machine.tail1234.ts.net") is False
+
+    def test_file_fallback(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        import aqt.mediasrv as mediasrv
+
+        monkeypatch.setattr(mediasrv, "dev_mode", True)
+        monkeypatch.delenv("PGREP_DEV_ALLOWED_ORIGIN", raising=False)
+        # Helpers read a cwd-relative path; point cwd at a temp tree.
+        out = tmp_path / "out"
+        out.mkdir()
+        (out / "dev-allowed-origin").write_text(
+            "https://phone.tail.ts.net\n", encoding="utf-8"
+        )
+        monkeypatch.chdir(tmp_path)
+        assert is_dev_allowed_origin("https://phone.tail.ts.net") is True
+        assert is_dev_allowed_host("phone.tail.ts.net") is True
 
 
 def _make_media_file(tmpdir: str, filename: str, content: bytes = b"test") -> str:

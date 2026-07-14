@@ -13,19 +13,23 @@ same pages. Surface modes (`qt/aqt/pgrep_host.py`) decide what a run shows: `exc
 
 ## Staging pipeline (docs_pgrep/reference/staging-pipeline.md)
 
-- Develop: `just run` + `just web-watch`, tune at `http://127.0.0.1:40000/pgrep-lab`.
-- Stage as a user: `just stage` (dev build, product surface), `just fresh` (throwaway
-  first-run profile).
-- Candidate, the barrier: `just candidate` runs like the shipped app (dev mode off,
-  exclusive). The gate between dev and shipping.
+The browser-first develop loop is implemented on `feat/dev-pipeline` per
+`docs_pgrep/plan/dev-pipeline-design.md`. Run `just` to see all commands grouped by
+this lifecycle.
+
+- Develop: `just dev` (headless serve + live-reload), optional `just dev-window`
+  and `just serve-tail` (phone via Tailscale). Tune at
+  `http://127.0.0.1:40000/pgrep-lab`.
+- Preview as a user: `just preview` (faithful, dev mode off, the pre-ship barrier),
+  `just preview-fresh` (throwaway first-run profile), `just preview-optimized`
+  (release-compiled).
 - Verify: `just verify` (build + lint + unit + e2e); `just check` is the faster subset.
-- Ship: `just run-optimized` (release-optimized run), then `./tools/build-installer` for the
-  real `.dmg` / `.msi` / `.tar.zst`.
+- Ship: `just ship` builds the real `.dmg` / `.msi` / `.tar.zst`.
 
 ## Build modes and release channels (the professional model)
 
-- Build modes: dev (`just run`), candidate (`just candidate`), release
-  (`./tools/build-installer`).
+- Build modes: dev (`just dev`), preview (`just preview`, dev off, the barrier),
+  release (`just ship`).
 - Channels: start with beta + stable, add nightly later. One updater and appcast carry
   them.
 - Promotion is trunk-based: keep `main` green, tag a candidate, build the artifact once,
@@ -35,15 +39,17 @@ same pages. Surface modes (`qt/aqt/pgrep_host.py`) decide what a run shows: `exc
 ## Multi-branch review (tools/pgrep-review, tools/pgrep-sync-review)
 
 - `just review` serves a live dashboard (default `http://127.0.0.1:40100`) listing every
-  worktree with status and Start/Stop buttons; when up, each links to its lab.
-- `just review-lan` binds `0.0.0.0` so your phone on the same Wi-Fi can open it at
-  `http://<mac-lan-ip>:40100/` (was `10.10.1.38`). Trusted networks only.
-- `just run-instance <n>` runs a worktree on offset ports (`40000+n`, `8080+n`) with an
-  isolated profile and a unique `ANKI_SINGLE_INSTANCE_KEY`. That key is the fix that let
-  multiple instances actually launch instead of forwarding to the already-running app.
-- `just sync-review` rebuilds a throwaway `review` branch by merging every cleanly
-  mergeable feature branch onto main (conflicts skipped and reported); it shows as its own
-  dashboard row. `just review-loop` reruns it on an interval.
+  worktree with status and Start/Stop; instances run headless on `127.0.0.1`, and when
+  up each links to its app and lab in a browser tab.
+- Phone access: `just serve-tail` (Tailscale Serve, stays bound to `127.0.0.1`).
+- `_review-instance <n>` (private plumbing) runs a worktree on offset ports (`40000+n`,
+  `8080+n`) with an isolated profile and a unique `ANKI_SINGLE_INSTANCE_KEY`. That key is
+  the fix that let multiple instances actually launch instead of forwarding to the
+  already-running app; you normally drive it from the dashboard.
+- `just review-sync` rebuilds a throwaway `review` branch by merging every cleanly
+  mergeable feature branch onto main (conflicts skipped and reported), looping on an
+  interval; after each merge it rebuilds the web so a running tab can refresh.
+  Python/backend changes still need a Stop/Start on that row.
 
 ## Product shell (de-Anki) direction
 
@@ -78,8 +84,8 @@ same pages. Surface modes (`qt/aqt/pgrep_host.py`) decide what a run shows: `exc
 - Gotchas: Remote Control needs Cursor 3.9.8+, the Agents Window, a git-backed workspace, a
   paid plan, and (Teams) admin enablement. Cloud agents need standard (not Legacy) Privacy
   Mode, GitHub app access, and the branch pushed (uncommitted work is not carried).
-- Verify the app UI from the phone via `just review-lan`; agent monitoring is the separate
-  iOS-app path.
+- Verify the app UI from the phone via `just serve-tail` (Tailscale, once built); agent
+  monitoring is the separate iOS-app path.
 
 ## Skills (.cursor/skills/, project-scoped)
 
@@ -91,14 +97,13 @@ same pages. Surface modes (`qt/aqt/pgrep_host.py`) decide what a run shows: `exc
   `pgrep-screenshot`.
 - Open: whether to adopt a `p-` prefix for all (for example `p-lab-demo`).
 
-## State: committed vs pending
+## State
 
-- Pushed to main (`0732eafc5`): the first pipeline batch (`stage`, `fresh`, `verify`,
-  `run-instance`, `review`, `sync-review` recipes; `tools/pgrep-review` and
-  `tools/pgrep-sync-review`; `staging-pipeline.md`; the three L6 design docs).
-- Uncommitted: `just candidate`, the review dashboard LAN host config and `just
-  review-lan`, the build-modes and channels doc additions, the `.cursor/skills/` skills,
-  and this overview.
+- The command set was redesigned and renamed on `feat/dev-pipeline` (see
+  `docs_pgrep/plan/dev-pipeline-design.md`): lifecycle groups in `just --list`,
+  `preview` (replacing `stage`/`candidate`, now dev-off), a looping `review-sync`,
+  `ship`, and the coming browser-first `dev` / `dev-window` / `serve-tail`. Old names
+  still work as aliases during the transition.
 
 ## Open decisions and next steps
 

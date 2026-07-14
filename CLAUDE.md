@@ -71,37 +71,31 @@ separate from inherited Anki:
 ## Running
 
 Every build/run/test/lint step is a `just` recipe (`just --list` for the full
-set). Both apps run with AI off and still produce scores.
+set). Develop is browser-first; both apps still build and score with AI off.
 
 ```bash
-# Desktop
-just run            # build pylib + qt and launch the desktop app (AI off)
-just run-optimized  # release-optimized build
+# Develop (headless serve, no window; AI on by default)
+just dev              # :40000, live-reload; just dev --ai off to disable AI
+just dev-window       # product window onto the running dev serve
+just serve-tail       # phone preview via Tailscale (same serve)
+just serve-sync       # self-hosted sync server, port 8090
 
-# Stage the product the way a user sees it (exclusive mode, no Anki chrome)
-just stage          # clean product surface on your normal profile (macOS/Linux)
-just fresh          # same, but a throwaway first-time-user profile
+# Preview the product as users get it (dev mode off)
+just preview          # exclusive surface, your profile
+just preview-fresh    # throwaway first-time-user profile
+just preview-optimized
 
-# Desktop with AI (optional; off by default, never required to build/study/score)
-just pgrep-ai-deps  # one-time: install optional AI deps into out/pyenv
-just run-ai         # build + run with OPENAI_API_KEY (env or content/.env)
-
-# Self-hosted sync (reuses Anki's sync engine unmodified)
-just sync-server    # defaults to port 8090
+# One-time AI deps (per checkout / worktree)
+just ai-deps
 
 # iOS companion (macOS only)
-just ios-run        # build the FFI, regenerate the Xcode project, launch the Simulator
+just ios-run
 ```
 
-`just run` serves web views at http://localhost:40000/_anki/pages/ and the
-pgrep surfaces under the same host. For live-reloading web development, run
-`just web-watch` in a separate terminal (monitors `ts/`, `sass/`, and
-`qt/aqt/data/web/`); `just rebuild-web` triggers a one-off rebuild.
-
-For running several branches/worktrees at once, `just run-instance <n>` uses
-offset ports and an isolated profile (dev lab at
-`http://127.0.0.1:$((40000+n))/pgrep-lab`); `just review` serves a multi-branch
-control panel.
+`just dev` serves http://127.0.0.1:40000 (`/pgrep`, `/pgrep-lab`). Edits
+live-reload in the browser and on phone. Multi-branch: `just review` (headless
+instances on offset ports); `just review-sync` keeps a combined review branch
+fresh.
 
 ## Building/checking
 

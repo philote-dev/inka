@@ -39,6 +39,19 @@ _ENV_KEY = "PGREP_SURFACE_MODE"
 _DEFAULT_MODE = "exclusive"
 _VALID_MODES = ("hosted", "exclusive", "off")
 
+_HEADLESS_ENV = "PGREP_HEADLESS"
+
+
+def headless() -> bool:
+    """True for the browser-first dev serve: run and serve the web, no window.
+
+    ``just dev`` sets ``PGREP_HEADLESS=1`` so the app boots and serves
+    ``mediasrv`` at :40000 without ever showing the desktop window; you work in a
+    browser (and phone) against the same server. The window can still be brought
+    up on demand (``dev-window``). No effect on a normal windowed run.
+    """
+    return os.environ.get(_HEADLESS_ENV) == "1"
+
 
 def surface_mode(mw: aqt.main.AnkiQt) -> str:
     """Return the current surface mode.

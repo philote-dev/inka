@@ -193,6 +193,14 @@ def favicon() -> Response:
     return _handle_builtin_file_request(request)
 
 
+@app.route("/")
+def root_redirect() -> Response:
+    # The bare host has no page of its own, so it would 404. Send it to the pgrep
+    # app instead, so opening http://127.0.0.1:40000 (the `just dev` serve) just
+    # works rather than showing a "not found" page.
+    return flask.redirect("/pgrep", code=302)
+
+
 def _mime_for_path(path: str) -> str:
     "Mime type for provided path/filename."
 
@@ -267,6 +275,11 @@ _ALLOWED_ORIGIN_PREFIXES = tuple(
     f"{scheme}{host}" for scheme in ("http://", "https://") for host in _LOCALHOST_HOSTS
 )
 
+# Dev-only phone preview: `just serve-tail` writes the Tailscale HTTPS origin here
+# (and/or sets PGREP_DEV_ALLOWED_ORIGIN). Never consulted outside ANKIDEV.
+_DEV_ALLOWED_ORIGIN_ENV = "PGREP_DEV_ALLOWED_ORIGIN"
+_DEV_ALLOWED_ORIGIN_FILE = "out/dev-allowed-origin"
+
 
 def is_localhost_origin(origin: str) -> bool:
     for prefix in _ALLOWED_ORIGIN_PREFIXES:
@@ -277,6 +290,51 @@ def is_localhost_origin(origin: str) -> bool:
         ):
             return True
     return False
+
+
+def _dev_allowed_origin_value() -> str | None:
+    """The one trusted non-localhost origin for headless phone preview, or None.
+
+    Resolution: ``PGREP_DEV_ALLOWED_ORIGIN`` env, then ``out/dev-allowed-origin``
+    (written by ``just serve-tail``). Only honored in ANKIDEV; production builds
+    never relax the localhost guard.
+    """
+    if not dev_mode:
+        return None
+    env = os.environ.get(_DEV_ALLOWED_ORIGIN_ENV, "").strip().lower()
+    if env:
+        return env.rstrip("/")
+    try:
+        # mediasrv runs with cwd = the worktree root (via ./run), so a relative
+        # path is stable across worktrees without importing aqt paths.
+        text = Path(_DEV_ALLOWED_ORIGIN_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return text.lower().rstrip("/") or None
+
+
+def is_dev_allowed_origin(origin: str) -> bool:
+    """True when ``origin`` matches the single Tailscale Serve origin (dev only)."""
+    allowed = _dev_allowed_origin_value()
+    if not allowed or not origin:
+        return False
+    origin = origin.lower().rstrip("/")
+    return origin == allowed or origin.startswith(allowed + "/")
+
+
+def is_dev_allowed_host(host: str) -> bool:
+    """True when the Host header matches the Tailscale Serve hostname (dev only)."""
+    allowed = _dev_allowed_origin_value()
+    if not allowed or not host:
+        return False
+    # allowed is like https://machine.ts.net; Host is machine.ts.net[:port]
+    if "://" in allowed:
+        allowed_host = allowed.split("://", 1)[1]
+    else:
+        allowed_host = allowed
+    allowed_host = allowed_host.split("/", 1)[0].lower()
+    host = host.lower()
+    return host == allowed_host or host.startswith(allowed_host + ":")
 
 
 def _handle_local_file_request(request: LocalFileRequest) -> Response:
@@ -344,16 +402,62 @@ def _builtin_data(path: str) -> bytes:
         return f.read()
 
 
+# pgrep dev live-reload: injected into the SvelteKit shell in the headless dev
+# serve so a browser tab (or phone) reloads when the web bundle is rebuilt. Dev
+# only; never present in a shipped build.
+_DEV_RELOAD_CLIENT = b"""
+<script>
+(function () {
+  if (window.__pgrepDevReload) return;
+  window.__pgrepDevReload = true;
+  var last = null;
+  function schedule() { setTimeout(poll, 1000); }
+  function poll() {
+    fetch("/_anki/pgrepDevReloadToken", { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        if (t === null) { schedule(); return; }
+        if (last !== null && t !== last) { location.reload(); return; }
+        last = t;
+        schedule();
+      })
+      .catch(function () { schedule(); });
+  }
+  poll();
+})();
+</script>
+"""
+
+
+def _dev_live_reload_enabled() -> bool:
+    "True only for the headless dev serve (`just dev`), where tabs need reload."
+    from aqt import pgrep_host
+
+    return bool(dev_mode) and pgrep_host.headless()
+
+
+def _inject_dev_reload(html: bytes) -> bytes:
+    "Insert the live-reload client before </body> (or append if absent)."
+    marker = b"</body>"
+    idx = html.rfind(marker)
+    if idx == -1:
+        return html + _DEV_RELOAD_CLIENT
+    return html[:idx] + _DEV_RELOAD_CLIENT + html[idx:]
+
+
 def _handle_builtin_file_request(request: BundledFileRequest) -> Response:
     path = request.path
     # do we need to serve the fallback page?
     immutable = "immutable" in path
-    if path.startswith("sveltekit/") and not immutable:
+    is_spa_shell = path.startswith("sveltekit/") and not immutable
+    if is_spa_shell:
         path = "sveltekit/index.html"
     mimetype = _mime_for_path(path)
     data_path = f"data/web/{path}"
     try:
         data = _builtin_data(data_path)
+        if is_spa_shell and _dev_live_reload_enabled():
+            data = _inject_dev_reload(data)
         response = Response(data, mimetype=mimetype)
         if immutable:
             response.headers["Cache-Control"] = "max-age=31536000"
@@ -385,10 +489,15 @@ def handle_request(pathin: str) -> Response:
         host = request.headers.get("Host", "").lower()
         origin = request.headers.get("Origin", "").lower()
         allowed_hosts = tuple(f"{h}:" for h in _LOCALHOST_HOSTS)
-        if not any(host.startswith(h) for h in allowed_hosts):
+        host_ok = any(host.startswith(h) for h in allowed_hosts) or is_dev_allowed_host(
+            host
+        )
+        if not host_ok:
             logger.warning("denied non-local host: %s", host)
             abort(403)
-        if origin and not is_localhost_origin(origin):
+        if origin and not (
+            is_localhost_origin(origin) or is_dev_allowed_origin(origin)
+        ):
             logger.warning("denied non-local origin: %s", origin)
             abort(403)
 
@@ -896,8 +1005,49 @@ def _have_api_access() -> bool:
 
 # this currently only handles a single method; in the future, idempotent
 # requests like i18nResources should probably be moved here
+def dev_reload_token() -> Response:
+    "Dev-only token that changes when the web bundle is rebuilt (mtime of shell)."
+    try:
+        full = ensure_safe_path(aqt_data_path().parent, "data/web/sveltekit/index.html")
+        token = str(os.path.getmtime(full))
+    except Exception:
+        token = "0"
+    resp = flask.make_response(token)
+    resp.headers["Content-type"] = "text/plain"
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+def dev_show_window() -> Response:
+    """Dev-only: show the product window of a running headless ``just dev`` serve.
+
+    ``just dev-window`` GETs this. The window shares the same mediasrv, so edits
+    keep live-reloading. Closing the window hides it again without stopping the
+    serve (``setQuitOnLastWindowClosed(False)`` was set at headless boot).
+    """
+    from aqt import pgrep_host
+
+    if not (dev_mode and pgrep_host.headless()):
+        return _text_response(HTTPStatus.NOT_FOUND, "not found")
+
+    def show() -> None:
+        mw = aqt.mw
+        if mw is None:
+            return
+        mw.show()
+        mw.activateWindow()
+        mw.raise_()
+
+    aqt.mw.taskman.run_on_main(show)
+    return _text_response(HTTPStatus.OK, "ok")
+
+
 def _extract_dynamic_get_request(path: str) -> DynamicRequest | None:
     if path == "legacyPageData":
         return legacy_page_data
+    elif path == "pgrepDevReloadToken" and dev_mode:
+        return dev_reload_token
+    elif path == "pgrepDevShowWindow" and dev_mode:
+        return dev_show_window
     else:
         return None

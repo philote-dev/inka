@@ -548,10 +548,20 @@ class AnkiQt(QMainWindow):
         # titlebar: the app is "pgrep", not "{profile} - pgrep". A calm
         # instrument does not announce the logged-in profile.
         self.updateTitleBar()
-        # show and raise window for osx
-        self.show()
-        self.activateWindow()
-        self.raise_()
+        # show and raise window for osx, unless running headless (the `dev`
+        # browser-first serve: mediasrv still serves :40000, but no window is
+        # shown; bring one up on demand with `dev-window`).
+        from aqt import pgrep_host
+
+        if pgrep_host.headless():
+            # No visible main window. Stop Qt from quitting the process (and its
+            # web server) when a transient dialog is dismissed, which would
+            # otherwise be treated as closing the last window.
+            self.app.setQuitOnLastWindowClosed(False)
+        else:
+            self.show()
+            self.activateWindow()
+            self.raise_()
 
         # import pending?
         if self.pendingImport:
@@ -1195,6 +1205,13 @@ title="{}" {}>{}</button>""".format(
 
     def can_auto_sync(self) -> bool:
         "True if syncing on startup/shutdown enabled."
+        from aqt import pgrep_host
+
+        # The headless dev serve (`just dev`) is for building UI; it must not
+        # auto-sync to a possibly-absent server on open/close, which otherwise
+        # pops a network-error dialog. Sync explicitly when you actually need it.
+        if pgrep_host.headless():
+            return False
         return self._can_sync_unattended() and self.pm.auto_syncing_enabled()
 
     def _can_sync_unattended(self) -> bool:

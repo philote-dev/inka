@@ -52,6 +52,20 @@ echo "Review branch rebuilt on ${BASE}."
 echo "  merged  (${#merged[@]}): ${merged[*]:-none}"
 echo "  skipped (${#skipped[@]}, conflicts): ${skipped[*]:-none}"
 echo
+
+# Rebuild the web bundle in the review worktree so a running headless instance
+# (and its live-reload token) picks up UI changes without a process restart.
+# Python/backend changes still need a Stop/Start on the review dashboard.
+if [ -x "$REVIEW_WT/ninja" ] || [ -x "$REVIEW_WT/./ninja" ]; then
+  echo "Rebuilding web in ${REVIEW_WT}..."
+  if (cd "$REVIEW_WT" && ./ninja qt) >/dev/null 2>&1; then
+    echo "  web rebuilt (browser tabs polling the reload token will refresh)."
+  else
+    echo "  web rebuild skipped/failed (run \`./ninja qt\` in ${REVIEW_WT} if needed)."
+  fi
+fi
+
+echo
 echo "It shows up as the 'review' row in the dashboard (just review). Start it there,"
-echo "or run it directly from ${REVIEW_WT} with a spare port. Restart it after a"
-echo "re-sync to pick up changes."
+echo "or run \`just dev\` from ${REVIEW_WT}. Restart the instance after a re-sync if"
+echo "you need Python/backend changes (web-only changes auto-refresh)."

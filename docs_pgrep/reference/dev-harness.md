@@ -141,8 +141,8 @@ sync code. The conflict rule it enforces is documented in
 
 | Command                             | What it does                                                         |
 | ----------------------------------- | -------------------------------------------------------------------- |
-| `just sync-server`                  | Build pylib, then run the server on `0.0.0.0:8090` as `pgrep:pgrep`. |
-| `just sync-server user="me:secret"` | Same, with a custom account.                                         |
+| `just serve-sync`                  | Build pylib, then run the server on `0.0.0.0:8090` as `pgrep:pgrep`. (`sync-server` alias) |
+| `just serve-sync user="me:secret"` | Same, with a custom account.                                         |
 
 The sync server uses port `8090`, not `8080`, because `just run` already binds
 `8080` for the Qt remote-debug and hot-reload server (`tools/reload_webviews.py`).

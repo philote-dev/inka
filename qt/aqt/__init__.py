@@ -695,9 +695,11 @@ def _run(argv: list[str] | None = None, exec: bool = True) -> AnkiApp | None:
             QMessageBox.critical(None, "Startup Failed", "Unable to create data folder")
         return None
 
+    # ANKIDEV= (empty) means off: preview recipes set that to override ./run's
+    # default of 1. Do not int() the value; empty is not a valid integer.
     setup_logging(
         pm.addon_logs(),
-        level=logging.DEBUG if int(os.getenv("ANKIDEV", "0")) else logging.INFO,
+        level=logging.DEBUG if os.getenv("ANKIDEV") else logging.INFO,
     )
 
     # disable icons on mac; this must be done before window created
