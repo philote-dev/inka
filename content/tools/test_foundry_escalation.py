@@ -78,13 +78,20 @@ def test_foundry_writes_partition_files_for_escalation_cli(tmp_path: Path):
 
 
 if __name__ == "__main__":
+    import tempfile
     import traceback
 
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
     for fn in fns:
         try:
-            fn()
+            # Pytest fixture params are only available under pytest; for the
+            # plain-python harness, inject a temporary directory when needed.
+            if fn.__code__.co_argcount == 1 and fn.__code__.co_varnames[0] == "tmp_path":
+                with tempfile.TemporaryDirectory() as td:
+                    fn(Path(td))
+            else:
+                fn()
             print(f"PASS {fn.__name__}")
         except Exception:  # noqa: BLE001
             failed += 1
