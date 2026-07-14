@@ -55,6 +55,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let active = activeFor(page.url.pathname);
     let isHome = page.url.pathname === "/pgrep";
 
+    // The content panel is the one scroll container (the shell is a fixed frame),
+    // so reset-to-top and any future scroll control target this element, not the
+    // window.
+    let pageEl: HTMLElement | undefined;
+
     // The opening splash plays once per app load. This layout mounts once per
     // webview load, not on client navigation, so it does not replay as the
     // learner moves between surfaces. It is skippable inside the component.
@@ -121,7 +126,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 first = false;
                 return;
             }
-            window.scrollTo({ top: 0 });
+            pageEl?.scrollTo({ top: 0 });
         });
     });
 
@@ -202,7 +207,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             </button>
         {/if}
 
-        <main class="page">
+        <main class="page" bind:this={pageEl}>
             {#if showLanding}
                 <Landing onLater={() => (landingDismissed = true)} />
             {:else}
@@ -218,12 +223,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     .pgrep {
-        min-height: 100vh;
+        height: 100dvh;
+        overflow: hidden;
     }
 
     .shell {
         display: flex;
-        min-height: 100vh;
+        height: 100%;
+        box-sizing: border-box;
+        overflow: hidden;
         background: var(--canvas);
         color: var(--text);
     }
@@ -233,20 +241,22 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
        very top. Inset it by the title-bar height so the rail and its collapsed
        controls clear the floating traffic lights. */
     :global(body.pgrep-native-titlebar) .shell {
-        padding-top: 28px;
+        padding-top: var(--pgrep-titlebar-inset, 28px);
     }
 
     :global(body.pgrep-native-titlebar) .rail-burger {
-        top: 42px;
+        top: calc(var(--pgrep-titlebar-inset, 28px) + 14px);
     }
 
     :global(body.pgrep-native-titlebar) .rail-edge {
-        top: 28px;
+        top: var(--pgrep-titlebar-inset, 28px);
     }
 
     .page {
         flex: 1 1 auto;
         min-width: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
     }
 
     /* Restore affordances, shown only while the rail is collapsed. */
