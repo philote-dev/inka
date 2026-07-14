@@ -4,18 +4,56 @@
 
 **Goal:** Emit a firewall-safe preference dataset from foundry runs, wire a standing verifier eval recipe with bootstrap CIs, and keep an offline smoke in `just test-py` so the loop cannot regress silently.
 
-**Architecture:** Pure dataset schema + emitter in `pylib/anki/pgrep/ai/preference.py`, written under git-ignored `content/run/foundry/`. Leakage checks extend `leakage_check.py` (or a focused helper it calls). `just eval-verifier` runs calibration + a held-out slice and prints the two-axis card. Tier 2/3 remain documented triggers only, not implemented.
+**Architecture:** Pure dataset schema and emitter in
+`pylib/anki/pgrep/ai/preference.py`, written by default under ignored
+`content/run/foundry/`. Leakage checks extend `leakage_check.py`.
+`just eval-verifier` fits on calibration labels, evaluates a separate held-out
+slice, and prints the two-axis gate card. Tier 2 and Tier 3 remain documented
+triggers only, not implemented.
 
 **Tech stack:** Python 3, Phase 1 `agreement` / `calibrate_verifier`, Phase 2 `foundry_loop`, existing `eval_metrics.py` bootstrap helpers, `leakage_check.py`, `just`.
 
 ## Global Constraints
 
 - Depends on Phase 1 and Phase 2 landing.
-- Preference data never enters git. Schema and emitter code are tracked; JSONL under `content/run/foundry/` is not.
+- Preference data never enters git. Schema and emitter code are tracked; the
+  default JSONL under `content/run/foundry/` is ignored. Operators must protect
+  custom output paths.
 - Dataset grounds only on corpus-derived candidates. No gold, held-out, or ETS item text in pairs.
 - No network in CI. Real eval needs the AI runtime and is on-demand.
 - No generator fine-tuning and no distilled verifier in this plan (Tier 2/3 stay staged).
 - Do not change the shipped bundle schema or the per-commit invariant gate.
+
+---
+
+## Final hardened contracts
+
+The implementation retains schema version 1, with these final-review
+constraints:
+
+- A pair requires a non-empty run ID, slot topic and blueprint category,
+  distinct item IDs, five non-empty choices, an `A` through `E` key, source
+  references, accept and reject panel decisions, rejected failing gates, and
+  finite values throughout.
+- Only validated accepted by rejected combinations within one slot become
+  pairs. Escalations, invalid candidates, and one-sided slots do not.
+- Every nested key and value passes the private-marker firewall. JSONL errors
+  include line numbers and nested paths. Run publication is atomic and refuses
+  an existing run directory.
+- Standing-eval labels contain explicit `calibration.properties` and
+  `heldout.properties` objects. Thresholds fit calibration predicted positives
+  only and remain fixed on held-out labels.
+- Standing gates use held-out agreement, balanced accuracy, accepted precision,
+  and measured consistency. A per-slot foundry summary with at least two
+  non-empty slots and escalation at most 0.15 is also required for green.
+- Foundry confidence intervals bootstrap slot-level rates. Legacy aggregates
+  have point rates only. A valid red report is printed and exits 1; invalid
+  input exits 2; the passing offline self-check exits 0.
+
+The detailed code sketches below record the original TDD sequence. The hardened
+contracts above and
+[`../reference/content-pipeline.md`](../reference/content-pipeline.md) are
+normative where a sketch differs.
 
 ---
 
@@ -52,16 +90,26 @@
     ```python
     {
       "schema": 1,
-      "slot": {"topic": str, ...},
-      "chosen": {"id": str, "stem": str, "choices": [...], "correct": str, "panel": {...}},
-      "rejected": {"id": str, "stem": str, "choices": [...], "correct": str, "panel": {...}, "failing_gates": [str]},
+      "slot": {"topic": str, "blueprint_category": str, ...},
+      "chosen": {
+          "id": str, "stem": str, "choices": [...], "correct": str,
+          "source_ref": str, "panel": {"decision": "accept", ...},
+      },
+      "rejected": {
+          "id": str, "stem": str, "choices": [...], "correct": str,
+          "source_ref": str, "panel": {"decision": "reject", ...},
+          "failing_gates": [str],
+      },
       "run_id": str,
     }
     ```
   - `def validate_pair(pair: dict) -> list[str]` (empty list means ok)
   - `def pairs_from_slot(slot: dict, result: SlotResult, *, run_id: str) -> list[dict]`
-    - For each accepted item A and each rejected item R, emit one pair (cartesian within the slot, capped if needed).
-  - `def write_jsonl(path: str, pairs: list[dict]) -> int`
+    - For each valid accepted item A and valid rejected item R, emit one pair
+      within the same slot, capped if needed. Invalid, escalated, and one-sided
+      slots do not emit pairs.
+  - `def write_jsonl(path: str, pairs: list[dict]) -> int`, an atomic overwrite
+    that rejects invalid and duplicate pairs.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -263,7 +311,9 @@ EOF
 
 **Interfaces:**
 - After `run_slot`, call `preference.pairs_from_slot` and `write_jsonl(out/preferences.jsonl, pairs)`.
-- Leakage helper: `def foundry_jsonl_is_clean(path: str) -> list[str]` returning error strings if any pair fails `validate_pair` or contains private-root substrings in stem text mirrors of known gold files (optional light check: id markers only is enough for Phase 3).
+- Leakage helper: `def foundry_jsonl_is_clean(path: str) -> list[str]` returning
+  path- and line-aware errors if any nested key or value fails schema,
+  private-marker, private-root, or copy-in checks.
 
 - [ ] **Step 1: Test**
 
@@ -310,10 +360,15 @@ EOF
 - Modify: `docs_pgrep/reference/content-pipeline.md`
 
 **Interfaces:**
-- `--self-check`: offline, uses synthetic labels + `agreement.build_card`, prints JSON card, exit 0.
-- `--labels PATH`: load human labels; if panel clients are unavailable, refuse with a clear message (do not call network from self-check).
-- Print yield placeholder fields (`candidates`, `accepted`, `escalation_rate`) when a foundry summary JSON is passed via `--foundry-summary`.
-- Use `eval_metrics` bootstrap CI helpers if already present; otherwise report point estimates only and document CI as follow-up (do not invent a second stats stack). Prefer importing existing helpers from `content/tools/eval_metrics.py`.
+- `--self-check`: offline passing calibration, held-out, and per-slot foundry
+  data; prints a green JSON report and exits 0.
+- `--labels PATH`: load explicit calibration and held-out property arrays. No
+  model client or network is involved.
+- `--foundry-summary PATH`: load per-slot counts for cluster-aware yield and
+  escalation intervals. It is required for green.
+- `--out PATH`: write exactly the report printed to standard output.
+- Use the unchanged `eval_metrics.bootstrap_ci` implementation with slot as the
+  foundry cluster unit.
 
 - [ ] **Step 1: Self-check test via subprocess or imported main**
 
@@ -344,7 +399,7 @@ def test_summarize_runs():
 
 ```just
 # Standing verifier eval. Offline: `just eval-verifier --self-check`.
-# Full: `just eval-verifier --labels content/run/calibration/labels.json`
+# Full: `just eval-verifier --labels labels.json --foundry-summary summary.json`
 eval-verifier *args:
     #!/usr/bin/env bash
     set -euo pipefail
