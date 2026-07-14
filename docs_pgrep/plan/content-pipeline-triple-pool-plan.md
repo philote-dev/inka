@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python (`out/pyenv`), OpenAI `gpt-5.5-2026-04-23` generator with a distinct judge snapshot, local ONNX retrieval over `content/index/corpus.db`, SymPy CAS, the shipped `pgrep.ai` core.
 
-Reference spec: `docs_pgrep/plan/2026-07-06-content-pipeline-triple-pool-design.md`.
+Reference spec: `docs_pgrep/plan/content-pipeline-triple-pool-design.md`.
 
 ---
 

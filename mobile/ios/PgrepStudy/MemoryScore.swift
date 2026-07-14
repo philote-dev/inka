@@ -9,7 +9,7 @@
 //
 // The blueprint table and topic-tag parsing are duplicated here on purpose, the
 // same cross-language boundary duplication the L1 contract mandates for the
-// Rust/Python copies (docs_pgrep/contracts/L1-coordination-schema.md §1). Do not
+// Rust/Python copies (docs_pgrep/reference/tag-and-attempt-log-schema.md §1). Do not
 // factor these into a shared, synced source.
 
 import Foundation

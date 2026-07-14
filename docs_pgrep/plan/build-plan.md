@@ -24,12 +24,12 @@ Everything through the desktop takeover, the visual system, the closeout, and th
 | Layer                            | Status | What it gave us                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | -------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **L0 Build foundation**          | ✅     | The Anki fork builds from source (`just run`), a trivial Rust change shows up end to end, the shared engine cross-compiles and loads a deck on iOS (`just ios-smoke`), and the dev harness runs (`just smoke`).                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| **L1 Engine seam + data model**  | ✅     | The graded Rust change: `ReviewCardOrder::PointsAtStake` (`rslib/src/scheduler/queue/builder/points_at_stake.rs`), a read-only reorder inside gather-then-limit (never mutates `due`/`interval`/`memory_state`). Two-level topic tags, the Attempt log as immutable notes ("A now, C-ready"), the `pgrep::Problem` and `pgrep::Attempt` notetypes, with Rust and Python tests. Contracts: `[L1-coordination-schema.md](L1-coordination-schema.md)`.                                                                                                                                                                                                            |
-| **L2 Core surfaces (no AI)**     | ✅     | The four desktop surfaces in `ts/routes/pgrep/` (Study, Home, Progress, Diagnostic) on the real FSRS loop, the honest Memory score, the two-door session with commit-before-reveal and the static ladder, and a real macOS installer. Bridge and API: `[L2-api-contract.md](L2-api-contract.md)`.                                                                                                                                                                                                                                                                                                                                                              |
-| **L2.5 Desktop takeover**        | ✅     | `qt/aqt/pgrep_host.py` makes the pgrep SPA the primary surface (`hosted` default), Anki's screens reachable via `Tools > Open Anki screens`. `tools/ios-run.sh` launches the iOS app visibly. Installer rebuilt from the takeover. Plan: `[L2-api-contract.md §6](../contracts/L2-api-contract.md)`.                                                                                                                                                                                                                                                                                                                                                           |
+| **L1 Engine seam + data model**  | ✅     | The graded Rust change: `ReviewCardOrder::PointsAtStake` (`rslib/src/scheduler/queue/builder/points_at_stake.rs`), a read-only reorder inside gather-then-limit (never mutates `due`/`interval`/`memory_state`). Two-level topic tags, the Attempt log as immutable notes ("A now, C-ready"), the `pgrep::Problem` and `pgrep::Attempt` notetypes, with Rust and Python tests. Contracts: `[tag-and-attempt-log-schema.md](../reference/tag-and-attempt-log-schema.md)`.                                                                                                                                                                                                            |
+| **L2 Core surfaces (no AI)**     | ✅     | The four desktop surfaces in `ts/routes/pgrep/` (Study, Home, Progress, Diagnostic) on the real FSRS loop, the honest Memory score, the two-door session with commit-before-reveal and the static ladder, and a real macOS installer. Bridge and API: `[api-contract.md](../reference/api-contract.md)`.                                                                                                                                                                                                                                                                                                                                                              |
+| **L2.5 Desktop takeover**        | ✅     | `qt/aqt/pgrep_host.py` makes the pgrep SPA the primary surface (`hosted` default), Anki's screens reachable via `Tools > Open Anki screens`. `tools/ios-run.sh` launches the iOS app visibly. Installer rebuilt from the takeover. Plan: `[api-contract.md §6](../reference/api-contract.md)`.                                                                                                                                                                                                                                                                                                                                                           |
 | **Visual system**                | ✅     | Design tokens (`ts/lib/sass/_pgrep.scss`), the Svelte primitives (`ts/lib/components/`: `ScoreCard`, `ChoiceList`, `CoverageBar`, `GradeBar`, `HintRung`, `StudyFrame`, `NavRail`, `ReliabilityDiagram`, `Manifold`, `Manifold3D`), the 2D and 3D manifold (`ts/lib/pgrep/manifold.ts`, `manifold3d.ts`), the restyled surfaces plus a Settings surface, and the `ts/routes/pgrep-lab/` gallery. Deps: `three`, `@fontsource-variable/inter` + `jetbrains-mono`, `lucide-static`. The top toolbar now hides while pgrep leads. Spec: `[../../design/ux-foundation.md](../../design/ux-foundation.md)`.                                                         |
 | **L2.7 Closeout (make it ours)** | ✅     | Surface QA across all five surfaces in both themes (single shared `NavRail`, `Manifold3D` degrades to the 2D fallback, tokenized accents, copy-rule fixes, evidence-linked abstain states). The `ts/routes/pgrep-lab/gallery` covers every primitive's states. The exclusive takeover is proven with pure helpers in `pgrep_host.py` (`hosted` stays default), tested in `qt/tests/test_pgrep_host.py`. The dev app carries the pgrep name and icon (desktop titles + window icon, iOS `CFBundleDisplayName` + `AppIcon`).                                                                                                                                     |
-| **L3 Mobile parity + Sync**      | ✅     | The native SwiftUI companion (`mobile/ios/PgrepStudy/`): a Home glance (2D wireframe manifold, native Memory that matches desktop by construction, honest Performance and Readiness abstains), a Study Cards door with full FSRS grading, and Settings sync. Two-way sync reuses Anki's self-hosted server unmodified (`just sync-server`) with the conflict rule in `[L3-sync-conflict-rule.md](L3-sync-conflict-rule.md)`, proven by `pylib/tests/test_pgrep_sync_roundtrip.py` (revlog and Attempt union, newer-mtime, offline-then-sync) and `just ios-sync-proof` (the iOS FFI upload downloaded by a desktop engine). No changes under `rslib/src/sync`. |
+| **L3 Mobile parity + Sync**      | ✅     | The native SwiftUI companion (`mobile/ios/PgrepStudy/`): a Home glance (2D wireframe manifold, native Memory that matches desktop by construction, honest Performance and Readiness abstains), a Study Cards door with full FSRS grading, and Settings sync. Two-way sync reuses Anki's self-hosted server unmodified (`just sync-server`) with the conflict rule in `[sync-conflict-rule.md](../reference/sync-conflict-rule.md)`, proven by `pylib/tests/test_pgrep_sync_roundtrip.py` (revlog and Attempt union, newer-mtime, offline-then-sync) and `just ios-sync-proof` (the iOS FFI upload downloaded by a desktop engine). No changes under `rslib/src/sync`. |
 
 **What is deliberately not done yet.** L4 (AI) is merged to `main` and off by default, with its provisional gate green on beat-baseline but the absolute cutoffs and the human E4 rating still pending (see the L4 status block in section 4). L5 (Models + evidence) is merged to `main` @ `280621c36`: all three scores are calibrated with held-out evidence and the ablation is reported (see the L5 status block in section 4). What remains is the L5.9 polish-and-completion interlude (human-led: surface fine-tuning, exam mode, real content, the demo/sync harness), then L6 (the de-Anki sweep, packaging, hardening, and recording; the exclusive takeover flip and the first identity pass are already done), plus the human E4 deliverables (the results report, model cards, and the Brainlift).
 
@@ -81,7 +81,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 
 **Why.** The visual system and the shell takeover are built, but nobody has audited the surfaces end to end, the exclusive takeover is documented but unproven, and the app still carries Anki's name and icon. This layer closes the "make it ours" thread so the base is demo-clean before the heavy layers.
 
-**Design refs.** `[../../design/ux-foundation.md](../../design/ux-foundation.md)` (the visual contract), `[../../design/readme.md](../../design/readme.md)` (the brand rules), `[L2-api-contract.md §6](../contracts/L2-api-contract.md)` (the A to C flip, already documented), the `ts/routes/pgrep-lab/` gallery.
+**Design refs.** `[../../design/ux-foundation.md](../../design/ux-foundation.md)` (the visual contract), `[../../design/readme.md](../../design/readme.md)` (the brand rules), `[api-contract.md §6](../reference/api-contract.md)` (the A to C flip, already documented), the `ts/routes/pgrep-lab/` gallery.
 
 **Tasks.**
 
@@ -102,7 +102,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 > - this file's L2.7 section
 > - design/ux-foundation.md
 > - design/readme.md
-> - docs_pgrep/contracts/L2-api-contract.md §6 (the A to C flip)
+> - docs_pgrep/reference/api-contract.md §6 (the A to C flip)
 > - docs_pgrep/README.md (skim)
 >   **Entry check:** confirm `main` builds, `just lint` and `just test-py` are green, and `just run` opens into pgrep with the top toolbar hidden. If not, stop and tell me.
 >   **Deliverable:** the surfaces match the design system in both themes, the gallery covers component states, the exclusive takeover is proven (kept off by default), and the dev app carries the pgrep name and icon.
@@ -121,7 +121,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 **Tasks.**
 
 - **L3.1 ∥ Mobile surfaces.** Home (readiness glance: manifold thumbnail plus the three score rows with ranges) and Study (a session that mirrors desktop) in the existing SwiftUI app (`mobile/ios/`), driving the shared engine through `rslib/ffi`. The manifold uses native 3D (SceneKit or Metal) or the 2D fallback. Owns: `mobile/ios/` **, `rslib/ffi/`** (only if new FFI entry points are needed), Swift protobuf regen via `tools/gen-swift-protos.sh`.
-- **L3.2 ∥ Sync.** Two-way incremental sync by reusing Anki's Rust sync server, self-hosted (local Mac for the demo, a small VPS optionally). Document the conflict rule (union-by-id on the Attempt log, per K2 in `L1-coordination-schema.md`). Prove offline-then-sync. Owns: sync host config, `docs/syncserver/` usage, no changes under `rslib/src/sync/`**.
+- **L3.2 ∥ Sync.** Two-way incremental sync by reusing Anki's Rust sync server, self-hosted (local Mac for the demo, a small VPS optionally). Document the conflict rule (union-by-id on the Attempt log, per K2 in `tag-and-attempt-log-schema.md`). Prove offline-then-sync. Owns: sync host config, `docs/syncserver/` usage, no changes under `rslib/src/sync/`**.
 
 **Exit gate.** Review on the phone appears on the desktop and back, with no lost or doubled reviews. Offline works, then syncs. `just ios-run` shows the mobile surfaces on the shared engine.
 
@@ -136,7 +136,7 @@ Every layer runs the same way, following the `subagent-driven-development` and `
 >
 > - this file's L3 section
 > - docs_pgrep/research/technical-architecture.md (Phase 4)
-> - docs_pgrep/contracts/L1-coordination-schema.md (the Attempt-log conflict rule)
+> - docs_pgrep/reference/tag-and-attempt-log-schema.md (the Attempt-log conflict rule)
 > - design/ux-foundation.md (section 9)
 > - docs_pgrep/reference/dev-harness.md (iOS recipes)
 >   **Entry check:** confirm `just ios-smoke` and `just ios-run` are green on `main` (the shared engine runs on iOS). If not, stop and tell me.
@@ -283,7 +283,7 @@ _Resume commands (repo root, conda_ `pgrep-ai` _)._ `python content/tools/make_g
 > - design/ux-foundation.md (the visual contract, and §7 for the surfaces)
 > - docs_pgrep/research/performance-model.md (M5: the timed Exam-mode pace signal)
 > - docs_pgrep/research/technical-architecture.md (Phase 4: the self-hosted sync path)
-> - docs_pgrep/contracts/L2-api-contract.md (the bridge and per-surface endpoints)
+> - docs_pgrep/reference/api-contract.md (the bridge and per-surface endpoints)
 > - docs_pgrep/reference/dev-harness.md (run, iOS, and sync recipes) and docs_pgrep/reference/content-and-dependencies.md (content and provenance)
 >
 > **Entry check:** confirm `main` builds, `just lint` and `just test-py` are green, and the L5 scores render on Progress (Memory and Performance reliability plus Brier, coverage-gated Readiness abstaining honestly on thin data). If not, stop and tell me.
@@ -296,11 +296,11 @@ _Resume commands (repo root, conda_ `pgrep-ai` _)._ `python content/tools/make_g
 
 ### L6 · Ship + harden · entry: L5.9 polish complete · partly done
 
-**Status. Partly done on `main`.** The exclusive takeover flip and a first identity pass landed during the L5.9 run, so this section has been corrected to match the repo. Done: L6.1 (the flip) plus the window title "pgrep", the pgrep window icon, and the macOS "About pgrep" label. The genuine remainder is (a) the de-Anki sweep, remove every user-facing "Anki" and "AnkiWeb" from the shipped surface while keeping the Anki credit in one About and licenses surface, and (b) the follow-ons: packaging, hardening, and the submission recording. Full spec for the sweep and the re-planned follow-ons: `[2026-07-06-l6-production-de-anki-design.md](2026-07-06-l6-production-de-anki-design.md)`.
+**Status. Partly done on `main`.** The exclusive takeover flip and a first identity pass landed during the L5.9 run, so this section has been corrected to match the repo. Done: L6.1 (the flip) plus the window title "pgrep", the pgrep window icon, and the macOS "About pgrep" label. The genuine remainder is (a) the de-Anki sweep, remove every user-facing "Anki" and "AnkiWeb" from the shipped surface while keeping the Anki credit in one About and licenses surface, and (b) the follow-ons: packaging, hardening, and the submission recording. Full spec for the sweep and the re-planned follow-ons: `[production-de-anki-design.md](production-de-anki-design.md)`.
 
 **Why.** Turn the working system into shippable artifacts and make the takeover final (spec constraint 8), presenting as pgrep everywhere a learner looks with Anki only underneath.
 
-**Design refs.** `[2026-07-06-l6-production-de-anki-design.md](2026-07-06-l6-production-de-anki-design.md)` (the de-Anki sweep and the re-planned follow-ons), `[content-and-dependencies.md](../reference/content-and-dependencies.md)` (signing, packaging), `[L2-api-contract.md §6](../contracts/L2-api-contract.md)` (the A to C flip), `[../../prod/video/submission-video-kit.md](../../prod/video/submission-video-kit.md)` (the recordings).
+**Design refs.** `[production-de-anki-design.md](production-de-anki-design.md)` (the de-Anki sweep and the re-planned follow-ons), `[content-and-dependencies.md](../reference/content-and-dependencies.md)` (signing, packaging), `[api-contract.md §6](../reference/api-contract.md)` (the A to C flip), `[../../prod/video/submission-video-kit.md](../../prod/video/submission-video-kit.md)` (the recordings).
 
 **Tasks.**
 
@@ -311,8 +311,8 @@ _Done and on `main` (landed during the L5.9 run)._
 
 _The genuine remainder._
 
-- **L6.2a de-Anki sweep.** Remove every user-facing "Anki" and "AnkiWeb" from the shipped exclusive surface, keeping the Anki credit in one place. Rebuild the About dialog as pgrep with an Open-Source Licenses and Credits block, add a Settings "About and licenses" row, and rebrand the reachable sync (`ftl/core/sync.ftl`) and error (`ftl/qt/errors.ftl`) strings to pgrep and neutral server wording. Full spec: `[2026-07-06-l6-production-de-anki-design.md](2026-07-06-l6-production-de-anki-design.md)`.
-- **L6.2a-structural (in progress, parked in `feat/l6-structural-de-anki`).** Remove Anki's interface, not just its branding. Build pgrep's own exclusive menu bar (app, Edit, Go only, Anki's admin menus never created), make Anki's profile chooser unreachable (one implicit account), and add the macOS unified transparent title bar. Spec: `[2026-07-06-l6-structural-de-anki-design.md](2026-07-06-l6-structural-de-anki-design.md)`. Defers the first-run login gate and pgrep's own note type.
+- **L6.2a de-Anki sweep.** Remove every user-facing "Anki" and "AnkiWeb" from the shipped exclusive surface, keeping the Anki credit in one place. Rebuild the About dialog as pgrep with an Open-Source Licenses and Credits block, add a Settings "About and licenses" row, and rebrand the reachable sync (`ftl/core/sync.ftl`) and error (`ftl/qt/errors.ftl`) strings to pgrep and neutral server wording. Full spec: `[production-de-anki-design.md](production-de-anki-design.md)`.
+- **L6.2a-structural (in progress, parked in `feat/l6-structural-de-anki`).** Remove Anki's interface, not just its branding. Build pgrep's own exclusive menu bar (app, Edit, Go only, Anki's admin menus never created), make Anki's profile chooser unreachable (one implicit account), and add the macOS unified transparent title bar. Spec: `[structural-de-anki-design.md](structural-de-anki-design.md)`. Defers the first-run login gate and pgrep's own note type.
 - **L6.2b Packaging (follow-on).** Bundle display name and id, the `.dmg` name, the macOS app-menu name (`CFBundleName`), the deferred data-folder and support-link cleanup carried over from the de-Anki sweep, and the phone build (signed APK or TestFlight, or a documented sideload). Needs human signing and an Apple Developer decision.
 - **L6.3 Hardening (follow-on).** Crash test the review loop twenty times with zero collection corruption. A one-command benchmark on a 50k-card collection reporting p50, p95, and worst. Confirm the coverage map and the abstain rule under load.
 - **L6.4 Submission (follow-on).** The clean-machine install recordings and the polished Sunday demo from the real build, per `prod/video/submission-video-kit.md`. Human-run.
@@ -321,7 +321,7 @@ _The genuine remainder._
 
 **Human dependencies.** P1 (signing, packaging, phone build, clean-machine test), E4 (results report, model cards, Brainlift), and recording the videos. See section 5.
 
-**Agents.** The de-Anki sweep runs as parallel implementers on separate files (About and licenses, sync strings, error strings) with a reachability audit alongside, per `2026-07-06-l6-production-de-anki-design.md`. Packaging and hardening follow (one implementer each, then review). L6.4 is human-run recording.
+**Agents.** The de-Anki sweep runs as parallel implementers on separate files (About and licenses, sync strings, error strings) with a reachability audit alongside, per `production-de-anki-design.md`. Packaging and hardening follow (one implementer each, then review). L6.4 is human-run recording.
 
 **Controller prompt.**
 
@@ -329,9 +329,9 @@ _The genuine remainder._
 > **Read first, in full:**
 >
 > - this file's L6 section
-> - docs_pgrep/plan/2026-07-06-l6-production-de-anki-design.md (the de-Anki sweep and the re-planned follow-ons)
+> - docs_pgrep/plan/production-de-anki-design.md (the de-Anki sweep and the re-planned follow-ons)
 > - docs_pgrep/reference/content-and-dependencies.md (signing and packaging)
-> - docs_pgrep/contracts/L2-api-contract.md §6 (the A to C flip)
+> - docs_pgrep/reference/api-contract.md §6 (the A to C flip)
 > - prod/video/submission-video-kit.md
 >   **Entry check:** confirm L3, L4, and L5 exit gates are green on `main`, and that the exclusive flip and the first identity pass (title, icon, "About pgrep") are already in. If not, stop and tell me.
 >   **Deliverable:** the de-Anki sweep (a pgrep About and licenses surface plus rebranded sync and error strings), then the follow-ons: final packaging, hardening (crash test, benchmark), and the recorded submission.
@@ -392,11 +392,11 @@ Content and judgment are the scarce inputs. Compute is not the bottleneck.
 
 ## 7. Appendix: phase contracts and references
 
-- `[L1-coordination-schema.md](L1-coordination-schema.md)` · topic tags, blueprint weights, the Attempt-log schema and invariants (K1 to K5).
-- `[L2-api-contract.md](L2-api-contract.md)` · the frontend-to-backend channels, the `anki.pgrep.*` bridge, per-surface endpoints, file ownership.
-- `[L2-api-contract.md §6](../contracts/L2-api-contract.md)` · the desktop takeover and the documented A to C flip.
+- `[tag-and-attempt-log-schema.md](../reference/tag-and-attempt-log-schema.md)` · topic tags, blueprint weights, the Attempt-log schema and invariants (K1 to K5).
+- `[api-contract.md](../reference/api-contract.md)` · the frontend-to-backend channels, the `anki.pgrep.*` bridge, per-surface endpoints, file ownership.
+- `[api-contract.md §6](../reference/api-contract.md)` · the desktop takeover and the documented A to C flip.
 - `[content-and-dependencies.md](../reference/content-and-dependencies.md)` · the human, content, sourcing, and external-tooling track.
-- `[dev-harness.md](dev-harness.md)` · the build, run, and test recipes for desktop and iOS.
+- `[dev-harness.md](../reference/dev-harness.md)` · the build, run, and test recipes for desktop and iOS.
 - `[../research/](../research/)` · the durable "why" behind every feature and model.
 
 _This plan is the single roadmap. When a layer completes, update its row in section 1 and mark its gate here._

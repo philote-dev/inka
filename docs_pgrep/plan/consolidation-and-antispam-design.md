@@ -4,7 +4,7 @@ Date: 2026-07-06. Status: approved for planning. Author: pair session.
 
 This spec covers two additions to the decomposition tutor (the Problems-door miss
 flow) plus one explicit cut. It follows the tutor work already shipped
-(`docs_pgrep/plan/2026-07-06-ui-ux-and-decomposition-tutor-design.md` and the
+(`docs_pgrep/plan/ui-ux-and-decomposition-tutor-design.md` and the
 gated tutor in `pylib/anki/pgrep/decomposition.py`).
 
 ## Context

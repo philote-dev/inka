@@ -6,7 +6,7 @@ Date: 2026-07-07. Status: strategy and methodology, gated. Author: pair session.
 
 The long-term goal is to reduce the repo to only what pgrep uses, owning the
 engine outright. This is large, strategic, and distinct from the interface prune,
-which is safe and near-term (`2026-07-07-interface-prune-design.md`). This document
+which is safe and near-term (`interface-prune-design.md`). This document
 frames the decision, the risk, and a safe methodology. It is not yet an execution
 plan.
 

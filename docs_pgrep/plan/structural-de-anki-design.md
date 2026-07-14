@@ -1,7 +1,7 @@
 # Design: L6 structural de-Anki (menus, profiles, window chrome) + hosting roadmap
 
 Date: 2026-07-06. Status: design, awaiting spec review before the implementation plan.
-Continues `2026-07-06-l6-shell-profiles-login-handoff.md`. The branding sweep it refers to is
+Continues `shell-profiles-login-handoff.md`. The branding sweep it refers to is
 already done and merged; this is the structural half.
 
 ## Goal
@@ -131,7 +131,7 @@ Reversible and macOS-only. Windows and Linux keep their standard window frames t
 
 ## WI4: hosting roadmap doc (write-only, no servers built)
 
-A new `docs_pgrep/plan/2026-07-06-l6-hosting-roadmap.md`:
+A new `docs_pgrep/plan/hosting-roadmap.md`:
 
 - **Part 1, self-host on your Mac (now).** What `just sync-server` actually runs (Anki's built-in
   sync server via `tools/sync-server.py`, single user `pgrep:pgrep`, plain HTTP, bound to

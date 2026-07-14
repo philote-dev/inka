@@ -29,7 +29,7 @@ tie-break on equal timestamps. This is Anki's real behavior, made explicit.
 ## Why the Attempt log unions cleanly by id
 
 The Attempt log is stored as immutable notes, one note per graded event, with
-the note GUID used as the event id (`docs_pgrep/contracts/L1-coordination-schema.md`
+the note GUID used as the event id (`docs_pgrep/reference/tag-and-attempt-log-schema.md`
 K2). Two independent properties combine to give union-by-id:
 
 1. **Different events on different devices** get different GUIDs, so they are

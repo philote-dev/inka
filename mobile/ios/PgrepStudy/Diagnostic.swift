@@ -26,7 +26,7 @@
 // backend constant (diagnostic.QUICK_CHECKS), not as cards / notes / tags, so the
 // content has no engine-readable source; porting the constant is the same
 // deliberate cross-language boundary duplication the L1 contract mandates for
-// Blueprint / Topic (docs_pgrep/contracts/L1-coordination-schema.md §1). The
+// Blueprint / Topic (docs_pgrep/reference/tag-and-attempt-log-schema.md §1). The
 // prompt and choices carry delimited LaTeX (\( ... \)) so MathText typesets them
 // like every other pgrep question.
 

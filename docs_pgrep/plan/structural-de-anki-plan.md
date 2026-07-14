@@ -1,7 +1,7 @@
 # L6 structural de-Anki Implementation Plan
 
 > **For agentic workers:** Implement task-by-task. Steps use checkbox (`- [ ]`) syntax for
-> tracking. Spec: `2026-07-06-l6-structural-de-anki-design.md` (same folder).
+> tracking. Spec: `structural-de-anki-design.md` (same folder).
 
 **Goal:** Make the exclusive (product) surface show only pgrep's own chrome. Build pgrep's own
 menus, never Anki's; make the profile chooser unreachable; give macOS a unified transparent title
@@ -28,7 +28,7 @@ helper), pytest.
 - `ts/routes/pgrep/pgrep.scss` or `ts/routes/pgrep/+layout.svelte` (modify): rail top safe-area
   under a `pgrep-native-titlebar` body class.
 - `qt/tests/test_pgrep_shell.py` (create): unit tests for the pure helpers.
-- `docs_pgrep/plan/2026-07-06-l6-hosting-roadmap.md` (create): WI4 doc.
+- `docs_pgrep/plan/hosting-roadmap.md` (create): WI4 doc.
 - `docs_pgrep/plan/deferred-todos.md` and `build-plan.md` (modify): record deferred items + L6.
 
 ---
@@ -345,9 +345,9 @@ if is_mac and pgrep_host.surface_mode(self) == "exclusive":
 
 ## Wave 3: hosting roadmap doc (WI4)
 
-### Task 7: write `2026-07-06-l6-hosting-roadmap.md`
+### Task 7: write `hosting-roadmap.md`
 
-**Files:** Create `docs_pgrep/plan/2026-07-06-l6-hosting-roadmap.md`.
+**Files:** Create `docs_pgrep/plan/hosting-roadmap.md`.
 
 - [ ] **Step 1: Write Part 1 (self-host on the Mac).** Cover: what `just sync-server` runs
       (`tools/sync-server.py`, built-in server, `pgrep:pgrep`, HTTP, `0.0.0.0:8090`); a launchd

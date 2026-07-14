@@ -7,7 +7,7 @@ parallel implementers never collide and every surface calls the engine the same
 way. It is grounded in the real fork (`technical-architecture.md` (c), the
 `mediasrv` routing, and the L1 API surface merged into `l2-core`).
 
-Read with: `L1-coordination-schema.md` (topic tags, blueprint, attempt-log seam),
+Read with: `tag-and-attempt-log-schema.md` (topic tags, blueprint, attempt-log seam),
 `three-scores.md` §1 (Memory math), `feature-interleaving.md` (two-door
 session), `feature-productive-failure.md` (ladder), `ux-foundation.md` (surfaces).
 
