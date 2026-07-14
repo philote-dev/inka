@@ -265,15 +265,15 @@ or sync a fresh account.
 
 ## Live AI (optional)
 
-The app scores and studies with AI off, and AI stays off by default. To demo the
-live upgrades (the tutor grading a typed sub-goal on the wrong-answer ladder, and
-Library generation), turn it on:
+Desktop AI defaults on on first run; Settings can turn it off. The app still
+scores and studies with AI off. To demo live upgrades (tutor grading, Library
+generation) when the key is not already loaded:
 
-1. Install the optional AI runtime once: `just pgrep-ai-deps` (adds `openai`,
+1. Install the optional AI runtime once: `just ai-deps` (adds `openai`,
    `sympy`, `fastembed`, `sqlite-vec`, and `numpy` to `out/pyenv`, outside the
    default build).
-2. Launch with the key in the environment: `just run-ai` loads `OPENAI_API_KEY`
-   from your shell or from `content/.env`, then runs. It also pins a known-good
+2. Launch with the key in the environment: `just dev` loads `OPENAI_API_KEY`
+   from your shell or from `content/.env` (AI on by default). It also pins a known-good
    dated chat snapshot in `PGREP_AI_MODEL` (default `gpt-5.5-2026-04-23`, override
    as needed), because the auto-picker can otherwise land on a non-chat `gpt-5`
    model on some accounts. The chosen model is cached in the collection config on

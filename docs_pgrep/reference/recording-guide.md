@@ -25,7 +25,7 @@ Light up the three scores before recording (a fresh account honestly shows
 2. Go to Demo, pick a stage such as "Nearing exam" (the scores preview), then click Inject.
 3. Home now shows Memory, Performance, and Readiness with real numbers and ranges.
 
-Turn AI on in Settings (it is off by default) so you can demo generation.
+AI is on by default on first run; confirm it in Settings if you want to demo generation.
 
 ## 1. Demo video shot list (3 to 5 minutes)
 
@@ -98,7 +98,8 @@ Full build, sign, notarize, and iOS distribution steps are in
 - iOS: sideload the build or use TestFlight, install on a device or a fresh
   Simulator, and record a review.
 
-## 5. Both apps run with AI off
+## 5. Apps still run with AI off
 
-Show `just run` (desktop, no AI) still producing scores, and note the iOS app
-has AI off by default. This satisfies the "runs with AI switched off" rule.
+Show `just preview` or `just dev --ai off` (desktop) still producing scores, and
+note the iOS companion has AI off by default. Desktop itself defaults AI on on
+first run. This satisfies the "runs with AI switched off" capability rule.

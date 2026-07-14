@@ -161,14 +161,13 @@ and `docs_pgrep/reference/staging-pipeline.md` to `dev` / `preview`.
   guard for one trusted origin, dev-gated. Full API never exposed.
 - Review: instances bound to `127.0.0.1`, full API locked.
 
-## Product ships with AI on (separate task)
+## Product ships with AI on (DONE)
 
-The product default is AI **on** (users expect AI first). This is an app-level default,
-not a justfile concern, and it changes what is currently proven in
-`docs_pgrep/proofs/submission-proofs.md` ("Both run with AI off ... [PROVEN]"). Handle
-as its own step: locate the app's AI default, flip it to on, and update that proof line
-(the AI-off/offline capability still exists and stays proven; it just stops being the
-default). Flag the exact proof edit for review, since it is paper text.
+Desktop first-run default is AI **on** via `ensure_first_run_defaults` in
+`pylib/anki/pgrep/ai_config.py` (pure `ai_enabled` stays off for bare collections
+and tests). iOS companion stays AI off. Proof line in
+`docs_pgrep/proofs/submission-proofs.md` updated to match; AI-off/offline
+capability remains proven.
 
 ## Phased implementation
 
@@ -179,7 +178,8 @@ default). Flag the exact proof edit for review, since it is paper text.
 4. Phase D: `serve-tail` + the dev-gated origin allowlist. DONE.
 5. Phase E: review tightening (127.0.0.1, headless instances, merged looping
    `review-sync` with auto-rebuild, demote `run-instance`). DONE.
-6. Product default AI on (app-level + proof update), tracked separately.
+6. Product default AI on (app-level + proof update). DONE (desktop already
+   first-run on; docs/proofs aligned; iOS stays off).
 
 Per the worktrees rule this work lives on `feat/dev-pipeline` and merges to `main` when
 each phase is green (`just check`, later `just verify`).
@@ -195,5 +195,6 @@ each phase is green (`just check`, later `just verify`).
 - `ai-deps` stays an explicit command, run once per checkout (`out/pyenv` is
   per-worktree), no auto-install magic.
 - `dev --ai on|off`, default on; graceful warn-and-continue when key/deps absent.
-- The shipped product defaults AI on (separate app-level task + proof update).
+- The shipped desktop product defaults AI on (first-run); iOS stays off. Docs/proofs
+  aligned.
 - Cut `pgrep-demo-sync`: the lab injector plus a normal sync covers the demo path.
