@@ -279,9 +279,10 @@ stratum where available, then fill remaining stratum quotas by deterministic
 shuffle. Assign the validation split with category, stratum, conceptual versus
 computational, and figure presence represented before filling remaining slots.
 
-Review IDs are `cal-0001` through `cal-0120`. Repeat IDs are `rep-0001` through
-`rep-0012`; `repeat_of` is stored only in the manifest. Shuffle all 132 display
-items after repeat insertion.
+After the 12 repeats are inserted and all 132 display items are shuffled, assign
+the single neutral namespace `item-0001` through `item-0132` in display order.
+Primary and repeat items are visually indistinguishable. `repeat_of` and split
+assignments stay only in the private manifest.
 
 - [ ] **Step 4: Run tests**
 
@@ -404,8 +405,8 @@ git commit -m "feat(pgrep): render blind calibration Markdown"
 def test_pass_a_round_trip():
     sheet = _filled_pass_a_sheet()
     labels = calibration_sheet.parse_pass_a(sheet, manifest=_manifest())
-    assert labels["cal-0001"].your_answer == "B"
-    assert labels["cal-0001"].overall == "KEEP"
+    assert labels["item-0001"].your_answer == "B"
+    assert labels["item-0001"].overall == "KEEP"
 
 
 @pytest.mark.parametrize(
@@ -480,7 +481,8 @@ git commit -m "feat(pgrep): validate blind calibration labels"
 
 **Interfaces:**
 
-- Consumes explicit paths for trusted, failure, and finalized shadow JSON.
+- Consumes explicit paths for trusted/failure JSON and either a finalized
+  shadow run directory or its `candidates.json`.
 - Publishes `index.md`, `manifest.json`, `figures/<review-id>.svg`,
   `pass-a/block-*.md`, and `_SUCCESS`.
 - Never writes Pass B before a valid Pass A import.
@@ -496,6 +498,7 @@ def test_build_publishes_private_pass_a_workspace(tmp_path):
         out_root=tmp_path / "calibration",
         run_id="ruler-1",
         seed=7,
+        allow_test_paths=True,
     )
     assert (run_dir / "_SUCCESS").exists()
     assert (run_dir / "manifest.json").exists()
@@ -513,6 +516,7 @@ def test_build_failure_leaves_no_final_directory(tmp_path):
             out_root=tmp_path / "calibration",
             run_id="bad",
             seed=7,
+            allow_test_paths=True,
         )
     assert not (tmp_path / "calibration" / "bad").exists()
 ```
@@ -521,12 +525,18 @@ def test_build_failure_leaves_no_final_directory(tmp_path):
 
 Accepted formats are lists or objects with `items`/`candidates`. Finalized
 shadow input requires a sibling `_SUCCESS`, a complete three-model manifest,
-and `synthetic: false`. Reject gold/held-out markers recursively.
+real execution, `synthetic: false`, canonical candidate payload hashes, and
+matching byte digests for every bound artifact. Reject gold/held-out markers,
+path-shaped fields and values, symlink components, and wrapper-level leakage
+recursively. Production CLI paths stay under the exact git-ignored
+`content/run` roots; OS-temp paths require the internal test-only flag.
 
 - [ ] **Step 3: Implement atomic publication**
 
-Reuse the exclusive lock, temporary sibling directory, `_SUCCESS`, and atomic
-rename pattern from `content/tools/foundry.py`.
+Reuse the owned exclusive lock and temporary sibling pattern from
+`content/tools/shadow_foundry.py`. Reserve the final directory exclusively,
+hard-link verified payloads into it, remove and verify the owned lock, and
+write `_SUCCESS` last. Never rename over an existing directory.
 
 - [ ] **Step 4: Add recipe**
 

@@ -6,11 +6,13 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import sys
 import threading
 import types
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -193,6 +195,93 @@ def test_shadow_run_is_atomic_and_has_no_training_artifacts(tmp_path: Path) -> N
     )
 
 
+def _published_artifact_bytes(
+    manifest: dict[str, object],
+    candidates: Sequence[object],
+    failures: Sequence[object],
+) -> dict[str, bytes]:
+    return {
+        "candidates.json": shadow_foundry._strict_json(candidates).encode(),
+        "failures.json": shadow_foundry._strict_json(failures).encode(),
+        "probe.json": shadow_foundry._strict_json(manifest["probe"]).encode(),
+    }
+
+
+def _candidate_slot(candidate: dict[str, object]) -> int:
+    slot = candidate["slot"]
+    assert type(slot) is int
+    return slot
+
+
+def test_manifest_binds_candidate_payloads_and_artifact_bytes(
+    tmp_path: Path,
+) -> None:
+    candidates, manifest = shadow_foundry.offline_fixture(
+        run_id="bound-artifacts",
+        environment=_environment(),
+    )
+    run_dir = shadow_foundry.publish_run(
+        tmp_path,
+        "bound-artifacts",
+        candidates=candidates,
+        failures=[],
+        manifest=manifest,
+        allow_test_output=True,
+    )
+    published = json.loads((run_dir / "manifest.json").read_text())
+    assert published["synthetic"] is True
+    assert (run_dir / "probe.json").is_file()
+    assert published["candidate_payload_hashes"] == [
+        {
+            "slot": candidate["slot"],
+            "sha256": shadow_foundry._canonical_hash(candidate["candidate"]),
+        }
+        for candidate in sorted(candidates, key=_candidate_slot)
+    ]
+    assert published["artifact_digests"] == {
+        field: "sha256:" + hashlib.sha256((run_dir / filename).read_bytes()).hexdigest()
+        for field, filename in {
+            "candidates_json": "candidates.json",
+            "failures_json": "failures.json",
+            "probe_json": "probe.json",
+        }.items()
+    }
+
+
+def test_validate_manifest_rejects_changed_candidate_payload() -> None:
+    candidates, manifest = shadow_foundry.offline_fixture(
+        run_id="changed-payload",
+        environment=_environment(),
+    )
+    changed = copy.deepcopy(candidates)
+    payload = changed[0]["candidate"]
+    assert isinstance(payload, dict)
+    payload["stem"] = "Changed after manifest creation."
+    with pytest.raises(ValueError, match="candidate payload hash"):
+        shadow_foundry.validate_manifest(
+            manifest,
+            candidates=changed,
+            failures=[],
+            artifact_bytes=_published_artifact_bytes(manifest, changed, []),
+        )
+
+
+def test_validate_manifest_rejects_changed_candidate_artifact_bytes() -> None:
+    candidates, manifest = shadow_foundry.offline_fixture(
+        run_id="changed-bytes",
+        environment=_environment(),
+    )
+    artifacts = _published_artifact_bytes(manifest, candidates, [])
+    artifacts["candidates.json"] += b" "
+    with pytest.raises(ValueError, match="candidates.json.*digest"):
+        shadow_foundry.validate_manifest(
+            manifest,
+            candidates=candidates,
+            failures=[],
+            artifact_bytes=artifacts,
+        )
+
+
 def test_publish_run_collision_fails(tmp_path: Path) -> None:
     candidates, manifest = shadow_foundry.offline_fixture(
         run_id="run-1",
@@ -266,6 +355,7 @@ def test_run_shadow_requires_probe_ids_before_generation(tmp_path: Path) -> None
             [{"id": "gpt-5.6-sol-max", "parameters": [], "variants": []}],
             sdk_version="0.1.9",
         ),
+        synthetic=True,
     )
     with pytest.raises(shadow_foundry.ShadowRunFailed) as raised:
         shadow_foundry.run_shadow(
@@ -497,6 +587,7 @@ def _environment() -> shadow_foundry.RunEnvironment:
         worker_image_digest="sha256:" + ("b" * 64),
         corpus_index_fingerprint="sha256:" + ("c" * 64),
         probe=_probe_metadata(),
+        synthetic=True,
         corpus_index_mtime_ns=123456789,
         corpus_index_size=4096,
     )

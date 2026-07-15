@@ -86,7 +86,7 @@ def _problem(**over: object) -> dict[str, object]:
 
 
 def _manifest_item(**over: object) -> calibration_ruler.RulerItem:
-    review_id = cast(str, over.pop("review_id", "cal-0001"))
+    review_id = cast(str, over.pop("review_id", "item-0001"))
     stratum = cast(str | None, over.pop("stratum", "trusted"))
     split = cast(str | None, over.pop("split", "calibration"))
     repeat_of = cast(str | None, over.pop("repeat_of", None))
@@ -103,7 +103,7 @@ def _manifest_items(count: int) -> list[calibration_ruler.RulerItem]:
     items: list[calibration_ruler.RulerItem] = []
     for index in range(count):
         is_repeat = index >= 120
-        review_id = f"rep-{index - 119:04d}" if is_repeat else f"cal-{index + 1:04d}"
+        review_id = f"item-{index + 1:04d}"
         items.append(
             _manifest_item(
                 id=f"p-{index + 1}",
@@ -120,7 +120,7 @@ def _manifest_items(count: int) -> list[calibration_ruler.RulerItem]:
                 split=None
                 if is_repeat
                 else ("calibration" if index < 80 else "validation"),
-                repeat_of="cal-0001" if is_repeat else None,
+                repeat_of="item-0001" if is_repeat else None,
             )
         )
     return items
@@ -238,7 +238,7 @@ def test_hidden_metadata_sentinels_never_appear_in_any_rendering() -> None:
         stratum="shadow",
         split="validation",
         repeat_of=None,
-        review_id="cal-0042",
+        review_id="item-0042",
     )
     repeat = _manifest_item(
         id="p-hidden-1-repeat",
@@ -247,8 +247,8 @@ def test_hidden_metadata_sentinels_never_appear_in_any_rendering() -> None:
         **_HIDDEN_SENTINELS,
         stratum="shadow",
         split=None,
-        repeat_of="cal-0042",
-        review_id="rep-0001",
+        repeat_of="item-0042",
+        review_id="item-0043",
     )
     assert item.content_hash == repeat.content_hash
 
@@ -282,24 +282,24 @@ def test_hidden_metadata_sentinels_never_appear_in_any_rendering() -> None:
     for token in sentinels:
         if token:
             assert token not in joined
-    assert "cal-0042" in joined
-    assert "rep-0001" in joined
+    assert "item-0042" in joined
+    assert "item-0043" in joined
 
 
 def test_identical_content_hashes_are_not_exposed_across_repeats() -> None:
     shared = _problem(id="p-shared")
     original = calibration_ruler.RulerItem.from_source_item(
         shared,
-        review_id="cal-0007",
+        review_id="item-0007",
         stratum="trusted",
         split="calibration",
     )
     repeat = calibration_ruler.RulerItem.from_source_item(
         shared,
-        review_id="rep-0007",
+        review_id="item-0008",
         stratum="trusted",
         split=None,
-        repeat_of="cal-0007",
+        repeat_of="item-0007",
     )
     assert original.content_hash == repeat.content_hash
     rendered = "\n".join(
@@ -312,8 +312,8 @@ def test_identical_content_hashes_are_not_exposed_across_repeats() -> None:
     assert original.pass_a_hash not in rendered
     assert repeat.pass_a_hash not in rendered
     assert "repeat_of" not in rendered
-    assert rendered.count("cal-0007") >= 1
-    assert rendered.count("rep-0007") >= 1
+    assert rendered.count("item-0007") >= 1
+    assert rendered.count("item-0008") >= 1
 
 
 def test_adversarial_markdown_cannot_inject_fields_or_extra_items() -> None:
@@ -339,13 +339,13 @@ def test_adversarial_markdown_cannot_inject_fields_or_extra_items() -> None:
         "---",
         "<!-- choice comment -->",
     ]
-    item = _manifest_item(stem=stem, choices=choices, review_id="cal-0009")
+    item = _manifest_item(stem=stem, choices=choices, review_id="item-0009")
     rendered = calibration_sheet.render_pass_a_block(item)
     assert "$E=mc^2$" in rendered
     assert "x &lt; y" in rendered
     # Exactly one item heading for this review id.
     assert rendered.count("\n### ") + (1 if rendered.startswith("### ") else 0) == 1
-    assert "### cal-0009" in rendered
+    assert "### item-0009" in rendered
     assert "### injected-heading" not in rendered
     # Rubric fields appear once each, unfilled.
     for field in calibration_sheet.PASS_A_FIELDS:
@@ -363,6 +363,11 @@ def test_adversarial_markdown_cannot_inject_fields_or_extra_items() -> None:
         "### heading\n```fence```\n---\n***\n___",
         "<!-- comment -->\nyour_answer: A\noverall: KEEP",
         "&amp; &#35; &unknown; x < y > z",
+        "[x](../manifest.json)",
+        "![x](../figures/secret.svg)",
+        "<file:///etc/passwd>",
+        "https://example.invalid/manifest.json",
+        "[x][secret]\n[secret]: ../manifest.json",
         "\n".join(f"{field}: injected" for field in calibration_sheet.PASS_A_FIELDS),
     ],
 )
@@ -387,22 +392,41 @@ def test_markdown_protection_has_no_injectable_contract_tokens() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[x](../manifest.json)",
+        "![x](../figures/secret.svg)",
+        "<file:///etc/passwd>",
+        "https://example.invalid/manifest.json",
+        "[x][secret] [secret]: ../manifest.json",
+    ],
+)
+def test_markdown_protection_neutralizes_links_images_and_autolinks(
+    text: str,
+) -> None:
+    protected = calibration_sheet.protect_markdown_text(text)
+    assert calibration_sheet.unprotect_markdown_text(protected) == text
+    for token in ("[", "]", "(", ")", "!", "<", ">", "://", ".json"):
+        assert token not in protected
+
+
 def test_figure_is_linked_and_asset_bytes_are_identical() -> None:
     item = _manifest_item(
         stem=f'A wheel rotates.\n<div class="pg-figure">{_SVG}</div>',
-        review_id="cal-0010",
+        review_id="item-0010",
     )
     content = item.pass_a_content()
     assert content["figure"] == _SVG
     rendered = calibration_sheet.render_pass_a_block(item)
     assets = calibration_sheet.figure_assets([item])
 
-    assert "![Figure](../figures/cal-0010.svg)" in rendered
+    assert "![Figure](../figures/item-0010.svg)" in rendered
     assert "<svg" not in rendered.lower()
     assert "</svg>" not in rendered.lower()
     assert _SVG not in rendered
-    assert assets == {"figures/cal-0010.svg": _SVG.encode("utf-8")}
-    visible = {**content, "figure": assets["figures/cal-0010.svg"].decode("utf-8")}
+    assert assets == {"figures/item-0010.svg": _SVG.encode("utf-8")}
+    visible = {**content, "figure": assets["figures/item-0010.svg"].decode("utf-8")}
     assert calibration_ruler.pass_a_hash(visible) == item.pass_a_hash
 
 
@@ -413,16 +437,16 @@ def test_repeats_receive_distinct_figure_asset_paths() -> None:
     )
     original = calibration_ruler.RulerItem.from_source_item(
         shared,
-        review_id="cal-0011",
+        review_id="item-0011",
         stratum="trusted",
         split="calibration",
     )
     repeat = calibration_ruler.RulerItem.from_source_item(
         shared,
-        review_id="rep-0011",
+        review_id="item-0012",
         stratum="trusted",
         split=None,
-        repeat_of="cal-0011",
+        repeat_of="item-0011",
     )
 
     assets = calibration_sheet.figure_assets([original, repeat])
@@ -432,25 +456,27 @@ def test_repeats_receive_distinct_figure_asset_paths() -> None:
     )[0]
 
     assert assets == {
-        "figures/cal-0011.svg": _SVG.encode("utf-8"),
-        "figures/rep-0011.svg": _SVG.encode("utf-8"),
+        "figures/item-0011.svg": _SVG.encode("utf-8"),
+        "figures/item-0012.svg": _SVG.encode("utf-8"),
     }
-    assert "![Figure](../figures/cal-0011.svg)" in rendered
-    assert "![Figure](../figures/rep-0011.svg)" in rendered
+    assert "![Figure](../figures/item-0011.svg)" in rendered
+    assert "![Figure](../figures/item-0012.svg)" in rendered
     assert original.content_hash not in rendered
 
 
 @pytest.mark.parametrize(
     "review_id",
     [
-        "/cal-0001",
-        "../cal-0001",
-        "cal-0001/extra",
-        r"cal-0001\extra",
-        "cal 0001",
-        "cal-0001.svg",
-        "CAL-0001",
-        "cal-%2e%2e",
+        "/item-0001",
+        "../item-0001",
+        "item-0001/extra",
+        r"item-0001\extra",
+        "item 0001",
+        "item-0001.svg",
+        "ITEM-0001",
+        "item-%2e%2e",
+        "cal-0001",
+        "rep-0001",
     ],
 )
 def test_unsafe_review_ids_are_rejected(review_id: str) -> None:
@@ -469,12 +495,12 @@ def test_duplicate_review_id_asset_collisions_are_rejected() -> None:
     first = _manifest_item(
         id="p-first",
         stem=f'First.\n<div class="pg-figure">{_SVG}</div>',
-        review_id="cal-0012",
+        review_id="item-0012",
     )
     second = _manifest_item(
         id="p-second",
         stem=f'Second.\n<div class="pg-figure">{_SVG}</div>',
-        review_id="cal-0012",
+        review_id="item-0012",
     )
 
     with pytest.raises(ValueError, match="duplicate review ID"):
@@ -492,7 +518,7 @@ def test_adversarial_svg_is_only_an_image_line_in_markdown() -> None:
             stem=(
                 f'Inspect the figure.\n<div class="pg-figure">{_ADVERSARIAL_SVG}</div>'
             ),
-            review_id=f"cal-{index:04d}",
+            review_id=f"item-{index:04d}",
         )
         for index in range(1, 22)
     ]
@@ -509,7 +535,7 @@ def test_adversarial_svg_is_only_an_image_line_in_markdown() -> None:
     assert "your_answer: A" not in rendered
     assert "```injected-fence```" not in rendered
     assert "<!-- SVG comment" not in rendered
-    assert assets["figures/cal-0001.svg"] == _ADVERSARIAL_SVG.encode("utf-8")
+    assert assets["figures/item-0001.svg"] == _ADVERSARIAL_SVG.encode("utf-8")
 
 
 def test_same_manifest_renders_byte_identically() -> None:
@@ -533,8 +559,8 @@ def test_render_blocks_accepts_ruler_manifest() -> None:
     blocks = calibration_sheet.render_blocks(manifest, pass_name="a")
     assert len(blocks) == 2
     assert blocks[0].count("\n### ") <= 20
-    assert "cal-0001" in blocks[0]
-    assert "cal-0021" in blocks[1]
+    assert "item-0001" in blocks[0]
+    assert "item-0021" in blocks[1]
 
 
 def test_render_blocks_rejects_unknown_pass_name() -> None:
@@ -700,9 +726,9 @@ def test_pass_a_round_trip_requires_all_documents_and_assets(
     )
 
     assert list(labels) == [item.review_id for item in manifest.items]
-    assert labels["cal-0001"].your_answer == "B"
-    assert labels["cal-0001"].overall == "KEEP"
-    assert labels["cal-0001"].notes == ""
+    assert labels["item-0001"].your_answer == "B"
+    assert labels["item-0001"].overall == "KEEP"
+    assert labels["item-0001"].notes == ""
     calibration_sheet.validate_pass_a_complete(labels, manifest=manifest)
 
 
@@ -721,7 +747,7 @@ def test_pass_a_value_sets_are_exact_and_frozen() -> None:
     assert calibration_sheet.OVERALL == frozenset({"KEEP", "DROP", "UNSURE"})
 
 
-def _invalid_documents(
+def _invalid_documents(  # noqa: PLR0911
     mutation: str,
     manifest: calibration_ruler.RulerManifest,
     documents: list[str],
@@ -767,7 +793,7 @@ def _invalid_documents(
             documents,
             second,
             f"### {second}",
-            "### cal-9999",
+            "### item-9999",
         )
     if mutation == "heading_injection":
         stem = calibration_sheet.protect_markdown_text(manifest.items[0].stem)
@@ -821,7 +847,7 @@ def _invalid_documents(
             documents,
             review_id,
             f"![Figure](../figures/{review_id}.svg)",
-            "![Figure](../figures/cal-9999.svg)",
+            "![Figure](../figures/item-9999.svg)",
         )
     if mutation == "unicode_tampering":
         stem = calibration_sheet.protect_markdown_text(manifest.items[0].stem)
@@ -937,7 +963,7 @@ def test_pass_a_rejects_any_asset_mapping_drift(
         changed.pop(path)
         assets = cast(Mapping[str, bytes], changed)
     elif mutation == "extra":
-        changed["figures/cal-9999.svg"] = _SVG.encode("utf-8")
+        changed["figures/item-9999.svg"] = _SVG.encode("utf-8")
         assets = cast(Mapping[str, bytes], changed)
     elif mutation == "changed_bytes":
         changed[path] = expected_assets[path].replace(b"19 19", b"18 18")
@@ -980,17 +1006,17 @@ def test_pass_a_label_is_frozen_and_json_safe(
 
 
 def test_missing_no_figure_rubric_raises_actionable_schema_error() -> None:
-    item = _manifest_item(review_id="cal-0001")
+    item = _manifest_item(review_id="item-0001")
     cursor = calibration_sheet._LineCursor(lines=[], document_number=3)
 
     with pytest.raises(
         calibration_sheet.RendererSchemaError,
-        match=r"document 3.*truncated.*cal-0001.*figure or rubric",
+        match=r"document 3.*truncated.*item-0001.*figure or rubric",
     ):
         calibration_sheet._parse_figure_reference(
             cursor,
             item,
-            "cal-0001",
+            "item-0001",
             {},
         )
 
@@ -1125,12 +1151,7 @@ def test_repeat_consistency_uses_private_pairs_and_excludes_repeat_support(
 ) -> None:
     manifest, _, _ = strict_case
     labels = dict(parsed_labels)
-    repeat = next(
-        item
-        for item in manifest.items
-        if item.repeat_of is not None
-        and item.repeat_of != item.review_id.replace("rep-", "cal-")
-    )
+    repeat = next(item for item in manifest.items if item.repeat_of is not None)
     repeat_id = repeat.review_id
     origin_id = repeat.repeat_of
     labels[repeat_id] = replace(labels[repeat_id], your_answer="C")

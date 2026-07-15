@@ -51,9 +51,15 @@ DEFAULT_REASONING = "high"
 
 SUCCESS_MARKER = "_SUCCESS"
 FAILED_MARKER = "_FAILED"
-MANIFEST_VERSION = "pgrep-shadow-run/v4"
+MANIFEST_VERSION = "pgrep-shadow-run/v5"
 
 _FAMILIES = ("sol", "opus", "grok")
+_BOUND_ARTIFACTS = ("candidates.json", "failures.json", "probe.json")
+_ARTIFACT_DIGEST_FIELDS = {
+    "candidates_json": "candidates.json",
+    "failures_json": "failures.json",
+    "probe_json": "probe.json",
+}
 _WORKER_FILES = ("Dockerfile", "pyproject.toml", "uv.lock", "worker.py")
 _SHA_RE = re.compile(r"[0-9a-f]{40,64}")
 _DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
@@ -107,6 +113,7 @@ _TOP_LEVEL_FIELDS = frozenset(
         "manifest_version",
         "mode",
         "execution_mode",
+        "synthetic",
         "replayable",
         "status",
         "run_id",
@@ -128,6 +135,8 @@ _TOP_LEVEL_FIELDS = frozenset(
         "prompt_versions",
         "schema_versions",
         "request_traces",
+        "candidate_payload_hashes",
+        "artifact_digests",
         "artifacts",
     }
 )
@@ -195,6 +204,7 @@ class RunEnvironment:
     worker_image_digest: str | None
     corpus_index_fingerprint: str | None
     probe: Mapping[str, object]
+    synthetic: bool
     execution_mode: str = "test-fake"
     corpus_index_mtime_ns: int | None = None
     corpus_index_size: int | None = None
@@ -207,6 +217,8 @@ class RunEnvironment:
             raise ValueError("tree status must be clean or dirty")
         if self.execution_mode not in {"real", "offline-self-check", "test-fake"}:
             raise ValueError("execution mode is invalid")
+        if type(self.synthetic) is not bool:
+            raise ValueError("synthetic must be a boolean")
         _non_empty_string(self.worker_image, name="worker image")
         if self.worker_image_digest is not None and not _DIGEST_RE.fullmatch(
             self.worker_image_digest
@@ -361,6 +373,35 @@ def _utc_timestamp(value: str | None = None) -> str:
 def _canonical_hash(value: object) -> str:
     rendered = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return "sha256:" + hashlib.sha256(rendered.encode()).hexdigest()
+
+
+def _artifact_digest(raw: bytes) -> str:
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
+def _publication_artifact_bytes(
+    candidates: Sequence[object],
+    failures: Sequence[object],
+    probe: object,
+) -> dict[str, bytes]:
+    return {
+        "candidates.json": _strict_json(list(candidates)).encode(),
+        "failures.json": _strict_json(list(failures)).encode(),
+        "probe.json": _strict_json(probe).encode(),
+    }
+
+
+def _candidate_payload_hashes(
+    candidates: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    ordered = sorted(candidates, key=lambda candidate: cast(int, candidate["slot"]))
+    return [
+        {
+            "slot": candidate["slot"],
+            "sha256": _canonical_hash(candidate["candidate"]),
+        }
+        for candidate in ordered
+    ]
 
 
 def _redact_string(value: str, secrets: Sequence[str] = ()) -> str:
@@ -976,7 +1017,10 @@ def prepare_real_sandbox(
     force_build: bool = False,
     runtime_detector: Callable[[], str] = cursor_sandbox.detect_runtime,
     runtime_discoverer: Callable[[str], object] = cursor_sandbox.discover_local_runtime,
-    sandbox_factory: SandboxFactory = cursor_sandbox.CursorSandbox,
+    sandbox_factory: SandboxFactory = cast(
+        SandboxFactory,
+        cursor_sandbox.CursorSandbox,
+    ),
 ) -> PreparedSandbox:
     """Build, attest, and bind execution to one immutable worker digest."""
     del force_build
@@ -1394,10 +1438,13 @@ def build_run_manifest(
     """Build the one strict manifest shape used by success and diagnostics."""
     candidate_traces = canonical_candidate_trace_summaries(candidates)
     traces = _merge_failure_trace_summaries(candidate_traces, failure_traces)
+    probe = copy.deepcopy(dict(environment.probe))
+    artifact_bytes = _publication_artifact_bytes(candidates, failures, probe)
     manifest: dict[str, object] = {
         "manifest_version": MANIFEST_VERSION,
         "mode": "shadow",
         "execution_mode": environment.execution_mode,
+        "synthetic": environment.synthetic,
         "replayable": status == "success" and environment.tree_status == "clean",
         "status": status,
         "run_id": run_id,
@@ -1413,7 +1460,7 @@ def build_run_manifest(
             }
         ),
         "roles": _roles_dict(roles),
-        "probe": copy.deepcopy(dict(environment.probe)),
+        "probe": probe,
         "code": {
             "sha": environment.code_sha,
             "tree_status": environment.tree_status,
@@ -1446,6 +1493,11 @@ def build_run_manifest(
             "solve": shadow_portfolio.VERIFIER_SCHEMA_VERSION,
         },
         "request_traces": traces,
+        "candidate_payload_hashes": _candidate_payload_hashes(candidates),
+        "artifact_digests": {
+            field: _artifact_digest(artifact_bytes[filename])
+            for field, filename in _ARTIFACT_DIGEST_FIELDS.items()
+        },
         "artifacts": {
             "accepted_json": False,
             "preferences_jsonl": False,
@@ -1634,6 +1686,7 @@ def _validate_manifest_nested_objects(manifest: Mapping[str, object]) -> None:
             {"generator", "correction", "verifier", "generation_core_problem"}
         ),
         "schema_versions": frozenset({"problem", "solve"}),
+        "artifact_digests": frozenset(_ARTIFACT_DIGEST_FIELDS),
         "artifacts": frozenset(
             {
                 "accepted_json",
@@ -1662,6 +1715,11 @@ def _validate_manifest_nested_objects(manifest: Mapping[str, object]) -> None:
     }
     if manifest["schema_versions"] != expected_schemas:
         raise ValueError("manifest schema versions are not the exact current versions")
+    for field, digest in cast(
+        Mapping[str, object], manifest["artifact_digests"]
+    ).items():
+        if not _DIGEST_RE.fullmatch(str(digest)):
+            raise ValueError(f"manifest artifact digest for {field} is invalid")
     if any(cast(Mapping[str, object], manifest["artifacts"]).values()):
         raise ValueError("shadow manifest enables a forbidden training artifact")
 
@@ -1946,11 +2004,45 @@ def _validate_success_portfolio(
         )
 
 
+def _validate_candidate_payload_hashes(
+    manifest: Mapping[str, object],
+    candidates: Sequence[Mapping[str, object]],
+) -> None:
+    actual = _candidate_payload_hashes(candidates)
+    expected = manifest["candidate_payload_hashes"]
+    if not isinstance(expected, list):
+        raise ValueError("manifest candidate payload hashes must be an array")
+    if expected != actual:
+        raise ValueError("manifest candidate payload hashes do not match candidates")
+
+
+def _validate_artifact_bytes(
+    manifest: Mapping[str, object],
+    *,
+    candidates: Sequence[object],
+    failures: Sequence[object],
+    artifact_bytes: Mapping[str, bytes],
+) -> None:
+    if set(artifact_bytes) != set(_BOUND_ARTIFACTS):
+        raise ValueError("bound shadow artifact byte set is incomplete")
+    canonical = _publication_artifact_bytes(candidates, failures, manifest["probe"])
+    digests = cast(Mapping[str, object], manifest["artifact_digests"])
+    for field, filename in _ARTIFACT_DIGEST_FIELDS.items():
+        raw = artifact_bytes[filename]
+        if type(raw) is not bytes:
+            raise ValueError(f"{filename} artifact must be raw bytes")
+        if _artifact_digest(raw) != digests[field]:
+            raise ValueError(f"{filename} artifact digest does not match manifest")
+        if raw != canonical[filename]:
+            raise ValueError(f"{filename} artifact bytes are not canonical")
+
+
 def validate_manifest(
     manifest: Mapping[str, object],
     *,
     candidates: Sequence[object],
     failures: Sequence[object],
+    artifact_bytes: Mapping[str, bytes],
     publication_run_id: str | None = None,
 ) -> None:
     """Reject any manifest that could produce a false finalized marker."""
@@ -1960,6 +2052,8 @@ def validate_manifest(
     if publication_run_id is not None and manifest["run_id"] != publication_run_id:
         raise ValueError("manifest run ID does not match publication directory")
     _validate_manifest_nested_objects(manifest)
+    if type(manifest["synthetic"]) is not bool:
+        raise ValueError("manifest synthetic flag must be a boolean")
     if manifest["mode"] != "shadow" or manifest["training_eligible"] is not False:
         raise ValueError("manifest must be shadow-only and not training eligible")
     status, expected, candidate_count, failure_count = _manifest_status_and_counts(
@@ -1992,6 +2086,13 @@ def validate_manifest(
         )
     elif failure_count < 1:
         raise ValueError("failed manifest must contain actual failures")
+    _validate_candidate_payload_hashes(manifest, validated_candidates)
+    _validate_artifact_bytes(
+        manifest,
+        candidates=candidates,
+        failures=failures,
+        artifact_bytes=artifact_bytes,
+    )
     _assert_safe_value(manifest, "manifest")
     _assert_safe_value(list(candidates), "candidates")
     _assert_safe_value(list(failures), "failures")
@@ -2068,21 +2169,25 @@ def publish_run(
         dict[str, object],
         _sanitize_for_publication(copy.deepcopy(dict(manifest))),
     )
-    validate_manifest(
-        safe_manifest,
-        candidates=safe_candidates,
-        failures=safe_failures,
-        publication_run_id=run_id,
-    )
-    status = cast(str, safe_manifest["status"])
-    marker = SUCCESS_MARKER if status == "success" else FAILED_MARKER
+    _validate_exact_fields(safe_manifest, _TOP_LEVEL_FIELDS, name="manifest")
     publisher = io or PublicationIO()
     payloads = {
         "manifest.json": safe_manifest,
         "candidates.json": safe_candidates,
         "failures.json": safe_failures,
+        "probe.json": safe_manifest["probe"],
     }
     rendered = {name: publisher.dumps(value) for name, value in payloads.items()}
+    bound_bytes = {name: rendered[name].encode() for name in _BOUND_ARTIFACTS}
+    validate_manifest(
+        safe_manifest,
+        candidates=safe_candidates,
+        failures=safe_failures,
+        artifact_bytes=bound_bytes,
+        publication_run_id=run_id,
+    )
+    status = cast(str, safe_manifest["status"])
+    marker = SUCCESS_MARKER if status == "success" else FAILED_MARKER
     lock_path = root / f".{run_id}.lock"
     run_dir = root / run_id
     if run_dir.exists() or run_dir.is_symlink():
@@ -2724,6 +2829,7 @@ def _offline_environment() -> RunEnvironment:
             "sha256:" + hashlib.sha256(b"offline-corpus-fixture").hexdigest()
         ),
         probe=probe,
+        synthetic=True,
         execution_mode="offline-self-check",
         corpus_index_mtime_ns=0,
         corpus_index_size=len(b"offline-corpus-fixture"),
@@ -2850,6 +2956,7 @@ def _partial_environment(
             [],
             sdk_version="unavailable",
         ),
+        synthetic=False,
         execution_mode="real",
         corpus_index_mtime_ns=corpus_mtime_ns,
         corpus_index_size=corpus_size,

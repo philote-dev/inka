@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import os
 import re
@@ -30,9 +31,10 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import cast
+from typing import Callable, cast
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -47,6 +49,8 @@ from pgrep.ai import (  # type: ignore[import-not-found]  # noqa: E402
 )
 
 REPO_ROOT = _AI_ROOT.parents[1]
+CONTENT_RUN_ROOT = REPO_ROOT / "content" / "run"
+SHADOW_ROOT = CONTENT_RUN_ROOT / "shadow-foundry"
 CALIBRATION_ROOT = REPO_ROOT / "content" / "run" / "calibration"
 
 MANIFEST_NAME = "manifest.json"
@@ -71,16 +75,48 @@ _PRIVATE_MARKER = re.compile(
     r")(?![a-z0-9])"
 )
 
-_FORBIDDEN_INPUT_KEYS = frozenset(
+_PATH_KEY_TOKEN = re.compile(
+    r"(?:^|_)(?:path|file|filename|filepath|directory|dir|folder|cwd|home)"
+    r"(?:$|_)",
+    re.IGNORECASE,
+)
+_ABSOLUTE_PATH = re.compile(
+    r"(?i)(?:^|[\s\"'=(:])(?:/[A-Za-z0-9._~-]+(?:/|$)|[A-Za-z]:\\|\\\\)"
+)
+_RELATIVE_PATH = re.compile(
+    r"(?i)(?:^|[\s\"'=(:])(?:\.\.?[/\\]|~[/\\]|"
+    r"(?:content|pylib|qt|rslib|tools|docs_pgrep|\.git)[/\\])"
+    r"|(?<![A-Za-z0-9])(?:[A-Za-z0-9_.-]+[/\\])+"
+    r"[A-Za-z0-9_.-]+\.(?:jsonl?|db|sqlite|pdf|py|toml|ya?ml|env|md|txt)\b"
+)
+_FORBIDDEN_ASSET_TERMS = frozenset(
     {
+        "source_ref",
+        "source_excerpt",
+        "solution_decomposition",
+        "decomposition",
+        "model",
+        "model_id",
+        "model_family",
+        "origin",
+        "provenance",
+        "trace",
+        "verifier",
+        "stratum",
+        "split",
+        "repeat_of",
+        "content_hash",
+        "pass_a_hash",
+        "pass_b_hash",
+        "manifest.json",
+        "candidates.json",
+        "failures.json",
         "source_file",
         "source_path",
         "filesystem_path",
         "file_path",
-        "path",
-        "working_directory",
-        "cwd",
-        "home",
+        "original_path",
+        "input_file",
     }
 )
 
@@ -94,6 +130,21 @@ class PublicationCleanupError(RuntimeError):
 
 
 LockIdentity = tuple[int, int]
+RepoStateFn = Callable[[], tuple[str, str]]
+
+
+@dataclass(frozen=True)
+class _LoadedProblemSet:
+    items: tuple[dict[str, object], ...]
+    sha256: str
+
+
+@dataclass(frozen=True)
+class _LoadedShadowRun:
+    items: tuple[dict[str, object], ...]
+    run_id: str
+    manifest_sha256: str
+    model_ids: tuple[str, ...]
 
 
 # --- Filesystem seam -------------------------------------------------------
@@ -104,19 +155,38 @@ class PublicationIO:
 
     def open_lock(self, path: Path) -> int:
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        identity = _descriptor_identity(fd)
         try:
-            os.write(fd, f"pid={os.getpid()}\n".encode())
-            os.fsync(fd)
+            self.write_lock(fd, f"pid={os.getpid()}\n".encode())
+            self.sync_lock(fd)
         except BaseException:
             os.close(fd)
+            if _path_matches_identity(path, identity):
+                path.unlink()
+            if path.exists() or path.is_symlink():
+                raise PublicationCleanupError(
+                    f"failed lock initialization left an owned lock: {path}"
+                )
             raise
         return fd
+
+    def write_lock(self, fd: int, content: bytes) -> None:
+        os.write(fd, content)
+
+    def sync_lock(self, fd: int) -> None:
+        os.fsync(fd)
 
     def create_temp(self, root: Path, run_id: str) -> Path:
         return Path(tempfile.mkdtemp(prefix=f".{run_id}.", suffix=".tmp", dir=root))
 
     def make_dir(self, path: Path) -> None:
         path.mkdir(mode=0o700, exist_ok=False)
+
+    def reserve_final(self, path: Path) -> None:
+        path.mkdir(mode=0o700, exist_ok=False)
+
+    def link_payload(self, source: Path, destination: Path) -> None:
+        os.link(source, destination, follow_symlinks=False)
 
     def write_text(self, path: Path, content: str) -> None:
         _write_exclusive(path, content.encode("utf-8"))
@@ -130,8 +200,8 @@ class PublicationIO:
     def read_bytes(self, path: Path) -> bytes:
         return path.read_bytes()
 
-    def rename(self, source: Path, destination: Path) -> None:
-        os.rename(source, destination)
+    def write_marker(self, path: Path, content: str) -> None:
+        _write_exclusive(path, content.encode("utf-8"))
 
     def fsync_dir(self, path: Path) -> None:
         flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
@@ -145,6 +215,15 @@ class PublicationIO:
 
     def cleanup_tree(self, path: Path) -> None:
         _remove_tree_verified(path)
+
+    def remove_lock(self, path: Path, identity: LockIdentity) -> None:
+        if not _path_matches_identity(path, identity):
+            raise PublicationCleanupError(
+                "publication lock identity changed before removal"
+            )
+        path.unlink()
+        if path.exists() or path.is_symlink():
+            raise PublicationCleanupError(f"publication lock remains: {path}")
 
 
 def _write_exclusive(path: Path, content: bytes) -> None:
@@ -174,12 +253,14 @@ def _remove_tree_verified(path: Path) -> None:
     if stat.S_ISLNK(info.st_mode):
         raise PublicationCleanupError(f"refusing to remove symlink: {path}")
     shutil.rmtree(path)
+    if path.exists() or path.is_symlink():
+        raise PublicationCleanupError(f"cleanup tree remains: {path}")
 
 
 # --- Output-root safety ----------------------------------------------------
 
 
-def _reject_symlink_components(path: Path) -> None:
+def _reject_symlink_components(path: Path, *, name: str = "path") -> None:
     absolute = path.absolute()
     current = Path(absolute.anchor)
     for part in absolute.parts[1:]:
@@ -189,9 +270,7 @@ def _reject_symlink_components(path: Path) -> None:
         except FileNotFoundError:
             continue
         if stat.S_ISLNK(info.st_mode):
-            raise RulerBuildError(
-                f"output root contains a symlink component: {current}"
-            )
+            raise RulerBuildError(f"{name} contains a symlink component: {current}")
 
 
 def _is_relative_to(path: Path, parent: Path) -> bool:
@@ -202,8 +281,11 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
     return True
 
 
-def _calibration_root_is_git_ignored() -> None:
-    relative = CALIBRATION_ROOT.relative_to(REPO_ROOT)
+def _git_ignored_path(path: Path, *, name: str) -> None:
+    try:
+        relative = path.absolute().relative_to(REPO_ROOT.absolute())
+    except ValueError as error:
+        raise RulerBuildError(f"{name} is outside the repository") from error
     completed = subprocess.run(
         ["git", "check-ignore", "-q", "--", str(relative)],
         cwd=REPO_ROOT,
@@ -212,28 +294,71 @@ def _calibration_root_is_git_ignored() -> None:
         timeout=5,
     )
     if completed.returncode != 0:
-        raise RulerBuildError("calibration output root is not git-ignored")
+        raise RulerBuildError(f"{name} is not git-ignored")
 
 
-def validate_output_root(out_root: Path | str) -> Path:
-    """Accept the exact calibration root, or an injected OS-temporary root."""
-    requested = Path(out_root).absolute()
-    _reject_symlink_components(requested)
-    if requested == CALIBRATION_ROOT.absolute():
-        _calibration_root_is_git_ignored()
-        return requested
+def _reject_path_escape(path: Path, *, name: str) -> None:
+    if ".." in Path(path).parts:
+        raise RulerBuildError(f"{name} contains a path escape")
+
+
+def _is_test_path(path: Path) -> bool:
     temp_root = Path(tempfile.gettempdir()).resolve()
     try:
-        resolved_parent = requested.parent.resolve(strict=True)
-    except FileNotFoundError as error:
-        raise RulerBuildError(
-            "output root parent does not exist for an injected test root"
-        ) from error
-    if _is_relative_to(resolved_parent, temp_root):
+        resolved = path.resolve(strict=False)
+    except OSError:
+        return False
+    return _is_relative_to(resolved, temp_root)
+
+
+def validate_output_root(
+    out_root: Path | str,
+    *,
+    allow_test_paths: bool = False,
+) -> Path:
+    """Accept only the exact private root, unless an internal test opts in."""
+    raw = Path(out_root)
+    _reject_path_escape(raw, name="output root")
+    requested = raw.absolute()
+    _reject_symlink_components(requested, name="output root")
+    if requested == CALIBRATION_ROOT.absolute():
+        _git_ignored_path(requested, name="calibration output root")
         return requested
-    raise RulerBuildError(
-        "output root must be the calibration root or an OS temporary directory"
-    )
+    if allow_test_paths and _is_test_path(requested):
+        return requested
+    raise RulerBuildError("output root must be the exact repository calibration root")
+
+
+def _normalize_input_path(
+    path: Path | str,
+    *,
+    name: str,
+    allow_test_paths: bool,
+    required_root: Path,
+    require_file: bool,
+) -> Path:
+    raw = Path(path)
+    _reject_path_escape(raw, name=name)
+    absolute = raw.absolute()
+    _reject_symlink_components(absolute, name=name)
+    try:
+        resolved = absolute.resolve(strict=True)
+    except FileNotFoundError as error:
+        raise RulerBuildError(f"{name} does not exist: {absolute}") from error
+    info = resolved.lstat()
+    expected = stat.S_ISREG if require_file else stat.S_ISDIR
+    if stat.S_ISLNK(info.st_mode) or not expected(info.st_mode):
+        kind = "regular JSON file" if require_file else "directory"
+        raise RulerBuildError(f"{name} must be a {kind}: {resolved}")
+    if allow_test_paths and _is_test_path(resolved):
+        return resolved
+    canonical_root = required_root.resolve(strict=True)
+    if not _is_relative_to(resolved, canonical_root):
+        raise RulerBuildError(
+            f"{name} must be under the exact repository {required_root.name} root"
+        )
+    _git_ignored_path(resolved, name=name)
+    return resolved
 
 
 def _validate_run_id(run_id: str) -> None:
@@ -279,13 +404,59 @@ def _reject_private_input_path(path: Path, *, name: str) -> None:
         )
 
 
-def _strict_load_json(path: Path, *, name: str) -> object:
-    if path.is_symlink() or not path.is_file():
-        raise RulerBuildError(f"{name} input must be a regular JSON file: {path}")
+def _read_file_once(path: Path, *, name: str) -> bytes:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        fd = os.open(path, flags)
+    except OSError as error:
+        raise RulerBuildError(f"could not open {name}: {error}") from error
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise RulerBuildError(f"{name} must be a regular file")
+        chunks: list[bytes] = []
+        while chunk := os.read(fd, 1024 * 1024):
+            chunks.append(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
+def _reject_json_constant(value: str) -> object:
+    raise RulerBuildError(f"non-finite JSON number is forbidden: {value}")
+
+
+def _unique_json_object(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise RulerBuildError(f"duplicate JSON object key is forbidden: {key!r}")
+        result[key] = value
+    return result
+
+
+def _parse_json_bytes(raw: bytes, *, name: str) -> object:
+    try:
+        text = raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as error:
+        raise RulerBuildError(f"{name} is not strict UTF-8") from error
+    try:
+        return json.loads(
+            text,
+            parse_constant=_reject_json_constant,
+            object_pairs_hook=_unique_json_object,
+        )
     except json.JSONDecodeError as error:
-        raise RulerBuildError(f"{name} input is not valid JSON: {error}") from error
+        raise RulerBuildError(f"{name} is not valid JSON: {error}") from error
+
+
+def _load_json_once(path: Path, *, name: str) -> tuple[object, bytes]:
+    raw = _read_file_once(path, name=name)
+    return _parse_json_bytes(raw, name=name), raw
 
 
 def _items_from_document(document: object, *, name: str) -> list[object]:
@@ -305,17 +476,31 @@ def _items_from_document(document: object, *, name: str) -> list[object]:
     raise RulerBuildError(f"{name} input must be a JSON array or object")
 
 
-def _reject_forbidden_keys(value: object, *, name: str) -> None:
+def _normalized_key(key: str) -> str:
+    snake = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", key)
+    return re.sub(r"[^A-Za-z0-9]+", "_", snake).strip("_").lower()
+
+
+def _looks_like_filesystem_path(value: str) -> bool:
+    without_urls = re.sub(r"(?i)\bhttps?://\S+", "", value)
+    return bool(
+        _ABSOLUTE_PATH.search(without_urls) or _RELATIVE_PATH.search(without_urls)
+    )
+
+
+def _reject_path_fields_and_values(value: object, *, name: str) -> None:
     if isinstance(value, Mapping):
         for key, nested in cast("Mapping[str, object]", value).items():
-            if isinstance(key, str) and key.lower() in _FORBIDDEN_INPUT_KEYS:
+            if isinstance(key, str) and _PATH_KEY_TOKEN.search(_normalized_key(key)):
                 raise RulerBuildError(
                     f"{name} item must not carry a source path field: {key}"
                 )
-            _reject_forbidden_keys(nested, name=name)
+            _reject_path_fields_and_values(nested, name=name)
     elif isinstance(value, list):
         for nested in cast("list[object]", value):
-            _reject_forbidden_keys(nested, name=name)
+            _reject_path_fields_and_values(nested, name=name)
+    elif isinstance(value, str) and _looks_like_filesystem_path(value):
+        raise RulerBuildError(f"{name} item contains a filesystem-looking value")
 
 
 def _reject_recursive_markers(value: object, *, name: str) -> None:
@@ -336,29 +521,88 @@ def _reject_recursive_markers(value: object, *, name: str) -> None:
             _reject_recursive_markers(nested, name=name)
 
 
-def load_problem_set(path: Path | str, *, name: str) -> list[dict[str, object]]:
-    """Load a trusted or failure problem set from an explicit JSON path."""
-    resolved = Path(path)
+def _load_problem_set(
+    path: Path | str,
+    *,
+    name: str,
+    allow_test_paths: bool,
+) -> _LoadedProblemSet:
+    resolved = _normalize_input_path(
+        path,
+        name=f"{name} input",
+        allow_test_paths=allow_test_paths,
+        required_root=CONTENT_RUN_ROOT,
+        require_file=True,
+    )
     _reject_private_input_path(resolved, name=name)
-    document = _strict_load_json(resolved, name=name)
+    document, raw = _load_json_once(resolved, name=f"{name} input")
+    calibration_ruler._validate_json(document)  # noqa: SLF001
+    _reject_path_fields_and_values(document, name=name)
+    _reject_recursive_markers(document, name=name)
     items = _items_from_document(document, name=name)
     for index, item in enumerate(items):
         if not isinstance(item, Mapping):
             raise RulerBuildError(f"{name} item {index} must be a JSON object")
-        # Strict JSON with finite numbers only; reuse the Task 1 validator.
-        calibration_ruler._validate_json(item)  # noqa: SLF001
-        _reject_forbidden_keys(item, name=name)
-        _reject_recursive_markers(item, name=name)
-    return [dict(cast("Mapping[str, object]", item)) for item in items]
+    copied = tuple(dict(cast("Mapping[str, object]", item)) for item in items)
+    return _LoadedProblemSet(copied, hashlib.sha256(raw).hexdigest())
+
+
+def load_problem_set(
+    path: Path | str,
+    *,
+    name: str,
+    allow_test_paths: bool = False,
+) -> list[dict[str, object]]:
+    """Load a trusted or failure problem set from one explicit JSON file."""
+    return list(
+        _load_problem_set(
+            path,
+            name=name,
+            allow_test_paths=allow_test_paths,
+        ).items
+    )
 
 
 # --- Shadow run loading (finalized _SUCCESS) -------------------------------
 
 
+def _normalize_shadow_run_path(
+    path: Path | str,
+    *,
+    allow_test_paths: bool,
+) -> Path:
+    raw = Path(path)
+    if raw.name == "candidates.json":
+        candidates_path = _normalize_input_path(
+            raw,
+            name="shadow candidates input",
+            allow_test_paths=allow_test_paths,
+            required_root=SHADOW_ROOT,
+            require_file=True,
+        )
+        run_dir = candidates_path.parent
+        _normalize_input_path(
+            run_dir,
+            name="shadow run",
+            allow_test_paths=allow_test_paths,
+            required_root=SHADOW_ROOT,
+            require_file=False,
+        )
+        return run_dir
+    if raw.suffix:
+        raise RulerBuildError(
+            "shadow input must be a finalized run directory or its candidates.json"
+        )
+    return _normalize_input_path(
+        raw,
+        name="shadow run",
+        allow_test_paths=allow_test_paths,
+        required_root=SHADOW_ROOT,
+        require_file=False,
+    )
+
+
 def _require_finalized_marker(run_dir: Path) -> None:
-    if run_dir.is_symlink() or not run_dir.is_dir():
-        raise RulerBuildError(f"shadow run must be a directory: {run_dir}")
-    _reject_symlink_components(run_dir)
     failed = run_dir / FAILED_MARKER
     success = run_dir / SUCCESS_MARKER
     if failed.exists() or failed.is_symlink():
@@ -367,16 +611,15 @@ def _require_finalized_marker(run_dir: Path) -> None:
         raise RulerBuildError("shadow run has no finalized _SUCCESS marker")
 
 
-def _load_shadow_artifact(run_dir: Path, filename: str) -> object:
+def _load_shadow_artifact(
+    run_dir: Path,
+    filename: str,
+) -> tuple[object, bytes]:
     path = run_dir / filename
+    _reject_symlink_components(path, name=f"shadow {filename}")
     if path.is_symlink() or not path.is_file():
         raise RulerBuildError(f"shadow run is missing {filename}")
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
-        raise RulerBuildError(
-            f"shadow {filename} is not valid JSON: {error}"
-        ) from error
+    return _load_json_once(path, name=f"shadow {filename}")
 
 
 def _assert_trusted_shadow_manifest(
@@ -393,35 +636,51 @@ def _assert_trusted_shadow_manifest(
     code = manifest.get("code")
     if not isinstance(code, Mapping) or code.get("tree_status") != "clean":
         raise RulerBuildError("shadow run was built from a dirty tree")
-    if manifest.get("execution_mode") == "test-fake":
-        raise RulerBuildError("shadow run is a synthetic test-fake run")
+    if manifest.get("synthetic") is not False:
+        raise RulerBuildError("shadow run is synthetic and cannot enter the ruler")
+    if manifest.get("execution_mode") != "real":
+        raise RulerBuildError("shadow run must use real execution")
     origins = manifest.get("origins")
     if not isinstance(origins, list) or set(origins) != set(_SHADOW_FAMILIES):
         raise RulerBuildError("shadow run does not verify exactly three families")
 
 
-def load_shadow_run(path: Path | str) -> tuple[list[dict[str, object]], str, str]:
+def _load_shadow_run(
+    path: Path | str,
+    *,
+    allow_test_paths: bool,
+) -> _LoadedShadowRun:
     """Load and verify a finalized shadow-foundry ``_SUCCESS`` run.
 
     Returns the shadow-stratum problem items, the shadow run ID, and the hex
     SHA-256 of the run manifest for provenance. Rejects a ``_FAILED``,
     synthetic, partial, dirty, or stale run through the strict shadow contract.
     """
-    run_dir = Path(path)
+    run_dir = _normalize_shadow_run_path(
+        path,
+        allow_test_paths=allow_test_paths,
+    )
     _require_finalized_marker(run_dir)
-    manifest_path = run_dir / MANIFEST_NAME
-    manifest = _load_shadow_artifact(run_dir, MANIFEST_NAME)
-    candidates = _load_shadow_artifact(run_dir, "candidates.json")
-    failures = _load_shadow_artifact(run_dir, "failures.json")
+    manifest, manifest_bytes = _load_shadow_artifact(run_dir, MANIFEST_NAME)
+    candidates, candidate_bytes = _load_shadow_artifact(run_dir, "candidates.json")
+    failures, failure_bytes = _load_shadow_artifact(run_dir, "failures.json")
+    probe, probe_bytes = _load_shadow_artifact(run_dir, "probe.json")
     if not isinstance(manifest, Mapping):
         raise RulerBuildError("shadow manifest must be a JSON object")
     if not isinstance(candidates, list) or not isinstance(failures, list):
         raise RulerBuildError("shadow candidates and failures must be JSON arrays")
+    if probe != manifest.get("probe"):
+        raise RulerBuildError("shadow probe artifact does not match manifest")
     try:
         shadow_foundry.validate_manifest(
             manifest,
             candidates=candidates,
             failures=failures,
+            artifact_bytes={
+                "candidates.json": candidate_bytes,
+                "failures.json": failure_bytes,
+                "probe.json": probe_bytes,
+            },
             publication_run_id=run_dir.name,
         )
     except (ValueError, RuntimeError) as error:
@@ -429,7 +688,6 @@ def load_shadow_run(path: Path | str) -> tuple[list[dict[str, object]], str, str
             f"shadow run does not satisfy the finalized manifest contract: {error}"
         ) from error
     _assert_trusted_shadow_manifest(cast("Mapping[str, object]", manifest))
-    manifest_sha = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     items = [
         _shadow_candidate_to_item(
             cast("Mapping[str, object]", candidate),
@@ -438,7 +696,26 @@ def load_shadow_run(path: Path | str) -> tuple[list[dict[str, object]], str, str
         )
         for index, candidate in enumerate(cast("list[object]", candidates))
     ]
-    return items, str(manifest["run_id"]), manifest_sha
+    roles = cast("Mapping[str, object]", manifest["roles"])
+    model_ids = tuple(
+        str(cast("Mapping[str, object]", roles[family])["model_id"])
+        for family in _SHADOW_FAMILIES
+    )
+    return _LoadedShadowRun(
+        tuple(items),
+        str(manifest["run_id"]),
+        hashlib.sha256(manifest_bytes).hexdigest(),
+        model_ids,
+    )
+
+
+def load_shadow_run(
+    path: Path | str,
+    *,
+    allow_test_paths: bool = False,
+) -> tuple[list[dict[str, object]], str, str]:
+    loaded = _load_shadow_run(path, allow_test_paths=allow_test_paths)
+    return list(loaded.items), loaded.run_id, loaded.manifest_sha256
 
 
 def _shadow_candidate_to_item(
@@ -477,24 +754,13 @@ def _shadow_candidate_to_item(
 # --- Manifest and content --------------------------------------------------
 
 
-def _code_sha() -> str:
-    try:
-        completed = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=REPO_ROOT,
-            check=True,
-            capture_output=True,
-            timeout=5,
-            text=True,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return "unknown"
-    sha = completed.stdout.strip()
-    return sha if re.fullmatch(r"[0-9a-f]{40,64}", sha) else "unknown"
-
-
-def _hash_file(path: Path) -> str:
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+def _require_clean_repo_state(repo_state_fn: RepoStateFn) -> tuple[str, str]:
+    code_sha, tree_status = repo_state_fn()
+    if not re.fullmatch(r"[0-9a-f]{40,64}", code_sha):
+        raise RulerBuildError("build code SHA must resolve to a complete commit ID")
+    if tree_status != "clean":
+        raise RulerBuildError("ruler publication requires a clean git tree")
+    return code_sha, tree_status
 
 
 def _build_manifest(
@@ -503,6 +769,8 @@ def _build_manifest(
     run_id: str,
     seed: int,
     inputs: Mapping[str, object],
+    code_sha: str,
+    tree_status: str,
 ) -> dict[str, object]:
     primary = [item for item in ruler.items if item.repeat_of is None]
     repeats = [item for item in ruler.items if item.repeat_of is not None]
@@ -521,7 +789,11 @@ def _build_manifest(
         "private": True,
         "run_id": run_id,
         "seed": seed,
-        "build": {"code_sha": _code_sha(), "tool": "build_calibration_ruler.py"},
+        "build": {
+            "code_sha": code_sha,
+            "tree_status": tree_status,
+            "tool": "build_calibration_ruler.py",
+        },
         "inputs": dict(inputs),
         "counts": {
             "primary": len(primary),
@@ -583,6 +855,67 @@ def _hidden_sentinels(ruler: calibration_ruler.RulerManifest) -> set[str]:
         _collect_text(item.solution_decomposition, sentinels)
     sentinels.update({"solution_decomposition", "model_family"})
     return {sentinel for sentinel in sentinels if len(sentinel) >= 4}
+
+
+def _figure_sentinels(
+    ruler: calibration_ruler.RulerManifest,
+    *,
+    model_ids: Sequence[str],
+) -> set[str]:
+    sentinels = set(model_ids)
+    for item in ruler.items:
+        for value in (
+            item.source_ref,
+            item.source_excerpt,
+            item.stratum,
+            item.split,
+            item.repeat_of,
+        ):
+            if isinstance(value, str) and value:
+                sentinels.add(value)
+        _collect_text(item.solution_decomposition, sentinels)
+        _collect_text(item.metadata, sentinels)
+    sentinels.update(_SHADOW_FAMILIES)
+    return {sentinel for sentinel in sentinels if sentinel}
+
+
+def _contains_token(text: str, token: str) -> bool:
+    return (
+        re.search(
+            rf"(?<![\w]){re.escape(token.casefold())}(?![\w])",
+            text.casefold(),
+        )
+        is not None
+    )
+
+
+def _assert_blind_figure_assets(
+    assets: Mapping[str, bytes],
+    *,
+    ruler: calibration_ruler.RulerManifest,
+    model_ids: Sequence[str],
+) -> None:
+    sentinels = _figure_sentinels(ruler, model_ids=model_ids)
+    for path, raw in assets.items():
+        try:
+            decoded = raw.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as error:
+            raise RulerBuildError(f"figure asset {path} is not strict UTF-8") from error
+        visible = html.unescape(decoded)
+        if _looks_like_filesystem_path(visible):
+            raise RulerBuildError(
+                f"figure asset {path} contains a forbidden filesystem path"
+            )
+        for term in _FORBIDDEN_ASSET_TERMS:
+            if _contains_token(visible, term):
+                raise RulerBuildError(
+                    f"figure asset {path} contains forbidden metadata term"
+                )
+        for sentinel in sentinels:
+            if _contains_token(visible, sentinel):
+                raise RulerBuildError(
+                    f"figure asset {path} exposes hidden ruler content"
+                )
 
 
 def _assert_no_blinding_leak(
@@ -697,6 +1030,31 @@ def _verify_workspace(
     )
 
 
+def _link_workspace(
+    io: PublicationIO,
+    temporary: Path,
+    final: Path,
+    *,
+    blocks: Sequence[str],
+    assets: Mapping[str, bytes],
+) -> None:
+    io.make_dir(final / PASS_A_DIRNAME)
+    io.make_dir(final / FIGURES_DIRNAME)
+    for filename in (MANIFEST_NAME, INDEX_NAME):
+        io.link_payload(temporary / filename, final / filename)
+    for number in range(1, len(blocks) + 1):
+        filename = _block_filename(number)
+        io.link_payload(
+            temporary / PASS_A_DIRNAME / filename,
+            final / PASS_A_DIRNAME / filename,
+        )
+    for relative in assets:
+        io.link_payload(temporary / relative, final / relative)
+    io.fsync_dir(final / PASS_A_DIRNAME)
+    io.fsync_dir(final / FIGURES_DIRNAME)
+    io.fsync_dir(final)
+
+
 def _publish(
     io: PublicationIO,
     *,
@@ -715,6 +1073,7 @@ def _publish(
 
     lock_fd: int | None = None
     lock_identity: LockIdentity | None = None
+    lock_owned = False
     temporary: Path | None = None
     final: Path | None = None
     try:
@@ -725,8 +1084,10 @@ def _publish(
                 f"calibration publication lock already exists: {lock_path}"
             ) from error
         lock_identity = _descriptor_identity(lock_fd)
+        lock_owned = True
         io.fsync_dir(root)
         temporary = io.create_temp(root, run_id)
+        io.fsync_dir(root)
         _write_workspace(
             io,
             temporary,
@@ -744,17 +1105,39 @@ def _publish(
             assets=assets,
             ruler=ruler,
         )
-        io.write_text(temporary / SUCCESS_MARKER, "ok\n")
-        io.fsync_dir(temporary)
-        if run_dir.exists() or run_dir.is_symlink():
-            raise RulerBuildError(
-                f"calibration run directory already exists: {run_dir}"
-            )
-        io.rename(temporary, run_dir)
-        temporary = None
+        io.reserve_final(run_dir)
         final = run_dir
         io.fsync_dir(root)
+        _link_workspace(
+            io,
+            temporary,
+            run_dir,
+            blocks=blocks,
+            assets=assets,
+        )
+        _verify_workspace(
+            io,
+            run_dir,
+            manifest_json=manifest_json,
+            index_md=index_md,
+            blocks=blocks,
+            assets=assets,
+            ruler=ruler,
+        )
+        io.cleanup_tree(temporary)
+        temporary = None
+        io.fsync_dir(root)
+        os.close(lock_fd)
+        lock_fd = None
+        if lock_identity is None:
+            raise PublicationCleanupError("owned lock has no identity")
+        io.remove_lock(lock_path, lock_identity)
+        lock_owned = False
+        io.fsync_dir(root)
         _reject_symlink_components(run_dir)
+        io.write_marker(run_dir / SUCCESS_MARKER, "ok\n")
+        io.fsync_dir(run_dir)
+        io.fsync_dir(root)
         if not (run_dir / SUCCESS_MARKER).is_file():
             raise RulerBuildError("final _SUCCESS marker could not be verified")
         final = None
@@ -765,31 +1148,13 @@ def _publish(
             root=root,
             temporary=temporary,
             final=final,
+            lock_path=lock_path,
+            lock_fd=lock_fd,
+            lock_identity=lock_identity,
+            lock_owned=lock_owned,
             primary=error,
         )
         raise
-    finally:
-        _release_lock(io, lock_path, lock_fd, lock_identity)
-
-
-def _release_lock(
-    io: PublicationIO,
-    lock_path: Path,
-    lock_fd: int | None,
-    lock_identity: LockIdentity | None,
-) -> None:
-    if lock_fd is None:
-        return
-    try:
-        os.close(lock_fd)
-    finally:
-        if lock_identity is not None and _path_matches_identity(
-            lock_path, lock_identity
-        ):
-            try:
-                lock_path.unlink()
-            except FileNotFoundError:
-                pass
 
 
 def _cleanup(
@@ -798,14 +1163,30 @@ def _cleanup(
     root: Path,
     temporary: Path | None,
     final: Path | None,
+    lock_path: Path,
+    lock_fd: int | None,
+    lock_identity: LockIdentity | None,
+    lock_owned: bool,
     primary: BaseException,
 ) -> None:
     errors: list[BaseException] = []
+    if lock_fd is not None:
+        try:
+            os.close(lock_fd)
+        except OSError as err:
+            errors.append(err)
     for path in (temporary, final):
         if path is None:
             continue
         try:
             io.cleanup_tree(path)
+        except BaseException as err:  # noqa: BLE001
+            errors.append(err)
+    if lock_owned:
+        try:
+            if lock_identity is None:
+                raise PublicationCleanupError("owned lock has no identity")
+            io.remove_lock(lock_path, lock_identity)
         except BaseException as err:  # noqa: BLE001
             errors.append(err)
     try:
@@ -830,32 +1211,66 @@ def build(
     run_id: str,
     seed: int = 7,
     io: PublicationIO | None = None,
+    allow_test_paths: bool = False,
+    _repo_state_fn: RepoStateFn = shadow_foundry.collect_repo_state,
 ) -> Path:
     """Build the frozen ruler and atomically publish its Pass A workspace."""
     _validate_run_id(run_id)
-    root = validate_output_root(out_root)
+    root = validate_output_root(
+        out_root,
+        allow_test_paths=allow_test_paths,
+    )
     publisher = io or PublicationIO()
 
-    trusted = load_problem_set(trusted_path, name="trusted")
-    failures = load_problem_set(failures_path, name="failure")
-    shadow_items, shadow_run_id, shadow_manifest_sha = load_shadow_run(shadow_path)
+    trusted = _load_problem_set(
+        trusted_path,
+        name="trusted",
+        allow_test_paths=allow_test_paths,
+    )
+    failures = _load_problem_set(
+        failures_path,
+        name="failure",
+        allow_test_paths=allow_test_paths,
+    )
+    shadow = _load_shadow_run(
+        shadow_path,
+        allow_test_paths=allow_test_paths,
+    )
 
-    ruler = calibration_ruler.build_ruler(trusted, failures, shadow_items, seed=seed)
+    ruler = calibration_ruler.build_ruler(
+        trusted.items,
+        failures.items,
+        shadow.items,
+        seed=seed,
+    )
+    index_md, blocks, assets = _rendered_workspace(ruler)
+    _assert_blind_figure_assets(
+        assets,
+        ruler=ruler,
+        model_ids=shadow.model_ids,
+    )
 
     inputs = {
-        "trusted": {"sha256": _hash_file(Path(trusted_path)), "count": len(trusted)},
-        "failure": {"sha256": _hash_file(Path(failures_path)), "count": len(failures)},
+        "trusted": {"sha256": trusted.sha256, "count": len(trusted.items)},
+        "failure": {"sha256": failures.sha256, "count": len(failures.items)},
         "shadow": {
-            "manifest_sha256": shadow_manifest_sha,
-            "run_id": shadow_run_id,
-            "candidate_count": len(shadow_items),
+            "manifest_sha256": shadow.manifest_sha256,
+            "run_id": shadow.run_id,
+            "candidate_count": len(shadow.items),
         },
     }
-    manifest = _build_manifest(ruler, run_id=run_id, seed=seed, inputs=inputs)
+    code_sha, tree_status = _require_clean_repo_state(_repo_state_fn)
+    manifest = _build_manifest(
+        ruler,
+        run_id=run_id,
+        seed=seed,
+        inputs=inputs,
+        code_sha=code_sha,
+        tree_status=tree_status,
+    )
     manifest_json = (
         json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n"
     )
-    index_md, blocks, assets = _rendered_workspace(ruler)
 
     _ensure_directory_chain(root)
     return _publish(
@@ -927,7 +1342,7 @@ def offline_shadow_run(
     n: int = 45,
     seed: int = shadow_foundry.DEFAULT_SEED,
 ) -> Path:
-    """Publish a finalized offline shadow run with ``n`` distinct candidates."""
+    """Publish a real-contract-shaped fake run for internal offline tests."""
     from pgrep.ai import shadow_portfolio  # type: ignore[import-not-found]
 
     roles = shadow_foundry._default_roles()  # noqa: SLF001
@@ -999,14 +1414,16 @@ def _clean_offline_environment() -> "shadow_foundry.RunEnvironment":
         sdk_version="offline-fake-0.1.9",
     )
     fixture = b"offline-corpus-fixture"
+    image_digest = "sha256:" + hashlib.sha256(b"offline-worker").hexdigest()
     return shadow_foundry.RunEnvironment(
         code_sha=sha,
         tree_status="clean",
-        worker_image="pgrep-shadow-worker:offline-self-check",
-        worker_image_digest="sha256:" + hashlib.sha256(b"offline-worker").hexdigest(),
+        worker_image=image_digest,
+        worker_image_digest=image_digest,
         corpus_index_fingerprint="sha256:" + hashlib.sha256(fixture).hexdigest(),
         probe=probe,
-        execution_mode="offline-self-check",
+        synthetic=False,
+        execution_mode="real",
         corpus_index_mtime_ns=0,
         corpus_index_size=len(fixture),
     )
@@ -1061,6 +1478,8 @@ def _self_check() -> int:
             out_root=base / "calibration",
             run_id="self-check",
             seed=7,
+            allow_test_paths=True,
+            _repo_state_fn=lambda: ("a" * 40, "clean"),
         )
         assert (run_dir / SUCCESS_MARKER).is_file()
         assert len(list((run_dir / PASS_A_DIRNAME).glob("block-*.md"))) == 7

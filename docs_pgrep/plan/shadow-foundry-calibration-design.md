@@ -221,6 +221,13 @@ Every call records:
 - parser and retry outcome;
 - reproducibility classification: exact snapshot or floating alias.
 
+Each finalized run manifest also records an explicit `synthetic` boolean,
+canonical SHA-256 hashes for every parsed candidate payload, and byte-level
+SHA-256 digests for `candidates.json`, `failures.json`, and `probe.json`.
+Consumers must verify those raw artifact bytes, payload hashes, and canonical
+trace bindings before using a candidate. The blind ruler accepts only
+`synthetic: false`, real-execution, clean, replayable `_SUCCESS` runs.
+
 Raw transcripts and candidates live under git-ignored
 `content/run/shadow-foundry/<run>/`. API keys and authorization headers are
 never written.
@@ -305,8 +312,8 @@ content/run/calibration/<run-id>/
 ├── index.md
 ├── manifest.json
 ├── figures/
-│   ├── cal-0001.svg
-│   ├── rep-0001.svg
+│   ├── item-0001.svg
+│   ├── item-0002.svg
 │   └── ...
 ├── pass-a/
 │   ├── block-01.md

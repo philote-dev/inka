@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -22,6 +23,10 @@ _ai_path.add_ai_core()
 import build_calibration_ruler as builder  # noqa: E402
 
 # --- Fixtures --------------------------------------------------------------
+
+
+def _clean_repo_state() -> tuple[str, str]:
+    return ("a" * 40, "clean")
 
 
 def _write_items(path: Path, stratum: str, count: int) -> Path:
@@ -52,6 +57,8 @@ def _build(inputs: dict[str, Path], out_root: Path, **kwargs: object) -> Path:
         shadow_path=inputs["shadow"],
         out_root=out_root,
         run_id=str(kwargs.pop("run_id", "ruler-1")),
+        allow_test_paths=True,
+        _repo_state_fn=_clean_repo_state,
         **kwargs,  # type: ignore[arg-type]
     )
 
@@ -90,6 +97,33 @@ def test_manifest_is_private_and_records_provenance(
     assert "correct" in (run_dir / "manifest.json").read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize(
+    ("repo_state", "message"),
+    [
+        (("unknown", "clean"), "code SHA"),
+        (("a" * 40, "dirty"), "clean git tree"),
+    ],
+)
+def test_build_requires_resolved_clean_repo_state_before_publication(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+    repo_state: tuple[str, str],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        builder.build(
+            trusted_path=inputs["trusted"],
+            failures_path=inputs["failures"],
+            shadow_path=inputs["shadow"],
+            out_root=tmp_path / "calibration",
+            run_id="dirty-build",
+            seed=7,
+            allow_test_paths=True,
+            _repo_state_fn=lambda: repo_state,
+        )
+    assert not (tmp_path / "calibration" / "dirty-build").exists()
+
+
 def test_human_sheets_hide_keys_split_and_origin(
     tmp_path: Path, inputs: dict[str, Path]
 ) -> None:
@@ -114,7 +148,7 @@ def test_no_figure_asset_leaks_repeat_or_origin(
     run_dir = _build(inputs, tmp_path / "calibration")
     for figure in (run_dir / "figures").iterdir():
         assert figure.suffix == ".svg"
-        assert figure.stem.split("-")[0] in {"cal", "rep"}
+        assert figure.stem.startswith("item-")
 
 
 # --- Quotas and no partial success -----------------------------------------
@@ -132,6 +166,8 @@ def test_build_failure_leaves_no_final_directory(
             out_root=tmp_path / "calibration",
             run_id="bad",
             seed=7,
+            allow_test_paths=True,
+            _repo_state_fn=_clean_repo_state,
         )
     assert not (tmp_path / "calibration" / "bad").exists()
 
@@ -163,6 +199,8 @@ def test_accepts_items_and_candidates_shapes(
         out_root=tmp_path / "calibration",
         run_id="shapes",
         seed=7,
+        allow_test_paths=True,
+        _repo_state_fn=_clean_repo_state,
     )
     assert (run_dir / "_SUCCESS").exists()
 
@@ -172,7 +210,7 @@ def test_rejects_non_finite_numbers(tmp_path: Path) -> None:
     path = tmp_path / "bad.json"
     path.write_text(raw, encoding="utf-8")
     with pytest.raises(ValueError, match="non-finite"):
-        builder.load_problem_set(path, name="trusted")
+        builder.load_problem_set(path, name="trusted", allow_test_paths=True)
 
 
 def test_rejects_source_path_leakage(tmp_path: Path) -> None:
@@ -181,7 +219,7 @@ def test_rejects_source_path_leakage(tmp_path: Path) -> None:
     path = tmp_path / "leak.json"
     path.write_text(json.dumps([item]), encoding="utf-8")
     with pytest.raises(ValueError, match="source path field"):
-        builder.load_problem_set(path, name="trusted")
+        builder.load_problem_set(path, name="trusted", allow_test_paths=True)
 
 
 def test_rejects_private_dataset_path(tmp_path: Path) -> None:
@@ -190,7 +228,7 @@ def test_rejects_private_dataset_path(tmp_path: Path) -> None:
     path = gold_dir / "items.json"
     path.write_text(json.dumps([]), encoding="utf-8")
     with pytest.raises(ValueError, match="gold"):
-        builder.load_problem_set(path, name="trusted")
+        builder.load_problem_set(path, name="trusted", allow_test_paths=True)
 
 
 def test_rejects_recursive_dataset_marker(tmp_path: Path) -> None:
@@ -199,7 +237,119 @@ def test_rejects_recursive_dataset_marker(tmp_path: Path) -> None:
     path = tmp_path / "marked.json"
     path.write_text(json.dumps([item]), encoding="utf-8")
     with pytest.raises(ValueError, match="dataset marker"):
-        builder.load_problem_set(path, name="trusted")
+        builder.load_problem_set(path, name="trusted", allow_test_paths=True)
+
+
+def test_scans_complete_wrapper_before_extracting_items(tmp_path: Path) -> None:
+    path = tmp_path / "wrapped.json"
+    path.write_text(
+        json.dumps(
+            {
+                "items": [
+                    builder.offline_problem_item("trusted", index)
+                    for index in range(50)
+                ],
+                "original_path": "../held-out/private.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="path field|dataset marker"):
+        builder.load_problem_set(path, name="trusted", allow_test_paths=True)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "original_path",
+        "input_file",
+        "sourceFilename",
+        "fixture_directory",
+        "workingDir",
+    ],
+)
+def test_rejects_generic_path_and_file_key_variants(
+    tmp_path: Path,
+    key: str,
+) -> None:
+    item = builder.offline_problem_item("trusted", 0)
+    item[key] = "private/input.json"
+    path = tmp_path / f"{key}.json"
+    path.write_text(json.dumps([item]), encoding="utf-8")
+    with pytest.raises(ValueError, match="path field"):
+        builder.load_problem_set(path, name="trusted", allow_test_paths=True)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "../private/input.json",
+        "/Users/reviewer/input.json",
+        r"C:\private\input.json",
+        "content/run/private.json",
+    ],
+)
+def test_rejects_filesystem_looking_values(tmp_path: Path, value: str) -> None:
+    item = builder.offline_problem_item("trusted", 0)
+    item["note"] = value
+    path = tmp_path / "filesystem-value.json"
+    path.write_text(json.dumps([item]), encoding="utf-8")
+    with pytest.raises(ValueError, match="filesystem"):
+        builder.load_problem_set(path, name="trusted", allow_test_paths=True)
+
+
+def test_rejects_symlink_input_parent(tmp_path: Path) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    path = _write_items(real / "trusted.json", "trusted", 50)
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    assert path.is_file()
+    with pytest.raises(ValueError, match="symlink component"):
+        builder.load_problem_set(
+            link / "trusted.json",
+            name="trusted",
+            allow_test_paths=True,
+        )
+
+
+def test_rejects_dot_dot_input_escape(tmp_path: Path) -> None:
+    inside = tmp_path / "inside"
+    inside.mkdir()
+    path = _write_items(tmp_path / "trusted.json", "trusted", 50)
+    assert path.is_file()
+    with pytest.raises(ValueError, match="path escape"):
+        builder.load_problem_set(
+            inside / ".." / "trusted.json",
+            name="trusted",
+            allow_test_paths=True,
+        )
+
+
+def test_reads_each_problem_input_once(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    counts: dict[Path, int] = {}
+    original = builder._read_file_once
+
+    def counted(path: Path, *, name: str) -> bytes:
+        resolved = path.resolve()
+        counts[resolved] = counts.get(resolved, 0) + 1
+        return original(path, name=name)
+
+    monkeypatch.setattr(builder, "_read_file_once", counted)
+    _build(inputs, tmp_path / "calibration", run_id="single-read")
+    assert counts[inputs["trusted"].resolve()] == 1
+    assert counts[inputs["failures"].resolve()] == 1
+    for filename in (
+        "manifest.json",
+        "candidates.json",
+        "failures.json",
+        "probe.json",
+    ):
+        assert counts[(inputs["shadow"] / filename).resolve()] == 1
 
 
 # --- Output-root safety ----------------------------------------------------
@@ -208,7 +358,7 @@ def test_rejects_recursive_dataset_marker(tmp_path: Path) -> None:
 def test_rejects_arbitrary_tracked_output_root(
     tmp_path: Path, inputs: dict[str, Path]
 ) -> None:
-    with pytest.raises(ValueError, match="calibration root or an OS temporary"):
+    with pytest.raises(ValueError, match="exact repository calibration root"):
         builder.build(
             trusted_path=inputs["trusted"],
             failures_path=inputs["failures"],
@@ -217,6 +367,16 @@ def test_rejects_arbitrary_tracked_output_root(
             run_id="tracked",
             seed=7,
         )
+
+
+def test_temp_paths_require_internal_flag(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="exact repository"):
+        builder.validate_output_root(tmp_path / "calibration")
+
+
+def test_cli_does_not_expose_test_path_override() -> None:
+    with pytest.raises(SystemExit):
+        builder.main(["--allow-test-paths"])
 
 
 def test_rejects_symlink_output_component(
@@ -234,6 +394,8 @@ def test_rejects_symlink_output_component(
             out_root=link / "calibration",
             run_id="sym",
             seed=7,
+            allow_test_paths=True,
+            _repo_state_fn=_clean_repo_state,
         )
 
 
@@ -245,14 +407,14 @@ def test_rejects_failed_shadow_run(tmp_path: Path) -> None:
     run.mkdir()
     (run / "_FAILED").write_text("no\n", encoding="utf-8")
     with pytest.raises(ValueError, match="_FAILED"):
-        builder.load_shadow_run(run)
+        builder.load_shadow_run(run, allow_test_paths=True)
 
 
 def test_rejects_unfinalized_shadow_run(tmp_path: Path) -> None:
     run = tmp_path / "partial-run"
     run.mkdir()
     with pytest.raises(ValueError, match="_SUCCESS"):
-        builder.load_shadow_run(run)
+        builder.load_shadow_run(run, allow_test_paths=True)
 
 
 def test_rejects_tampered_shadow_manifest(tmp_path: Path, shadow_run: Path) -> None:
@@ -262,16 +424,96 @@ def test_rejects_tampered_shadow_manifest(tmp_path: Path, shadow_run: Path) -> N
     manifest["training_eligible"] = True
     (tampered / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ValueError, match="manifest contract|training"):
-        builder.load_shadow_run(tampered)
+        builder.load_shadow_run(tampered, allow_test_paths=True)
+
+
+def test_rejects_tampered_shadow_candidate_bytes(
+    tmp_path: Path,
+    shadow_run: Path,
+) -> None:
+    tampered = tmp_path / "offline-shadow"
+    shutil.copytree(shadow_run, tampered)
+    candidates = tampered / "candidates.json"
+    candidates.write_bytes(candidates.read_bytes() + b" ")
+    with pytest.raises(ValueError, match="candidates.json.*digest"):
+        builder.load_shadow_run(tampered, allow_test_paths=True)
+
+
+def test_rejects_tampered_parsed_candidate_payload(
+    tmp_path: Path,
+    shadow_run: Path,
+) -> None:
+    tampered = tmp_path / "offline-shadow"
+    shutil.copytree(shadow_run, tampered)
+    candidates_path = tampered / "candidates.json"
+    manifest_path = tampered / "manifest.json"
+    candidates = json.loads(candidates_path.read_text(encoding="utf-8"))
+    candidates[0]["candidate"]["stem"] = "Changed after finalized publication."
+    candidate_bytes = (
+        json.dumps(candidates, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    ).encode()
+    candidates_path.write_bytes(candidate_bytes)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["artifact_digests"]["candidates_json"] = (
+        "sha256:" + hashlib.sha256(candidate_bytes).hexdigest()
+    )
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="candidate payload hash"):
+        builder.load_shadow_run(tampered, allow_test_paths=True)
+
+
+@pytest.mark.parametrize(
+    ("execution_mode", "synthetic"),
+    [
+        ("offline-self-check", True),
+        ("test-fake", True),
+        ("real", True),
+    ],
+)
+def test_rejects_synthetic_or_non_real_shadow_run(
+    tmp_path: Path,
+    shadow_run: Path,
+    execution_mode: str,
+    synthetic: bool,
+) -> None:
+    tampered = tmp_path / "offline-shadow"
+    shutil.copytree(shadow_run, tampered)
+    path = tampered / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest["execution_mode"] = execution_mode
+    manifest["synthetic"] = synthetic
+    path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="synthetic|real execution"):
+        builder.load_shadow_run(tampered, allow_test_paths=True)
+
+
+def test_accepts_candidates_json_path(shadow_run: Path) -> None:
+    from_directory = builder.load_shadow_run(shadow_run, allow_test_paths=True)
+    from_candidates = builder.load_shadow_run(
+        shadow_run / "candidates.json",
+        allow_test_paths=True,
+    )
+    assert from_candidates == from_directory
 
 
 def test_accepts_valid_shadow_run(shadow_run: Path) -> None:
-    items, run_id, manifest_sha = builder.load_shadow_run(shadow_run)
+    items, run_id, manifest_sha = builder.load_shadow_run(
+        shadow_run, allow_test_paths=True
+    )
     assert len(items) == 45
     assert run_id == "offline-shadow"
     assert len(manifest_sha) == 64
     families = {item["model_family"] for item in items}
     assert families == {"sol", "opus", "grok"}
+    manifest = json.loads((shadow_run / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["synthetic"] is False
+    assert manifest["execution_mode"] == "real"
 
 
 # --- Publication fault injection -------------------------------------------
@@ -287,9 +529,14 @@ class _FailWrite(builder.PublicationIO):
         super().write_text(path, content)
 
 
-class _FailRename(builder.PublicationIO):
-    def rename(self, source: Path, destination: Path) -> None:
-        raise OSError("injected rename failure")
+class _FailReserve(builder.PublicationIO):
+    def reserve_final(self, path: Path) -> None:
+        raise OSError("injected final reservation failure")
+
+
+class _FailLink(builder.PublicationIO):
+    def link_payload(self, source: Path, destination: Path) -> None:
+        raise OSError("injected payload publication failure")
 
 
 class _FailFsync(builder.PublicationIO):
@@ -312,6 +559,74 @@ class _CorruptFigure(builder.PublicationIO):
         return data
 
 
+class _FailMarker(builder.PublicationIO):
+    def write_marker(self, path: Path, content: str) -> None:
+        raise OSError("injected marker failure")
+
+
+class _FailPostMarkerSync(builder.PublicationIO):
+    def __init__(self) -> None:
+        self.marker_written = False
+
+    def write_marker(self, path: Path, content: str) -> None:
+        super().write_marker(path, content)
+        self.marker_written = True
+
+    def fsync_dir(self, path: Path) -> None:
+        if self.marker_written and (path / "_SUCCESS").exists():
+            self.marker_written = False
+            raise OSError("injected post-marker directory fsync failure")
+        super().fsync_dir(path)
+
+
+class _FailReleaseOnce(builder.PublicationIO):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def remove_lock(
+        self,
+        path: Path,
+        identity: builder.LockIdentity,
+    ) -> None:
+        self.calls += 1
+        if self.calls == 1:
+            raise OSError("injected lock release failure")
+        super().remove_lock(path, identity)
+
+
+class _FailLockWrite(builder.PublicationIO):
+    def write_lock(self, fd: int, content: bytes) -> None:
+        raise OSError("injected lock write failure")
+
+
+class _FailLockFsync(builder.PublicationIO):
+    def sync_lock(self, fd: int) -> None:
+        raise OSError("injected lock fsync failure")
+
+
+class _ConcurrentEmptyDestination(builder.PublicationIO):
+    def reserve_final(self, path: Path) -> None:
+        path.mkdir(mode=0o700, exist_ok=False)
+        super().reserve_final(path)
+
+
+class _RecordingOrder(builder.PublicationIO):
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    def remove_lock(
+        self,
+        path: Path,
+        identity: builder.LockIdentity,
+    ) -> None:
+        self.events.append("remove_lock")
+        super().remove_lock(path, identity)
+
+    def write_marker(self, path: Path, content: str) -> None:
+        self.events.append("write_marker")
+        super().write_marker(path, content)
+
+
 def _assert_no_final(out_root: Path, run_id: str) -> None:
     assert not (out_root / run_id).exists()
 
@@ -321,9 +636,15 @@ def _assert_no_final(out_root: Path, run_id: str) -> None:
     [
         lambda: _FailWrite("manifest.json"),
         lambda: _FailWrite("block-03.md"),
-        _FailRename,
+        _FailReserve,
+        _FailLink,
         _FailFsync,
         _CorruptFigure,
+        _FailMarker,
+        _FailPostMarkerSync,
+        _FailReleaseOnce,
+        _FailLockWrite,
+        _FailLockFsync,
     ],
 )
 def test_injected_publication_failures_leave_no_final(
@@ -339,9 +660,62 @@ def test_injected_publication_failures_leave_no_final(
             run_id="fault",
             seed=7,
             io=io_factory(),
+            allow_test_paths=True,
+            _repo_state_fn=_clean_repo_state,
         )
     _assert_no_final(out_root, "fault")
     assert not (out_root / ".fault.lock").exists()
+
+
+@pytest.mark.parametrize("io", [_FailLockWrite(), _FailLockFsync()])
+def test_open_lock_failure_removes_owned_lock(tmp_path: Path, io) -> None:
+    lock = tmp_path / ".owned.lock"
+    with pytest.raises(OSError):
+        io.open_lock(lock)
+    assert not lock.exists()
+
+
+def test_lock_is_removed_before_success_marker(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    io = _RecordingOrder()
+    run_dir = builder.build(
+        trusted_path=inputs["trusted"],
+        failures_path=inputs["failures"],
+        shadow_path=inputs["shadow"],
+        out_root=tmp_path / "calibration",
+        run_id="ordered",
+        seed=7,
+        io=io,
+        allow_test_paths=True,
+        _repo_state_fn=_clean_repo_state,
+    )
+    assert io.events == ["remove_lock", "write_marker"]
+    assert (run_dir / "_SUCCESS").is_file()
+
+
+def test_concurrent_empty_destination_is_never_replaced(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    out_root = tmp_path / "calibration"
+    with pytest.raises(FileExistsError):
+        builder.build(
+            trusted_path=inputs["trusted"],
+            failures_path=inputs["failures"],
+            shadow_path=inputs["shadow"],
+            out_root=out_root,
+            run_id="concurrent",
+            seed=7,
+            io=_ConcurrentEmptyDestination(),
+            allow_test_paths=True,
+            _repo_state_fn=_clean_repo_state,
+        )
+    destination = out_root / "concurrent"
+    assert destination.is_dir()
+    assert not any(destination.iterdir())
+    assert not (destination / "_SUCCESS").exists()
 
 
 def test_publication_lock_collision_fails_closed(
@@ -358,6 +732,8 @@ def test_publication_lock_collision_fails_closed(
             out_root=out_root,
             run_id="locked",
             seed=7,
+            allow_test_paths=True,
+            _repo_state_fn=_clean_repo_state,
         )
     _assert_no_final(out_root, "locked")
 
@@ -376,6 +752,8 @@ def test_existing_run_directory_fails_closed(
             out_root=out_root,
             run_id="dup",
             seed=7,
+            allow_test_paths=True,
+            _repo_state_fn=_clean_repo_state,
         )
 
 
@@ -398,6 +776,8 @@ def test_blinding_sentinel_does_not_leak(
         out_root=tmp_path / "calibration",
         run_id="sentinel",
         seed=7,
+        allow_test_paths=True,
+        _repo_state_fn=_clean_repo_state,
     )
     sheets = (run_dir / "index.md").read_text(encoding="utf-8")
     for block in (run_dir / "pass-a").glob("block-*.md"):
@@ -413,6 +793,72 @@ def test_leak_scan_rejects_exposed_hidden_value() -> None:
             ["a block mentioning OpenStax secret excerpt"],
             {"OpenStax secret excerpt"},
             context="test",
+        )
+
+
+@pytest.mark.parametrize("channel", ["title", "desc", "text", "style"])
+def test_svg_hidden_content_channels_fail_before_publication(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+    channel: str,
+) -> None:
+    sentinel = f"HIDDEN-SOURCE-{channel.upper()}-SENTINEL"
+    if channel == "style":
+        body = f"<style>.axis{{--hidden-token:{sentinel};}}</style>"
+    else:
+        body = f"<{channel}>{sentinel}</{channel}>"
+    figure = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+        f'{body}<path d="M0 0 L10 10"/></svg>'
+    )
+    items = [builder.offline_problem_item("trusted", index) for index in range(50)]
+    for index, item in enumerate(items):
+        item["source_ref"] = sentinel
+        item["stem"] = (
+            f'Trusted configuration {index}.<div class="pg-figure">{figure}</div>'
+        )
+    trusted = tmp_path / f"trusted-{channel}.json"
+    trusted.write_text(json.dumps(items), encoding="utf-8")
+    out_root = tmp_path / "calibration"
+    with pytest.raises(ValueError, match="figure asset.*hidden"):
+        builder.build(
+            trusted_path=trusted,
+            failures_path=inputs["failures"],
+            shadow_path=inputs["shadow"],
+            out_root=out_root,
+            run_id=f"svg-{channel}",
+            seed=7,
+            allow_test_paths=True,
+            _repo_state_fn=_clean_repo_state,
+        )
+    assert not out_root.exists()
+
+
+def test_svg_forbidden_metadata_term_fails_before_publication(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    figure = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+        "<text>model_family</text></svg>"
+    )
+    items = [builder.offline_problem_item("trusted", index) for index in range(50)]
+    for index, item in enumerate(items):
+        item["stem"] = (
+            f'Trusted configuration {index}.<div class="pg-figure">{figure}</div>'
+        )
+    trusted = tmp_path / "trusted-metadata.json"
+    trusted.write_text(json.dumps(items), encoding="utf-8")
+    with pytest.raises(ValueError, match="figure asset.*metadata"):
+        builder.build(
+            trusted_path=trusted,
+            failures_path=inputs["failures"],
+            shadow_path=inputs["shadow"],
+            out_root=tmp_path / "calibration",
+            run_id="svg-metadata",
+            seed=7,
+            allow_test_paths=True,
+            _repo_state_fn=_clean_repo_state,
         )
 
 

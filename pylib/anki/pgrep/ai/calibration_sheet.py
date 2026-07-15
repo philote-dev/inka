@@ -77,7 +77,7 @@ PASS_A_VALUE_LEGEND = (
 
 BLOCK_CAPACITY = 20
 _CHOICE_LABELS = ("A", "B", "C", "D", "E")
-_SAFE_REVIEW_ID = re.compile(r"(?:cal|rep)-[0-9]{4}\Z", re.ASCII)
+_SAFE_REVIEW_ID = re.compile(r"item-[0-9]{4}\Z", re.ASCII)
 _ITEM_HEADING = re.compile(r"^### ([^\r\n]+)$", re.MULTILINE)
 _FIELD_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(?: |$)", re.ASCII)
 _MARKDOWN_PROTECTION = str.maketrans(
@@ -88,6 +88,17 @@ _MARKDOWN_PROTECTION = str.maketrans(
         "*": "&#42;",
         "_": "&#95;",
         ":": "&#58;",
+        "!": "&#33;",
+        "(": "&#40;",
+        ")": "&#41;",
+        "+": "&#43;",
+        ".": "&#46;",
+        "[": "&#91;",
+        "\\": "&#92;",
+        "]": "&#93;",
+        "{": "&#123;",
+        "|": "&#124;",
+        "}": "&#125;",
     }
 )
 
@@ -276,7 +287,7 @@ def _items_from(value: object) -> tuple[RulerItem, ...]:
 def _require_review_id(item: RulerItem) -> str:
     review_id = item.review_id
     if type(review_id) is not str or _SAFE_REVIEW_ID.fullmatch(review_id) is None:
-        raise ValueError("safe review ID must match 'cal-0000' or 'rep-0000' shape")
+        raise ValueError("safe review ID must match the neutral 'item-0000' shape")
     return review_id
 
 

@@ -837,7 +837,7 @@ def test_ruler_item_round_trip_and_visible_projections() -> None:
     )
     item = calibration_ruler.RulerItem.from_source_item(
         source,
-        review_id="cal-0001",
+        review_id="item-0001",
         stratum="shadow",
         split="calibration",
     )
@@ -1144,7 +1144,7 @@ def test_repeats_reference_originals_and_leave_support_untouched() -> None:
     by_review_id = {item.review_id: item for item in primary}
 
     assert all(item.split is None for item in repeats)
-    assert all(item.review_id.startswith("rep-") for item in repeats)
+    assert all(item.review_id.startswith("item-") for item in repeats)
     for repeat in repeats:
         origin = by_review_id[repeat.repeat_of]
         assert repeat.content_hash == origin.content_hash
@@ -1197,10 +1197,25 @@ def test_repeat_selection_is_seeded_across_feasible_candidates() -> None:
 
 def test_review_ids_are_opaque_and_sequential() -> None:
     manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
-    primary_ids = sorted(item.review_id for item in _primary(manifest))
-    repeat_ids = sorted(item.review_id for item in _repeats(manifest))
-    assert primary_ids == [f"cal-{index:04d}" for index in range(1, 121)]
-    assert repeat_ids == [f"rep-{index:04d}" for index in range(1, 13)]
+    assert [item.review_id for item in manifest.items] == [
+        f"item-{index:04d}" for index in range(1, 133)
+    ]
+    assert not any(
+        item.review_id.startswith(("cal-", "rep-")) for item in manifest.items
+    )
+    assert all(repeat.repeat_of.startswith("item-") for repeat in _repeats(manifest))
+
+
+def test_manifest_rejects_origin_revealing_review_id() -> None:
+    manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
+    changed = replace(
+        manifest.items[0],
+        review_id="cal-0001",
+    )
+    with pytest.raises(ValueError, match="neutral item"):
+        calibration_ruler.validate_manifest(
+            replace(manifest, items=(changed, *manifest.items[1:]))
+        )
 
 
 def test_no_repeat_is_adjacent_to_its_original() -> None:
@@ -1391,7 +1406,20 @@ def test_validate_manifest_rejects_adjacent_repeat_and_original() -> None:
         index for index, item in enumerate(items) if item.review_id == repeat.repeat_of
     )
     items.insert(origin_index + 1, repeat)
-    tampered = calibration_ruler.RulerManifest(tuple(items), manifest.seed)
+    renamed = {
+        item.review_id: f"item-{index:04d}" for index, item in enumerate(items, start=1)
+    }
+    tampered = calibration_ruler.RulerManifest(
+        tuple(
+            replace(
+                item,
+                review_id=renamed[item.review_id],
+                repeat_of=renamed[item.repeat_of] if item.repeat_of else None,
+            )
+            for item in items
+        ),
+        manifest.seed,
+    )
 
     with pytest.raises(ValueError, match="adjacent"):
         calibration_ruler.validate_manifest(tampered)

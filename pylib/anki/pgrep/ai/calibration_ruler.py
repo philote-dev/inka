@@ -1380,29 +1380,26 @@ def _assemble(
     order = _shuffled_display(tokens, rng)
 
     review_id_of: dict[int, str] = {}
-    primary_index = 0
-    for kind, item in order:
+    display_ids = [f"item-{index:04d}" for index in range(1, len(order) + 1)]
+    for review_id, (kind, item) in zip(display_ids, order, strict=True):
         if kind == "primary":
-            primary_index += 1
-            review_id_of[id(item)] = f"cal-{primary_index:04d}"
+            review_id_of[id(item)] = review_id
 
     assembled: list[RulerItem] = []
-    repeat_index = 0
-    for kind, item in order:
+    for review_id, (kind, item) in zip(display_ids, order, strict=True):
         if kind == "primary":
             assembled.append(
                 replace(
                     item,
-                    review_id=review_id_of[id(item)],
+                    review_id=review_id,
                     split=split_of[id(item)],
                 )
             )
         else:
-            repeat_index += 1
             assembled.append(
                 replace(
                     item,
-                    review_id=f"rep-{repeat_index:04d}",
+                    review_id=review_id,
                     split=None,
                     repeat_of=review_id_of[id(item)],
                 )
@@ -1583,6 +1580,12 @@ def _validate_manifest_identity(items: Sequence[RulerItem]) -> None:
         raise ValueError("every manifest item requires a review ID")
     if len(set(review_ids)) != len(review_ids):
         raise ValueError("manifest review IDs must be unique")
+    expected = [f"item-{index:04d}" for index in range(1, len(items) + 1)]
+    if review_ids != expected:
+        raise ValueError(
+            "manifest review IDs must use the neutral item-XXXX namespace "
+            "in display order"
+        )
     for item in items:
         if RulerItem.from_dict(item.to_dict()) != item:
             raise ValueError(
