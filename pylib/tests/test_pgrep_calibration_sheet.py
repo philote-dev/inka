@@ -3,6 +3,10 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
+from dataclasses import FrozenInstanceError, replace
+from pathlib import PurePosixPath
 from typing import cast
 
 import pytest
@@ -536,3 +540,642 @@ def test_render_blocks_accepts_ruler_manifest() -> None:
 def test_render_blocks_rejects_unknown_pass_name() -> None:
     with pytest.raises(ValueError, match="pass_name"):
         calibration_sheet.render_blocks([_manifest_item()], pass_name="b")
+
+
+# --- Task 4: strict Pass A parsing and repeat consistency -------------------
+
+_PASS_A_VALUES = {
+    "your_answer": "B",
+    "stem_clear": "PASS",
+    "distractor_A": "VALID",
+    "distractor_B": "CORRECT_ANSWER",
+    "distractor_C": "INVALID",
+    "distractor_D": "UNSURE",
+    "distractor_E": "VALID",
+    "figure": "MATCHES",
+    "difficulty": "3",
+    "overall": "KEEP",
+}
+_CATEGORICAL_FIELDS = {
+    "stem_clear",
+    "distractor_A",
+    "distractor_B",
+    "distractor_C",
+    "distractor_D",
+    "distractor_E",
+    "figure",
+    "difficulty",
+    "overall",
+}
+
+
+def _ruler_source(stratum: str, index: int) -> dict[str, object]:
+    categories = tuple(sorted(calibration_ruler.BLUEPRINT_CATEGORIES))
+    category = categories[index % len(categories)]
+    stem = f"Café configuration #{index}: apply {category} principles."
+    if index % 3 == 0:
+        stem += f'<div class="pg-figure">{_SVG}</div>'
+    item: dict[str, object] = {
+        "id": f"{stratum}-{index}",
+        "topic": f"topic::{category}",
+        "blueprint_category": category,
+        "kind": ("conceptual", "computational", "unspecified")[index % 3],
+        "difficulty": (0.1, 0.5, 0.9)[index % 3],
+        "stem": stem,
+        "choices": [
+            f"{stratum}-{index}-A",
+            f"{stratum}-{index}-B",
+            f"{stratum}-{index}-C",
+            f"{stratum}-{index}-D",
+            f"{stratum}-{index}-E",
+        ],
+        "correct": "ABCDE"[index % 5],
+        "source_ref": f"OpenStax {stratum} chapter {index}",
+        "source_excerpt": f"Grounding excerpt {stratum} {index}.",
+        "solution_decomposition": [
+            {"subgoal": f"Reason about {category}.", "rubric": "Name the law."}
+        ],
+    }
+    if stratum == "shadow":
+        item["model_family"] = ("sol", "opus", "grok")[index % 3]
+    return item
+
+
+def _strict_manifest() -> calibration_ruler.RulerManifest:
+    return calibration_ruler.build_ruler(
+        [_ruler_source("trusted", index) for index in range(60)],
+        [_ruler_source("failure", index) for index in range(60)],
+        [_ruler_source("shadow", index) for index in range(60)],
+        seed=7,
+    )
+
+
+def _filled_documents(
+    manifest: calibration_ruler.RulerManifest,
+) -> list[str]:
+    documents = calibration_sheet.render_blocks(manifest, pass_name="a")
+    for index, document in enumerate(documents):
+        for field, value in _PASS_A_VALUES.items():
+            document = document.replace(
+                f"\n{field}:\n",
+                f"\n{field}: {value}\n",
+            )
+        documents[index] = document
+    return documents
+
+
+@pytest.fixture(scope="module")
+def strict_case() -> tuple[
+    calibration_ruler.RulerManifest,
+    list[str],
+    dict[str, bytes],
+]:
+    manifest = _strict_manifest()
+    return (
+        manifest,
+        _filled_documents(manifest),
+        calibration_sheet.figure_assets(manifest),
+    )
+
+
+@pytest.fixture(scope="module")
+def parsed_labels(
+    strict_case: tuple[
+        calibration_ruler.RulerManifest,
+        list[str],
+        dict[str, bytes],
+    ],
+) -> dict[str, calibration_sheet.PassALabel]:
+    manifest, documents, assets = strict_case
+    return calibration_sheet.parse_pass_a(
+        documents,
+        manifest=manifest,
+        assets=assets,
+    )
+
+
+def _review_span(document: str, review_id: str) -> tuple[int, int]:
+    start = document.index(f"### {review_id}\n")
+    end = document.index("\n---\n", start) + len("\n---\n")
+    return start, end
+
+
+def _replace_in_review(
+    documents: list[str],
+    review_id: str,
+    old: str,
+    new: str,
+) -> list[str]:
+    changed = list(documents)
+    for index, document in enumerate(changed):
+        if f"### {review_id}\n" not in document:
+            continue
+        start, end = _review_span(document, review_id)
+        block = document[start:end]
+        assert block.count(old) == 1
+        changed[index] = document[:start] + block.replace(old, new, 1) + document[end:]
+        return changed
+    raise AssertionError(f"review ID not found in fixture: {review_id}")
+
+
+def _item_with_figure(
+    manifest: calibration_ruler.RulerManifest,
+) -> calibration_ruler.RulerItem:
+    return next(item for item in manifest.items if item.figure)
+
+
+def test_pass_a_round_trip_requires_all_documents_and_assets(
+    strict_case: tuple[
+        calibration_ruler.RulerManifest,
+        list[str],
+        dict[str, bytes],
+    ],
+) -> None:
+    manifest, documents, assets = strict_case
+
+    labels = calibration_sheet.parse_pass_a(
+        documents,
+        manifest=manifest,
+        assets=assets,
+    )
+
+    assert list(labels) == [item.review_id for item in manifest.items]
+    assert labels["cal-0001"].your_answer == "B"
+    assert labels["cal-0001"].overall == "KEEP"
+    assert labels["cal-0001"].notes == ""
+    calibration_sheet.validate_pass_a_complete(labels, manifest=manifest)
+
+
+def test_pass_a_value_sets_are_exact_and_frozen() -> None:
+    assert calibration_sheet.ANSWERS == frozenset({"A", "B", "C", "D", "E", "UNSURE"})
+    assert calibration_sheet.PASS_FAIL == frozenset({"PASS", "FAIL", "UNSURE"})
+    assert calibration_sheet.DISTRACTOR == frozenset(
+        {"VALID", "INVALID", "CORRECT_ANSWER", "UNSURE"}
+    )
+    assert calibration_sheet.FIGURE == frozenset(
+        {"MATCHES", "CONTRADICTS", "UNNECESSARY", "MISSING", "N_A", "UNSURE"}
+    )
+    assert calibration_sheet.DIFFICULTY == frozenset(
+        {"1", "2", "3", "4", "5", "UNSURE"}
+    )
+    assert calibration_sheet.OVERALL == frozenset({"KEEP", "DROP", "UNSURE"})
+
+
+def _invalid_documents(
+    mutation: str,
+    manifest: calibration_ruler.RulerManifest,
+    documents: list[str],
+) -> list[str]:
+    first = manifest.items[0].review_id
+    second = manifest.items[1].review_id
+    if mutation == "missing_field":
+        return _replace_in_review(
+            documents,
+            first,
+            "stem_clear: PASS\n",
+            "",
+        )
+    if mutation == "blank_field":
+        return _replace_in_review(
+            documents,
+            first,
+            "your_answer: B",
+            "your_answer:",
+        )
+    if mutation == "unknown_label":
+        return _replace_in_review(
+            documents,
+            first,
+            "overall: KEEP",
+            "overall: keep",
+        )
+    if mutation == "edited_stem":
+        stem = calibration_sheet.protect_markdown_text(manifest.items[0].stem)
+        return _replace_in_review(documents, first, stem, stem + " edited")
+    if mutation == "edited_choice":
+        choice = calibration_sheet.protect_markdown_text(manifest.items[0].choices[0])
+        return _replace_in_review(documents, first, choice, choice + " edited")
+    if mutation == "duplicate_id":
+        return _replace_in_review(
+            documents,
+            second,
+            f"### {second}",
+            f"### {first}",
+        )
+    if mutation == "extra_id":
+        return _replace_in_review(
+            documents,
+            second,
+            f"### {second}",
+            "### cal-9999",
+        )
+    if mutation == "heading_injection":
+        stem = calibration_sheet.protect_markdown_text(manifest.items[0].stem)
+        return _replace_in_review(
+            documents,
+            first,
+            stem,
+            stem + "\n### injected-heading",
+        )
+    if mutation == "separator_injection":
+        return _replace_in_review(
+            documents,
+            first,
+            "stem_clear: PASS",
+            "---\nstem_clear: PASS",
+        )
+    if mutation == "duplicate_field":
+        return _replace_in_review(
+            documents,
+            first,
+            "stem_clear: PASS",
+            "stem_clear: PASS\nstem_clear: PASS",
+        )
+    if mutation == "hidden_metadata":
+        return _replace_in_review(
+            documents,
+            first,
+            "overall: KEEP",
+            "model_family: sol\noverall: KEEP",
+        )
+    if mutation == "filled_legend":
+        changed = list(documents)
+        changed[0] = changed[0].replace(
+            "`your_answer` = `A`, `B`, `C`, `D`, `E`, or `UNSURE`",
+            "`your_answer` = `B`",
+            1,
+        )
+        return changed
+    if mutation == "truncated_block":
+        changed = list(documents)
+        last = manifest.items[-1].review_id
+        start, _ = _review_span(changed[-1], last)
+        changed[-1] = changed[-1][:start]
+        return changed
+    if mutation == "extra_block":
+        return [*documents, documents[0]]
+    if mutation == "changed_figure_reference":
+        figure_item = _item_with_figure(manifest)
+        review_id = figure_item.review_id
+        return _replace_in_review(
+            documents,
+            review_id,
+            f"![Figure](../figures/{review_id}.svg)",
+            "![Figure](../figures/cal-9999.svg)",
+        )
+    if mutation == "unicode_tampering":
+        stem = calibration_sheet.protect_markdown_text(manifest.items[0].stem)
+        assert "é" in stem
+        return _replace_in_review(
+            documents,
+            first,
+            stem,
+            stem.replace("é", "e\u0301", 1),
+        )
+    if mutation == "protection_tampering":
+        stem = calibration_sheet.protect_markdown_text(manifest.items[0].stem)
+        assert "&#35;" in stem
+        return _replace_in_review(
+            documents,
+            first,
+            stem,
+            stem.replace("&#35;", "&#x23;", 1),
+        )
+    raise AssertionError(f"unknown mutation: {mutation}")
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message", "error_type"),
+    [
+        ("missing_field", "incomplete.*stem_clear", "schema"),
+        ("blank_field", "incomplete.*your_answer", "reviewer"),
+        ("unknown_label", "unknown value.*overall", "reviewer"),
+        ("edited_stem", "immutable content.*stem", "schema"),
+        ("edited_choice", "immutable content.*choice A", "schema"),
+        ("duplicate_id", "duplicate review ID", "schema"),
+        ("extra_id", "unexpected review ID", "schema"),
+        ("heading_injection", "unexpected review ID", "schema"),
+        ("separator_injection", "separator", "schema"),
+        ("duplicate_field", "duplicate field.*stem_clear", "schema"),
+        ("hidden_metadata", "hidden metadata.*model_family", "schema"),
+        ("filled_legend", "header", "schema"),
+        ("truncated_block", "missing review ID", "schema"),
+        ("extra_block", "document count", "schema"),
+        ("changed_figure_reference", "changed figure reference", "schema"),
+        ("unicode_tampering", "immutable content.*stem", "schema"),
+        ("protection_tampering", "protection tampering.*stem", "schema"),
+    ],
+)
+def test_pass_a_rejects_any_non_renderer_or_invalid_reviewer_edit(
+    mutation: str,
+    message: str,
+    error_type: str,
+    strict_case: tuple[
+        calibration_ruler.RulerManifest,
+        list[str],
+        dict[str, bytes],
+    ],
+) -> None:
+    manifest, documents, assets = strict_case
+    expected_error = (
+        calibration_sheet.ReviewerEditError
+        if error_type == "reviewer"
+        else calibration_sheet.RendererSchemaError
+    )
+
+    with pytest.raises(expected_error, match=message):
+        calibration_sheet.parse_pass_a(
+            _invalid_documents(mutation, manifest, documents),
+            manifest=manifest,
+            assets=assets,
+        )
+
+
+class _CollisionAssets(Mapping[str, bytes]):
+    def __init__(self, values: dict[str, bytes]) -> None:
+        self._values = values
+        self._duplicate = next(iter(values))
+
+    def __getitem__(self, key: str) -> bytes:
+        return self._values[key]
+
+    def __iter__(self):
+        return iter([*self._values, self._duplicate])
+
+    def __len__(self) -> int:
+        return len(self._values) + 1
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("missing", "missing asset"),
+        ("extra", "extra asset"),
+        ("changed_bytes", "asset bytes/hash mismatch"),
+        ("invalid_utf8", "strict UTF-8"),
+        ("path_key", "asset mapping keys"),
+        ("non_bytes", "raw bytes"),
+        ("collision", "asset path collision"),
+    ],
+)
+def test_pass_a_rejects_any_asset_mapping_drift(
+    mutation: str,
+    message: str,
+    strict_case: tuple[
+        calibration_ruler.RulerManifest,
+        list[str],
+        dict[str, bytes],
+    ],
+) -> None:
+    manifest, documents, expected_assets = strict_case
+    assets: Mapping[str, bytes]
+    changed: dict[object, object] = {}
+    for expected_path, expected_raw in expected_assets.items():
+        changed[expected_path] = expected_raw
+    path = next(iter(expected_assets))
+    if mutation == "missing":
+        changed.pop(path)
+        assets = cast(Mapping[str, bytes], changed)
+    elif mutation == "extra":
+        changed["figures/cal-9999.svg"] = _SVG.encode("utf-8")
+        assets = cast(Mapping[str, bytes], changed)
+    elif mutation == "changed_bytes":
+        changed[path] = expected_assets[path].replace(b"19 19", b"18 18")
+        assets = cast(Mapping[str, bytes], changed)
+    elif mutation == "invalid_utf8":
+        changed[path] = b"\xff"
+        assets = cast(Mapping[str, bytes], changed)
+    elif mutation == "path_key":
+        raw = changed.pop(path)
+        changed[PurePosixPath(path)] = raw
+        assets = cast(Mapping[str, bytes], changed)
+    elif mutation == "non_bytes":
+        changed[path] = PurePosixPath("figure.svg")
+        assets = cast(Mapping[str, bytes], changed)
+    elif mutation == "collision":
+        assets = _CollisionAssets(expected_assets)
+    else:
+        raise AssertionError(f"unknown asset mutation: {mutation}")
+
+    with pytest.raises(calibration_sheet.RendererSchemaError, match=message):
+        calibration_sheet.parse_pass_a(
+            documents,
+            manifest=manifest,
+            assets=assets,
+        )
+
+
+def test_pass_a_label_is_frozen_and_json_safe(
+    parsed_labels: dict[str, calibration_sheet.PassALabel],
+) -> None:
+    label = next(iter(parsed_labels.values()))
+
+    with pytest.raises(FrozenInstanceError):
+        setattr(label, "overall", "DROP")
+    payload = {review_id: value.to_dict() for review_id, value in parsed_labels.items()}
+    assert set(label.to_dict()) == set(calibration_sheet.PASS_A_FIELDS)
+    assert (
+        json.loads(json.dumps(payload, ensure_ascii=False, allow_nan=False)) == payload
+    )
+
+
+def test_notes_are_bounded_and_cannot_create_structured_metadata(
+    strict_case: tuple[
+        calibration_ruler.RulerManifest,
+        list[str],
+        dict[str, bytes],
+    ],
+) -> None:
+    manifest, documents, assets = strict_case
+    review_id = manifest.items[0].review_id
+    safe_note = "model_family: remains plain reviewer prose"
+    with_note = _replace_in_review(
+        documents,
+        review_id,
+        "notes:",
+        f"notes: {safe_note}",
+    )
+
+    labels = calibration_sheet.parse_pass_a(
+        with_note,
+        manifest=manifest,
+        assets=assets,
+    )
+
+    assert labels[review_id].notes == safe_note
+    assert set(labels[review_id].to_dict()) == set(calibration_sheet.PASS_A_FIELDS)
+    too_long = _replace_in_review(
+        documents,
+        review_id,
+        "notes:",
+        f"notes: {'x' * (calibration_sheet.MAX_NOTES_LENGTH + 1)}",
+    )
+    with pytest.raises(
+        calibration_sheet.ReviewerEditError,
+        match="notes.*at most",
+    ):
+        calibration_sheet.parse_pass_a(
+            too_long,
+            manifest=manifest,
+            assets=assets,
+        )
+
+
+def test_validate_pass_a_complete_rejects_missing_label(
+    strict_case: tuple[
+        calibration_ruler.RulerManifest,
+        list[str],
+        dict[str, bytes],
+    ],
+    parsed_labels: dict[str, calibration_sheet.PassALabel],
+) -> None:
+    manifest, _, _ = strict_case
+    incomplete = dict(parsed_labels)
+    incomplete.pop(next(iter(incomplete)))
+
+    with pytest.raises(calibration_sheet.ReviewerEditError, match="incomplete"):
+        calibration_sheet.validate_pass_a_complete(incomplete, manifest=manifest)
+
+
+def _changed_repeats(
+    labels: dict[str, calibration_sheet.PassALabel],
+    manifest: calibration_ruler.RulerManifest,
+    *,
+    field: str,
+    count: int,
+    value: str,
+) -> dict[str, calibration_sheet.PassALabel]:
+    changed = dict(labels)
+    repeats = [item for item in manifest.items if item.repeat_of is not None]
+    for item in repeats[:count]:
+        review_id = item.review_id
+        changed[review_id] = replace(changed[review_id], **{field: value})
+    return changed
+
+
+def test_repeat_consistency_uses_private_pairs_and_excludes_repeat_support(
+    strict_case: tuple[
+        calibration_ruler.RulerManifest,
+        list[str],
+        dict[str, bytes],
+    ],
+    parsed_labels: dict[str, calibration_sheet.PassALabel],
+) -> None:
+    manifest, _, _ = strict_case
+    labels = dict(parsed_labels)
+    repeat = next(
+        item
+        for item in manifest.items
+        if item.repeat_of is not None
+        and item.repeat_of != item.review_id.replace("rep-", "cal-")
+    )
+    repeat_id = repeat.review_id
+    origin_id = repeat.repeat_of
+    labels[repeat_id] = replace(labels[repeat_id], your_answer="C")
+    labels[origin_id] = replace(labels[origin_id], your_answer="C")
+
+    report = calibration_sheet.repeat_consistency(labels, manifest)
+
+    assert report["repeat_count"] == 12
+    assert report["split_support"] == {
+        "calibration": 80,
+        "validation": 40,
+        "total": 120,
+    }
+    assert report["exact_answer"] == {
+        "matches": 12,
+        "total": 12,
+        "raw_agreement": 1.0,
+    }
+    assert set(cast(dict[str, object], report["categorical_fields"])) == (
+        _CATEGORICAL_FIELDS
+    )
+
+
+def test_consistency_gate_has_separate_answer_and_categorical_floors(
+    strict_case: tuple[
+        calibration_ruler.RulerManifest,
+        list[str],
+        dict[str, bytes],
+    ],
+    parsed_labels: dict[str, calibration_sheet.PassALabel],
+) -> None:
+    manifest, _, _ = strict_case
+    answer_floor = _changed_repeats(
+        parsed_labels,
+        manifest,
+        field="your_answer",
+        count=1,
+        value="C",
+    )
+    answer_fail = _changed_repeats(
+        parsed_labels,
+        manifest,
+        field="your_answer",
+        count=2,
+        value="C",
+    )
+    categorical_floor = _changed_repeats(
+        parsed_labels,
+        manifest,
+        field="overall",
+        count=1,
+        value="DROP",
+    )
+    categorical_fail = _changed_repeats(
+        parsed_labels,
+        manifest,
+        field="overall",
+        count=2,
+        value="DROP",
+    )
+
+    assert calibration_sheet.consistency_gate(
+        calibration_sheet.repeat_consistency(answer_floor, manifest)
+    )["passed"]
+    assert not calibration_sheet.consistency_gate(
+        calibration_sheet.repeat_consistency(answer_fail, manifest)
+    )["passed"]
+    assert calibration_sheet.consistency_gate(
+        calibration_sheet.repeat_consistency(categorical_floor, manifest)
+    )["passed"]
+    failed = calibration_sheet.consistency_gate(
+        calibration_sheet.repeat_consistency(categorical_fail, manifest)
+    )
+    assert failed["status"] == "ADJUDICATION_REQUIRED"
+    assert failed["failed_checks"] == ["overall"]
+    assert parsed_labels[next(iter(parsed_labels))].overall == "KEEP"
+
+
+def test_repeat_content_must_match_before_labels_are_compared(
+    strict_case: tuple[
+        calibration_ruler.RulerManifest,
+        list[str],
+        dict[str, bytes],
+    ],
+    parsed_labels: dict[str, calibration_sheet.PassALabel],
+) -> None:
+    manifest, _, _ = strict_case
+    items = list(manifest.items)
+    repeat_index = next(
+        index for index, item in enumerate(items) if item.repeat_of is not None
+    )
+    repeat = items[repeat_index]
+    wrong_origin = next(
+        item
+        for item in items
+        if item.repeat_of is None
+        and item.review_id != repeat.repeat_of
+        and item.content_hash != repeat.content_hash
+    )
+    items[repeat_index] = replace(
+        repeat,
+        repeat_of=wrong_origin.review_id,
+    )
+    invalid_manifest = replace(manifest, items=tuple(items))
+
+    with pytest.raises(
+        calibration_sheet.RendererSchemaError,
+        match="content does not match",
+    ):
+        calibration_sheet.repeat_consistency(parsed_labels, invalid_manifest)
