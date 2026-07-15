@@ -2,19 +2,23 @@
 Copyright: Ankitects Pty Ltd and contributors
 License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
-<!-- Sidebar motion (the "edge pill" rail). A self-contained playground that puts
+<!-- Sidebar motion (the edge-pill rail). A self-contained playground that puts
      the app's current collapse behavior next to the proposed one from
      design/sidebar-nav-animations-svelte-guide.md, so the difference is visible
      rather than described. No bridge calls; the rails here are fixtures, not the
      real NavRail.
 
-     Two techniques are on show:
+     Two things are on show:
        1. Collapse (guide Part 1). Current animates the rail's own width, so its
           contents squish as it closes. Proposed clips a fixed-width inner that
           only fades, so the contents stay rigid while they slide out.
-       2. Reopen affordance (guide Part 2). Current leaves a faint edge handle
-          plus a top-left button. Proposed grows the handle and reveals a slight
-          chevron on hover, and drops the button: the handle is the one way back.
+       2. One edge pill for both directions (the pgrep take on guide Part 2).
+          Current hides via an in-rail arrow and reopens via a faint edge handle
+          plus a top-left button. Proposed drops both the arrow and the button:
+          a single small, faded pill lives on the sidebar edge and toggles it.
+          Expanded, the pill sits on the rail's edge (click to hide); collapsed,
+          it sits on the screen edge (click to show). Subtle grow on hover, no
+          chevron.
 
      All numbers are pgrep tokens (--rail-width, --duration-calm, --ease-spring),
      not the guide's verbatim values, so the feel stays on-brand. -->
@@ -37,19 +41,20 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     const NOTE: Record<Variant, string> = {
         proposed:
-            "Fixed-width inner fades while the outer frame clips it. Contents stay rigid; the handle grows and shows a chevron on hover.",
+            "One small faded pill on the sidebar edge toggles it: click to hide, click to show. No in-rail arrow, no top-left button, no chevron. Contents stay rigid as it closes.",
         current:
-            "The rail animates its own width, so its contents squish as it closes. A faint handle and a top-left button bring it back.",
+            "An in-rail arrow hides the sidebar; a faint edge handle and a top-left button bring it back. The contents squish as the rail narrows.",
     };
 </script>
 
 <div class="head">
     <h1>Sidebar motion</h1>
     <p>
-        The collapsing rail and its reopen handle, current beside proposed. Collapse
-        the rail and watch the left column: the current rail squishes its contents as
-        it closes, the proposed one clips a fixed-width inner so they slide out rigid.
-        While collapsed, hover the left edge to compare the reopen handles.
+        The collapsing rail and the one handle that toggles it, current beside proposed.
+        In proposed there is a single small pill on the sidebar edge: click it to hide
+        the rail, and it stays on the screen edge to click again to show. No in-rail
+        arrow and no top-left button. Collapse the rail and watch the left column: the
+        current rail squishes its contents, the proposed one keeps them rigid.
     </p>
 </div>
 
@@ -122,26 +127,30 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                     <span class="brand__dot" aria-hidden="true"></span>
                                     pgrep
                                 </span>
-                                <button
-                                    type="button"
-                                    class="collapse"
-                                    aria-label="Collapse sidebar"
-                                    title="Collapse sidebar"
-                                    on:click={() => (collapsed = true)}
-                                >
-                                    <svg
-                                        width="16"
-                                        height="16"
-                                        viewBox="0 0 20 20"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="1.5"
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
+                                <!-- Current keeps the in-rail hide arrow. Proposed
+                                     drops it in favour of the edge pill below. -->
+                                {#if variant === "current"}
+                                    <button
+                                        type="button"
+                                        class="collapse"
+                                        aria-label="Collapse sidebar"
+                                        title="Collapse sidebar"
+                                        on:click={() => (collapsed = true)}
                                     >
-                                        <polyline points="12,5 7,10 12,15" />
-                                    </svg>
-                                </button>
+                                        <svg
+                                            width="16"
+                                            height="16"
+                                            viewBox="0 0 20 20"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="1.5"
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                        >
+                                            <polyline points="12,5 7,10 12,15" />
+                                        </svg>
+                                    </button>
+                                {/if}
                             </div>
 
                             <div class="items">
@@ -155,32 +164,29 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         </div>
                     </div>
 
-                    <!-- Reopen affordances, only while collapsed. -->
-                    {#if collapsed}
+                    {#if variant === "proposed"}
+                        <!-- The one affordance: a faded edge pill that toggles the
+                             rail. It rides the rail's edge when open and the screen
+                             edge when collapsed, so it is always the same handle. -->
                         <button
                             type="button"
-                            class="edge"
-                            aria-label="Show sidebar"
-                            on:click={() => (collapsed = false)}
+                            class="toggle"
+                            aria-label={collapsed ? "Show sidebar" : "Hide sidebar"}
+                            on:click={() => (collapsed = !collapsed)}
                         >
-                            <span class="handle" aria-hidden="true">
-                                <svg
-                                    class="chev"
-                                    width="12"
-                                    height="12"
-                                    viewBox="0 0 20 20"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                >
-                                    <polyline points="8,5 13,10 8,15" />
-                                </svg>
-                            </span>
+                            <span class="pill" aria-hidden="true"></span>
                         </button>
-
-                        {#if variant === "current"}
+                    {:else}
+                        <!-- Current: reopen affordances, only while collapsed. -->
+                        {#if collapsed}
+                            <button
+                                type="button"
+                                class="edge"
+                                aria-label="Show sidebar"
+                                on:click={() => (collapsed = false)}
+                            >
+                                <span class="handle" aria-hidden="true"></span>
+                            </button>
                             <button
                                 type="button"
                                 class="burger"
@@ -226,18 +232,19 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     <h2>What to look for</h2>
     <ul>
         <li>
-            <strong>Rail contents on collapse.</strong> Current squishes the labels as
-            the rail narrows. Proposed keeps them rigid (fixed-width inner) and only fades
-            them, so the close reads as one clean motion.
+            <strong>One handle, both directions.</strong> Proposed has a single faded pill
+            on the sidebar edge. Click it to hide the rail; it stays on the screen edge to
+            click again and show it. Current instead splits this across an in-rail arrow to
+            hide and a separate handle plus button to show.
         </li>
         <li>
-            <strong>The reopen handle.</strong> Hover the left edge while collapsed. Current
-            barely thickens. Proposed grows into a small pill and reveals a slight chevron,
-            signalling "click to reopen".
+            <strong>Subtle, not loud.</strong> The pill sits quiet at rest and only thickens
+            and brightens a little on hover. No chevron, no bright bar.
         </li>
         <li>
-            <strong>The top-left button.</strong> Present in current, gone in proposed: the
-            edge handle is the single reopen affordance on desktop.
+            <strong>Rail contents on collapse.</strong> Current squishes the labels as the
+            rail narrows. Proposed keeps them rigid (fixed-width inner) and only fades them,
+            so the close reads as one clean motion.
         </li>
         <li>
             <strong>Reduced motion.</strong> With the toggle on (or the OS setting), every
@@ -427,7 +434,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     /* Proposed: the inner is fixed width, so it stays rigid and only fades. */
-    .is-collapsed .proposed .railInner,
     .proposed.is-collapsed .railInner {
         opacity: 0;
     }
@@ -443,6 +449,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         align-items: center;
         gap: var(--space-1);
         margin-bottom: var(--space-3);
+        min-height: 26px;
     }
 
     .brand {
@@ -519,15 +526,64 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         opacity: 0.6;
     }
 
-    /* Part 2: the reopen handle. A generous edge zone gives an easy hover target
-       even though the visible handle is thin. */
+    /* Proposed: the single edge pill. A generous hit strip gives an easy target,
+       though the visible pill is thin. It rides the rail's edge when open and the
+       screen edge when collapsed, sliding with the rail. */
+    .toggle {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: calc(var(--rail-width) - 9px);
+        z-index: 5;
+        width: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: 0;
+        background: none;
+        cursor: pointer;
+        transition: left var(--duration-calm) var(--ease-spring);
+    }
+
+    .is-collapsed .toggle {
+        left: 0;
+        justify-content: flex-start;
+    }
+
+    .pill {
+        width: 4px;
+        height: 44px;
+        border-radius: var(--radius-pill);
+        background: var(--border);
+        opacity: 0.55;
+        transition:
+            width var(--duration-calm) var(--ease-spring),
+            background var(--duration-calm) var(--ease-spring),
+            opacity var(--duration-calm) var(--ease-spring);
+    }
+
+    .toggle:hover .pill,
+    .toggle:focus-visible .pill {
+        width: 6px;
+        opacity: 1;
+        background: var(--muted);
+    }
+
+    .toggle:focus-visible {
+        outline: 2px solid var(--focus-ring);
+        outline-offset: 2px;
+        border-radius: var(--radius-pill);
+    }
+
+    /* Current: the faint reopen handle (unchanged from today's app). */
     .edge {
         position: absolute;
         left: 0;
         top: 0;
         bottom: 0;
         z-index: 3;
-        width: 18px;
+        width: 16px;
         display: flex;
         align-items: center;
         justify-content: flex-start;
@@ -538,9 +594,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     .handle {
-        display: flex;
-        align-items: center;
-        justify-content: center;
         width: 4px;
         height: 46px;
         border-radius: var(--radius-pill);
@@ -552,35 +605,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             opacity var(--duration-calm) var(--ease-spring);
     }
 
-    /* Proposed starts a touch more present and grows into a pill on hover. */
-    .proposed .handle {
-        width: 6px;
-        opacity: 0.6;
-    }
-
-    .current .edge:hover .handle,
-    .current .edge:focus-visible .handle {
+    .edge:hover .handle,
+    .edge:focus-visible .handle {
         width: 6px;
         opacity: 1;
         background: var(--muted);
-    }
-
-    .proposed .edge:hover .handle,
-    .proposed .edge:focus-visible .handle {
-        width: 22px;
-        opacity: 1;
-        background: var(--action-bg);
-    }
-
-    .chev {
-        color: var(--action-fg);
-        opacity: 0;
-        transition: opacity 150ms var(--ease-spring);
-    }
-
-    .proposed .edge:hover .chev,
-    .proposed .edge:focus-visible .chev {
-        opacity: 1;
     }
 
     /* Current keeps a top-left button as a second way back. */
@@ -652,18 +681,18 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     /* Preview of the reduced-motion experience, on top of the real media query. */
     .stage.is-reduced .railOuter,
     .stage.is-reduced .railInner,
-    .stage.is-reduced .handle,
-    .stage.is-reduced .chev,
-    .stage.is-reduced .burger {
+    .stage.is-reduced .toggle,
+    .stage.is-reduced .pill,
+    .stage.is-reduced .handle {
         transition: none;
     }
 
     @media (prefers-reduced-motion: reduce) {
         .railOuter,
         .railInner,
-        .handle,
-        .chev,
-        .burger {
+        .toggle,
+        .pill,
+        .handle {
             transition: none;
         }
     }
