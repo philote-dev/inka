@@ -92,6 +92,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         settleTimer = setTimeout(() => (settled = true), reduced ? 0 : DURATION);
     }
 
+    // Mouse click focuses the hit button; blur so the pill returns to rest
+    // instead of staying grown until something else is focused.
+    function onToggle(event: MouseEvent): void {
+        setCollapsed(!collapsed);
+        (event.currentTarget as HTMLButtonElement).blur();
+    }
+
     onDestroy(() => clearTimeout(settleTimer));
 
     $: shown = focus === "compare" ? (["travel", "fadein"] as Variant[]) : [focus];
@@ -309,7 +316,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                 type="button"
                                 class="toggle"
                                 aria-label={collapsed ? "Show sidebar" : "Hide sidebar"}
-                                on:click={() => setCollapsed(!collapsed)}
+                                on:click={onToggle}
                             ></button>
                         </div>
                     {/if}
@@ -788,10 +795,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         opacity: var(--tab-op, 1);
     }
 
+    /* Hover for pointer; :focus-visible for keyboard. Avoid :focus-within — a
+       mouse click would leave the pill stuck grown until something else focuses. */
     .travel .toggleSlot:hover .pill,
-    .travel .toggleSlot:focus-within .pill,
+    .travel .toggleSlot:has(.toggle:focus-visible) .pill,
     .fadein.is-settled .toggleSlot:hover .pill,
-    .fadein.is-settled .toggleSlot:focus-within .pill {
+    .fadein.is-settled .toggleSlot:has(.toggle:focus-visible) .pill {
         width: var(--tab-w-hover, 22px);
         opacity: 1;
     }

@@ -13,6 +13,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
      tall outline of the clickable area. -->
 <script lang="ts">
     import { railOpen, toggleRail } from "$lib/pgrep/nav";
+
+    // Mouse click focuses the hit button; without a blur the pill stays in its
+    // "active" (hover) size until the user clicks elsewhere. Keyboard users keep
+    // focus and still get the grown state via :focus-visible.
+    function onToggle(event: MouseEvent): void {
+        toggleRail();
+        (event.currentTarget as HTMLButtonElement).blur();
+    }
 </script>
 
 <div
@@ -23,7 +31,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     <button
         class="hit"
         type="button"
-        on:click={toggleRail}
+        on:click={onToggle}
         aria-label={$railOpen ? "Hide sidebar" : "Show sidebar"}
         aria-expanded={$railOpen}
     ></button>
@@ -115,8 +123,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             opacity var(--duration-calm) var(--ease-spring);
     }
 
+    /* Hover for pointer; :focus-visible for keyboard. Do not use :focus-within —
+       a mouse click would leave the pill stuck grown until something else focuses. */
     .slot:hover .pill,
-    .slot:focus-within .pill {
+    .hit:focus-visible ~ .pill {
         width: var(--tab-w-hover);
         opacity: 1;
     }
