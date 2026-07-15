@@ -22,7 +22,7 @@ import _ai_path  # noqa: E402
 _ai_path.add_ai_core()
 
 import eval_metrics  # noqa: E402
-from pgrep.ai import agreement  # type: ignore[import-not-found]  # noqa: E402
+from pgrep.ai import agreement, preference  # type: ignore[import-not-found]  # noqa: E402
 
 BOOTSTRAP_SEED = 0
 TARGET_PRECISION = 0.95
@@ -30,12 +30,20 @@ RAW_AGREEMENT_GATE = 0.90
 BALANCED_ACCURACY_GATE = 0.85
 CONSISTENCY_GATE = 0.90
 ESCALATION_RATE_GATE = 0.15
+MIN_ALIGNED_EXAMPLES = 30
+MIN_HUMAN_POSITIVES = 5
+MIN_HUMAN_NEGATIVES = 5
+MIN_RETAINED_ACCEPTS = 20
+MIN_CONSISTENCY_ITEMS = 30
+MIN_FOUNDRY_SLOTS = 6
+MIN_FOUNDRY_CATEGORIES = 6
 CORE_PROPERTIES = ("key", "figure")
-_PROPERTY_FIELDS = frozenset({"predicted", "human", "confidence", "runs"})
+_PROPERTY_FIELDS = frozenset({"item_ids", "predicted", "human", "confidence", "runs"})
 
 
 @dataclass(frozen=True)
 class _PropertyLabels:
+    item_ids: list[str]
     predicted: list[bool]
     human: list[bool]
     confidence: list[float] | None
@@ -66,6 +74,16 @@ def _confidence_list(value: object, path: str, expected: int) -> list[float]:
     return confidences
 
 
+def _item_id_list(value: object, path: str) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{path} must be a non-empty string array")
+    if any(not isinstance(item, str) or not item.strip() for item in value):
+        raise ValueError(f"{path} must contain only non-empty strings")
+    if len(set(value)) != len(value):
+        raise ValueError(f"{path} must contain unique strings")
+    return list(value)
+
+
 def _validate_property(split: str, name: str, value: object) -> _PropertyLabels:
     path = f"{split}.properties.{name}"
     if not isinstance(value, dict):
@@ -73,12 +91,15 @@ def _validate_property(split: str, name: str, value: object) -> _PropertyLabels:
     unknown = sorted(set(value) - _PROPERTY_FIELDS)
     if unknown:
         raise ValueError(f"{path} has unsupported fields: {', '.join(unknown)}")
-    if "predicted" not in value or "human" not in value:
-        raise ValueError(f"{path} must define predicted and human")
+    if any(field not in value for field in ("item_ids", "predicted", "human")):
+        raise ValueError(f"{path} must define item_ids, predicted, and human")
+    item_ids = _item_id_list(value["item_ids"], f"{path}.item_ids")
     predicted = _bool_list(value["predicted"], f"{path}.predicted")
     human = _bool_list(value["human"], f"{path}.human")
     if len(predicted) != len(human):
         raise ValueError(f"{path}.predicted and human must have equal lengths")
+    if len(item_ids) != len(predicted):
+        raise ValueError(f"{path}.item_ids must have length {len(predicted)}")
 
     confidence = None
     if "confidence" in value:
@@ -103,7 +124,7 @@ def _validate_property(split: str, name: str, value: object) -> _PropertyLabels:
                 )
             runs.append(run)
 
-    return _PropertyLabels(predicted, human, confidence, runs)
+    return _PropertyLabels(item_ids, predicted, human, confidence, runs)
 
 
 def _validated_split(split: str, value: object) -> dict[str, _PropertyLabels]:
@@ -142,10 +163,21 @@ def _validated_labels(
             "labels must define explicit calibration and heldout splits; "
             f"missing: {', '.join(missing)}"
         )
-    return (
-        _validated_split("calibration", payload["calibration"]),
-        _validated_split("heldout", payload["heldout"]),
-    )
+    calibration = _validated_split("calibration", payload["calibration"])
+    heldout = _validated_split("heldout", payload["heldout"])
+    calibration_ids = {
+        item_id for labels in calibration.values() for item_id in labels.item_ids
+    }
+    heldout_ids = {
+        item_id for labels in heldout.values() for item_id in labels.item_ids
+    }
+    overlap = sorted(calibration_ids & heldout_ids)
+    if overlap:
+        preview = ", ".join(overlap[:5])
+        raise ValueError(
+            f"calibration and heldout item_ids overlap across properties: {preview}"
+        )
+    return calibration, heldout
 
 
 def _interval(values: list[float], seed: int) -> dict[str, float]:
@@ -162,28 +194,57 @@ def _consistency(item: _PropertyLabels) -> float | None:
     return _json_number(agreement.consistency_score([item.predicted, *item.runs]))
 
 
-def _base_report(name: str, item: _PropertyLabels, *, seed: int) -> dict:
-    report = agreement.property_report(name, item.predicted, item.human).to_dict()
+def _label_support(item: _PropertyLabels) -> dict[str, int]:
+    positives = sum(item.human)
+    return {
+        "item_count": len(item.human),
+        "human_positives": positives,
+        "human_negatives": len(item.human) - positives,
+    }
+
+
+def _prediction_report(
+    name: str,
+    predictions: list[bool],
+    labels: list[bool],
+    *,
+    seed: int,
+) -> dict:
+    report = agreement.property_report(name, predictions, labels).to_dict()
     for metric in ("raw_agreement", "balanced_accuracy", "precision", "recall"):
         report[metric] = _json_number(report[metric])
     raw_matches = [
-        float(predicted == human)
-        for predicted, human in zip(item.predicted, item.human)
+        float(predicted == human) for predicted, human in zip(predictions, labels)
     ]
     predicted_positive_labels = [
-        float(human)
-        for predicted, human in zip(item.predicted, item.human)
-        if predicted
+        float(human) for predicted, human in zip(predictions, labels) if predicted
     ]
     report.update(
         {
-            "consistency": _consistency(item),
             "raw_agreement_ci": _interval(raw_matches, seed),
             "accepted_precision_ci": (
                 _interval(predicted_positive_labels, seed)
                 if predicted_positive_labels
                 else None
             ),
+        }
+    )
+    return report
+
+
+def _base_report(name: str, item: _PropertyLabels, *, seed: int) -> dict:
+    report = _prediction_report(
+        name,
+        item.predicted,
+        item.human,
+        seed=seed,
+    )
+    report.update(
+        {
+            "item_count": len(item.item_ids),
+            "support": _label_support(item),
+            "consistency": _consistency(item),
+            "consistency_n": len(item.item_ids) if item.runs is not None else 0,
         }
     )
     return report
@@ -266,33 +327,62 @@ def _heldout_report(
 ) -> dict:
     properties: list[dict] = []
     for name, item in labels.items():
-        report = _base_report(name, item, seed=seed)
+        pre_threshold = _base_report(name, item, seed=seed)
         threshold = thresholds.get(name)
         cutoff = threshold.get("cutoff") if threshold else None
         eligible = sum(item.predicted)
-        retained_labels: list[bool] = []
+        post_predictions: list[bool] | None = None
         if cutoff is not None and item.confidence is not None:
-            retained_labels = [
-                human
-                for predicted, human, confidence in zip(
-                    item.predicted, item.human, item.confidence
+            post_predictions = [
+                predicted and confidence >= cutoff
+                for predicted, confidence in zip(
+                    item.predicted,
+                    item.confidence,
                 )
-                if predicted and confidence >= cutoff
             ]
-        accepted_precision = (
-            sum(retained_labels) / len(retained_labels) if retained_labels else None
-        )
+        if post_predictions is None:
+            report = {
+                "name": name,
+                "n": len(item.human),
+                "raw_agreement": None,
+                "balanced_accuracy": None,
+                "precision": None,
+                "recall": None,
+                "raw_agreement_ci": None,
+                "accepted_precision_ci": None,
+            }
+            accepted = 0
+        else:
+            report = _prediction_report(
+                name,
+                post_predictions,
+                item.human,
+                seed=seed,
+            )
+            accepted = sum(post_predictions)
         report.update(
             {
+                "item_count": len(item.item_ids),
+                "support": _label_support(item),
+                "consistency": _consistency(item),
+                "consistency_n": (len(item.item_ids) if item.runs is not None else 0),
+                "pre_threshold": {
+                    key: pre_threshold[key]
+                    for key in (
+                        "raw_agreement",
+                        "balanced_accuracy",
+                        "precision",
+                        "recall",
+                        "raw_agreement_ci",
+                        "accepted_precision_ci",
+                    )
+                },
                 "threshold_cutoff": cutoff,
+                "threshold_attainable": bool(threshold and threshold.get("attainable")),
+                "confidence_available": item.confidence is not None,
                 "eligible": eligible,
-                "accepted": len(retained_labels),
-                "accepted_precision": accepted_precision,
-                "accepted_precision_ci": (
-                    _interval([float(value) for value in retained_labels], seed)
-                    if retained_labels
-                    else None
-                ),
+                "accepted": accepted,
+                "accepted_precision": report["precision"],
             }
         )
         properties.append(report)
@@ -363,6 +453,7 @@ def evaluate_foundry_summary(payload: object, *, seed: int = BOOTSTRAP_SEED) -> 
         raise ValueError("foundry summary.slots must be an array")
     slots: list[dict] = []
     categories: set[str] = set()
+    non_empty_categories: set[str] = set()
     yield_values: list[float] = []
     escalation_values: list[float] = []
     totals = {"candidates": 0, "accepted": 0, "rejected": 0, "escalated": 0}
@@ -371,13 +462,19 @@ def evaluate_foundry_summary(payload: object, *, seed: int = BOOTSTRAP_SEED) -> 
         if not isinstance(raw_slot, dict):
             raise ValueError(f"{path} must be an object")
         category = raw_slot.get("blueprint_category")
-        if not isinstance(category, str) or not category.strip():
-            raise ValueError(f"{path}.blueprint_category must be a non-empty string")
+        if (
+            not isinstance(category, str)
+            or category not in preference.BLUEPRINT_CATEGORIES
+        ):
+            raise ValueError(
+                f"{path}.blueprint_category must be one of the nine locked slugs"
+            )
         counts = _partition_counts(raw_slot, path)
         yield_rate, escalation_rate = _rates(counts)
         if yield_rate is not None and escalation_rate is not None:
             yield_values.append(yield_rate)
             escalation_values.append(escalation_rate)
+            non_empty_categories.add(category)
         categories.add(category)
         for name in totals:
             totals[name] += counts[name]
@@ -397,20 +494,34 @@ def evaluate_foundry_summary(payload: object, *, seed: int = BOOTSTRAP_SEED) -> 
         ):
             raise ValueError(f"foundry summary.{name} does not match its slot total")
 
-    yield_rate, escalation_rate = _rates(totals)
+    pooled_yield_rate, pooled_escalation_rate = _rates(totals)
     enough_clusters = len(yield_values) >= 2
+    yield_ci = _interval(yield_values, seed) if enough_clusters else None
+    escalation_ci = _interval(escalation_values, seed) if enough_clusters else None
+    yield_rate = (
+        yield_ci["point"]
+        if yield_ci is not None
+        else (yield_values[0] if yield_values else None)
+    )
+    escalation_rate = (
+        escalation_ci["point"]
+        if escalation_ci is not None
+        else (escalation_values[0] if escalation_values else None)
+    )
     return {
         **totals,
         "yield_rate": yield_rate,
         "escalation_rate": escalation_rate,
-        "yield_rate_ci": (_interval(yield_values, seed) if enough_clusters else None),
-        "escalation_rate_ci": (
-            _interval(escalation_values, seed) if enough_clusters else None
-        ),
+        "pooled_yield_rate": pooled_yield_rate,
+        "pooled_escalation_rate": pooled_escalation_rate,
+        "yield_rate_ci": yield_ci,
+        "escalation_rate_ci": escalation_ci,
         "ci_unit": "slot",
         "slot_count": len(slots),
+        "non_empty_slot_count": len(yield_values),
         "ci_slot_count": len(yield_values),
-        "category_count": len(categories),
+        "category_count": len(non_empty_categories),
+        "reported_category_count": len(categories),
         "slots": slots,
     }
 
@@ -424,6 +535,7 @@ def _check(
     observed: object,
     required: object,
     passed: bool,
+    support: object,
     evidence: object,
 ) -> dict:
     return {
@@ -431,6 +543,7 @@ def _check(
         "observed": observed,
         "required": required,
         "pass": passed,
+        "support": support,
         "evidence": evidence,
     }
 
@@ -440,6 +553,15 @@ def _at_least(value: object, required: float) -> bool:
         isinstance(value, (int, float))
         and not isinstance(value, bool)
         and value >= required
+    )
+
+
+def _sample_support_pass(support: object) -> bool:
+    return (
+        isinstance(support, dict)
+        and support.get("item_count", 0) >= MIN_ALIGNED_EXAMPLES
+        and support.get("human_positives", 0) >= MIN_HUMAN_POSITIVES
+        and support.get("human_negatives", 0) >= MIN_HUMAN_NEGATIVES
     )
 
 
@@ -465,6 +587,7 @@ def _standing_gates(
                 presence,
                 {"calibration": True, "heldout": True},
                 all(presence.values()),
+                presence,
                 (
                     "present in both splits"
                     if all(presence.values())
@@ -474,7 +597,33 @@ def _standing_gates(
         )
 
     for name in property_names:
+        calibration_property = calibration_properties.get(name)
         heldout_property = heldout_properties.get(name)
+        for split, property_report in (
+            ("calibration", calibration_property),
+            ("heldout", heldout_property),
+        ):
+            support = property_report.get("support") if property_report else None
+            checks.append(
+                _check(
+                    f"{split}.{name}.sample_support",
+                    support,
+                    {
+                        "item_count": MIN_ALIGNED_EXAMPLES,
+                        "human_positives": MIN_HUMAN_POSITIVES,
+                        "human_negatives": MIN_HUMAN_NEGATIVES,
+                    },
+                    _sample_support_pass(support),
+                    support,
+                    (
+                        f"{split}.properties.{name}.support"
+                        if support is not None
+                        else f"missing {split} property"
+                    ),
+                )
+            )
+
+        heldout_support = heldout_property.get("support") if heldout_property else None
         for metric, required in (
             ("raw_agreement", RAW_AGREEMENT_GATE),
             ("balanced_accuracy", BALANCED_ACCURACY_GATE),
@@ -485,7 +634,9 @@ def _standing_gates(
                     f"heldout.{name}.{metric}",
                     observed,
                     required,
-                    _at_least(observed, required),
+                    _at_least(observed, required)
+                    and _sample_support_pass(heldout_support),
+                    heldout_support,
                     (
                         f"heldout.properties.{name}.{metric}"
                         if observed is not None
@@ -502,17 +653,43 @@ def _standing_gates(
                 attainable,
                 True,
                 attainable is True,
+                threshold,
                 threshold or "missing calibration property",
             )
         )
 
+        confidence_available = (
+            heldout_property.get("confidence_available") if heldout_property else None
+        )
+        checks.append(
+            _check(
+                f"heldout.{name}.confidence_available",
+                confidence_available,
+                True,
+                confidence_available is True,
+                heldout_support,
+                (
+                    f"heldout.properties.{name}.confidence"
+                    if confidence_available
+                    else "missing held-out confidence or property"
+                ),
+            )
+        )
+
         consistency = heldout_property.get("consistency") if heldout_property else None
+        consistency_n = heldout_property.get("consistency_n") if heldout_property else 0
         checks.append(
             _check(
                 f"heldout.{name}.consistency",
-                consistency,
-                CONSISTENCY_GATE,
-                _at_least(consistency, CONSISTENCY_GATE),
+                {"point": consistency, "items": consistency_n},
+                {
+                    "point": CONSISTENCY_GATE,
+                    "items": MIN_CONSISTENCY_ITEMS,
+                },
+                _at_least(consistency, CONSISTENCY_GATE)
+                and isinstance(consistency_n, int)
+                and consistency_n >= MIN_CONSISTENCY_ITEMS,
+                {"consistency_items": consistency_n},
                 (
                     f"heldout.properties.{name}.consistency"
                     if consistency is not None
@@ -526,12 +703,35 @@ def _standing_gates(
         accepted_precision = (
             heldout_property.get("accepted_precision") if heldout_property else None
         )
+        accepted_ci = (
+            heldout_property.get("accepted_precision_ci") if heldout_property else None
+        )
+        retained = heldout_property.get("accepted") if heldout_property else 0
+        checks.append(
+            _check(
+                f"heldout.{name}.retained_accepts",
+                retained,
+                MIN_RETAINED_ACCEPTS,
+                isinstance(retained, int) and retained >= MIN_RETAINED_ACCEPTS,
+                {"retained": retained},
+                (
+                    f"heldout.properties.{name}.accepted"
+                    if heldout_property
+                    else "missing held-out property"
+                ),
+            )
+        )
+        ci_low = accepted_ci.get("low") if accepted_ci else None
         checks.append(
             _check(
                 f"heldout.{name}.accepted_precision",
-                accepted_precision,
-                TARGET_PRECISION,
-                _at_least(accepted_precision, TARGET_PRECISION),
+                {"point": accepted_precision, "ci_low": ci_low},
+                {"point": TARGET_PRECISION, "ci_low": TARGET_PRECISION},
+                _at_least(accepted_precision, TARGET_PRECISION)
+                and _at_least(ci_low, TARGET_PRECISION)
+                and isinstance(retained, int)
+                and retained >= MIN_RETAINED_ACCEPTS,
+                {"retained": retained, "interval": accepted_ci},
                 (
                     f"heldout.properties.{name}.accepted_precision"
                     if accepted_precision is not None
@@ -546,16 +746,24 @@ def _standing_gates(
             foundry is not None,
             True,
             foundry is not None,
+            foundry,
             "foundry summary supplied" if foundry else "missing foundry summary",
         )
     )
-    cluster_support = foundry.get("ci_slot_count") if foundry else None
+    cluster_support = foundry.get("non_empty_slot_count") if foundry else None
     checks.append(
         _check(
-            "foundry.cluster_support",
+            "foundry.slot_support",
             cluster_support,
-            2,
-            isinstance(cluster_support, int) and cluster_support >= 2,
+            MIN_FOUNDRY_SLOTS,
+            isinstance(cluster_support, int)
+            and cluster_support >= MIN_FOUNDRY_SLOTS
+            and foundry is not None
+            and foundry.get("ci_unit") == "slot",
+            {
+                "non_empty_slots": cluster_support,
+                "ci_unit": foundry.get("ci_unit") if foundry else None,
+            },
             (
                 f"{cluster_support} non-empty slot summaries"
                 if cluster_support is not None
@@ -563,15 +771,42 @@ def _standing_gates(
             ),
         )
     )
+    category_support = foundry.get("category_count") if foundry else None
+    checks.append(
+        _check(
+            "foundry.category_support",
+            category_support,
+            MIN_FOUNDRY_CATEGORIES,
+            isinstance(category_support, int)
+            and category_support >= MIN_FOUNDRY_CATEGORIES,
+            {"valid_non_empty_categories": category_support},
+            (
+                "foundry.category_count"
+                if category_support is not None
+                else "missing foundry category evidence"
+            ),
+        )
+    )
     escalation_rate = foundry.get("escalation_rate") if foundry else None
+    escalation_ci = foundry.get("escalation_rate_ci") if foundry else None
+    escalation_ci_high = escalation_ci.get("high") if escalation_ci else None
     checks.append(
         _check(
             "foundry.escalation_rate",
-            escalation_rate,
-            ESCALATION_RATE_GATE,
+            {"point": escalation_rate, "ci_high": escalation_ci_high},
+            {
+                "point_max": ESCALATION_RATE_GATE,
+                "ci_high_max": ESCALATION_RATE_GATE,
+            },
             isinstance(escalation_rate, (int, float))
             and not isinstance(escalation_rate, bool)
-            and escalation_rate <= ESCALATION_RATE_GATE,
+            and escalation_rate <= ESCALATION_RATE_GATE
+            and isinstance(escalation_ci_high, (int, float))
+            and escalation_ci_high <= ESCALATION_RATE_GATE,
+            {
+                "non_empty_slots": cluster_support,
+                "interval": escalation_ci,
+            },
             (
                 "foundry.escalation_rate"
                 if escalation_rate is not None
@@ -586,6 +821,7 @@ def evaluate_labels(
     payload: object,
     *,
     foundry_summary: object | None = None,
+    preference_audit: dict | None = None,
     seed: int = BOOTSTRAP_SEED,
 ) -> dict:
     """Fit on calibration only, then evaluate fixed decisions on held-out labels."""
@@ -603,6 +839,7 @@ def evaluate_labels(
         "heldout": heldout,
         "thresholds": thresholds,
         "foundry": foundry,
+        "preferences": preference_audit,
     }
     report["gates"] = _standing_gates(calibration, heldout, thresholds, foundry)
     return report
@@ -624,24 +861,62 @@ def _load_json(path: str, description: str) -> object:
         raise ValueError(f"{description} {path} is not valid JSON: {err}") from err
 
 
+def load_foundry_summary(path: str | Path) -> object:
+    """Load one summary JSON or aggregate every run summary below a root."""
+    source = Path(path)
+    if not source.is_dir():
+        return _load_json(str(source), "foundry summary")
+
+    files = sorted(source.rglob("summary.json"))
+    if not files:
+        raise ValueError(f"foundry root {source} has no summary.json files")
+    slots: list[dict] = []
+    for summary_path in files:
+        payload = _load_json(str(summary_path), "foundry summary")
+        if not isinstance(payload, dict):
+            raise ValueError(f"foundry summary {summary_path} must be an object")
+        category = payload.get("blueprint_category")
+        if (
+            not isinstance(category, str)
+            or category not in preference.BLUEPRINT_CATEGORIES
+        ):
+            raise ValueError(
+                f"foundry summary {summary_path}.blueprint_category "
+                "must be one of the nine locked slugs"
+            )
+        counts = _partition_counts(payload, f"foundry summary {summary_path}")
+        slots.append({"blueprint_category": category, **counts})
+    return {"slots": slots}
+
+
 def _self_check() -> dict:
-    def passing_property() -> dict:
+    def passing_property(prefix: str) -> dict:
+        predicted = [True] * 24 + [False] * 6
         return {
-            "predicted": [True, True, False, False],
-            "human": [True, True, False, False],
-            "confidence": [0.95, 0.9, 0.4, 0.3],
+            "item_ids": [f"{prefix}-{index}" for index in range(30)],
+            "predicted": predicted,
+            "human": list(predicted),
+            "confidence": [0.95] * 24 + [0.2] * 6,
             "runs": [
-                [True, True, False, False],
-                [True, True, False, False],
+                list(predicted),
+                list(predicted),
             ],
         }
 
+    categories = [
+        "mechanics",
+        "electromagnetism",
+        "quantum",
+        "thermodynamics",
+        "atomic",
+        "optics_waves",
+    ]
     report = evaluate_labels(
         {
             split: {
                 "properties": {
-                    "key": passing_property(),
-                    "figure": passing_property(),
+                    "key": passing_property(f"{split}-key"),
+                    "figure": passing_property(f"{split}-figure"),
                 }
             }
             for split in ("calibration", "heldout")
@@ -649,24 +924,24 @@ def _self_check() -> dict:
         foundry_summary={
             "slots": [
                 {
-                    "blueprint_category": "mechanics",
-                    "accepted": 9,
+                    "blueprint_category": category,
+                    "accepted": 19,
                     "rejected": 0,
                     "escalated": 1,
-                },
-                {
-                    "blueprint_category": "optics",
-                    "accepted": 9,
-                    "rejected": 0,
-                    "escalated": 1,
-                },
+                }
+                for category in categories
             ]
         },
     )
     assert report["calibration"]["properties"][0]["raw_agreement"] == 1.0
     assert report["heldout"]["properties"][0]["accepted_precision"] == 1.0
-    assert report["foundry"]["yield_rate_ci"]["point"] == 0.9
-    assert report["foundry"]["escalation_rate"] == 0.1
+    assert (
+        report["foundry"]["yield_rate"] == report["foundry"]["yield_rate_ci"]["point"]
+    )
+    assert (
+        report["foundry"]["escalation_rate"]
+        == report["foundry"]["escalation_rate_ci"]["point"]
+    )
     assert report["gates"]["green"]
     return report
 
@@ -689,7 +964,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--foundry-summary",
-        help="foundry summary JSON required for a green standing evaluation",
+        help=(
+            "single foundry summary JSON or foundry root directory "
+            "required for a green standing evaluation"
+        ),
+    )
+    parser.add_argument(
+        "--preferences-root",
+        help="optional foundry root for cross-run Tier 3 preference audit",
     )
     parser.add_argument("--out", help="optional path for the printed JSON report")
     parser.add_argument(
@@ -706,13 +988,19 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--labels is required unless --self-check is given")
         try:
             foundry_summary = (
-                _load_json(args.foundry_summary, "foundry summary")
+                load_foundry_summary(args.foundry_summary)
                 if args.foundry_summary
+                else None
+            )
+            preference_audit = (
+                preference.audit_preferences(args.preferences_root)
+                if args.preferences_root
                 else None
             )
             report = evaluate_labels(
                 _load_json(args.labels, "labels"),
                 foundry_summary=foundry_summary,
+                preference_audit=preference_audit,
             )
         except ValueError as err:
             parser.error(str(err))
