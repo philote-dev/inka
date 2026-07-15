@@ -271,6 +271,15 @@ def test_validate_pair_requires_rejected_panel_evidence():
     assert any("evidence" in error for error in errors)
 
 
+def test_validate_pair_requires_chosen_panel_evidence():
+    pair = _valid_pair()
+    pair["chosen"]["panel"]["checks"] = []
+
+    errors = preference.validate_pair(pair)
+
+    assert any("chosen.panel" in error and "evidence" in error for error in errors)
+
+
 def test_pairs_from_slot_preserves_explicit_refusal_evidence():
     refused = _item(2, "reject")
     refused.update(

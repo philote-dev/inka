@@ -136,6 +136,11 @@ def _validate_panel(side: str, panel: object, decision: str) -> list[str]:
     if not isinstance(checks, list):
         errors.append(f"{side}.panel.checks must be an array")
         return errors
+    if side == "chosen" and not any(
+        isinstance(check, dict) and _non_empty_string(check.get("evidence"))
+        for check in checks
+    ):
+        errors.append("chosen.panel must include non-empty check evidence")
     for index, check in enumerate(checks):
         errors.extend(_validate_panel_check(f"{side}.panel.checks[{index}]", check))
     return errors
