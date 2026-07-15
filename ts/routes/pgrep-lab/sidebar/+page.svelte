@@ -235,7 +235,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                     aria-hidden="true"
                                 >
                                     <path
-                                        d="M0 0 C 5 6, 16 8, 16 22 C 16 36, 5 38, 0 44 Z"
+                                        d="M0 0 C2 10 16 8 16 16 L16 28 C16 36 2 34 0 44 Z"
                                     />
                                 </svg>
                             </span>
@@ -629,8 +629,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         left: 0;
         top: 50%;
         transform: translateY(-50%);
-        width: 7px;
-        height: 44px;
+        width: 5px;
+        height: 60px;
         color: var(--muted);
         opacity: 0.4;
         pointer-events: none;
@@ -660,7 +660,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     .travel .toggleSlot:focus-within .pill,
     .fadein.is-settled .toggleSlot:hover .pill,
     .fadein.is-settled .toggleSlot:focus-within .pill {
-        width: 16px;
+        width: 11px;
         opacity: 1;
     }
 
