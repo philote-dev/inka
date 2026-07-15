@@ -227,9 +227,11 @@ review sheet (`ESCALATE` / `KEEP` / `DROP` per item) from the latest run by
 default, or pass `--run <name>`. The CLI refuses an existing run directory. It
 builds and validates the pairs first, writes every artifact to a temporary
 sibling, verifies the preference count, then atomically publishes the complete
-directory. An exclusive sibling lock file closes the final check and rename
-race; lock and temporary state are removed on success or failure. Timestamp run
-IDs include microseconds. Default artifacts stay under the ignored
+directory. It writes `_SUCCESS` in the temporary directory immediately before
+the rename; only the renamed directory with that marker is finalized. An
+exclusive sibling lock file closes the final check and rename race; lock and
+temporary state are removed on success or failure. Timestamp run IDs include
+microseconds. Default artifacts stay under the ignored
 `content/run/foundry/` tree; custom `--out` paths are the operator's
 responsibility. Generation still reads only `content/corpus/`.
 
@@ -304,8 +306,10 @@ implementation plan is
 `validate_pair` enforces non-empty run and slot fields, distinct IDs, five
 non-empty choices, an `A` through `E` key, source references, the required panel
 decisions, a non-empty reject reason, and panel evidence. A normal rejection's
-`failing_gates` must exactly match its failed hard-check names. A refusal instead
-uses `refused: true`, `failing_gates: ["refusal"]`, and a non-empty reason.
+`failing_gates` must exactly match its failed hard-check names. A non-synthetic
+chosen item needs at least one check and cannot contain a failed hard check.
+Successful checks may legitimately have empty evidence, matching the real
+`PanelVerdict` contract. Synthetic chosen items may have no checks.
 Recursive validation permits only JSON-compatible values and string object
 keys; sets, tuples, object instances, NaN, and infinities fail before
 serialization. Invalid construction or writing raises `ValueError`; no record
@@ -318,30 +322,37 @@ rather than normalized.
 
 Only validated accepted by rejected combinations from the same slot become
 pairs, capped at 64 per call. Escalations, invalid candidates, and slots lacking
-either side produce no pair. A non-positive cap produces zero pairs.
+either side produce no pair. Rejected items with `panel.refusal: true` are also
+excluded because they are incomplete generation outcomes, not negative training
+examples. A non-positive cap produces zero pairs.
 
 `content/tools/foundry.py` atomically overwrites one new run's
 `preferences.jsonl`; it never appends to an earlier run. Duplicate chosen and
 rejected ID combinations fail the write. Every pair has an explicit
 `synthetic` boolean. Dry-run pairs are synthetic and can exercise the pipeline,
 but they never count toward training readiness. `summary.json` includes its
-`blueprint_category` plus a `preferences` object with total validated count,
+`blueprint_category`, a run-level `synthetic` flag, and a
+`preference_summary` object. That object reports emitted pairs, excluded
+outcomes, exclusion reasons such as `panel_refusal`, total validated count,
 non-synthetic pair count, distinct eligible category count, and category names.
 These fields make the future 1,000-pair and six-category trigger countable. They
 do not claim that the trigger has been reached.
 
 ### Leakage backstop
 
-`content/tools/leakage_check.py` recursively scans every `*.jsonl` under
-`content/run/foundry/`. It uses `preference.scan_jsonl` to validate each
-record's schema and required fields. The recursive marker scan covers every key
-and value, including slot metadata, panel evidence, choices, and source
-references. It rejects boundary-delimited identifier and path forms for gold,
-held-out, ETS, Tier 3, GR9677, and GR1777 while allowing benign words such as
-`marigold`. Errors include the JSON path and line number. The leakage tool also
-retains the forbidden private-root checks and the 25-word contiguous copy-in
-check against available private items. These checks supplement the primary
-firewall: generation and preference pairing ground only on `content/corpus/`.
+`content/tools/leakage_check.py` recursively scans each finalized run's
+`preferences.jsonl` under `content/run/foundry/`. A finalized run has `_SUCCESS`
+and is not a temporary hidden directory. Active temporary directories, lock
+files, orphan directories, and bare files under the root are ignored. The
+recursive marker scan covers every key and value, including slot metadata,
+panel evidence, choices, and source references. It rejects boundary-delimited
+identifier and path forms for gold, `heldout`, `held-out`, `held_out`, ETS,
+Tier 3 separator variants, GR9677, and GR1777 while allowing benign words such
+as `marigold`. Errors include the JSON path and line number. The leakage tool
+also retains the forbidden private-root checks and the 25-word contiguous
+copy-in check against available private items. These checks supplement the
+primary firewall: generation and preference pairing ground only on
+`content/corpus/`.
 
 The same check runs a cross-run audit over every nested `preferences.jsonl`.
 Duplicate chosen and rejected identities across files fail. For each
@@ -387,13 +398,15 @@ call. Its input requires distinct calibration and held-out splits:
 ```
 
 `item_ids`, `predicted`, and `human` are required aligned arrays. Item IDs are
-non-empty unique opaque strings, not item text. Any overlap between the union of
-calibration IDs and the union of held-out IDs is invalid, even when the overlap
-occurs under different property names. `confidence` is an optional aligned
-array of values from 0 to 1. `runs` is optional; when present, it contains at
-least two aligned boolean arrays from perturbation runs. Consistency compares
-the original `predicted` verdicts and every perturbation run. Without `runs`,
-consistency is `null` and its gate is red.
+non-empty unique opaque strings, not item text. They must be stable hashes or
+stable IDs from a frozen evaluation manifest; per-run row numbers do not make
+overlap detection meaningful. Any overlap between the union of calibration IDs
+and the union of held-out IDs is invalid, even when the overlap occurs under
+different property names. `confidence` is an optional aligned array of values
+from 0 to 1. `runs` is optional; when present, it contains at least two aligned
+boolean arrays from perturbation runs. Consistency compares the original
+`predicted` verdicts and every perturbation run. Without `runs`, consistency is
+`null` and its gate is red.
 
 Only calibration predicted positives and their human labels can fit a
 threshold. Each threshold reports `target_precision`, `attainable`, `cutoff`,
@@ -419,7 +432,8 @@ The standing gate is green only when all checks have evidence:
   is at least 0.85 for every reported property;
 - the calibration precision target is attainable for every reported property;
 - key and figure each retain at least 20 held-out accepts, with accepted
-  precision point and bootstrap lower bound both at least 0.95;
+  precision point, percentile-bootstrap lower bound, and deterministic 95%
+  Wilson lower bound all at least 0.95;
 - held-out consistency is measured over at least 30 items and is at least 0.90
   for every property;
 - a per-slot foundry summary has at least six non-empty slots across at least
@@ -439,7 +453,14 @@ or explicit multi-slot payload. A directory recursively loads each
 `--preferences-root <foundry-root>` for non-synthetic Tier 3 counts and
 cross-run duplicate visibility. Add `--out <path>` to save the identical
 printed report. `just eval-verifier --self-check` uses realistically supported
-synthetic calibration, held-out, and six-slot foundry data and exits 0.
+in-memory calibration and held-out data with 110 all-correct retained accepts,
+plus six-slot foundry data, and exits 0.
+
+Directory aggregation includes only finalized `_SUCCESS` runs. It ignores
+active temporary, lock, orphan, and bare-root artifacts. Finalized synthetic
+runs are reported as excluded and do not enter production slot rates. The
+cross-run preference audit applies the same finalized-run boundary and reports
+the number of synthetic pairs excluded from Tier counts.
 
 For cluster-aware foundry uncertainty, supply per-slot counts:
 

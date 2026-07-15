@@ -280,7 +280,8 @@ WS9}.
 - The loop emits pairs only for validated accepted by rejected combinations
   from the same blueprint slot. Chosen means passed all gates; rejected records
   the specific failing gate and its evidence. Escalations, invalid candidates,
-  and one-sided slots do not become preference pairs.
+  one-sided slots, and `panel.refusal` outcomes do not become preference pairs.
+  Run summaries report emitted and excluded counts plus exclusion reasons.
 - Schema v1 preserves the slot topic and blueprint category, requires source
   references on both sides, and validates panel decisions, reject evidence,
   reject reasons, JSON-compatible values, and finite numbers. The category is
@@ -291,7 +292,12 @@ WS9}.
   the corpus index. Cross-run audits detect duplicate chosen and rejected
   identities and expose eligible pair and category counts.
 - Writes overwrite atomically within a new run and reject duplicate ID pairs.
-  An exclusive sibling lock closes the publication race.
+  An exclusive sibling lock closes the publication race. `_SUCCESS` is written
+  immediately before atomic rename; aggregators and leakage checks read only
+  finalized, non-temporary run directories.
+- Real accepted verifier checks may have empty evidence. Non-synthetic chosen
+  items still need a non-empty check list, and no chosen item may contain a
+  failed hard check.
 - Respect the firewall: default output under `content/run/foundry/` is
   git-ignored, grounds only on the corpus, and never contains gold, held-out, or
   ETS material. Operators are responsible for keeping custom output paths
@@ -306,7 +312,8 @@ WS9}.
   held-out labels and confidences cannot influence the cutoff. Held-out records
   contain opaque aligned item IDs, labels, and numbers only and remain
   evaluation-only. Duplicate property IDs and any cross-split overlap are
-  invalid.
+  invalid. IDs must be stable hashes or IDs from a frozen manifest, not
+  per-execution row numbers.
 - Print split-specific reports, threshold diagnostics, and a standing gate card.
   Headline held-out agreement, balanced accuracy, precision, and recall are
   computed after applying the calibration cutoff; pre-threshold metrics remain
@@ -315,7 +322,8 @@ WS9}.
   human negatives per required property in each split; post-threshold agreement
   at least 0.90; balanced accuracy at least 0.85; consistency at least 0.90 over
   30 items; and at least 20 retained key and figure accepts. Key and figure
-  accepted precision point and bootstrap lower bound must both be at least 0.95.
+  accepted precision point, percentile-bootstrap lower bound, and deterministic
+  95% Wilson lower bound must all be at least 0.95.
 - Foundry uncertainty bootstraps slot-level yield and escalation rates through
   `eval_metrics.bootstrap_ci`. Headline rates are the unweighted means of the
   same non-empty slot rates; candidate-weighted values are pooled diagnostics.
@@ -324,10 +332,11 @@ WS9}.
   aggregate summaries report points only.
 - `--foundry-summary` accepts one JSON file or a foundry root whose run
   summaries are aggregated recursively. `--preferences-root` exposes the
-  cross-run Tier 3 audit in the report.
+  cross-run Tier 3 audit in the report. Directory aggregation excludes
+  finalized synthetic runs and reports the excluded count.
 - Acceptance: the recipe always prints or writes a structurally valid report.
-  Red exits nonzero. The offline self-check supplies passing synthetic
-  calibration, held-out, and per-slot foundry data and exits 0.
+  Red exits nonzero. The offline self-check supplies at least 100 all-correct
+  retained accepts plus passing per-slot foundry data and exits 0.
 
 ## Staged tiers (future gates)
 
