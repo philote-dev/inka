@@ -30,6 +30,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -115,14 +116,11 @@ _FORBIDDEN_ASSET_TERMS = frozenset(
         "source_excerpt",
         "solution_decomposition",
         "decomposition",
-        "model",
         "model_id",
         "model_family",
-        "model_output",
         "origin",
         "provenance",
         "trace",
-        "verifier",
         "verifier_decision",
         "verifier_verdict",
         "stratum",
@@ -140,26 +138,33 @@ _FORBIDDEN_ASSET_TERMS = frozenset(
         "file_path",
         "original_path",
         "input_file",
-        "answer_key",
-        "correct_answer",
-        "correct_key",
-        "correct_value",
-        "your_answer",
-        "recommendation",
-        "confidence",
         "stored_key",
         "stored-key",
     }
 )
-_STRUCTURED_ASSET_METADATA = re.compile(
-    r"(?i)(?<![\w])(?:"
-    r"answer[\s_-]*key"
-    r"|correct[\s_-]*(?:answer|key|value)"
-    r"|stored[\s_-]*key"
-    r"|your[\s_-]*answer"
-    r"|model[\s_-]*output"
-    r"|verifier(?:[\s_-]+[a-z0-9]+)?"
-    r")(?![\w])"
+_BLIND_FIGURE_FORBIDDEN_WORDS = frozenset(
+    {
+        "answer",
+        "answers",
+        "solution",
+        "solutions",
+        "correct",
+        "incorrect",
+        "key",
+        "keys",
+        "choice",
+        "choices",
+        "recommendation",
+        "recommendations",
+        "confidence",
+        "verifier",
+        "verifiers",
+        "model",
+        "models",
+    }
+)
+_CSS_ESCAPE = re.compile(
+    r"\\(?:([0-9a-fA-F]{1,6})(?:\r\n|[ \t\r\n\f])?|([^\r\n\f0-9a-fA-F]))"
 )
 
 
@@ -1240,6 +1245,35 @@ def _contains_token(text: str, token: str) -> bool:
     )
 
 
+def _decode_css_escapes(value: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        if hexadecimal := match.group(1):
+            codepoint = int(hexadecimal, 16)
+            if codepoint == 0 or codepoint > 0x10FFFF:
+                return "\ufffd"
+            return chr(codepoint)
+        return match.group(2)
+
+    return _CSS_ESCAPE.sub(replace, value)
+
+
+def _decode_svg_scan_text(value: str) -> str:
+    decoded = value
+    for _ in range(4):
+        unescaped = html.unescape(decoded)
+        if unescaped == decoded:
+            break
+        decoded = unescaped
+    return unicodedata.normalize("NFKC", _decode_css_escapes(decoded))
+
+
+def _forbidden_svg_words(value: str) -> set[str]:
+    words = set(re.findall(r"[^\W_]+", value.casefold()))
+    camel_split = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", value)
+    words.update(re.findall(r"[^\W_]+", camel_split.casefold()))
+    return words & _BLIND_FIGURE_FORBIDDEN_WORDS
+
+
 def _assert_blind_figure_assets(
     assets: Mapping[str, bytes],
     *,
@@ -1255,7 +1289,13 @@ def _assert_blind_figure_assets(
             decoded = raw.decode("utf-8", errors="strict")
         except UnicodeDecodeError as error:
             raise RulerBuildError(f"figure asset {path} is not strict UTF-8") from error
-        visible = html.unescape(decoded)
+        visible = _decode_svg_scan_text(decoded)
+        forbidden_words = _forbidden_svg_words(visible)
+        if forbidden_words:
+            raise RulerBuildError(
+                f"figure asset {path} contains forbidden word(s): "
+                + ", ".join(sorted(forbidden_words))
+            )
         if _looks_like_filesystem_path(visible):
             raise RulerBuildError(
                 f"figure asset {path} contains a forbidden filesystem path"
@@ -1265,46 +1305,10 @@ def _assert_blind_figure_assets(
                 raise RulerBuildError(
                     f"figure asset {path} contains forbidden metadata term"
                 )
-        if _STRUCTURED_ASSET_METADATA.search(visible):
-            raise RulerBuildError(
-                f"figure asset {path} contains forbidden answer metadata"
-            )
         review_id = Path(path).stem
         item = items_by_review_id.get(review_id)
         if item is None:
             raise RulerBuildError(f"figure asset {path} has no manifest item")
-        stored_key = re.escape(item.correct)
-        answer_disclosure = re.compile(
-            rf"(?ix)(?<![\w])(?:"
-            rf"answer[\s_-]*key"
-            rf"|(?:intended[\s_-]*)?answer"
-            rf"|correct(?:[\s_-]*(?:answer|key|value))?"
-            rf"|key"
-            rf")\s*[:=]\s*(?:choice\s*)?{stored_key}(?![\w])"
-        )
-        if answer_disclosure.search(visible):
-            raise RulerBuildError(
-                f"figure asset {path} contains structured answer disclosure"
-            )
-        separator = r"[\W_]+"
-        optional_separator = r"[\W_]*"
-        natural_answer_disclosure = re.compile(
-            rf"(?ix)(?:"
-            rf"(?<![\w])(?:the{separator})?"
-            rf"(?:intended{separator})?answer{separator}is{separator}"
-            rf"(?:choice{separator})?{stored_key}(?![\w])"
-            rf"|(?<![\w]){stored_key}{separator}is{separator}"
-            rf"(?:the{separator})?answer(?![\w])"
-            rf"|(?<![\w])choice{separator}{stored_key}{separator}"
-            rf"is{separator}correct(?![\w])"
-            rf"|(?<![\w])correct{separator}choice{separator}is"
-            rf"{optional_separator}{stored_key}(?![\w])"
-            rf")"
-        )
-        if natural_answer_disclosure.search(visible):
-            raise RulerBuildError(
-                f"figure asset {path} contains natural-language answer disclosure"
-            )
         for sentinel in sentinels:
             if _contains_token(visible, sentinel):
                 raise RulerBuildError(

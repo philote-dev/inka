@@ -1333,7 +1333,7 @@ def test_svg_forbidden_metadata_term_fails_before_publication(
         )
     trusted = tmp_path / "trusted-metadata.json"
     trusted.write_text(json.dumps(items), encoding="utf-8")
-    with pytest.raises(ValueError, match="figure asset.*metadata"):
+    with pytest.raises(ValueError, match="figure asset.*forbidden word"):
         builder.build(
             trusted_path=trusted,
             failures_path=inputs["failures"],
@@ -1344,6 +1344,66 @@ def test_svg_forbidden_metadata_term_fails_before_publication(
             allow_test_paths=True,
             _repo_state_fn=_clean_repo_state,
         )
+
+
+def _scan_single_svg(body: str) -> None:
+    source = builder.offline_problem_item("trusted", 1)
+    source["correct"] = "C"
+    source["stem"] = f'Configuration.<div class="pg-figure">{body}</div>'
+    item = builder.calibration_ruler.RulerItem.from_source_item(
+        source,
+        review_id="item-0001",
+        stratum="trusted",
+        split="calibration",
+    )
+    ruler = builder.calibration_ruler.RulerManifest(items=(item,), seed=7)
+    assets = builder.calibration_sheet.figure_assets(ruler)
+    builder._assert_blind_figure_assets(assets, ruler=ruler, model_ids=())
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        '<text xmlns="http://www.w3.org/2000/svg">answer</text>',
+        '<title xmlns="http://www.w3.org/2000/svg">ANSWERS</title>',
+        '<desc xmlns="http://www.w3.org/2000/svg">solution</desc>',
+        '<style xmlns="http://www.w3.org/2000/svg">/* correct */</style>',
+        '<text xmlns="http://www.w3.org/2000/svg" aria-label="incorrect">A</text>',
+        '<text xmlns="http://www.w3.org/2000/svg">key</text>',
+        '<title xmlns="http://www.w3.org/2000/svg">choice</title>',
+        '<desc xmlns="http://www.w3.org/2000/svg">choices</desc>',
+        '<style xmlns="http://www.w3.org/2000/svg">/* recommendation */</style>',
+        '<text xmlns="http://www.w3.org/2000/svg" aria-label="confidence">A</text>',
+        '<text xmlns="http://www.w3.org/2000/svg">model</text>',
+        '<title xmlns="http://www.w3.org/2000/svg">modelOutput</title>',
+        '<desc xmlns="http://www.w3.org/2000/svg">verifier-decision</desc>',
+        '<text xmlns="http://www.w3.org/2000/svg">answ&#101;r</text>',
+        '<text xmlns="http://www.w3.org/2000/svg">ｓｏｌｕｔｉｏｎ</text>',
+    ],
+)
+def test_svg_forbidden_answer_words_fail_closed(body: str) -> None:
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">{body}</svg>'
+    with pytest.raises(ValueError, match="figure asset.*forbidden word"):
+        _scan_single_svg(svg)
+
+
+def test_svg_css_escapes_are_decoded_before_word_scan() -> None:
+    decoded = builder._decode_svg_scan_text(r".\61 nswer \63 hoice")
+    assert decoded == ".answer choice"
+    assert builder._forbidden_svg_words(decoded) == {"answer", "choice"}
+
+
+def test_svg_related_words_and_physics_labels_are_allowed() -> None:
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+        "<title>Vectors A and B are orthogonal.</title>"
+        "<desc>C is heat capacity; E is electric field.</desc>"
+        "<text>Answering requires modeling and a correction factor.</text>"
+        "<style>/* keyed shaft; confident estimate; verification step; "
+        "recommending refinement */</style>"
+        "</svg>"
+    )
+    _scan_single_svg(svg)
 
 
 @pytest.mark.parametrize(
@@ -1378,7 +1438,7 @@ def test_svg_structured_answer_disclosure_channels_fail(
         )
     trusted = tmp_path / f"answer-disclosure-{channel}.json"
     trusted.write_text(json.dumps(items), encoding="utf-8")
-    with pytest.raises(ValueError, match="figure asset.*answer|metadata"):
+    with pytest.raises(ValueError, match="figure asset.*forbidden word"):
         builder.build(
             trusted_path=trusted,
             failures_path=inputs["failures"],
@@ -1418,7 +1478,7 @@ def test_svg_bare_and_intended_answer_assignments_fail(
         item["stem"] = f'Configuration {index}.<div class="pg-figure">{figure}</div>'
     trusted = tmp_path / f"bare-answer-{channel}.json"
     trusted.write_text(json.dumps(items), encoding="utf-8")
-    with pytest.raises(ValueError, match="figure asset.*answer"):
+    with pytest.raises(ValueError, match="figure asset.*forbidden word"):
         builder.build(
             trusted_path=trusted,
             failures_path=inputs["failures"],
@@ -1462,7 +1522,7 @@ def test_svg_natural_language_answer_disclosures_fail(
         item["stem"] = f'Configuration {index}.<div class="pg-figure">{figure}</div>'
     trusted = tmp_path / f"natural-answer-{channel}-{stored_key}.json"
     trusted.write_text(json.dumps(items), encoding="utf-8")
-    with pytest.raises(ValueError, match="figure asset.*answer"):
+    with pytest.raises(ValueError, match="figure asset.*forbidden word"):
         builder.build(
             trusted_path=trusted,
             failures_path=inputs["failures"],
@@ -1483,8 +1543,8 @@ def test_svg_variable_label_prose_is_not_an_answer_leak(
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
         "<title>Vector A is perpendicular to B.</title>"
         "<desc>C is the heat capacity; E is the electric field.</desc>"
-        "<text>Choice C labels the contour. The answer depends on variable C.</text>"
-        "<style>/* The correct choice of gauge is arbitrary. */</style>"
+        "<text>Label C marks the contour. The field depends on variable C.</text>"
+        "<style>/* The gauge selection is arbitrary. */</style>"
         "</svg>"
     )
     items = [builder.offline_problem_item("trusted", index) for index in range(50)]
@@ -1506,27 +1566,27 @@ def test_svg_variable_label_prose_is_not_an_answer_leak(
     assert (run_dir / "_SUCCESS").is_file()
 
 
-def test_svg_generic_answer_prose_is_not_a_false_positive(
+def test_svg_related_answer_substring_is_not_a_false_positive(
     tmp_path: Path,
     inputs: dict[str, Path],
 ) -> None:
     figure = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
-        "<text>The answer depends on the field; choice C labels the axis.</text>"
+        "<text>Answering requires a correction factor; label C marks the axis.</text>"
         "</svg>"
     )
     items = [builder.offline_problem_item("trusted", index) for index in range(50)]
     for index, item in enumerate(items):
         item["correct"] = "C"
         item["stem"] = f'Configuration {index}.<div class="pg-figure">{figure}</div>'
-    trusted = tmp_path / "generic-answer-prose.json"
+    trusted = tmp_path / "related-answer-substring.json"
     trusted.write_text(json.dumps(items), encoding="utf-8")
     run_dir = builder.build(
         trusted_path=trusted,
         failures_path=inputs["failures"],
         shadow_path=inputs["shadow"],
         out_root=tmp_path / "calibration",
-        run_id="generic-answer-prose",
+        run_id="related-answer-substring",
         seed=7,
         allow_test_paths=True,
         _repo_state_fn=_clean_repo_state,
@@ -1580,7 +1640,7 @@ def test_svg_additional_answer_and_verifier_metadata_fails(
         item["stem"] = f'Configuration {index}.<div class="pg-figure">{figure}</div>'
     trusted = tmp_path / "additional-answer-metadata.json"
     trusted.write_text(json.dumps(items), encoding="utf-8")
-    with pytest.raises(ValueError, match="figure asset.*answer|metadata"):
+    with pytest.raises(ValueError, match="figure asset.*forbidden word"):
         builder.build(
             trusted_path=trusted,
             failures_path=inputs["failures"],

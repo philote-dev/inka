@@ -369,7 +369,11 @@ mapping from safe run-root-relative `figures/<review-id>.svg` paths to the exact
 UTF-8 bytes of the SVG already validated by the immutable item schema. Distinct
 review IDs, including repeats, receive distinct paths. Reject unsafe IDs,
 traversal, absolute paths, ambiguous spaces, and collisions. The Markdown
-contains no raw SVG.
+contains no raw SVG. Before publication, decode XML entities and CSS escapes,
+normalize Unicode and identifier separators, and fail closed if any whole word
+reveals answer/solution/correct/key/choice/recommendation/confidence language or
+hidden verifier/model terms. Ordinary A-E variable labels and related words
+such as `correction` or `modeling` remain valid.
 
 - [ ] **Step 4: Run focused tests**
 
