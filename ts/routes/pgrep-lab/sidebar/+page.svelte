@@ -362,9 +362,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         cursor: pointer;
     }
 
+    /* minmax(0, 1fr) (not the default minmax(auto, 1fr)) lets each column shrink
+       below the stage's min-content, so the two prototypes always fit the width
+       instead of the second one overflowing off-screen (body has overflow-x
+       hidden, so an overflow would silently clip it rather than scroll). */
     .stages {
         display: grid;
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: var(--space-3);
         align-items: start;
 
@@ -373,9 +377,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         }
     }
 
-    @media (max-width: 900px) {
+    .col {
+        min-width: 0;
+    }
+
+    @media (max-width: 820px) {
         .stages {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
         }
     }
 
