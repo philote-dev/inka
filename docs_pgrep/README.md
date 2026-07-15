@@ -38,6 +38,9 @@
 - [`plan/content-foundry-and-verifier-design.md`](plan/content-foundry-and-verifier-design.md) — verification-guided content foundry design (calibrated panel, best-of-N loop).
 - [`plan/content-foundry-loop-plan.md`](plan/content-foundry-loop-plan.md) — Phase 2 implementation plan (temptation, difficulty, foundry loop).
 - [`plan/content-foundry-dataset-and-eval-plan.md`](plan/content-foundry-dataset-and-eval-plan.md) — Phase 3 implementation plan (preference dataset, standing eval).
+- [`plan/shadow-foundry-calibration-design.md`](plan/shadow-foundry-calibration-design.md) — quarantined Sol/Opus/Grok generation and blind human calibration design.
+- [`plan/multi-model-shadow-runner-plan.md`](plan/multi-model-shadow-runner-plan.md) — implementation plan for the sandboxed shadow portfolio.
+- [`plan/blind-calibration-ruler-plan.md`](plan/blind-calibration-ruler-plan.md) — implementation plan through the Pass A Markdown handoff.
 
 ### Specs (durable, the code depends on)
 
