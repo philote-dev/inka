@@ -221,14 +221,30 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                              pill span owns the fade. A very faint full-height edge
                              wash appears on hover while collapsed. -->
                         <div class="toggleSlot">
+                            <!-- The tab shape lives in an SVG (not border-radius) so
+                                 its sides are ogee/S curves that flow out of the wall,
+                                 flush against it. preserveAspectRatio=none lets it
+                                 stretch as it extrudes on hover. The button is a
+                                 transparent hit area over the slot, so the visual can
+                                 sit exactly on the edge with no button border in the way. -->
+                            <span class="pill" aria-hidden="true">
+                                <svg
+                                    class="pill__svg"
+                                    viewBox="0 0 16 44"
+                                    preserveAspectRatio="none"
+                                    aria-hidden="true"
+                                >
+                                    <path
+                                        d="M0 0 C 5 6, 16 8, 16 22 C 16 36, 5 38, 0 44 Z"
+                                    />
+                                </svg>
+                            </span>
                             <button
                                 type="button"
                                 class="toggle"
                                 aria-label={collapsed ? "Show sidebar" : "Hide sidebar"}
                                 on:click={() => setCollapsed(!collapsed)}
-                            >
-                                <span class="pill" aria-hidden="true"></span>
-                            </button>
+                            ></button>
                         </div>
                     {/if}
 
@@ -591,12 +607,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         opacity: 1;
     }
 
+    /* Transparent hit area over the whole slot; sits above the pill visual so
+       clicks land on it while the pill can sit flush on the edge underneath. */
     .proposed .toggle {
         position: absolute;
         inset: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        z-index: 1;
         margin: 0;
         padding: 0;
         border: 1px solid transparent;
@@ -604,49 +620,48 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         cursor: pointer;
     }
 
-    /* A tab that holds the edge: its flat side is glued to the edge (left), the
-       rounded side faces out. A thin nub at rest; on hover it extrudes wider to
-       the right while the flat side stays pinned, so it squeezes out of the edge. */
+    /* The tab. Its flat side is flush to the edge (left = the wall/panel edge);
+       the ogee SVG gives the top and bottom S curves that flow out of the edge.
+       A small nub at rest that extrudes wider on hover, its flat side staying
+       glued. color drives the SVG fill via currentColor. */
     .pill {
         position: absolute;
         left: 0;
         top: 50%;
         transform: translateY(-50%);
-        width: 3px;
+        width: 7px;
         height: 44px;
-        border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
-        background: var(--border);
+        color: var(--muted);
+        opacity: 0.4;
+        pointer-events: none;
         transition:
             width var(--duration-calm) var(--ease-spring),
-            background var(--duration-calm) var(--ease-spring),
+            color var(--duration-calm) var(--ease-spring),
             opacity var(--duration-calm) var(--ease-spring);
     }
 
-    /* Travel keeps the pill present; Fade hides it until the rail has settled. */
-    .travel .pill {
-        opacity: 0.55;
+    .pill__svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+        fill: currentColor;
     }
 
+    /* Fade hides the tab until the rail has settled; Travel keeps it present. */
     .fadein .pill {
         opacity: 0;
     }
 
     .fadein.is-settled .pill {
-        opacity: 0.55;
+        opacity: 0.4;
     }
 
-    .travel .toggle:hover .pill,
-    .travel .toggle:focus-visible .pill,
-    .fadein.is-settled .toggle:hover .pill,
-    .fadein.is-settled .toggle:focus-visible .pill {
-        width: 13px;
+    .travel .toggleSlot:hover .pill,
+    .travel .toggleSlot:focus-within .pill,
+    .fadein.is-settled .toggleSlot:hover .pill,
+    .fadein.is-settled .toggleSlot:focus-within .pill {
+        width: 16px;
         opacity: 1;
-        background: var(--muted);
-    }
-
-    /* The focus ring rides the small pill, not the full-height hit area. */
-    .proposed .toggle:focus-visible .pill {
-        box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--focus-ring);
     }
 
     /* Current: the faint reopen handle (unchanged from today's app). */
