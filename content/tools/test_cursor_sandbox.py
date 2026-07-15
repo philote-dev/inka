@@ -1313,6 +1313,39 @@ def test_list_models_returns_catalog(tmp_path: Path) -> None:
     assert runner.requests[-1] == {"action": "models"}
 
 
+def test_probe_models_returns_actual_sdk_version(tmp_path: Path) -> None:
+    body = {
+        "status": "finished",
+        "models": [
+            {
+                "id": "gpt-5.6-sol-max",
+                "parameters": [],
+                "variants": [],
+            }
+        ],
+        "sdk_version": "0.1.9",
+        "text": "",
+        "agent_id": "",
+        "run_id": "",
+        "model_id": "",
+        "error_kind": None,
+    }
+    runner = FakeRunner(result_body=body)
+    assert _sandbox(runner).probe_models(parent=tmp_path) == {
+        "models": body["models"],
+        "sdk_version": "0.1.9",
+    }
+
+
+def test_config_accepts_explicit_local_socket() -> None:
+    config = cursor_sandbox.SandboxConfig(
+        runtime="docker",
+        image="pgrep-shadow-worker:test",
+        socket="/var/run/docker.sock",
+    )
+    assert config.socket == "/var/run/docker.sock"
+
+
 def test_list_models_startup_failure_raises(tmp_path: Path) -> None:
     body = {
         "status": "startup_error",

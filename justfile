@@ -173,6 +173,12 @@ pgrep-ai-deps:
 shadow-worker-sync:
     UV_PROJECT_ENVIRONMENT="$PWD/out/shadow-worker-venv" {{ uv }} sync --project tools/shadow_worker --locked --no-config
 
+# Build the pinned Docker worker image and print its immutable digest.
+[unix]
+shadow-worker-build:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/shadow_foundry.py --build-worker
+
 # Build + run with the AI key loaded from the environment (or content/.env if
 # present), so the in-app AI toggle can grade the ladder and generate live. Run
 # `just pgrep-ai-deps` once first. macOS/Linux.

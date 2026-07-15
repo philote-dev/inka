@@ -139,6 +139,7 @@ def fake_cursor(monkeypatch):
     _FakeAgent.omit_model = False
     _FakeAgent.result_text = "ok"
     return types.SimpleNamespace(
+        __version__="0.1.9-test",
         models=_FakeModels(
             [
                 _FakeModel("claude-opus-4-8-thinking-high-fast"),
@@ -177,6 +178,7 @@ def test_models_action_serializes_account_ids(
         "cursor-grok-4.5-high-fast",
         "gpt-5.6-sol-max",
     ]
+    assert payload["sdk_version"] == "0.1.9-test"
     assert fake_cursor.models.last_api_key == "cursor_test_secret"
 
 
@@ -190,9 +192,7 @@ def test_models_action_serializes_nested_parameter_metadata(
                 types.SimpleNamespace(
                     id="reasoning",
                     display_name="Reasoning",
-                    values=(
-                        types.SimpleNamespace(value="high", display_name="High"),
-                    ),
+                    values=(types.SimpleNamespace(value="high", display_name="High"),),
                 ),
             ),
             variants=(
@@ -393,9 +393,7 @@ def test_returned_error_text_redacts_secrets(worker, fake_cursor, monkeypatch) -
 
 def test_dockerfile_pins_exact_uv_python_and_digests() -> None:
     dockerfile = (WORKER_ROOT / "Dockerfile").read_text(encoding="utf-8")
-    from_lines = [
-        line for line in dockerfile.splitlines() if line.startswith("FROM ")
-    ]
+    from_lines = [line for line in dockerfile.splitlines() if line.startswith("FROM ")]
     assert "ghcr.io/astral-sh/uv:0.9.17@sha256:" in from_lines[0]
     assert "python:3.13.13-slim-bookworm@sha256:" in from_lines[1]
     assert all("@sha256:" in line for line in from_lines)

@@ -279,6 +279,7 @@ class SandboxConfig:
 
     runtime: str
     image: str
+    socket: str | None = None
     timeout: float = DEFAULT_TIMEOUT_SECONDS
     build_timeout: float = DEFAULT_BUILD_TIMEOUT_SECONDS
     debug_retain: bool = False
@@ -291,6 +292,14 @@ class SandboxConfig:
             raise ValueError("image must be a non-empty string")
         if self.image.startswith("-"):
             raise ValueError("image must not begin with '-'")
+        if self.socket is not None:
+            if (
+                not isinstance(self.socket, str)
+                or not self.socket.strip()
+                or not Path(self.socket).is_absolute()
+                or _REMOTE_ENDPOINT_RE.match(self.socket)
+            ):
+                raise ValueError("socket must be an absolute local path")
         if self.network not in _ALLOWED_NETWORKS:
             allowed_networks = ", ".join(sorted(_ALLOWED_NETWORKS))
             raise ValueError(f"network must be one of: {allowed_networks}")
@@ -1020,6 +1029,26 @@ class CursorSandbox:
             )
         return self._config.image
 
+    def image_digest(self) -> str:
+        """Return the immutable digest for the configured worker image."""
+        return self._inspect_image_digest(self._local_runtime())
+
+    def probe_models(self, *, parent: Path | str | None = None) -> dict[str, object]:
+        """Probe account models and the actual worker SDK version."""
+        body = self._execute({"action": "models"}, parent=parent)
+        status = str(body.get("status") or "")
+        if status != "finished":
+            raise WorkerFailure(
+                self._redact_text(str(body.get("text") or "model listing failed"))
+            )
+        models = body.get("models")
+        if not isinstance(models, list):
+            raise SandboxOutputError("model listing is missing the models array")
+        sdk_version = body.get("sdk_version")
+        if not isinstance(sdk_version, str) or not sdk_version.strip():
+            raise SandboxOutputError("model listing is missing the SDK version")
+        return {"models": models, "sdk_version": sdk_version.strip()}
+
     def list_models(
         self, *, parent: Path | str | None = None
     ) -> list[dict[str, object]]:
@@ -1114,7 +1143,19 @@ class CursorSandbox:
             )
         if endpoint.kind != self._config.runtime:
             raise RuntimeEndpointError("runtime resolver returned the wrong runtime")
-        return _revalidate_local_runtime(endpoint)
+        endpoint = _revalidate_local_runtime(endpoint)
+        if self._config.socket is not None:
+            try:
+                configured_socket = Path(self._config.socket).resolve(strict=True)
+            except OSError as err:
+                raise RuntimeEndpointError(
+                    "configured runtime socket is unavailable"
+                ) from err
+            if endpoint.socket != configured_socket:
+                raise RuntimeEndpointError(
+                    "runtime resolver returned a different socket than configured"
+                )
+        return endpoint
 
     def _endpoint_subprocess_env(
         self,

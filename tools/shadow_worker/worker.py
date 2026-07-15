@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sys
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -139,16 +140,25 @@ def list_models(*, cursor: Any | None = None) -> list[dict[str, Any]]:
     ]
 
 
+def _sdk_version(cursor: Any | None) -> str:
+    injected = getattr(cursor, "__version__", "") if cursor is not None else ""
+    if isinstance(injected, str) and injected.strip():
+        return injected.strip()
+    return metadata.version("cursor-sdk")
+
+
 def run_models(*, cursor: Any | None = None) -> dict[str, Any]:
     """Probe the account model catalog with startup-failure semantics."""
     api_key = os.environ.get("CURSOR_API_KEY", "")
     try:
         models = list_models(cursor=cursor)
+        sdk_version = _sdk_version(cursor)
     except Exception as err:
         return _startup_failure(err, api_key=api_key, models=True)
     return {
         "status": "finished",
         "models": models,
+        "sdk_version": sdk_version,
         "text": "",
         "agent_id": "",
         "run_id": "",
