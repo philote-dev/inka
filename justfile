@@ -242,6 +242,24 @@ foundry *args:
     if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
     out/pyenv/bin/python content/tools/foundry.py {{ args }}
 
+# List account-available Cursor models without generating content.
+[unix]
+shadow-models *args:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/shadow_foundry.py --probe-models {{ args }}
+
+# Offline fake-client smoke.
+[unix]
+shadow-smoke:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/shadow_foundry.py --self-check
+
+# Quarantined multi-model generation. Never lands content or preference pairs.
+[unix]
+shadow-foundry *args:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/shadow_foundry.py --shadow {{ args }}
+
 # Standing verifier evaluation over precomputed labels, entirely offline
 [unix]
 eval-verifier *args:

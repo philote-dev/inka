@@ -70,7 +70,12 @@ def _resolve_sdk(cursor: Any | None) -> tuple[Any, Any, Any, Any]:
             cursor.AgentOptions,
             cursor.LocalAgentOptions,
         )
-    from cursor_sdk import Agent, AgentOptions, Cursor, LocalAgentOptions
+    from cursor_sdk import (  # type: ignore[import-not-found]
+        Agent,
+        AgentOptions,
+        Cursor,
+        LocalAgentOptions,
+    )
 
     return Cursor, Agent, AgentOptions, LocalAgentOptions
 
