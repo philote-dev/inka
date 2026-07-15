@@ -28,7 +28,16 @@ class _DryVerdict:
 
     def to_dict(self) -> dict:
         checks = []
-        if self.decision == "reject":
+        if self.decision == "accept":
+            checks.append(
+                {
+                    "name": "synthetic_acceptance",
+                    "passed": True,
+                    "severity": "hard",
+                    "evidence": "offline dry-run acceptance",
+                }
+            )
+        elif self.decision == "reject":
             checks.append(
                 {
                     "name": "synthetic_rejection",
