@@ -39,6 +39,45 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let reduced = false;
     let theme: "light" | "dark" = "light";
 
+    // Tunable geometry for the edge tab (the accent chevron slab). The sliders
+    // below drive these; the tab reads them as CSS custom properties, so tuning
+    // is live with no rebuild. Defaults resemble the reference, just shorter.
+    let tab = {
+        h: 72, // vertical length (px)
+        wRest: 16, // how far it protrudes at rest (px)
+        wHover: 22, // how far it protrudes on hover (px)
+        radius: 16, // outer (right) corner radius (px)
+        chev: 12, // chevron size (px); 0 hides it
+        opacity: 1, // rest opacity
+    };
+    let accent = true; // accent (lilac) fill vs monochrome
+
+    const KNOBS: {
+        key: keyof typeof tab;
+        label: string;
+        min: number;
+        max: number;
+        step: number;
+        unit?: string;
+    }[] = [
+        { key: "h", label: "Length", min: 24, max: 160, step: 2, unit: "px" },
+        { key: "wRest", label: "Protrusion, rest", min: 4, max: 48, step: 1, unit: "px" },
+        { key: "wHover", label: "Protrusion, hover", min: 4, max: 60, step: 1, unit: "px" },
+        { key: "radius", label: "Corner radius", min: 0, max: 40, step: 1, unit: "px" },
+        { key: "chev", label: "Chevron", min: 0, max: 22, step: 1, unit: "px" },
+        { key: "opacity", label: "Rest opacity", min: 0.2, max: 1, step: 0.05 },
+    ];
+
+    $: tabVars =
+        `--tab-h:${tab.h}px;` +
+        `--tab-w-rest:${tab.wRest}px;` +
+        `--tab-w-hover:${tab.wHover}px;` +
+        `--tab-radius:${tab.radius}px;` +
+        `--tab-chev:${tab.chev}px;` +
+        `--tab-op:${tab.opacity};` +
+        `--tab-fill:${accent ? "var(--readiness)" : "var(--muted)"};` +
+        `--tab-ink:${accent ? "#ffffff" : "var(--canvas)"};`;
+
     // "Settled" is false for one rail-duration after a toggle. The Fade prototype
     // keeps its pill hidden until the rail has settled, then fades it in, so the
     // pill never slides across (no teleport, no travel).
@@ -118,7 +157,31 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     </div>
 </div>
 
-<div class="stages" class:stages--single={focus !== "compare"}>
+<div class="tuner">
+    {#each KNOBS as knob (knob.key)}
+        <label class="knob">
+            <span class="knob__label">{knob.label}</span>
+            <input
+                type="range"
+                min={knob.min}
+                max={knob.max}
+                step={knob.step}
+                bind:value={tab[knob.key]}
+            />
+            <span class="knob__val">{tab[knob.key]}{knob.unit ?? ""}</span>
+        </label>
+    {/each}
+    <label class="knob knob--check">
+        <input type="checkbox" bind:checked={accent} />
+        <span class="knob__label">Accent fill (lilac)</span>
+    </label>
+</div>
+
+<div
+    class="stages"
+    class:stages--single={focus !== "compare"}
+    style={tabVars}
+>
     {#each shown as variant (variant)}
         <div class="col">
             <div class="col__head">
@@ -229,14 +292,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                  sit exactly on the edge with no button border in the way. -->
                             <span class="pill" aria-hidden="true">
                                 <svg
-                                    class="pill__svg"
-                                    viewBox="0 0 16 44"
-                                    preserveAspectRatio="none"
+                                    class="pill__chev"
+                                    class:flip={!collapsed}
+                                    viewBox="0 0 20 20"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2.2"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
                                     aria-hidden="true"
                                 >
-                                    <path
-                                        d="M0 0 C2 10 16 8 16 16 L16 28 C16 36 2 34 0 44 Z"
-                                    />
+                                    <polyline points="8,5 13,10 8,15" />
                                 </svg>
                             </span>
                             <button
@@ -275,15 +341,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             then the pill fades in at the edge once it settles.
         </li>
         <li>
-            <strong>One handle, both directions.</strong> The same pill hides the rail
-            (from its edge) and shows it (from the screen edge). No in-rail arrow, no
-            top-left button, no chevron.
+            <strong>One handle, both directions.</strong> The same tab hides the rail
+            (from its edge) and shows it (from the screen edge); the chevron flips to point
+            the way it will move. No in-rail arrow, no top-left button.
         </li>
         <li>
-            <strong>Squeezing out of the edge.</strong> The pill is a tab that holds the
-            edge: a thin nub at rest, its flat side glued to the edge, extruding wider on
-            hover rather than floating. While collapsed, a very faint full-height wash
-            lifts alongside it so the edge stays discoverable.
+            <strong>Tune it live.</strong> The sliders above drive the tab's length,
+            protrusion at rest and on hover, corner radius, chevron size, and rest opacity;
+            the accent toggle switches lilac vs monochrome. A faint edge wash still lifts on
+            collapsed hover.
         </li>
         <li>
             <strong>Reduced motion.</strong> With the toggle on (or the OS setting), the
@@ -379,6 +445,49 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         gap: var(--space-0);
         font-size: var(--text-small);
         color: var(--muted);
+        cursor: pointer;
+    }
+
+    /* Live tuner: a grid of sliders driving the tab's CSS custom properties. */
+    .tuner {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: var(--space-1) var(--space-3);
+        margin-bottom: var(--space-3);
+        padding: var(--space-2);
+        border: var(--hairline);
+        border-radius: var(--radius-card);
+        background: var(--surface);
+    }
+
+    .knob {
+        display: grid;
+        grid-template-columns: 1fr 96px 44px;
+        align-items: center;
+        gap: var(--space-1);
+        font-size: var(--text-small);
+        color: var(--muted);
+    }
+
+    .knob__label {
+        white-space: nowrap;
+    }
+
+    .knob__val {
+        font-family: var(--font-mono);
+        font-size: var(--text-caption);
+        text-align: right;
+        color: var(--text);
+    }
+
+    .knob input[type="range"] {
+        width: 100%;
+        accent-color: var(--readiness);
+        cursor: pointer;
+    }
+
+    .knob--check {
+        grid-template-columns: auto 1fr;
         cursor: pointer;
     }
 
@@ -571,7 +680,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         bottom: 0;
         left: var(--rail-width);
         z-index: 5;
-        width: 20px;
+        width: calc(var(--tab-w-hover, 22px) + 8px);
     }
 
     .proposed.is-collapsed .toggleSlot {
@@ -620,31 +729,38 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         cursor: pointer;
     }
 
-    /* The tab. Its flat side is flush to the edge (left = the wall/panel edge);
-       the ogee SVG gives the top and bottom S curves that flow out of the edge.
-       A small nub at rest that extrudes wider on hover, its flat side staying
-       glued. color drives the SVG fill via currentColor. */
+    /* The tab: a slab flush to the edge (flat left), rounded on the outer (right)
+       side, filled with the accent, holding a chevron. All geometry comes from
+       the tuner's CSS custom properties so the sliders drive it live. */
     .pill {
         position: absolute;
         left: 0;
         top: 50%;
         transform: translateY(-50%);
-        width: 3px;
-        height: 96px;
-        color: var(--muted);
-        opacity: 0.4;
+        width: var(--tab-w-rest, 16px);
+        height: var(--tab-h, 72px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 0 var(--tab-radius, 16px) var(--tab-radius, 16px) 0;
+        background: var(--tab-fill, var(--readiness));
+        color: var(--tab-ink, #fff);
+        opacity: var(--tab-op, 1);
         pointer-events: none;
+        overflow: hidden;
         transition:
             width var(--duration-calm) var(--ease-spring),
-            color var(--duration-calm) var(--ease-spring),
             opacity var(--duration-calm) var(--ease-spring);
     }
 
-    .pill__svg {
-        display: block;
-        width: 100%;
-        height: 100%;
-        fill: currentColor;
+    .pill__chev {
+        width: var(--tab-chev, 12px);
+        height: var(--tab-chev, 12px);
+        flex: 0 0 auto;
+    }
+
+    .pill__chev.flip {
+        transform: rotate(180deg);
     }
 
     /* Fade hides the tab until the rail has settled; Travel keeps it present. */
@@ -653,14 +769,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     .fadein.is-settled .pill {
-        opacity: 0.4;
+        opacity: var(--tab-op, 1);
     }
 
     .travel .toggleSlot:hover .pill,
     .travel .toggleSlot:focus-within .pill,
     .fadein.is-settled .toggleSlot:hover .pill,
     .fadein.is-settled .toggleSlot:focus-within .pill {
-        width: 6px;
+        width: var(--tab-w-hover, 22px);
         opacity: 1;
     }
 
