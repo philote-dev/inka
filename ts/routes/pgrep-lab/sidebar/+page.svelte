@@ -629,8 +629,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         left: 0;
         top: 50%;
         transform: translateY(-50%);
-        width: 5px;
-        height: 60px;
+        width: 3px;
+        height: 96px;
         color: var(--muted);
         opacity: 0.4;
         pointer-events: none;
@@ -660,7 +660,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     .travel .toggleSlot:focus-within .pill,
     .fadein.is-settled .toggleSlot:hover .pill,
     .fadein.is-settled .toggleSlot:focus-within .pill {
-        width: 11px;
+        width: 6px;
         opacity: 1;
     }
 
