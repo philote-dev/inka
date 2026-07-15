@@ -321,10 +321,12 @@ The locked category vocabulary is `mechanics`, `electromagnetism`, `quantum`,
 rather than normalized.
 
 Only validated accepted by rejected combinations from the same slot become
-pairs, capped at 64 per call. Escalations, invalid candidates, and slots lacking
-either side produce no pair. Rejected items with `panel.refusal: true` are also
-excluded because they are incomplete generation outcomes, not negative training
-examples. A non-positive cap produces zero pairs.
+pairs, capped at 64 per call. Escalations and slots lacking either side produce
+no pair. Rejected items with `panel.refusal: true` are explicitly excluded and
+counted because they are incomplete generation outcomes, not negative training
+examples. Any other malformed accepted or rejected training candidate raises an
+actionable `ValueError`, aborts publication, and leaves no final directory or
+`_SUCCESS` marker. A non-positive cap produces zero pairs.
 
 `content/tools/foundry.py` atomically overwrites one new run's
 `preferences.jsonl`; it never appends to an earlier run. Duplicate chosen and
@@ -363,6 +365,12 @@ they are excluded from the audit's Tier 3 pair and category counts. The audit
 reports validated non-synthetic count, sorted eligible categories, duplicates,
 errors, and `tier3_ready`; readiness requires at least 1,000 eligible pairs,
 at least six categories, and no duplicate or validation error.
+
+Every synthetic row is still structurally validated, but synthetic rows are
+filtered before production identities, duplicates, categories, counts, and
+Tier-readiness errors are built. Synthetic validation findings and exclusion
+counts remain diagnostics. Repeated finalized dry runs with identical dry IDs
+therefore cannot create a production duplicate or fail the leakage gate.
 
 ### Standing verifier evaluation
 
