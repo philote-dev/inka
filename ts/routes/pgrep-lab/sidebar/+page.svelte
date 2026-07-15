@@ -264,9 +264,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             top-left button, no chevron.
         </li>
         <li>
-            <strong>Faded edge wash.</strong> While collapsed, hovering the screen edge
-            lifts a very faint full-height wash alongside the pill, so the edge is
-            discoverable without protruding.
+            <strong>Squeezing out of the edge.</strong> The pill is a tab that holds the
+            edge: a thin nub at rest, its flat side glued to the edge, extruding wider on
+            hover rather than floating. While collapsed, a very faint full-height wash
+            lifts alongside it so the edge stays discoverable.
         </li>
         <li>
             <strong>Reduced motion.</strong> With the toggle on (or the OS setting), the
@@ -545,13 +546,16 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     /* Proposed: the edge pill. The wrapper owns the position (a div, so it can
        transition, unlike a button); the pill span owns the fade/grow. Parent-
        scoped so the app-wide button border/transition rules cannot override it. */
+    /* Anchored to the edge it holds: the rail's right edge when open, the screen
+       edge when collapsed. The tab inside is flush to this left edge and extrudes
+       rightward, so it reads as squeezing out of the edge rather than floating. */
     .proposed .toggleSlot {
         position: absolute;
         top: 0;
         bottom: 0;
-        left: calc(var(--rail-width) - 9px);
+        left: var(--rail-width);
         z-index: 5;
-        width: 18px;
+        width: 20px;
     }
 
     .proposed.is-collapsed .toggleSlot {
@@ -600,10 +604,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         cursor: pointer;
     }
 
+    /* A tab that holds the edge: its flat side is glued to the edge (left), the
+       rounded side faces out. A thin nub at rest; on hover it extrudes wider to
+       the right while the flat side stays pinned, so it squeezes out of the edge. */
     .pill {
-        width: 4px;
+        position: absolute;
+        left: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 3px;
         height: 44px;
-        border-radius: var(--radius-pill);
+        border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
         background: var(--border);
         transition:
             width var(--duration-calm) var(--ease-spring),
@@ -628,7 +639,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     .travel .toggle:focus-visible .pill,
     .fadein.is-settled .toggle:hover .pill,
     .fadein.is-settled .toggle:focus-visible .pill {
-        width: 6px;
+        width: 13px;
         opacity: 1;
         background: var(--muted);
     }
