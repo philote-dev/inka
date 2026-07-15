@@ -211,7 +211,9 @@ panel, and partitions results into `accepted`, `rejected`, and `escalated`.
 `content/tools/foundry.py` is the CLI. Offline modes never touch the network:
 `--self-check` for smoke, `--dry-run` for a full partition with fakes. The CLI
 caps requested `--n` using `--verifier-accuracy` (conservative default 0.8).
-`--category` records the blueprint category and defaults to `--topic`.
+`--category` records the blueprint category and defaults to `mechanics`; topic
+may remain more specific. The category must be exactly one of the nine locked
+lowercase slugs.
 Online generation will use the same partition once wired. Comparative
 multi-candidate selection (`--compare`) is deferred to Phase 2.1.
 
@@ -225,8 +227,10 @@ review sheet (`ESCALATE` / `KEEP` / `DROP` per item) from the latest run by
 default, or pass `--run <name>`. The CLI refuses an existing run directory. It
 builds and validates the pairs first, writes every artifact to a temporary
 sibling, verifies the preference count, then atomically publishes the complete
-directory. Timestamp run IDs include microseconds. Default artifacts stay under
-the ignored `content/run/foundry/` tree; custom `--out` paths are the operator's
+directory. An exclusive sibling lock file closes the final check and rename
+race; lock and temporary state are removed on success or failure. Timestamp run
+IDs include microseconds. Default artifacts stay under the ignored
+`content/run/foundry/` tree; custom `--out` paths are the operator's
 responsibility. Generation still reads only `content/corpus/`.
 
 Accepted survivors still land only through `assemble_bundle.py` and the
@@ -249,9 +253,10 @@ implementation plan is
 ```json
 {
     "schema": 1,
+    "synthetic": false,
     "slot": {
         "topic": "thin lenses",
-        "blueprint_category": "optics"
+        "blueprint_category": "optics_waves"
     },
     "chosen": {
         "id": "candidate-1",
@@ -259,7 +264,17 @@ implementation plan is
         "choices": ["...", "...", "...", "...", "..."],
         "correct": "A",
         "source_ref": "corpus://openstax/example",
-        "panel": { "decision": "accept", "checks": [] }
+        "panel": {
+            "decision": "accept",
+            "checks": [
+                {
+                    "name": "key",
+                    "passed": true,
+                    "severity": "hard",
+                    "evidence": "independent solve agrees"
+                }
+            ]
+        }
     },
     "rejected": {
         "id": "candidate-2",
@@ -267,8 +282,20 @@ implementation plan is
         "choices": ["...", "...", "...", "...", "..."],
         "correct": "B",
         "source_ref": "corpus://openstax/example",
-        "panel": { "decision": "reject", "checks": [] },
-        "failing_gates": ["key"]
+        "panel": {
+            "decision": "reject",
+            "checks": [
+                {
+                    "name": "key",
+                    "passed": false,
+                    "severity": "hard",
+                    "evidence": "independent solve disagrees"
+                }
+            ]
+        },
+        "failing_gates": ["key"],
+        "reason": "key: independent solve disagrees",
+        "refused": false
     },
     "run_id": "run-1"
 }
@@ -276,9 +303,18 @@ implementation plan is
 
 `validate_pair` enforces non-empty run and slot fields, distinct IDs, five
 non-empty choices, an `A` through `E` key, source references, the required panel
-decisions, non-empty failing gates, and finite numbers throughout the record.
-Invalid construction or writing raises `ValueError`; no record is silently
-skipped.
+decisions, a non-empty reject reason, and panel evidence. A normal rejection's
+`failing_gates` must exactly match its failed hard-check names. A refusal instead
+uses `refused: true`, `failing_gates: ["refusal"]`, and a non-empty reason.
+Recursive validation permits only JSON-compatible values and string object
+keys; sets, tuples, object instances, NaN, and infinities fail before
+serialization. Invalid construction or writing raises `ValueError`; no record
+is silently skipped.
+
+The locked category vocabulary is `mechanics`, `electromagnetism`, `quantum`,
+`thermodynamics`, `atomic`, `optics_waves`, `special_relativity`, `lab`, and
+`specialized`. Case, whitespace, spelling, and separator variants are rejected
+rather than normalized.
 
 Only validated accepted by rejected combinations from the same slot become
 pairs, capped at 64 per call. Escalations, invalid candidates, and slots lacking
@@ -286,10 +322,13 @@ either side produce no pair. A non-positive cap produces zero pairs.
 
 `content/tools/foundry.py` atomically overwrites one new run's
 `preferences.jsonl`; it never appends to an earlier run. Duplicate chosen and
-rejected ID combinations fail the write. `summary.json` includes a
-`preferences` object with the validated pair count, distinct category count,
-and category names. These fields make the future 1,000-pair and six-category
-trigger countable. They do not claim that the trigger has been reached.
+rejected ID combinations fail the write. Every pair has an explicit
+`synthetic` boolean. Dry-run pairs are synthetic and can exercise the pipeline,
+but they never count toward training readiness. `summary.json` includes its
+`blueprint_category` plus a `preferences` object with total validated count,
+non-synthetic pair count, distinct eligible category count, and category names.
+These fields make the future 1,000-pair and six-category trigger countable. They
+do not claim that the trigger has been reached.
 
 ### Leakage backstop
 
@@ -304,6 +343,16 @@ retains the forbidden private-root checks and the 25-word contiguous copy-in
 check against available private items. These checks supplement the primary
 firewall: generation and preference pairing ground only on `content/corpus/`.
 
+The same check runs a cross-run audit over every nested `preferences.jsonl`.
+Duplicate chosen and rejected identities across files fail. For each
+non-synthetic pair, both source references must exactly match a `source_ref` in
+the corpus index. Preference files with no available index fail source
+verification clearly. Synthetic source references may remain synthetic, but
+they are excluded from the audit's Tier 3 pair and category counts. The audit
+reports validated non-synthetic count, sorted eligible categories, duplicates,
+errors, and `tier3_ready`; readiness requires at least 1,000 eligible pairs,
+at least six categories, and no duplicate or validation error.
+
 ### Standing verifier evaluation
 
 `content/tools/eval_verifier.py`, run with `just eval-verifier`, reads saved
@@ -315,6 +364,7 @@ call. Its input requires distinct calibration and held-out splits:
     "calibration": {
         "properties": {
             "key": {
+                "item_ids": ["cal-key-001", "cal-key-002"],
                 "predicted": [true, false],
                 "human": [true, false],
                 "confidence": [0.9, 0.7],
@@ -325,6 +375,7 @@ call. Its input requires distinct calibration and held-out splits:
     "heldout": {
         "properties": {
             "key": {
+                "item_ids": ["heldout-key-101", "heldout-key-102"],
                 "predicted": [true, false],
                 "human": [true, false],
                 "confidence": [0.95, 0.6],
@@ -335,43 +386,60 @@ call. Its input requires distinct calibration and held-out splits:
 }
 ```
 
-`predicted` and `human` are required aligned boolean arrays. `confidence` is an
-optional aligned array of values from 0 to 1. `runs` is optional; when present,
-it contains at least two aligned boolean arrays from perturbation runs.
-Consistency compares the original `predicted` verdicts and every perturbation
-run. Without `runs`, consistency is `null` and its gate is red.
+`item_ids`, `predicted`, and `human` are required aligned arrays. Item IDs are
+non-empty unique opaque strings, not item text. Any overlap between the union of
+calibration IDs and the union of held-out IDs is invalid, even when the overlap
+occurs under different property names. `confidence` is an optional aligned
+array of values from 0 to 1. `runs` is optional; when present, it contains at
+least two aligned boolean arrays from perturbation runs. Consistency compares
+the original `predicted` verdicts and every perturbation run. Without `runs`,
+consistency is `null` and its gate is red.
 
 Only calibration predicted positives and their human labels can fit a
 threshold. Each threshold reports `target_precision`, `attainable`, `cutoff`,
 `achieved_precision`, `retained`, and `eligible`. An unattainable 0.95 target
 has a null cutoff and fails closed. The fixed calibration cutoff is then applied
-to held-out predicted positives. Changing held-out labels or confidences cannot
-change the fitted cutoff.
+to held-out predicted positives with aligned confidence. Pre-threshold
+agreement, balanced accuracy, precision, and recall remain diagnostics.
+Headline held-out metrics and gates use the post-threshold predictions, so a
+high cutoff's recall and balanced-accuracy loss remain visible. Changing
+held-out labels or confidences cannot change the fitted cutoff.
 
-The held-out split accepts only the label, confidence, and perturbation arrays
-shown above. It contains no IDs, stems, choices, source text, or other item
-content. These labels and numbers are evaluation-only. They never enter a
-prompt, generation context, or preference pair.
+The held-out split accepts only opaque IDs, labels, confidence, and perturbation
+arrays shown above. It contains no stems, choices, source text, or other item
+content. These values are evaluation-only. They never enter a prompt,
+generation context, or preference pair.
 
 The standing gate is green only when all checks have evidence:
 
 - key and figure exist in both splits;
-- held-out raw agreement is at least 0.90 and balanced accuracy is at least
-  0.85 for every reported property;
+- every required property has at least 30 aligned examples, five human
+  positives, and five human negatives in each split;
+- post-threshold held-out raw agreement is at least 0.90 and balanced accuracy
+  is at least 0.85 for every reported property;
 - the calibration precision target is attainable for every reported property;
-- held-out accepted precision is at least 0.95 for key and figure;
-- held-out consistency is measured and at least 0.90 for every property;
-- a per-slot foundry summary has at least two non-empty slots and an escalation
-  rate no greater than 0.15.
+- key and figure each retain at least 20 held-out accepts, with accepted
+  precision point and bootstrap lower bound both at least 0.95;
+- held-out consistency is measured over at least 30 items and is at least 0.90
+  for every property;
+- a per-slot foundry summary has at least six non-empty slots across at least
+  six locked categories;
+- foundry escalation point and slot-bootstrap upper bound are both no greater
+  than 0.15.
 
-Each gate check reports `observed`, `required`, `pass`, and `evidence`.
+Each gate check reports `observed`, `required`, `pass`, `support`, and
+`evidence`. Missing support is red.
 Structurally valid red evaluations are still printed and written, then the
 command exits 1. Invalid inputs exit 2. A green evaluation exits 0.
 
 Run `just eval-verifier` with `--labels <labels.json>` and
-`--foundry-summary <summary.json>`. Add `--out <path>` to save the identical
-printed report. `just eval-verifier --self-check` uses passing synthetic
-calibration, held-out, and foundry data and exits 0.
+`--foundry-summary <summary.json-or-foundry-root>`. A file supplies one legacy
+or explicit multi-slot payload. A directory recursively loads each
+`<run>/summary.json` and builds the production multi-slot aggregate. Add
+`--preferences-root <foundry-root>` for non-synthetic Tier 3 counts and
+cross-run duplicate visibility. Add `--out <path>` to save the identical
+printed report. `just eval-verifier --self-check` uses realistically supported
+synthetic calibration, held-out, and six-slot foundry data and exits 0.
 
 For cluster-aware foundry uncertainty, supply per-slot counts:
 
@@ -385,7 +453,7 @@ For cluster-aware foundry uncertainty, supply per-slot counts:
             "escalated": 1
         },
         {
-            "blueprint_category": "optics",
+            "blueprint_category": "optics_waves",
             "accepted": 17,
             "rejected": 2,
             "escalated": 1
@@ -394,11 +462,16 @@ For cluster-aware foundry uncertainty, supply per-slot counts:
 }
 ```
 
-Yield and escalation intervals bootstrap slot-level rates through the existing
-`eval_metrics.bootstrap_ci`; reports identify `ci_unit` as `slot` and include
-the distinct category count. Fewer than two non-empty slots produce null
-intervals and a red support gate. A legacy single aggregate still reports point
-rates, but its intervals and `ci_unit` are null. Zero-candidate rates are null.
+Yield and escalation intervals bootstrap non-empty slot rates through the
+existing `eval_metrics.bootstrap_ci`. The headline rates are the unweighted
+means of those same slot rates and exactly equal each interval's `point`.
+Candidate-weighted diagnostics are named `pooled_yield_rate` and
+`pooled_escalation_rate`. Zero-candidate slots remain in the report but not in
+rate or interval samples. Reports identify `ci_unit` as `slot` and include the
+valid non-empty category count. Fewer than two non-empty slots produce null
+intervals; fewer than six non-empty slots or six categories is a red support
+gate. A legacy single aggregate still reports point rates, but its intervals
+and `ci_unit` are null. Zero-candidate legacy rates are null.
 
 ### Future Tier gates
 
@@ -409,8 +482,9 @@ has begun:
   `0.95` on key and figure, plus at least `300` panel-labeled problems under
   `content/run/foundry/`. Because that tree is git-ignored, an operator verifies
   the count.
-- **Tier 3, SFT then optional DPO:** at least `1000` validated preference pairs
-  across at least `6` blueprint categories, a clean leakage check, and a green
+- **Tier 3, SFT then optional DPO:** at least `1000` validated non-synthetic
+  preference pairs across at least `6` locked blueprint categories, no
+  cross-run duplicates or audit errors, a clean leakage check, and a green
   Phase 3 standing eval on the latest calibration card.
 
 The human calibration set is not complete, neither numeric count has been
