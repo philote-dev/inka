@@ -51,10 +51,12 @@ Problem shape (unchanged): `{id, topic, kind, stem, choices: [str x5], correct: 
 ### Task 1: Distractor temptation scoring
 
 **Files:**
+
 - Create: `pylib/anki/pgrep/ai/temptation.py`
 - Test: `pylib/tests/test_pgrep_temptation.py`
 
 **Interfaces:**
+
 - Consumes: `consensus.solve_once` (optional; weak solvers may call `complete_text` directly), fake `_Client` with `complete_text`.
 - Produces:
   - `@dataclass DistractorScore: label: str; is_wrong: bool; temptation: float; selected_by: int; n_solvers: int`
@@ -270,10 +272,12 @@ EOF
 ### Task 2: Wire temptation into the verifier panel
 
 **Files:**
+
 - Modify: `pylib/anki/pgrep/ai/verifier.py`
 - Modify: `pylib/tests/test_pgrep_verifier.py`
 
 **Interfaces:**
+
 - Consumes: `temptation.score_distractors`, existing `Verifier` constructor.
 - Produces: `Verifier(..., weak_clients: Sequence[_Client] | None = None)` and a soft `CheckVerdict(name="temptation", ...)`. Free-elimination labels go in `evidence`. Soft severity in Phase 2 (annotates; does not reject) unless `thresholds.temptation_hard` is True later.
 
@@ -343,10 +347,12 @@ EOF
 ### Task 3: Proficiency-simulated difficulty
 
 **Files:**
+
 - Create: `pylib/anki/pgrep/ai/difficulty.py`
 - Test: `pylib/tests/test_pgrep_difficulty.py`
 
 **Interfaces:**
+
 - Consumes: weak `_Client` ensemble (same protocol as temptation).
 - Produces:
   - `@dataclass DifficultyEstimate: band: str; p_correct: float; n_solvers: int; out_of_band: bool`
@@ -516,12 +522,14 @@ EOF
 ### Task 4: Foundry loop core (offline dry-run)
 
 **Files:**
+
 - Create: `content/tools/foundry.py`
 - Create: `pylib/tests/test_pgrep_foundry.py` (tests importable pure helpers; put pure logic in `pylib/anki/pgrep/ai/foundry_loop.py` so `just test-py` covers it without content/tools path hacks)
 
 Prefer: create `pylib/anki/pgrep/ai/foundry_loop.py` for pure partition/yield logic, and thin CLI in `content/tools/foundry.py`.
 
 **Interfaces:**
+
 - Consumes: `Verifier.check`, injectable `generate_fn(slot) -> dict`, `max_n_for_accuracy(accuracy: float, *, floor: int = 2, ceiling: int = 8) -> int`
 - Produces:
   - `@dataclass SlotResult: accepted: list[dict]; rejected: list[dict]; escalated: list[dict]; yield_rate: float`
@@ -685,10 +693,12 @@ EOF
 ### Task 5: Escalation sheet
 
 **Files:**
+
 - Create: `content/tools/make_foundry_escalation.py`
 - Modify or create: `content/tools/test_foundry_escalation.py` (plain unittest/pytest under content/tools if that is the local pattern; else a small pure function tested from `test_pgrep_foundry.py`)
 
 **Interfaces:**
+
 - Consumes: `review_sheet.build`, list of escalated items from a foundry run JSON.
 - Produces: Markdown sheet with `### <id>` blocks and `-> your call: ESCALATE|KEEP|DROP`.
 
@@ -740,6 +750,7 @@ EOF
 ### Task 6: Recipes and docs
 
 **Files:**
+
 - Modify: `justfile`
 - Modify: `docs_pgrep/reference/content-pipeline.md`
 - Modify: `docs_pgrep/plan/content-foundry-and-verifier-design.md` (link this plan)

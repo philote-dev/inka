@@ -253,25 +253,25 @@ client, one Judge, the bundle invariants); the pipeline architecture, the
 per-commit bundle gate, and the on-demand AI audits are in
 [`../reference/content-pipeline.md`](../reference/content-pipeline.md).
 
-| Script                  | What it does                                                     |
-| ----------------------- | ---------------------------------------------------------------- |
-| `build_index.py`        | Chunk, embed, and index the corpus (leakage guard wired in)      |
-| `query_index.py`        | Query the RAG index                                              |
-| `baselines.py`          | The keyword and vector baselines                                 |
-| `run_batch.py`          | Generate the graded batch (AI + baselines + naive)               |
-| `score_batch.py`        | Blind-score a batch, gate metrics, bootstrap CIs, manifest       |
-| `eval_*.py`             | Metrics, splits, judge, manifest for the scorer                  |
-| `leakage_check.py`      | Assert the firewall holds                                        |
-| `promote_gold.py`       | Assemble problem gold from the clean candidates                  |
-| `annotate_community.py` | Draft distractor rationales + a gpt-4o solve for community items |
-| `crosscheck_keys.py`    | Independent gpt-5.5 re-solve of every community key              |
-| `fill_confirmed.py`     | Fill the one distractor left blank when gpt-4o slipped           |
-| `author_card_gold.py`   | Author the 50 corpus-grounded card-gold items                    |
-| `validate_gold.py`      | Structural check over all gold files                             |
-| `assemble_bundle.py`    | Land, convert math, wire figures, then run the invariant gate    |
-| `audit_bundle_ai.py`    | The five on-demand AI content audits (via `just audit-bundle-ai`) |
-| `review_sheet.py`       | Shared make/apply review-sheet plumbing (pool, figure, giveaway) |
-| `check_technique_giveaway.py` | Judge whether a stem hands over the tested relation        |
+| Script                        | What it does                                                      |
+| ----------------------------- | ----------------------------------------------------------------- |
+| `build_index.py`              | Chunk, embed, and index the corpus (leakage guard wired in)       |
+| `query_index.py`              | Query the RAG index                                               |
+| `baselines.py`                | The keyword and vector baselines                                  |
+| `run_batch.py`                | Generate the graded batch (AI + baselines + naive)                |
+| `score_batch.py`              | Blind-score a batch, gate metrics, bootstrap CIs, manifest        |
+| `eval_*.py`                   | Metrics, splits, judge, manifest for the scorer                   |
+| `leakage_check.py`            | Assert the firewall holds                                         |
+| `promote_gold.py`             | Assemble problem gold from the clean candidates                   |
+| `annotate_community.py`       | Draft distractor rationales + a gpt-4o solve for community items  |
+| `crosscheck_keys.py`          | Independent gpt-5.5 re-solve of every community key               |
+| `fill_confirmed.py`           | Fill the one distractor left blank when gpt-4o slipped            |
+| `author_card_gold.py`         | Author the 50 corpus-grounded card-gold items                     |
+| `validate_gold.py`            | Structural check over all gold files                              |
+| `assemble_bundle.py`          | Land, convert math, wire figures, then run the invariant gate     |
+| `audit_bundle_ai.py`          | The five on-demand AI content audits (via `just audit-bundle-ai`) |
+| `review_sheet.py`             | Shared make/apply review-sheet plumbing (pool, figure, giveaway)  |
+| `check_technique_giveaway.py` | Judge whether a stem hands over the tested relation               |
 
 ---
 

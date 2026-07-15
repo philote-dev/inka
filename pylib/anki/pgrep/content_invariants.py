@@ -46,6 +46,7 @@ import argparse
 import json
 import re
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 CHOICES_EXPECTED = 5
@@ -199,6 +200,114 @@ def _duplicate_text(items: list[dict], key: str) -> list[dict]:
     return dups
 
 
+@dataclass
+class _DecompositionViolations:
+    bad_choice_count: list[dict] = field(default_factory=list)
+    bad_key: list[dict] = field(default_factory=list)
+
+
+def _check_decomposition_tutor_variants(
+    problem_id: object, decomposition_tutor: object
+) -> _DecompositionViolations:
+    violations = _DecompositionViolations()
+    if not isinstance(decomposition_tutor, dict):
+        return violations
+
+    for subproblem_index, subproblem in enumerate(
+        decomposition_tutor.get("subproblems", []) or []
+    ):
+        variants = (
+            subproblem.get("variants", []) if isinstance(subproblem, dict) else []
+        )
+        for variant_index, variant in enumerate(variants or []):
+            location = {
+                "id": problem_id,
+                "subproblem": subproblem_index,
+                "variant": variant_index,
+            }
+            if not isinstance(variant, dict):
+                violations.bad_choice_count.append({**location, "choices": 0})
+                violations.bad_key.append({**location, "key": None})
+                continue
+
+            choices = variant.get("choices")
+            choice_count = len(choices) if isinstance(choices, list) else 0
+            if choice_count != CHOICES_EXPECTED:
+                violations.bad_choice_count.append(
+                    {**location, "choices": choice_count}
+                )
+            if variant.get("key") not in VALID_KEYS:
+                violations.bad_key.append({**location, "key": variant.get("key")})
+
+    return violations
+
+
+@dataclass
+class _ProblemViolations:
+    bad_choice_count: list[dict] = field(default_factory=list)
+    bad_correct_key: list[dict] = field(default_factory=list)
+    empty_stem: list[str] = field(default_factory=list)
+    missing_source_ref: list[str] = field(default_factory=list)
+    dangling_figure_refs: list[dict] = field(default_factory=list)
+    figure_without_svg: list[str] = field(default_factory=list)
+    decomp_bad_choice_count: list[dict] = field(default_factory=list)
+    decomp_bad_key: list[dict] = field(default_factory=list)
+
+    def extend(self, other: _ProblemViolations) -> None:
+        self.bad_choice_count.extend(other.bad_choice_count)
+        self.bad_correct_key.extend(other.bad_correct_key)
+        self.empty_stem.extend(other.empty_stem)
+        self.missing_source_ref.extend(other.missing_source_ref)
+        self.dangling_figure_refs.extend(other.dangling_figure_refs)
+        self.figure_without_svg.extend(other.figure_without_svg)
+        self.decomp_bad_choice_count.extend(other.decomp_bad_choice_count)
+        self.decomp_bad_key.extend(other.decomp_bad_key)
+
+
+def _check_problem(problem: dict) -> _ProblemViolations:
+    violations = _ProblemViolations()
+    problem_id = problem.get("id")
+
+    choices = problem.get("choices")
+    choice_count = len(choices) if isinstance(choices, list) else 0
+    if choice_count != CHOICES_EXPECTED:
+        violations.bad_choice_count.append({"id": problem_id, "choices": choice_count})
+
+    correct_index = _key_index(problem.get("correct"))
+    if correct_index is None or not (
+        isinstance(choices, list) and 0 <= correct_index < len(choices)
+    ):
+        violations.bad_correct_key.append(
+            {"id": problem_id, "correct": problem.get("correct")}
+        )
+
+    stem = problem.get("stem")
+    if not (isinstance(stem, str) and stem.strip()):
+        violations.empty_stem.append(problem_id)
+
+    source_ref = problem.get("source_ref")
+    if not (isinstance(source_ref, str) and source_ref.strip()):
+        violations.missing_source_ref.append(problem_id)
+
+    raw_stem = stem if isinstance(stem, str) else ""
+    has_svg = bool(_SVG_RE.search(raw_stem))
+    has_pg_figure = bool(_PG_FIGURE_OPEN_RE.search(raw_stem))
+    stem_without_svg = _strip_svg(raw_stem)
+    if _FIG_REF_RE.search(stem_without_svg) and not has_svg:
+        violations.dangling_figure_refs.append(
+            {"id": problem_id, "snippet": _fig_snippet(stem_without_svg)}
+        )
+    if has_pg_figure and not has_svg:
+        violations.figure_without_svg.append(problem_id)
+
+    decomposition = _check_decomposition_tutor_variants(
+        problem_id, problem.get("decomposition_tutor")
+    )
+    violations.decomp_bad_choice_count.extend(decomposition.bad_choice_count)
+    violations.decomp_bad_key.extend(decomposition.bad_key)
+    return violations
+
+
 def check_bundle(bundle: dict) -> dict:
     """Check every invariant and return a structured report.
 
@@ -211,74 +320,11 @@ def check_bundle(bundle: dict) -> dict:
     problems = bundle.get("problems") or []
     meta = bundle.get("counts") or {}
 
-    bad_choice_count: list[dict] = []
-    bad_correct_key: list[dict] = []
-    empty_stem: list[str] = []
-    missing_source_ref_problems: list[str] = []
-    dangling_figure_refs: list[dict] = []
-    figure_without_svg: list[str] = []
-    decomp_bad_choice_count: list[dict] = []
-    decomp_bad_key: list[dict] = []
+    problem_violations = _ProblemViolations()
     unbalanced_latex: list[dict] = []
 
-    for p in problems:
-        pid = p.get("id")
-
-        choices = p.get("choices")
-        n_choices = len(choices) if isinstance(choices, list) else 0
-        if n_choices != CHOICES_EXPECTED:
-            bad_choice_count.append({"id": pid, "choices": n_choices})
-
-        idx = _key_index(p.get("correct"))
-        if idx is None or not (isinstance(choices, list) and 0 <= idx < len(choices)):
-            bad_correct_key.append({"id": pid, "correct": p.get("correct")})
-
-        stem = p.get("stem")
-        if not (isinstance(stem, str) and stem.strip()):
-            empty_stem.append(pid)
-
-        if not (isinstance(p.get("source_ref"), str) and p["source_ref"].strip()):
-            missing_source_ref_problems.append(pid)
-
-        raw_stem = stem if isinstance(stem, str) else ""
-        has_svg = bool(_SVG_RE.search(raw_stem))
-        has_pg_figure = bool(_PG_FIGURE_OPEN_RE.search(raw_stem))
-        refs_figure = bool(_FIG_REF_RE.search(_strip_svg(raw_stem)))
-        if refs_figure and not has_svg:
-            dangling_figure_refs.append(
-                {"id": pid, "snippet": _fig_snippet(_strip_svg(raw_stem))}
-            )
-        if has_pg_figure and not has_svg:
-            figure_without_svg.append(pid)
-
-        dt = p.get("decomposition_tutor")
-        if isinstance(dt, dict):
-            for si, sub in enumerate(dt.get("subproblems", []) or []):
-                variants = sub.get("variants", []) if isinstance(sub, dict) else []
-                for vi, var in enumerate(variants or []):
-                    if not isinstance(var, dict):
-                        decomp_bad_choice_count.append(
-                            {"id": pid, "subproblem": si, "variant": vi, "choices": 0}
-                        )
-                        decomp_bad_key.append(
-                            {"id": pid, "subproblem": si, "variant": vi, "key": None}
-                        )
-                        continue
-                    vch = var.get("choices")
-                    vn = len(vch) if isinstance(vch, list) else 0
-                    if vn != CHOICES_EXPECTED:
-                        decomp_bad_choice_count.append(
-                            {"id": pid, "subproblem": si, "variant": vi, "choices": vn}
-                        )
-                    if var.get("key") not in VALID_KEYS:
-                        decomp_bad_key.append(
-                            {
-                                "id": pid,
-                                "subproblem": si,
-                                "variant": vi,
-                                "key": var.get("key"),
-                            }
-                        )
+    for problem in problems:
+        problem_violations.extend(_check_problem(problem))
 
     for kind, items in (("card", cards), ("problem", problems)):
         for item in items:
@@ -311,19 +357,19 @@ def check_bundle(bundle: dict) -> dict:
         counts_match = counts_match and meta.get("total") == counts_actual["total"]
 
     violations: dict[str, list] = {
-        "bad_choice_count": bad_choice_count,
-        "bad_correct_key": bad_correct_key,
-        "empty_stem": empty_stem,
-        "missing_source_ref_problems": missing_source_ref_problems,
+        "bad_choice_count": problem_violations.bad_choice_count,
+        "bad_correct_key": problem_violations.bad_correct_key,
+        "empty_stem": problem_violations.empty_stem,
+        "missing_source_ref_problems": problem_violations.missing_source_ref,
         "missing_source_ref_cards": missing_source_ref_cards,
         "duplicate_ids": duplicate_ids,
         "duplicate_stems": duplicate_stems,
         "duplicate_fronts": duplicate_fronts,
         "unbalanced_latex": unbalanced_latex,
-        "dangling_figure_refs": dangling_figure_refs,
-        "figure_without_svg": figure_without_svg,
-        "decomp_bad_choice_count": decomp_bad_choice_count,
-        "decomp_bad_key": decomp_bad_key,
+        "dangling_figure_refs": problem_violations.dangling_figure_refs,
+        "figure_without_svg": problem_violations.figure_without_svg,
+        "decomp_bad_choice_count": problem_violations.decomp_bad_choice_count,
+        "decomp_bad_key": problem_violations.decomp_bad_key,
     }
     summary = {name: len(items) for name, items in violations.items()}
     summary["counts_match"] = bool(counts_match)

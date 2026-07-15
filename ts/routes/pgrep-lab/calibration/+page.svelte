@@ -410,12 +410,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         >
             20 blueprint subtopics
         </strong>
-        one card at a time, each with its real focus line, authoring one card per
-        subtopic. Click
+        one card at a time, each with its real focus line, authoring one card per subtopic.
+        Click
         <strong>Author &amp; next</strong>
         to step through it, or
         <strong>Auto-play</strong>
-         to watch it run to completion, and the Library card sets deal in. Rusty categories
+        to watch it run to completion, and the Library card sets deal in. Rusty categories
         (from a mock diagnostic) ask for extra focus.
     </p>
 </div>
