@@ -2,59 +2,73 @@
 Copyright: Ankitects Pty Ltd and contributors
 License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
-<!-- Sidebar motion (the edge-pill rail). A self-contained playground that puts
-     the app's current collapse behavior next to the proposed one from
-     design/sidebar-nav-animations-svelte-guide.md, so the difference is visible
-     rather than described. No bridge calls; the rails here are fixtures, not the
-     real NavRail.
+<!-- Sidebar motion (the edge-pill rail). A self-contained playground for the
+     collapse behavior from design/sidebar-nav-animations-svelte-guide.md, kept
+     on pgrep tokens (--rail-width, --duration-calm, --ease-spring). No bridge
+     calls; the rails here are fixtures, not the real NavRail.
 
-     Two things are on show:
-       1. Collapse (guide Part 1). Current animates the rail's own width, so its
-          contents squish as it closes. Proposed clips a fixed-width inner that
-          only fades, so the contents stay rigid while they slide out.
-       2. One edge pill for both directions (the pgrep take on guide Part 2).
-          Current hides via an in-rail arrow and reopens via a faint edge handle
-          plus a top-left button. Proposed drops both the arrow and the button:
-          a single small, faded pill lives on the sidebar edge and toggles it.
-          Expanded, the pill sits on the rail's edge (click to hide); collapsed,
-          it sits on the screen edge (click to show). Subtle grow on hover, no
-          chevron.
+     One handle toggles the rail: a small faded pill that hides it (from the rail
+     edge) and shows it again (from the screen edge). No in-rail arrow, no
+     top-left button, no chevron. Two prototypes for how the pill behaves when
+     the rail opens, so we can pick the one that feels right:
+       - Travel: the pill slides with the rail edge, staying pinned to it.
+       - Fade:   the rail opens first, then the pill fades in at the edge.
+     The Current variant is today's app behavior, kept for contrast.
 
-     All numbers are pgrep tokens (--rail-width, --duration-calm, --ease-spring),
-     not the guide's verbatim values, so the feel stays on-brand. -->
+     Implementation note: base.scss forces `transition: color, box-shadow` on
+     every <button>, so a button can never animate its own position or opacity.
+     The position lives on a wrapper <div> (.toggleSlot) and the fade lives on
+     the <span> pill, both of which are free to transition. -->
 <script lang="ts">
+    import { onDestroy } from "svelte";
+
     const VARIANTS = [
-        { id: "proposed", label: "Proposed" },
+        { id: "travel", label: "Travel" },
+        { id: "fade", label: "Fade" },
         { id: "current", label: "Current" },
     ] as const;
     type Variant = (typeof VARIANTS)[number]["id"];
 
-    // Show both side by side by default so the contrast reads at a glance; a
-    // single-variant focus is one click away for a closer look.
-    let focus: Variant | "both" = "both";
+    // Default to the two prototypes side by side, which is the comparison to make.
+    let focus: "compare" | Variant = "compare";
 
     let collapsed = false;
     let reduced = false;
     let theme: "light" | "dark" = "light";
 
-    $: shown = focus === "both" ? (["proposed", "current"] as Variant[]) : [focus];
+    // "Settled" is false for one rail-duration after a toggle. The Fade prototype
+    // keeps its pill hidden until the rail has settled, then fades it in, so the
+    // pill never slides across (no teleport, no travel).
+    const DURATION = 240; // ms, matches --duration-calm
+    let settled = true;
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
+
+    function setCollapsed(next: boolean): void {
+        collapsed = next;
+        settled = false;
+        clearTimeout(settleTimer);
+        settleTimer = setTimeout(() => (settled = true), reduced ? 0 : DURATION);
+    }
+
+    onDestroy(() => clearTimeout(settleTimer));
+
+    $: shown = focus === "compare" ? (["travel", "fade"] as Variant[]) : [focus];
 
     const NOTE: Record<Variant, string> = {
-        proposed:
-            "One small faded pill on the sidebar edge toggles it: click to hide, click to show. No in-rail arrow, no top-left button, no chevron. Contents stay rigid as it closes.",
-        current:
-            "An in-rail arrow hides the sidebar; a faint edge handle and a top-left button bring it back. The contents squish as the rail narrows.",
+        travel: "The pill stays pinned to the rail edge and slides with it as the rail opens and closes.",
+        fade: "The rail opens first; the pill then fades in at the edge once it settles. Nothing slides across.",
+        current: "Today's app: an in-rail arrow hides it, a faint handle plus a top-left button show it. Contents squish as the rail narrows.",
     };
 </script>
 
 <div class="head">
     <h1>Sidebar motion</h1>
     <p>
-        The collapsing rail and the one handle that toggles it, current beside proposed.
-        In proposed there is a single small pill on the sidebar edge: click it to hide
-        the rail, and it stays on the screen edge to click again to show. No in-rail
-        arrow and no top-left button. Collapse the rail and watch the left column: the
-        current rail squishes its contents, the proposed one keeps them rigid.
+        One small pill on the sidebar edge toggles the rail: click to hide, and it
+        stays on the screen edge to click again and show. Two prototypes for how the
+        pill behaves as the rail opens, Travel and Fade, are shown side by side so we
+        can pick the feel. Collapse the rail and watch the left column: the proposed
+        rails keep their contents rigid, the current one squishes them.
     </p>
 </div>
 
@@ -63,8 +77,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         <button
             type="button"
             class="seg__btn"
-            class:is-active={focus === "both"}
-            on:click={() => (focus = "both")}>Both</button
+            class:is-active={focus === "compare"}
+            on:click={() => (focus = "compare")}>Compare</button
         >
         {#each VARIANTS as v (v.id)}
             <button
@@ -76,7 +90,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         {/each}
     </div>
 
-    <button type="button" class="btn" on:click={() => (collapsed = !collapsed)}>
+    <button type="button" class="btn" on:click={() => setCollapsed(!collapsed)}>
         {collapsed ? "Expand rail" : "Collapse rail"}
     </button>
 
@@ -101,7 +115,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     </div>
 </div>
 
-<div class="stages" class:stages--single={focus !== "both"}>
+<div class="stages" class:stages--single={focus !== "compare"}>
     {#each shown as variant (variant)}
         <div class="col">
             <div class="col__head">
@@ -114,12 +128,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <div class="pgrep stage-host" class:night-mode={theme === "dark"}>
                 <div
                     class="stage {variant}"
+                    class:proposed={variant !== "current"}
                     class:is-collapsed={collapsed}
                     class:is-reduced={reduced}
+                    class:is-settled={settled}
                 >
                     <!-- Outer frame: clips. Its width animates to zero on collapse. -->
                     <div class="railOuter">
-                        <!-- Inner: fixed width in the proposed variant (so it only
+                        <!-- Inner: fixed width in the proposed variants (so it only
                              fades), full width in the current one (so it squishes). -->
                         <div class="railInner">
                             <div class="railTop">
@@ -135,7 +151,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                         class="collapse"
                                         aria-label="Collapse sidebar"
                                         title="Collapse sidebar"
-                                        on:click={() => (collapsed = true)}
+                                        on:click={() => setCollapsed(true)}
                                     >
                                         <svg
                                             width="16"
@@ -164,26 +180,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         </div>
                     </div>
 
-                    {#if variant === "proposed"}
-                        <!-- The one affordance: a faded edge pill that toggles the
-                             rail. It rides the rail's edge when open and the screen
-                             edge when collapsed, so it is always the same handle. -->
-                        <button
-                            type="button"
-                            class="toggle"
-                            aria-label={collapsed ? "Show sidebar" : "Hide sidebar"}
-                            on:click={() => (collapsed = !collapsed)}
-                        >
-                            <span class="pill" aria-hidden="true"></span>
-                        </button>
-                    {:else}
+                    {#if variant === "current"}
                         <!-- Current: reopen affordances, only while collapsed. -->
                         {#if collapsed}
                             <button
                                 type="button"
                                 class="edge"
                                 aria-label="Show sidebar"
-                                on:click={() => (collapsed = false)}
+                                on:click={() => setCollapsed(false)}
                             >
                                 <span class="handle" aria-hidden="true"></span>
                             </button>
@@ -191,7 +195,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                 type="button"
                                 class="burger"
                                 aria-label="Show sidebar"
-                                on:click={() => (collapsed = false)}
+                                on:click={() => setCollapsed(false)}
                             >
                                 <svg
                                     width="16"
@@ -208,6 +212,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                 </svg>
                             </button>
                         {/if}
+                    {:else}
+                        <!-- Proposed: one edge pill toggles the rail both ways. The
+                             wrapper div owns the position (so it can travel); the
+                             pill span owns the fade. A very faint full-height edge
+                             wash appears on hover while collapsed. -->
+                        <div class="toggleSlot">
+                            <button
+                                type="button"
+                                class="toggle"
+                                aria-label={collapsed ? "Show sidebar" : "Hide sidebar"}
+                                on:click={() => setCollapsed(!collapsed)}
+                            >
+                                <span class="pill" aria-hidden="true"></span>
+                            </button>
+                        </div>
                     {/if}
 
                     <!-- Placeholder content, so the widening main column and (in the
@@ -232,23 +251,23 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     <h2>What to look for</h2>
     <ul>
         <li>
-            <strong>One handle, both directions.</strong> Proposed has a single faded pill
-            on the sidebar edge. Click it to hide the rail; it stays on the screen edge to
-            click again and show it. Current instead splits this across an in-rail arrow to
-            hide and a separate handle plus button to show.
+            <strong>Travel vs Fade.</strong> Collapse and expand each rail. Travel keeps
+            the pill glued to the rail edge the whole way. Fade lets the rail open first,
+            then the pill fades in at the edge once it settles.
         </li>
         <li>
-            <strong>Subtle, not loud.</strong> The pill sits quiet at rest and only thickens
-            and brightens a little on hover. No chevron, no bright bar.
+            <strong>One handle, both directions.</strong> The same pill hides the rail
+            (from its edge) and shows it (from the screen edge). No in-rail arrow, no
+            top-left button, no chevron.
         </li>
         <li>
-            <strong>Rail contents on collapse.</strong> Current squishes the labels as the
-            rail narrows. Proposed keeps them rigid (fixed-width inner) and only fades them,
-            so the close reads as one clean motion.
+            <strong>Faded edge wash.</strong> While collapsed, hovering the screen edge
+            lifts a very faint full-height wash alongside the pill, so the edge is
+            discoverable without protruding.
         </li>
         <li>
-            <strong>Reduced motion.</strong> With the toggle on (or the OS setting), every
-            transition here is disabled and the rail snaps between states.
+            <strong>Reduced motion.</strong> With the toggle on (or the OS setting), the
+            rail snaps and the pill appears at once, with no travel or fade.
         </li>
     </ul>
     <p class="src">
@@ -305,7 +324,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         font-weight: 500;
         color: var(--muted);
         cursor: pointer;
-        transition: var(--transition-calm);
 
         &:hover {
             color: var(--text);
@@ -314,11 +332,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         &.is-active {
             color: var(--action-fg);
             background: var(--action-bg);
-        }
-
-        &:focus-visible {
-            outline: 2px solid var(--focus-ring);
-            outline-offset: 2px;
         }
     }
 
@@ -333,16 +346,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         font-weight: 500;
         color: var(--text);
         cursor: pointer;
-        transition: var(--transition-calm);
 
         &:hover {
             border-color: var(--muted);
             background: var(--hover-wash);
-        }
-
-        &:focus-visible {
-            outline: 2px solid var(--focus-ring);
-            outline-offset: 2px;
         }
     }
 
@@ -438,8 +445,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         opacity: 0;
     }
 
-    /* Current: the inner tracks the outer, so the contents squish as it closes
-       (the ugliness the two-layer trick removes). No fade to soften the clip. */
+    /* Current: the inner tracks the outer, so the contents squish as it closes. */
     .current .railInner {
         width: 100%;
     }
@@ -484,7 +490,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         color: var(--muted);
         border-radius: var(--radius-control);
         cursor: pointer;
-        transition: var(--transition-calm);
 
         &:hover {
             color: var(--text);
@@ -526,20 +531,54 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         opacity: 0.6;
     }
 
-    /* Proposed: the single edge pill. A generous hit strip gives an easy target,
-       though the visible pill is thin. It rides the rail's edge when open and the
-       screen edge when collapsed, sliding with the rail. */
-    /* Parent-scoped so it out-specifies the app-wide `button` / `button:hover`
-       border in buttons.scss (Svelte's :where scoping is specificity-free). A
-       transparent border in every state keeps the hit area from ever drawing a
-       line down the panel edge, with no layout shift. */
-    .stage .toggle {
+    /* Proposed: the edge pill. The wrapper owns the position (a div, so it can
+       transition, unlike a button); the pill span owns the fade/grow. Parent-
+       scoped so the app-wide button border/transition rules cannot override it. */
+    .proposed .toggleSlot {
         position: absolute;
         top: 0;
         bottom: 0;
         left: calc(var(--rail-width) - 9px);
         z-index: 5;
         width: 18px;
+    }
+
+    .proposed.is-collapsed .toggleSlot {
+        left: 0;
+    }
+
+    /* Travel: the wrapper slides with the rail edge. */
+    .travel .toggleSlot {
+        transition: left var(--duration-calm) var(--ease-spring);
+    }
+
+    /* Very faint full-height edge wash, only while collapsed and hovered. It sits
+       flush to the screen edge and fades out fast, so it hints without protruding. */
+    .proposed .toggleSlot::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 12px;
+        background: linear-gradient(
+            to right,
+            color-mix(in srgb, var(--text) 9%, transparent),
+            transparent
+        );
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity var(--duration-calm) var(--ease-spring);
+    }
+
+    .proposed.is-collapsed .toggleSlot:hover::before,
+    .proposed.is-collapsed .toggleSlot:focus-within::before {
+        opacity: 1;
+    }
+
+    .proposed .toggle {
+        position: absolute;
+        inset: 0;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -548,12 +587,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         border: 1px solid transparent;
         background: none;
         cursor: pointer;
-        transition: left var(--duration-calm) var(--ease-spring);
-    }
-
-    .stage.is-collapsed .toggle {
-        left: 0;
-        justify-content: flex-start;
     }
 
     .pill {
@@ -561,27 +594,40 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         height: 44px;
         border-radius: var(--radius-pill);
         background: var(--border);
-        opacity: 0.55;
         transition:
             width var(--duration-calm) var(--ease-spring),
             background var(--duration-calm) var(--ease-spring),
             opacity var(--duration-calm) var(--ease-spring);
     }
 
-    .stage .toggle:hover .pill,
-    .stage .toggle:focus-visible .pill {
+    /* Travel keeps the pill present; Fade hides it until the rail has settled. */
+    .travel .pill {
+        opacity: 0.55;
+    }
+
+    .fade .pill {
+        opacity: 0;
+    }
+
+    .fade.is-settled .pill {
+        opacity: 0.55;
+    }
+
+    .travel .toggle:hover .pill,
+    .travel .toggle:focus-visible .pill,
+    .fade.is-settled .toggle:hover .pill,
+    .fade.is-settled .toggle:focus-visible .pill {
         width: 6px;
         opacity: 1;
         background: var(--muted);
     }
 
-    /* The visible focus ring rides the small pill, not the full-height button. */
-    .stage .toggle:focus-visible .pill {
+    /* The focus ring rides the small pill, not the full-height hit area. */
+    .proposed .toggle:focus-visible .pill {
         box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--focus-ring);
     }
 
-    /* Current: the faint reopen handle (unchanged from today's app). Same
-       transparent-border guard so the full-height hit area never draws a line. */
+    /* Current: the faint reopen handle (unchanged from today's app). */
     .stage .edge {
         position: absolute;
         left: 0;
@@ -635,7 +681,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         color: var(--muted);
         cursor: pointer;
         box-shadow: var(--shadow-card);
-        transition: var(--transition-calm);
 
         &:hover {
             color: var(--text);
@@ -687,7 +732,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     /* Preview of the reduced-motion experience, on top of the real media query. */
     .stage.is-reduced .railOuter,
     .stage.is-reduced .railInner,
-    .stage.is-reduced .toggle,
+    .stage.is-reduced .toggleSlot,
+    .stage.is-reduced .toggleSlot::before,
     .stage.is-reduced .pill,
     .stage.is-reduced .handle {
         transition: none;
@@ -696,7 +742,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     @media (prefers-reduced-motion: reduce) {
         .railOuter,
         .railInner,
-        .toggle,
+        .toggleSlot,
+        .toggleSlot::before,
         .pill,
         .handle {
             transition: none;
