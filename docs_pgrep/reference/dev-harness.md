@@ -14,14 +14,14 @@ recipes in the repo-root `justfile`. Run `just --list` to see everything.
 
 ## Desktop
 
-| Command          | What it does                                                        |
-| ---------------- | ------------------------------------------------------------------- |
-| `just build`     | Build the desktop app (pylib + qt).                                 |
-| `just run`       | Build and launch Anki in development mode.                          |
-| `just test-rust` | Run the Rust test suite.                                            |
+| Command          | What it does                                                                    |
+| ---------------- | ------------------------------------------------------------------------------- |
+| `just build`     | Build the desktop app (pylib + qt).                                             |
+| `just run`       | Build and launch Anki in development mode.                                      |
+| `just test-rust` | Run the Rust test suite.                                                        |
 | `just test-py`   | Run the Python tests (pylib + qt), including the content-bundle invariant gate. |
-| `just check`     | Format + full build + all lint/tests (run before finishing a task). |
-| `just smoke`     | Fast desktop sanity check (see below).                              |
+| `just check`     | Format + full build + all lint/tests (run before finishing a task).             |
+| `just smoke`     | Fast desktop sanity check (see below).                                          |
 
 > **pgrep takeover (L2.5):** `just run` opens directly into the pgrep surface
 > (Home / Study / Progress / Diagnostic), not Anki's deck browser. Anki's own
@@ -293,12 +293,12 @@ own build, gate, and audit tools. Full detail, including the deep modules they
 share (one LLM client, one Judge), is in
 [`content-pipeline.md`](content-pipeline.md).
 
-| Command                                   | What it does                                                                        |
-| ----------------------------------------- | ----------------------------------------------------------------------------------- |
+| Command                                   | What it does                                                                               |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `python content/tools/assemble_bundle.py` | The single landing command: land, convert math, wire figures, then run the invariant gate. |
-| `just test-py`                            | Runs the Python tests, including the deterministic bundle invariant gate (per-commit). |
-| `just audit-bundle-ai`                    | Runs the five on-demand AI content audits (pre-release or nightly).                 |
-| `just check`                              | The overall gate; it includes `test-py`, so it also runs the bundle invariants.     |
+| `just test-py`                            | Runs the Python tests, including the deterministic bundle invariant gate (per-commit).     |
+| `just audit-bundle-ai`                    | Runs the five on-demand AI content audits (pre-release or nightly).                        |
+| `just check`                              | The overall gate; it includes `test-py`, so it also runs the bundle invariants.            |
 
 The invariant gate is deterministic and needs no key. The AI audits need the
 optional AI runtime (`just pgrep-ai-deps`) and `OPENAI_API_KEY`; the three HARD
