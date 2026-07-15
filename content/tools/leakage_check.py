@@ -397,13 +397,11 @@ def check_foundry_preferences(
     db_path: str = INDEX_DB,
 ) -> CheckResult:
     """Validate all foundry JSONL and compare it with available private items."""
-    files = sorted(
-        path
-        for path in glob.glob(
-            os.path.join(foundry_dir, "**", "preferences.jsonl"), recursive=True
-        )
-        if os.path.isfile(path)
-    )
+    files = [
+        str(run_dir / "preferences.jsonl")
+        for run_dir in preference.finalized_run_directories(foundry_dir)
+        if (run_dir / "preferences.jsonl").is_file()
+    ]
     if not files:
         return CheckResult(
             "foundry-preferences",

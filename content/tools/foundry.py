@@ -86,10 +86,21 @@ def _dry_run(
     )
 
 
-def _summary(result: foundry_loop.SlotResult, pairs: list[dict], category: str) -> dict:
+def _summary(
+    result: foundry_loop.SlotResult,
+    pairs: list[dict],
+    category: str,
+    *,
+    synthetic: bool,
+    pairing_summary: dict,
+) -> dict:
     summary = foundry_loop.summarize_runs([result])
     summary["blueprint_category"] = category
-    summary["preferences"] = preference.summarize_pairs(pairs)
+    summary["synthetic"] = synthetic
+    summary["preference_summary"] = {
+        **pairing_summary,
+        "pair_counts": preference.summarize_pairs(pairs),
+    }
     return summary
 
 
@@ -122,7 +133,7 @@ def _write_result(
     if run_dir.exists():
         raise ValueError(f"foundry run directory already exists: {run_dir}")
 
-    pairs = preference.pairs_from_slot(
+    pairs, pairing_summary = preference.build_pairs_from_slot(
         slot,
         result,
         run_id=run_id,
@@ -136,6 +147,8 @@ def _write_result(
             result,
             pairs,
             slot["blueprint_category"],
+            synthetic=synthetic,
+            pairing_summary=pairing_summary,
         ),
     }
     rendered = {
@@ -173,6 +186,10 @@ def _write_result(
             )
         if run_dir.exists():
             raise ValueError(f"foundry run directory already exists: {run_dir}")
+        (temporary / preference.SUCCESS_MARKER).write_text(
+            "ok\n",
+            encoding="utf-8",
+        )
         os.rename(temporary, run_dir)
         temporary = None
     except OSError as error:

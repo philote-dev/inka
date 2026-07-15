@@ -41,7 +41,7 @@ _CATEGORIES = [
 ]
 
 
-def _property(prefix: str, *, count: int = 30, positives: int = 24) -> dict:
+def _property(prefix: str, *, count: int = 120, positives: int = 110) -> dict:
     human = [True] * positives + [False] * (count - positives)
     predicted = list(human)
     return {
@@ -177,8 +177,8 @@ def test_evaluate_labels_returns_split_reports_and_threshold_diagnostics():
     assert calibration["key"]["raw_agreement"] == 1.0
     assert calibration["key"]["consistency"] == 1.0
     assert heldout["key"]["accepted_precision"] == 1.0
-    assert heldout["key"]["accepted"] == 24
-    assert heldout["key"]["item_count"] == 30
+    assert heldout["key"]["accepted"] == 110
+    assert heldout["key"]["item_count"] == 120
     assert report["calibration"]["consistency"] == 1.0
     assert report["heldout"]["consistency"] == 1.0
 
@@ -187,8 +187,8 @@ def test_evaluate_labels_returns_split_reports_and_threshold_diagnostics():
         "attainable": True,
         "cutoff": 0.95,
         "achieved_precision": 1.0,
-        "retained": 24,
-        "eligible": 24,
+        "retained": 110,
+        "eligible": 110,
     }
     assert report["gates"]["green"]
     assert all(
@@ -215,9 +215,14 @@ def test_threshold_unattainable_when_confidence_one_accept_is_false():
     labels = _labels()
     labels["calibration"]["properties"]["key"].update(
         {
+            "item_ids": [f"calibration-unattainable-{index}" for index in range(30)],
             "predicted": [True] * 10 + [False] * 20,
             "human": [False] * 10 + [True] * 5 + [False] * 15,
             "confidence": [1.0] * 10 + [0.2] * 20,
+            "runs": [
+                [True] * 10 + [False] * 20,
+                [True] * 10 + [False] * 20,
+            ],
         }
     )
 
@@ -267,14 +272,20 @@ def test_threshold_diagnostics_expose_tiny_support():
 
 def test_heldout_accepted_precision_uses_fixed_calibration_cutoff():
     labels = _labels()
-    labels["calibration"]["properties"]["key"]["confidence"] = [0.8] * 24 + [0.2] * 6
-    labels["heldout"]["properties"]["key"].update(
-        {
-            "predicted": [True] * 24 + [False] * 6,
-            "human": [True] * 20 + [False] * 10,
-            "confidence": [0.9] * 20 + [0.7] * 4 + [0.2] * 6,
-        }
+    labels["calibration"]["properties"]["key"] = _property(
+        "calibration-fixed-cutoff",
+        count=30,
+        positives=24,
     )
+    labels["calibration"]["properties"]["key"]["confidence"] = [0.8] * 24 + [0.2] * 6
+    predicted = [True] * 24 + [False] * 6
+    labels["heldout"]["properties"]["key"] = {
+        "item_ids": [f"heldout-fixed-cutoff-{index}" for index in range(30)],
+        "predicted": predicted,
+        "human": [True] * 20 + [False] * 10,
+        "confidence": [0.9] * 20 + [0.7] * 4 + [0.2] * 6,
+        "runs": [list(predicted), list(predicted)],
+    }
 
     report = _module().evaluate_labels(labels)
     key = {item["name"]: item for item in report["heldout"]["properties"]}["key"]
@@ -347,7 +358,11 @@ def test_split_support_requires_30_items_and_both_human_classes():
         count=29,
         positives=24,
     )
-    labels["heldout"]["properties"]["figure"]["human"] = [True] * 30
+    labels["heldout"]["properties"]["figure"] = _property(
+        "heldout-figure-single-class",
+        count=30,
+        positives=30,
+    )
 
     report = _module().evaluate_labels(labels, foundry_summary=_foundry())
     checks = _checks(report)
@@ -361,11 +376,14 @@ def test_split_support_requires_30_items_and_both_human_classes():
 
 def test_accepted_precision_requires_support_and_ci_lower_bound():
     labels = _labels()
-    key = labels["heldout"]["properties"]["key"]
-    key["predicted"] = [True] * 20 + [False] * 10
-    key["human"] = [True] * 19 + [False] + [True] * 5 + [False] * 5
-    key["confidence"] = [0.95] * 20 + [0.2] * 10
-    key["runs"] = [list(key["predicted"]), list(key["predicted"])]
+    predicted = [True] * 20 + [False] * 10
+    labels["heldout"]["properties"]["key"] = {
+        "item_ids": [f"heldout-ci-{index}" for index in range(30)],
+        "predicted": predicted,
+        "human": [True] * 19 + [False] + [True] * 5 + [False] * 5,
+        "confidence": [0.95] * 20 + [0.2] * 10,
+        "runs": [list(predicted), list(predicted)],
+    }
 
     report = _module().evaluate_labels(labels, foundry_summary=_foundry())
     check = _checks(report)["heldout.key.accepted_precision"]
@@ -377,9 +395,40 @@ def test_accepted_precision_requires_support_and_ci_lower_bound():
     assert not report["gates"]["green"]
 
 
+def test_twenty_of_twenty_accepts_fail_wilson_precision_bound():
+    labels = _labels()
+    predicted = [True] * 20 + [False] * 10
+    labels["heldout"]["properties"]["key"] = {
+        "item_ids": [f"heldout-wilson-small-{index}" for index in range(30)],
+        "predicted": predicted,
+        "human": [True] * 25 + [False] * 5,
+        "confidence": [0.95] * 20 + [0.2] * 10,
+        "runs": [list(predicted), list(predicted)],
+    }
+
+    report = _module().evaluate_labels(labels, foundry_summary=_foundry())
+    check = _checks(report)["heldout.key.accepted_precision"]
+
+    assert check["observed"]["point"] == 1.0
+    assert check["observed"]["ci_low"] == 1.0
+    assert check["observed"]["wilson_low"] < 0.95
+    assert not check["pass"]
+
+
+def test_large_all_correct_accept_support_passes_wilson_bound():
+    report = _module().evaluate_labels(_labels(), foundry_summary=_foundry())
+    for name in ("key", "figure"):
+        check = _checks(report)[f"heldout.{name}.accepted_precision"]
+        assert check["support"]["retained"] == 110
+        assert check["observed"]["wilson_low"] >= 0.95
+        assert check["pass"]
+    assert report["gates"]["green"]
+
+
 def test_post_threshold_metrics_expose_over_pruning_recall_loss():
     labels = _labels()
     calibration = labels["calibration"]["properties"]["key"]
+    calibration["item_ids"] = [f"calibration-overprune-{index}" for index in range(30)]
     calibration["predicted"] = [True] * 24 + [False] * 6
     calibration["human"] = [True] * 20 + [False] * 4 + [True] * 5 + [False]
     calibration["confidence"] = [0.99] * 20 + [0.8] * 4 + [0.2] * 6
@@ -388,8 +437,14 @@ def test_post_threshold_metrics_expose_over_pruning_recall_loss():
         list(calibration["predicted"]),
     ]
 
-    heldout = labels["heldout"]["properties"]["key"]
-    heldout["confidence"] = [0.99] * 5 + [0.8] * 19 + [0.2] * 6
+    heldout_predicted = [True] * 24 + [False] * 6
+    labels["heldout"]["properties"]["key"] = {
+        "item_ids": [f"heldout-overprune-{index}" for index in range(30)],
+        "predicted": heldout_predicted,
+        "human": list(heldout_predicted),
+        "confidence": [0.99] * 5 + [0.8] * 19 + [0.2] * 6,
+        "runs": [list(heldout_predicted), list(heldout_predicted)],
+    }
 
     report = _module().evaluate_labels(labels, foundry_summary=_foundry())
     key = {item["name"]: item for item in report["heldout"]["properties"]}["key"]
@@ -448,7 +503,14 @@ def test_standing_gate_uses_design_thresholds_for_every_property():
             [False] * 30,
         ],
     }
-    labels["heldout"]["properties"]["key"]["human"] = [True] * 23 + [False] * 7
+    key_predicted = [True] * 24 + [False] * 6
+    labels["heldout"]["properties"]["key"] = {
+        "item_ids": [f"heldout-standing-key-{index}" for index in range(30)],
+        "predicted": key_predicted,
+        "human": [True] * 23 + [False] * 7,
+        "confidence": [0.95] * 24 + [0.2] * 6,
+        "runs": [list(key_predicted), list(key_predicted)],
+    }
     foundry = _foundry()
     for slot in foundry["slots"]:
         slot.update(accepted=8, rejected=0, escalated=2)
@@ -540,6 +602,10 @@ def test_main_reports_cross_run_preference_audit(tmp_path, capsys):
     preference.write_jsonl(
         str(preferences_root / "run-1" / "preferences.jsonl"),
         [_audit_pair()],
+    )
+    (preferences_root / "run-1" / "_SUCCESS").write_text(
+        "ok\n",
+        encoding="utf-8",
     )
 
     assert (
@@ -690,6 +756,7 @@ def test_load_foundry_summary_directory_builds_multi_slot_input(tmp_path):
             json.dumps(
                 {
                     "blueprint_category": category,
+                    "synthetic": False,
                     "accepted": 19,
                     "rejected": 0,
                     "escalated": 1,
@@ -697,6 +764,7 @@ def test_load_foundry_summary_directory_builds_multi_slot_input(tmp_path):
             ),
             encoding="utf-8",
         )
+        (run / "_SUCCESS").write_text("ok\n", encoding="utf-8")
 
     payload = _module().load_foundry_summary(tmp_path)
     report = _module().evaluate_labels(_labels(), foundry_summary=payload)
@@ -706,13 +774,90 @@ def test_load_foundry_summary_directory_builds_multi_slot_input(tmp_path):
     assert report["gates"]["green"]
 
 
+def test_load_foundry_summary_uses_finalized_non_synthetic_runs_only(tmp_path):
+    def write_run(
+        name: str,
+        *,
+        category: str,
+        synthetic: bool,
+        finalized: bool,
+    ) -> None:
+        run = tmp_path / name
+        run.mkdir()
+        (run / "summary.json").write_text(
+            json.dumps(
+                {
+                    "blueprint_category": category,
+                    "synthetic": synthetic,
+                    "accepted": 1,
+                    "rejected": 0,
+                    "escalated": 0,
+                }
+            ),
+            encoding="utf-8",
+        )
+        if finalized:
+            (run / "_SUCCESS").write_text("ok\n", encoding="utf-8")
+
+    write_run(
+        "run-final",
+        category="mechanics",
+        synthetic=False,
+        finalized=True,
+    )
+    write_run(
+        "run-synthetic",
+        category="quantum",
+        synthetic=True,
+        finalized=True,
+    )
+    write_run(
+        ".run-active.tmp",
+        category="lab",
+        synthetic=False,
+        finalized=True,
+    )
+    write_run(
+        "run-orphan",
+        category="atomic",
+        synthetic=False,
+        finalized=False,
+    )
+    (tmp_path / "summary.json").write_text(
+        json.dumps(
+            {
+                "blueprint_category": "specialized",
+                "synthetic": False,
+                "accepted": 1,
+                "rejected": 0,
+                "escalated": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = _module().load_foundry_summary(tmp_path)
+
+    assert [slot["blueprint_category"] for slot in payload["slots"]] == ["mechanics"]
+    assert payload["excluded_synthetic_run_count"] == 1
+    assert payload["included_run_count"] == 1
+
+
 def test_load_foundry_summary_directory_rejects_missing_category(tmp_path):
     run = tmp_path / "run-1"
     run.mkdir()
     (run / "summary.json").write_text(
-        json.dumps({"accepted": 1, "rejected": 0, "escalated": 0}),
+        json.dumps(
+            {
+                "synthetic": False,
+                "accepted": 1,
+                "rejected": 0,
+                "escalated": 0,
+            }
+        ),
         encoding="utf-8",
     )
+    (run / "_SUCCESS").write_text("ok\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="blueprint_category"):
         _module().load_foundry_summary(tmp_path)

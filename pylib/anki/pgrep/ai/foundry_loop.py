@@ -77,8 +77,13 @@ def run_slot(
                 {
                     **raw,
                     "refused": True,
-                    "panel": {"decision": "reject", "checks": []},
+                    "panel": {
+                        "decision": "reject",
+                        "checks": [],
+                        "refusal": True,
+                    },
                     "reason": reason,
+                    "preference_exclusion_reason": f"panel refusal: {reason}",
                 }
             )
             continue

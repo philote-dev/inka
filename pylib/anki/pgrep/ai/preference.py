@@ -37,10 +37,11 @@ BLUEPRINT_CATEGORIES = frozenset(
 )
 TIER3_MIN_PAIRS = 1000
 TIER3_MIN_CATEGORIES = 6
+SUCCESS_MARKER = "_SUCCESS"
 
 _PRIVATE_MARKER = re.compile(
     r"(?i)(?<![a-z0-9])(?:"
-    r"(?:gold|heldout|ets|gr9677|gr1777)(?=$|[-_/:\\])"
+    r"(?:gold|held[-_]?out|ets|gr9677|gr1777)(?=$|[-_/:\\])"
     r"|tier[\s_-]*3(?=$|[\s_/:\\-])"
     r")"
 )
@@ -136,11 +137,6 @@ def _validate_panel(side: str, panel: object, decision: str) -> list[str]:
     if not isinstance(checks, list):
         errors.append(f"{side}.panel.checks must be an array")
         return errors
-    if side == "chosen" and not any(
-        isinstance(check, dict) and _non_empty_string(check.get("evidence"))
-        for check in checks
-    ):
-        errors.append("chosen.panel must include non-empty check evidence")
     for index, check in enumerate(checks):
         errors.extend(_validate_panel_check(f"{side}.panel.checks[{index}]", check))
     return errors
@@ -168,6 +164,28 @@ def _validate_item(side: str, node: object, decision: str) -> list[str]:
         errors.append(f"{side}.correct must be exactly one of A, B, C, D, or E")
 
     errors.extend(_validate_panel(side, node.get("panel"), decision))
+    return errors
+
+
+def _validate_chosen_panel(chosen: object, *, synthetic: bool) -> list[str]:
+    if not isinstance(chosen, dict):
+        return []
+    panel = chosen.get("panel")
+    if not isinstance(panel, dict):
+        return []
+    checks = panel.get("checks")
+    if not isinstance(checks, list):
+        return []
+    errors: list[str] = []
+    if not synthetic and not checks:
+        errors.append("non-synthetic chosen.panel.checks must be non-empty")
+    if any(
+        isinstance(check, dict)
+        and check.get("severity") == "hard"
+        and check.get("passed") is False
+        for check in checks
+    ):
+        errors.append("chosen accept panel must not contain a failed hard check")
     return errors
 
 
@@ -247,6 +265,12 @@ def validate_pair(pair: object) -> list[str]:
     rejected = pair.get("rejected")
     errors.extend(_validate_item("chosen", chosen, "accept"))
     errors.extend(_validate_item("rejected", rejected, "reject"))
+    errors.extend(
+        _validate_chosen_panel(
+            chosen,
+            synthetic=pair.get("synthetic") is True,
+        )
+    )
     errors.extend(_validate_failing_gates(rejected))
     if (
         isinstance(chosen, dict)
@@ -290,6 +314,95 @@ def scan_jsonl(path: str) -> list[str]:
     return errs
 
 
+def _is_panel_refusal(item: object) -> bool:
+    if not isinstance(item, dict):
+        return False
+    panel = item.get("panel")
+    return isinstance(panel, dict) and panel.get("refusal") is True
+
+
+def _pair_record(
+    slot: dict,
+    chosen: dict,
+    rejected: dict,
+    *,
+    run_id: str,
+    synthetic: bool,
+) -> dict:
+    return {
+        "schema": preference_schema_version,
+        "synthetic": synthetic,
+        "slot": {
+            "topic": slot.get("topic"),
+            **{k: slot[k] for k in slot if k != "topic"},
+        },
+        "chosen": {
+            "id": chosen.get("id", ""),
+            "stem": chosen.get("stem", ""),
+            "choices": list(chosen.get("choices") or []),
+            "correct": chosen.get("correct") or chosen.get("key") or "",
+            "source_ref": chosen.get("source_ref", ""),
+            "panel": copy.deepcopy(chosen.get("panel")),
+        },
+        "rejected": {
+            "id": rejected.get("id", ""),
+            "stem": rejected.get("stem", ""),
+            "choices": list(rejected.get("choices") or []),
+            "correct": rejected.get("correct") or rejected.get("key") or "",
+            "source_ref": rejected.get("source_ref", ""),
+            "panel": copy.deepcopy(rejected.get("panel")),
+            "failing_gates": _failing_gates(rejected),
+            "reason": rejected.get("reason", ""),
+            "refused": rejected.get("refused") is True,
+        },
+        "run_id": run_id,
+    }
+
+
+def build_pairs_from_slot(
+    slot: dict,
+    result: SlotResult,
+    *,
+    run_id: str,
+    max_pairs: int = 64,
+    synthetic: bool = False,
+) -> tuple[list[dict], dict]:
+    """Build pairs and explicit diagnostics for excluded malformed outcomes."""
+    refusals = [rejected for rejected in result.rejected if _is_panel_refusal(rejected)]
+    eligible_rejected = [
+        rejected for rejected in result.rejected if not _is_panel_refusal(rejected)
+    ]
+    pairs: list[dict] = []
+    if max_pairs > 0:
+        for chosen in result.accepted:
+            for rejected in eligible_rejected:
+                pair = _pair_record(
+                    slot,
+                    chosen,
+                    rejected,
+                    run_id=run_id,
+                    synthetic=synthetic,
+                )
+                if errors := validate_pair(pair):
+                    raise ValueError(
+                        "invalid preference pair "
+                        f"{chosen.get('id', '<missing>')!r}/"
+                        f"{rejected.get('id', '<missing>')!r}: "
+                        f"{'; '.join(errors)}"
+                    )
+                pairs.append(pair)
+                if len(pairs) >= max_pairs:
+                    break
+            if len(pairs) >= max_pairs:
+                break
+    summary = {
+        "emitted": len(pairs),
+        "excluded": len(refusals),
+        "exclusion_reasons": ({"panel_refusal": len(refusals)} if refusals else {}),
+    }
+    return pairs, summary
+
+
 def pairs_from_slot(
     slot: dict,
     result: SlotResult,
@@ -298,50 +411,13 @@ def pairs_from_slot(
     max_pairs: int = 64,
     synthetic: bool = False,
 ) -> list[dict]:
-    if max_pairs <= 0:
-        return []
-
-    pairs: list[dict] = []
-    for chosen in result.accepted:
-        for rejected in result.rejected:
-            pair = {
-                "schema": preference_schema_version,
-                "synthetic": synthetic,
-                "slot": {
-                    "topic": slot.get("topic"),
-                    **{k: slot[k] for k in slot if k != "topic"},
-                },
-                "chosen": {
-                    "id": chosen.get("id", ""),
-                    "stem": chosen.get("stem", ""),
-                    "choices": list(chosen.get("choices") or []),
-                    "correct": chosen.get("correct") or chosen.get("key") or "",
-                    "source_ref": chosen.get("source_ref", ""),
-                    "panel": copy.deepcopy(chosen.get("panel")),
-                },
-                "rejected": {
-                    "id": rejected.get("id", ""),
-                    "stem": rejected.get("stem", ""),
-                    "choices": list(rejected.get("choices") or []),
-                    "correct": rejected.get("correct") or rejected.get("key") or "",
-                    "source_ref": rejected.get("source_ref", ""),
-                    "panel": copy.deepcopy(rejected.get("panel")),
-                    "failing_gates": _failing_gates(rejected),
-                    "reason": rejected.get("reason", ""),
-                    "refused": rejected.get("refused") is True,
-                },
-                "run_id": run_id,
-            }
-            if errors := validate_pair(pair):
-                chosen_id = chosen.get("id", "<missing>")
-                rejected_id = rejected.get("id", "<missing>")
-                raise ValueError(
-                    "invalid preference pair "
-                    f"{chosen_id!r}/{rejected_id!r}: {'; '.join(errors)}"
-                )
-            pairs.append(pair)
-            if len(pairs) >= max_pairs:
-                return pairs
+    pairs, _summary = build_pairs_from_slot(
+        slot,
+        result,
+        run_id=run_id,
+        max_pairs=max_pairs,
+        synthetic=synthetic,
+    )
     return pairs
 
 
@@ -385,13 +461,36 @@ def _audit_file_label(root: Path, path: Path) -> str:
         return str(path)
 
 
+def finalized_run_directories(root: str | Path) -> list[Path]:
+    """Return finalized, non-temporary run directories below ``root``."""
+    root_path = Path(root)
+    if not root_path.is_dir():
+        return []
+    directories: set[Path] = set()
+    for marker in root_path.rglob(SUCCESS_MARKER):
+        if not marker.is_file():
+            continue
+        run_dir = marker.parent
+        try:
+            relative_parts = run_dir.relative_to(root_path).parts
+        except ValueError:
+            continue
+        if any(
+            part.startswith(".") or part.endswith(".tmp") for part in relative_parts
+        ):
+            continue
+        directories.add(run_dir)
+    return sorted(directories)
+
+
 def audit_preferences(root: str | Path) -> dict[str, Any]:
     """Validate and summarize every preferences.jsonl below ``root``."""
     root_path = Path(root)
-    if root_path.is_file():
-        files = [root_path] if root_path.name == "preferences.jsonl" else []
-    else:
-        files = sorted(root_path.rglob("preferences.jsonl"))
+    files = [
+        run_dir / "preferences.jsonl"
+        for run_dir in finalized_run_directories(root_path)
+        if (run_dir / "preferences.jsonl").is_file()
+    ]
 
     errors: list[str] = []
     duplicates: list[dict[str, str]] = []
@@ -435,6 +534,7 @@ def audit_preferences(root: str | Path) -> dict[str, Any]:
         "file_count": len(files),
         "validated_pair_count": len(valid_pairs),
         "validated_non_synthetic_pair_count": len(eligible),
+        "excluded_synthetic_pair_count": len(valid_pairs) - len(eligible),
         "categories": categories,
         "category_count": len(categories),
         "duplicates": duplicates,

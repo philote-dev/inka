@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from anki.pgrep.ai import foundry_loop, preference
+from anki.pgrep.ai import foundry_loop, preference, verifier
 
 
 def _item(i, decision="accept"):
@@ -97,6 +97,10 @@ def _set_path(value: dict, path: tuple[str, ...], replacement: object) -> None:
     for key in path[:-1]:
         node = node[key]
     node[path[-1]] = replacement
+
+
+def _finalize_preferences(path: Path) -> None:
+    (path.parent / "_SUCCESS").write_text("ok\n", encoding="utf-8")
 
 
 def test_pairs_from_slot_emits_chosen_rejected():
@@ -271,23 +275,79 @@ def test_validate_pair_requires_rejected_panel_evidence():
     assert any("evidence" in error for error in errors)
 
 
-def test_validate_pair_requires_chosen_panel_evidence():
+def test_non_synthetic_chosen_requires_checks():
     pair = _valid_pair()
     pair["chosen"]["panel"]["checks"] = []
 
     errors = preference.validate_pair(pair)
 
-    assert any("chosen.panel" in error and "evidence" in error for error in errors)
+    assert any("non-synthetic chosen" in error for error in errors)
 
 
-def test_pairs_from_slot_preserves_explicit_refusal_evidence():
+def test_synthetic_chosen_allows_empty_checks():
+    pair = _valid_pair(synthetic=True)
+    pair["chosen"]["panel"]["checks"] = []
+
+    assert preference.validate_pair(pair) == []
+
+
+def test_real_panel_accept_with_empty_evidence_emits_and_validates():
+    accepted = _item(1, "accept")
+    accepted["panel"] = verifier.PanelVerdict(
+        "accept",
+        [
+            verifier.CheckVerdict(
+                "key",
+                "hard",
+                True,
+                0.95,
+                "",
+            ),
+            verifier.CheckVerdict(
+                "giveaway",
+                "soft",
+                True,
+                0.9,
+                "",
+            ),
+        ],
+    ).to_dict()
+    result = foundry_loop.SlotResult(
+        accepted=[accepted],
+        rejected=[_item(2, "reject")],
+    )
+
+    pair = preference.pairs_from_slot(_slot(), result, run_id="real-run")[0]
+
+    assert pair["chosen"]["panel"]["checks"][0]["evidence"] == ""
+    assert preference.validate_pair(pair) == []
+
+
+def test_chosen_accept_with_failed_hard_check_is_rejected():
+    pair = _valid_pair()
+    pair["chosen"]["panel"]["checks"].append(
+        {
+            "name": "figure",
+            "passed": False,
+            "severity": "hard",
+            "evidence": "mismatch",
+        }
+    )
+
+    errors = preference.validate_pair(pair)
+
+    assert any("chosen" in error and "failed hard" in error for error in errors)
+
+
+def test_pairs_from_slot_excludes_explicit_refusal():
     refused = _item(2, "reject")
     refused.update(
         {
             "refused": True,
             "refusal_reason": "source could not be verified",
             "reason": "source could not be verified",
-            "panel": {"decision": "reject", "checks": []},
+            "panel": {"decision": "reject", "checks": [], "refusal": True},
+            "preference_exclusion_reason": "panel refusal",
         }
     )
     result = foundry_loop.SlotResult(
@@ -295,12 +355,18 @@ def test_pairs_from_slot_preserves_explicit_refusal_evidence():
         rejected=[refused],
     )
 
-    pair = preference.pairs_from_slot(_slot(), result, run_id="run-1")[0]
+    pairs, summary = preference.build_pairs_from_slot(
+        _slot(),
+        result,
+        run_id="run-1",
+    )
 
-    assert pair["rejected"]["refused"] is True
-    assert pair["rejected"]["reason"] == "source could not be verified"
-    assert pair["rejected"]["failing_gates"] == ["refusal"]
-    assert preference.validate_pair(pair) == []
+    assert pairs == []
+    assert summary == {
+        "emitted": 0,
+        "excluded": 1,
+        "exclusion_reasons": {"panel_refusal": 1},
+    }
 
 
 @pytest.mark.parametrize(
@@ -403,9 +469,13 @@ def test_scan_jsonl_reports_nested_panel_marker_path_and_line(tmp_path: Path):
     )
 
 
-def test_scan_jsonl_reports_nested_slot_metadata_marker(tmp_path: Path):
+@pytest.mark.parametrize(
+    "marker",
+    ["held-out:17", "held_out/17", "heldout-17", "tier-3:17", "tier_3/17"],
+)
+def test_scan_jsonl_reports_nested_slot_metadata_marker(tmp_path: Path, marker: str):
     pair = _valid_pair()
-    pair["slot"]["metadata"] = {"source": {"identifier": "heldout:17"}}
+    pair["slot"]["metadata"] = {"source": {"identifier": marker}}
     path = tmp_path / "preferences.jsonl"
     path.write_text(json.dumps(pair) + "\n", encoding="utf-8")
 
@@ -421,9 +491,13 @@ def test_scan_jsonl_reports_nested_slot_metadata_marker(tmp_path: Path):
         "gold_17",
         "gold/17",
         "heldout:17",
+        "held-out:17",
+        "held_out/17",
         "ets-17",
         "tier 3",
         "tier3_17",
+        "tier-3/17",
+        "tier_3:17",
         "gr9677/17",
         "gr1777_17",
     ],
@@ -570,19 +644,18 @@ def test_audit_preferences_counts_only_non_synthetic_pairs(tmp_path: Path):
         category="quantum",
         synthetic=True,
     )
-    preference.write_jsonl(
-        str(tmp_path / "run-a" / "preferences.jsonl"),
-        [real],
-    )
-    preference.write_jsonl(
-        str(tmp_path / "run-b" / "preferences.jsonl"),
-        [synthetic],
-    )
+    real_path = tmp_path / "run-a" / "preferences.jsonl"
+    synthetic_path = tmp_path / "run-b" / "preferences.jsonl"
+    preference.write_jsonl(str(real_path), [real])
+    preference.write_jsonl(str(synthetic_path), [synthetic])
+    _finalize_preferences(real_path)
+    _finalize_preferences(synthetic_path)
 
     audit = preference.audit_preferences(tmp_path)
 
     assert audit["validated_pair_count"] == 2
     assert audit["validated_non_synthetic_pair_count"] == 1
+    assert audit["excluded_synthetic_pair_count"] == 1
     assert audit["categories"] == ["mechanics"]
     assert audit["category_count"] == 1
     assert audit["duplicates"] == []
@@ -590,18 +663,46 @@ def test_audit_preferences_counts_only_non_synthetic_pairs(tmp_path: Path):
     assert not audit["tier3_ready"]
 
 
+def test_audit_preferences_only_reads_finalized_run_directories(tmp_path: Path):
+    finalized = tmp_path / "run-final" / "preferences.jsonl"
+    active = tmp_path / ".run-active.tmp" / "preferences.jsonl"
+    orphan = tmp_path / "run-orphan" / "preferences.jsonl"
+    bare = tmp_path / "preferences.jsonl"
+    preference.write_jsonl(
+        str(finalized),
+        [_valid_pair("final-chosen", "final-rejected")],
+    )
+    preference.write_jsonl(
+        str(active),
+        [_valid_pair("active-chosen", "active-rejected")],
+    )
+    preference.write_jsonl(
+        str(orphan),
+        [_valid_pair("orphan-chosen", "orphan-rejected")],
+    )
+    preference.write_jsonl(
+        str(bare),
+        [_valid_pair("bare-chosen", "bare-rejected")],
+    )
+    _finalize_preferences(finalized)
+
+    audit = preference.audit_preferences(tmp_path)
+
+    assert audit["file_count"] == 1
+    assert audit["validated_non_synthetic_pair_count"] == 1
+    assert audit["errors"] == []
+
+
 def test_audit_preferences_detects_duplicates_across_runs(tmp_path: Path):
     first = _valid_pair()
     duplicate = copy.deepcopy(first)
     duplicate["run_id"] = "run-b"
-    preference.write_jsonl(
-        str(tmp_path / "run-a" / "preferences.jsonl"),
-        [first],
-    )
-    preference.write_jsonl(
-        str(tmp_path / "run-b" / "preferences.jsonl"),
-        [duplicate],
-    )
+    first_path = tmp_path / "run-a" / "preferences.jsonl"
+    duplicate_path = tmp_path / "run-b" / "preferences.jsonl"
+    preference.write_jsonl(str(first_path), [first])
+    preference.write_jsonl(str(duplicate_path), [duplicate])
+    _finalize_preferences(first_path)
+    _finalize_preferences(duplicate_path)
 
     audit = preference.audit_preferences(tmp_path)
 
@@ -619,6 +720,7 @@ def test_audit_preferences_reports_invalid_category_with_file_and_line(
     path = tmp_path / "run-a" / "preferences.jsonl"
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps(pair) + "\n", encoding="utf-8")
+    _finalize_preferences(path)
 
     audit = preference.audit_preferences(tmp_path)
 
@@ -647,10 +749,9 @@ def test_audit_preferences_tier3_ready_requires_1000_pairs_and_six_categories(
         )
         for index in range(1000)
     ]
-    preference.write_jsonl(
-        str(tmp_path / "run-a" / "preferences.jsonl"),
-        pairs,
-    )
+    path = tmp_path / "run-a" / "preferences.jsonl"
+    preference.write_jsonl(str(path), pairs)
+    _finalize_preferences(path)
 
     audit = preference.audit_preferences(tmp_path)
 
