@@ -13,11 +13,12 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import random
 import re
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import cast
 from xml.etree import ElementTree
@@ -41,6 +42,23 @@ _AUTHORED_KINDS = frozenset({"conceptual", "computational"})
 _VALID_KINDS = _AUTHORED_KINDS | frozenset({"unspecified"})
 _VALID_STRATA = frozenset({"trusted", "failure", "shadow"})
 _VALID_SPLITS = frozenset({"calibration", "validation"})
+
+# The shadow foundry generates candidates from exactly these frontier families.
+# An absent family fails ruler construction before any sampling.
+SHADOW_MODEL_FAMILIES = frozenset({"sol", "opus", "grok"})
+
+# Locked ruler geometry: 40 items per stratum, an 80/40 calibration/validation
+# split of the 120 primaries, and 12 hidden repeats excluded from split support.
+PRIMARY_PER_STRATUM = 40
+VALIDATION_SIZE = 40
+CALIBRATION_SIZE = 80
+REPEAT_COUNT = 12
+
+# Optional provenance disposition used only when fixtures supply it. Human KEEP
+# and DROP labels are never required at construction time.
+_HUMAN_LABELS = frozenset({"positive", "negative"})
+_HUMAN_LABEL_KEY = "human_label"
+_MODEL_FAMILY_KEY = "model_family"
 
 # Broad dataset tokens apply only to identifier fields. Boundaries are
 # Unicode-aware while underscores remain separators, so "marigold" stays safe.
@@ -1060,3 +1078,579 @@ class RulerItem:
                 self.pass_b_hash if self.source_excerpt is not None else None
             ),
         }
+
+
+# --- Deterministic stratified ruler construction ---------------------------
+
+_Dimension = Callable[["RulerItem"], object]
+
+
+def _difficulty_band(value: float) -> str:
+    if value < 1.0 / 3.0:
+        return "easy"
+    if value < 2.0 / 3.0:
+        return "medium"
+    return "hard"
+
+
+def _dim_category(item: RulerItem) -> object:
+    return item.blueprint_category
+
+
+def _dim_kind(item: RulerItem) -> object:
+    return item.kind
+
+
+def _dim_figure(item: RulerItem) -> object:
+    return bool(item.figure)
+
+
+def _dim_difficulty(item: RulerItem) -> object:
+    return _difficulty_band(item.difficulty)
+
+
+def _dim_error_mode(item: RulerItem) -> object:
+    return item.metadata.get("error_mode")
+
+
+def _dim_stratum(item: RulerItem) -> object:
+    return item.stratum
+
+
+# Ordered so category coverage is reserved first, then problem kind, figure
+# presence, intended difficulty band, and finally known error mode.
+_STRATUM_DIMENSIONS: tuple[_Dimension, ...] = (
+    _dim_category,
+    _dim_kind,
+    _dim_figure,
+    _dim_difficulty,
+    _dim_error_mode,
+)
+
+
+def _by_hash(items: Sequence[RulerItem]) -> list[RulerItem]:
+    """Sort by immutable content hash so seeded steps ignore input order."""
+    return sorted(items, key=lambda item: item.content_hash)
+
+
+def _reserve(
+    pool: Sequence[RulerItem],
+    dimensions: tuple[_Dimension, ...],
+    budget: int,
+) -> tuple[list[RulerItem], set[int]]:
+    """Reserve one representative per value of each dimension, deterministically.
+
+    `pool` must already be sorted by content hash. Reservation stops at `budget`.
+    """
+    chosen: list[RulerItem] = []
+    chosen_ids: set[int] = set()
+    for dimension in dimensions:
+        if len(chosen) >= budget:
+            break
+        covered = {dimension(item) for item in chosen}
+        for item in pool:
+            if len(chosen) >= budget:
+                break
+            if id(item) in chosen_ids:
+                continue
+            value = dimension(item)
+            if value in covered:
+                continue
+            chosen.append(item)
+            chosen_ids.add(id(item))
+            covered.add(value)
+    return chosen, chosen_ids
+
+
+def _fill(
+    pool: Sequence[RulerItem],
+    chosen: list[RulerItem],
+    chosen_ids: set[int],
+    budget: int,
+    rng: random.Random,
+) -> list[RulerItem]:
+    """Fill the remaining budget with a seed-local shuffle of unreserved items."""
+    rest = [item for item in pool if id(item) not in chosen_ids]
+    rng.shuffle(rest)
+    for item in rest:
+        if len(chosen) >= budget:
+            break
+        chosen.append(item)
+        chosen_ids.add(id(item))
+    return chosen
+
+
+def _select_stratum(
+    items: Sequence[RulerItem],
+    budget: int,
+    rng: random.Random,
+) -> list[RulerItem]:
+    pool = _by_hash(items)
+    chosen, chosen_ids = _reserve(pool, _STRATUM_DIMENSIONS, budget)
+    return _fill(pool, chosen, chosen_ids, budget, rng)
+
+
+def _rotated(order: Sequence[str], seed: int) -> list[str]:
+    offset = seed % len(order)
+    return list(order[offset:]) + list(order[:offset])
+
+
+def _balanced_targets(
+    available: Mapping[str, int],
+    total: int,
+    order: Sequence[str],
+) -> dict[str, int]:
+    """Water-fill `total` slots across families as evenly as capacity allows."""
+    targets = {family: 0 for family in order}
+    for _ in range(total):
+        candidates = [family for family in order if targets[family] < available[family]]
+        if not candidates:
+            raise ValueError(
+                "shadow inputs cannot fill 40 balanced family slots; "
+                f"available per family: {dict(available)}"
+            )
+        best = min(
+            candidates,
+            key=lambda family: (targets[family], order.index(family)),
+        )
+        targets[best] += 1
+    return targets
+
+
+def _select_shadow(
+    items: Sequence[RulerItem],
+    budget: int,
+    seed: int,
+    rng: random.Random,
+) -> list[RulerItem]:
+    families = sorted(SHADOW_MODEL_FAMILIES)
+    by_family: dict[str, list[RulerItem]] = {family: [] for family in families}
+    for item in items:
+        by_family[cast(str, item.metadata.get(_MODEL_FAMILY_KEY))].append(item)
+    available = {family: len(members) for family, members in by_family.items()}
+    targets = _balanced_targets(available, budget, _rotated(families, seed))
+    selected: list[RulerItem] = []
+    for family in families:
+        pool = _by_hash(by_family[family])
+        target = targets[family]
+        chosen, chosen_ids = _reserve(pool, _STRATUM_DIMENSIONS, target)
+        selected.extend(_fill(pool, chosen, chosen_ids, target, rng))
+    return selected
+
+
+def _reserve_split_dimension(
+    pool: Sequence[RulerItem],
+    split_of: dict[int, str],
+    dimension: _Dimension,
+) -> None:
+    for split, cap in (
+        ("validation", VALIDATION_SIZE),
+        ("calibration", CALIBRATION_SIZE),
+    ):
+        assigned = [item for item in pool if split_of.get(id(item)) == split]
+        covered = {dimension(item) for item in assigned}
+        current = len(assigned)
+        for item in pool:
+            if current >= cap:
+                break
+            if id(item) in split_of:
+                continue
+            value = dimension(item)
+            if value in covered:
+                continue
+            split_of[id(item)] = split
+            covered.add(value)
+            current += 1
+
+
+def _reserve_split_categories(
+    pool: Sequence[RulerItem],
+    split_of: dict[int, str],
+) -> None:
+    by_category: dict[str, list[RulerItem]] = {}
+    for item in pool:
+        by_category.setdefault(item.blueprint_category, []).append(item)
+    for category in sorted(by_category):
+        members = by_category[category]
+        split_of[id(members[0])] = "validation"
+        if len(members) >= 2:
+            split_of[id(members[1])] = "calibration"
+
+
+def _fill_splits(
+    pool: Sequence[RulerItem],
+    split_of: dict[int, str],
+    rng: random.Random,
+) -> None:
+    validation = sum(1 for item in pool if split_of.get(id(item)) == "validation")
+    unassigned = [item for item in pool if id(item) not in split_of]
+    rng.shuffle(unassigned)
+    remaining_validation = VALIDATION_SIZE - validation
+    for index, item in enumerate(unassigned):
+        split_of[id(item)] = (
+            "validation" if index < remaining_validation else "calibration"
+        )
+
+
+def _assign_splits(
+    primary: Sequence[RulerItem],
+    rng: random.Random,
+) -> dict[int, str]:
+    """Assign an 80/40 split, reserving category, stratum, kind, and figure."""
+    pool = _by_hash(primary)
+    split_of: dict[int, str] = {}
+    _reserve_split_categories(pool, split_of)
+    _reserve_split_dimension(pool, split_of, _dim_stratum)
+    _reserve_split_dimension(pool, split_of, _dim_kind)
+    _reserve_split_dimension(pool, split_of, _dim_figure)
+    _fill_splits(pool, split_of, rng)
+    return split_of
+
+
+def _select_repeats(
+    primary: Sequence[RulerItem],
+    count: int,
+    rng: random.Random,
+) -> list[RulerItem]:
+    pool = _by_hash(primary)
+    chosen, chosen_ids = _reserve(pool, (_dim_stratum, _dim_category), count)
+    return _fill(pool, chosen, chosen_ids, count, rng)
+
+
+_Token = tuple[str, RulerItem]
+
+
+def _display_is_clean(order: Sequence[_Token]) -> bool:
+    return all(left[1] is not right[1] for left, right in zip(order, order[1:]))
+
+
+def _separate_adjacent(order: list[_Token]) -> list[_Token]:
+    """Deterministically break any repeat adjacent to its original."""
+    size = len(order)
+    for index in range(size - 1):
+        if order[index][1] is not order[index + 1][1]:
+            continue
+        for other in range(size):
+            if other in (index, index + 1):
+                continue
+            order[index + 1], order[other] = order[other], order[index + 1]
+            if _display_is_clean(order):
+                break
+            order[index + 1], order[other] = order[other], order[index + 1]
+    return order
+
+
+def _shuffled_display(
+    tokens: Sequence[_Token],
+    rng: random.Random,
+) -> list[_Token]:
+    order = list(tokens)
+    for _ in range(256):
+        rng.shuffle(order)
+        if _display_is_clean(order):
+            return order
+    return _separate_adjacent(order)
+
+
+def _assemble(
+    primary: Sequence[RulerItem],
+    split_of: Mapping[int, str],
+    repeat_origins: Sequence[RulerItem],
+    rng: random.Random,
+) -> list[RulerItem]:
+    tokens: list[_Token] = [("primary", item) for item in primary]
+    tokens.extend(("repeat", item) for item in repeat_origins)
+    order = _shuffled_display(tokens, rng)
+
+    review_id_of: dict[int, str] = {}
+    primary_index = 0
+    for kind, item in order:
+        if kind == "primary":
+            primary_index += 1
+            review_id_of[id(item)] = f"cal-{primary_index:04d}"
+
+    assembled: list[RulerItem] = []
+    repeat_index = 0
+    for kind, item in order:
+        if kind == "primary":
+            assembled.append(
+                replace(
+                    item,
+                    review_id=review_id_of[id(item)],
+                    split=split_of[id(item)],
+                )
+            )
+        else:
+            repeat_index += 1
+            assembled.append(
+                replace(
+                    item,
+                    review_id=f"rep-{repeat_index:04d}",
+                    split=None,
+                    repeat_of=review_id_of[id(item)],
+                )
+            )
+    return assembled
+
+
+def _convert(values: object, stratum: str) -> list[RulerItem]:
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+        raise ValueError(f"{stratum} input must be a sequence of problem items")
+    items: list[RulerItem] = []
+    for index, value in enumerate(cast(Sequence[object], values)):
+        try:
+            items.append(RulerItem.from_source_item(value, stratum=stratum))
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"{stratum} item {index}: {error}") from error
+    return items
+
+
+def _reject_duplicate_hashes(items: Sequence[RulerItem]) -> None:
+    seen: dict[str, str] = {}
+    for item in items:
+        digest = item.content_hash
+        if digest in seen:
+            raise ValueError(
+                "duplicate content hash across ruler inputs: "
+                f"{seen[digest]!r} and {item.id!r}"
+            )
+        seen[digest] = item.id
+
+
+def _require_stratum_support(items: Sequence[RulerItem], stratum: str) -> None:
+    if len(items) < PRIMARY_PER_STRATUM:
+        raise ValueError(
+            f"{stratum} stratum provides only {len(items)} unique items; "
+            f"{PRIMARY_PER_STRATUM} are required"
+        )
+
+
+def _require_category_support(items: Sequence[RulerItem]) -> None:
+    present = {item.blueprint_category for item in items}
+    missing = BLUEPRINT_CATEGORIES - present
+    if missing:
+        raise ValueError(
+            "ruler inputs are missing required blueprint categories: "
+            + ", ".join(sorted(missing))
+        )
+
+
+def _require_shadow_families(items: Sequence[RulerItem]) -> None:
+    present: set[str] = set()
+    for item in items:
+        family = item.metadata.get(_MODEL_FAMILY_KEY)
+        if not isinstance(family, str) or family not in SHADOW_MODEL_FAMILIES:
+            raise ValueError(
+                f"shadow item {item.id!r} declares unknown model family "
+                f"{family!r}; expected one of: "
+                + ", ".join(sorted(SHADOW_MODEL_FAMILIES))
+            )
+        present.add(family)
+    missing = SHADOW_MODEL_FAMILIES - present
+    if missing:
+        raise ValueError(
+            "shadow inputs are missing model families: " + ", ".join(sorted(missing))
+        )
+
+
+def _require_label_balance(
+    primary: Sequence[RulerItem],
+    split_of: Mapping[int, str],
+) -> None:
+    labeled = [
+        item for item in primary if item.metadata.get(_HUMAN_LABEL_KEY) in _HUMAN_LABELS
+    ]
+    if not labeled:
+        return
+    for split in ("calibration", "validation"):
+        counts = {"positive": 0, "negative": 0}
+        for item in labeled:
+            if split_of[id(item)] == split:
+                counts[cast(str, item.metadata.get(_HUMAN_LABEL_KEY))] += 1
+        for label, count in counts.items():
+            if count < 5:
+                raise ValueError(
+                    f"{split} split has fewer than five human-{label} candidate "
+                    f"labels ({count}); rebalance inputs before construction"
+                )
+
+
+def build_ruler(
+    trusted: object,
+    failures: object,
+    shadow: object,
+    *,
+    seed: int = 7,
+) -> RulerManifest:
+    """Build a frozen 120-item stratified ruler plus 12 hidden repeats.
+
+    The 120 primaries hold exactly 40 trusted, 40 failure, and 40 shadow unique
+    items, split 80 calibration and 40 locked validation. All nine blueprint
+    categories appear; problem kind, figure presence, intended difficulty, known
+    error mode, and shadow model family are stratified as far as support permits.
+    Coverage is reserved deterministically after sorting by content hash, then a
+    seed-local shuffle fills the remaining slots, so identical inputs and seed are
+    byte-stable while a different seed reorders without changing quotas.
+    """
+    trusted_items = _convert(trusted, "trusted")
+    failure_items = _convert(failures, "failure")
+    shadow_items = _convert(shadow, "shadow")
+
+    _reject_duplicate_hashes([*trusted_items, *failure_items, *shadow_items])
+    _require_stratum_support(trusted_items, "trusted")
+    _require_stratum_support(failure_items, "failure")
+    _require_stratum_support(shadow_items, "shadow")
+    _require_category_support([*trusted_items, *failure_items, *shadow_items])
+    _require_shadow_families(shadow_items)
+
+    rng = random.Random(seed)
+    primary = [
+        *_select_stratum(trusted_items, PRIMARY_PER_STRATUM, rng),
+        *_select_stratum(failure_items, PRIMARY_PER_STRATUM, rng),
+        *_select_shadow(shadow_items, PRIMARY_PER_STRATUM, seed, rng),
+    ]
+    split_of = _assign_splits(primary, rng)
+    _require_label_balance(primary, split_of)
+    repeat_origins = _select_repeats(primary, REPEAT_COUNT, rng)
+    items = _assemble(primary, split_of, repeat_origins, rng)
+
+    manifest = RulerManifest(items=tuple(items), seed=seed)
+    validate_manifest(manifest)
+    return manifest
+
+
+@dataclass(frozen=True)
+class RulerManifest:
+    """A frozen private manifest of ruler items in blind display order."""
+
+    items: tuple[RulerItem, ...]
+    seed: int
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-compatible private-manifest representation."""
+        return {
+            "seed": self.seed,
+            "items": [item.to_dict() for item in self.items],
+        }
+
+    @classmethod
+    def from_dict(cls, value: object) -> RulerManifest:
+        """Restore and verify a serialized manifest, recomputing item hashes."""
+        if type(value) is not dict:
+            raise ValueError("serialized manifest must be a JSON object")
+        payload = cast(dict[str, object], value)
+        seed = payload.get("seed")
+        if type(seed) is not int:
+            raise ValueError("manifest seed must be an integer")
+        raw_items = payload.get("items")
+        if type(raw_items) is not list:
+            raise ValueError("manifest items must be a JSON array")
+        items = tuple(
+            RulerItem.from_dict(item) for item in cast(list[object], raw_items)
+        )
+        return cls(items=items, seed=seed)
+
+
+def _validate_manifest_counts(
+    primary: Sequence[RulerItem],
+    repeats: Sequence[RulerItem],
+) -> None:
+    if len(primary) != 3 * PRIMARY_PER_STRATUM:
+        raise ValueError(
+            f"manifest has {len(primary)} primary items; "
+            f"{3 * PRIMARY_PER_STRATUM} are required"
+        )
+    if len(repeats) != REPEAT_COUNT:
+        raise ValueError(
+            f"manifest has {len(repeats)} repeats; {REPEAT_COUNT} are required"
+        )
+    strata: dict[str, int] = {}
+    splits: dict[str, int] = {}
+    for item in primary:
+        stratum = item.stratum
+        split = item.split
+        strata[stratum] = strata.get(stratum, 0) + 1
+        splits[split] = splits.get(split, 0) + 1
+    if strata != {name: PRIMARY_PER_STRATUM for name in _VALID_STRATA}:
+        raise ValueError(f"manifest strata are not 40/40/40: {strata}")
+    if splits != {"calibration": CALIBRATION_SIZE, "validation": VALIDATION_SIZE}:
+        raise ValueError(f"manifest split is not 80/40: {splits}")
+
+
+def _validate_manifest_identity(items: Sequence[RulerItem]) -> None:
+    review_ids = [item.review_id for item in items]
+    if None in review_ids:
+        raise ValueError("every manifest item requires a review ID")
+    if len(set(review_ids)) != len(review_ids):
+        raise ValueError("manifest review IDs must be unique")
+    for item in items:
+        if RulerItem.from_dict(item.to_dict()) != item:
+            raise ValueError(
+                f"manifest item {item.review_id!r} does not round-trip its hashes"
+            )
+        _validate_private_markers(item.to_dict(), f"$.{item.review_id}")
+
+
+def _validate_manifest_repeats(
+    primary: Sequence[RulerItem],
+    repeats: Sequence[RulerItem],
+) -> None:
+    by_review_id = {item.review_id: item for item in primary}
+    primary_hashes = {item.content_hash for item in primary}
+    if len(primary_hashes) != len(primary):
+        raise ValueError("primary manifest items must have unique content hashes")
+    for repeat in repeats:
+        if repeat.split is not None:
+            raise ValueError(
+                f"repeat {repeat.review_id!r} must not carry a split assignment"
+            )
+        origin = by_review_id.get(repeat.repeat_of)
+        if origin is None:
+            raise ValueError(
+                f"repeat {repeat.review_id!r} references unknown original "
+                f"{repeat.repeat_of!r}"
+            )
+        if repeat.content_hash != origin.content_hash:
+            raise ValueError(
+                f"repeat {repeat.review_id!r} content does not match its original"
+            )
+
+
+def _validate_manifest_coverage(primary: Sequence[RulerItem]) -> None:
+    category_counts: dict[str, int] = {}
+    by_split: dict[str, set[str]] = {"calibration": set(), "validation": set()}
+    for item in primary:
+        category_counts[item.blueprint_category] = (
+            category_counts.get(item.blueprint_category, 0) + 1
+        )
+        by_split[item.split].add(item.blueprint_category)
+    missing = BLUEPRINT_CATEGORIES - set(category_counts)
+    if missing:
+        raise ValueError(
+            "primary manifest is missing blueprint categories: "
+            + ", ".join(sorted(missing))
+        )
+    for split, categories in by_split.items():
+        for category, count in category_counts.items():
+            if count >= 2 and category not in categories:
+                raise ValueError(
+                    f"{split} split is missing feasible category {category!r}"
+                )
+
+
+def validate_manifest(manifest: RulerManifest) -> None:
+    """Recompute every ruler invariant, raising on the first violation.
+
+    Checks locked counts, 40/40/40 strata, the 80/40 split, unique opaque review
+    IDs, immutable-hash round trips, split disjointness, repeat references, split
+    category coverage where feasible, and the absence of private markers. It never
+    requires human labels.
+    """
+    if not isinstance(manifest, RulerManifest):
+        raise ValueError("validate_manifest requires a RulerManifest")
+    primary = [item for item in manifest.items if item.repeat_of is None]
+    repeats = [item for item in manifest.items if item.repeat_of is not None]
+    _validate_manifest_counts(primary, repeats)
+    _validate_manifest_identity(manifest.items)
+    _validate_manifest_repeats(primary, repeats)
+    _validate_manifest_coverage(primary)

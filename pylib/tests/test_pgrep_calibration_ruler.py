@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 from typing import cast
@@ -954,3 +955,318 @@ def test_every_shipped_bundle_problem_converts_without_structural_violations() -
             errors.append(f"{problem.get('id')}: {error}")
 
     assert errors == []
+
+
+# --- Task 2: deterministic stratified ruler construction -------------------
+
+_FAMILIES = ("sol", "opus", "grok")
+_ERROR_MODES = (
+    "wrong_key",
+    "free_elimination",
+    "ambiguous_stem",
+    "figure_contradiction",
+    "unsupported_citation",
+    "decomposition_leak",
+    "out_of_band_difficulty",
+)
+_KINDS = ("conceptual", "computational", "unspecified")
+
+
+def _fixture_item(
+    stratum: str,
+    index: int,
+    *,
+    categories: tuple[str, ...] | None = None,
+) -> dict[str, object]:
+    slugs = categories or tuple(sorted(calibration_ruler.BLUEPRINT_CATEGORIES))
+    category = slugs[index % len(slugs)]
+    stem = f"Consider configuration {index} governed by {category} principles."
+    if index % 2 == 0:
+        stem = f'{stem}<div class="pg-figure">{_SVG}</div>'
+    item: dict[str, object] = {
+        "id": f"{stratum}-{index}",
+        "topic": f"topic::{category}",
+        "blueprint_category": category,
+        "kind": _KINDS[index % len(_KINDS)],
+        "difficulty": (0.1, 0.5, 0.9)[index % 3],
+        "stem": stem,
+        "choices": ["1", "2", "3", "4", "5"],
+        "correct": "ABCDE"[index % 5],
+        "source_ref": f"OpenStax {stratum} chapter {index}",
+        "source_excerpt": f"Grounding excerpt {index} covering {category}.",
+        "solution_decomposition": [
+            {"subgoal": f"Reason about {category}.", "rubric": "Name the law."}
+        ],
+    }
+    if stratum == "shadow":
+        item["model_family"] = _FAMILIES[index % len(_FAMILIES)]
+    if stratum == "failure":
+        item["error_mode"] = _ERROR_MODES[index % len(_ERROR_MODES)]
+    return item
+
+
+def _fixture_items(
+    stratum: str,
+    count: int,
+    *,
+    categories: tuple[str, ...] | None = None,
+) -> list[dict[str, object]]:
+    return [
+        _fixture_item(stratum, index, categories=categories) for index in range(count)
+    ]
+
+
+def _inputs(
+    count: int = 60,
+) -> tuple[
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+]:
+    return (
+        _fixture_items("trusted", count),
+        _fixture_items("failure", count),
+        _fixture_items("shadow", count),
+    )
+
+
+def _primary(
+    manifest: calibration_ruler.RulerManifest,
+) -> list[calibration_ruler.RulerItem]:
+    return [item for item in manifest.items if item.repeat_of is None]
+
+
+def _repeats(
+    manifest: calibration_ruler.RulerManifest,
+) -> list[calibration_ruler.RulerItem]:
+    return [item for item in manifest.items if item.repeat_of is not None]
+
+
+def test_ruler_has_locked_counts_splits_and_repeats() -> None:
+    manifest = calibration_ruler.build_ruler(
+        trusted=_fixture_items("trusted", 60),
+        failures=_fixture_items("failure", 60),
+        shadow=_fixture_items("shadow", 60),
+        seed=7,
+    )
+    primary = _primary(manifest)
+    repeats = _repeats(manifest)
+    assert len(primary) == 120
+    assert len(repeats) == 12
+    assert Counter(item.stratum for item in primary) == {
+        "trusted": 40,
+        "failure": 40,
+        "shadow": 40,
+    }
+    assert Counter(item.split for item in primary) == {
+        "calibration": 80,
+        "validation": 40,
+    }
+    assert {item.blueprint_category for item in primary} == set(
+        calibration_ruler.BLUEPRINT_CATEGORIES
+    )
+
+
+def test_same_seed_is_byte_stable() -> None:
+    first = calibration_ruler.build_ruler(*_inputs(), seed=7).to_dict()
+    second = calibration_ruler.build_ruler(*_inputs(), seed=7).to_dict()
+    assert first == second
+
+
+def test_different_seed_changes_order_but_not_quotas() -> None:
+    first = calibration_ruler.build_ruler(*_inputs(), seed=7)
+    second = calibration_ruler.build_ruler(*_inputs(), seed=11)
+
+    def quotas(manifest: calibration_ruler.RulerManifest) -> dict[str, object]:
+        primary = _primary(manifest)
+        return {
+            "strata": Counter(item.stratum for item in primary),
+            "splits": Counter(item.split for item in primary),
+            "repeats": len(_repeats(manifest)),
+            "categories": frozenset(item.blueprint_category for item in primary),
+        }
+
+    assert quotas(first) == quotas(second)
+    order_first = [item.content_hash for item in first.items]
+    order_second = [item.content_hash for item in second.items]
+    assert order_first != order_second
+
+
+def test_shadow_families_are_balanced() -> None:
+    manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
+    shadow = [item for item in _primary(manifest) if item.stratum == "shadow"]
+    families = Counter(item.metadata["model_family"] for item in shadow)
+    assert set(families) == set(_FAMILIES)
+    assert max(families.values()) - min(families.values()) <= 1
+
+
+def test_repeats_reference_originals_and_leave_support_untouched() -> None:
+    manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
+    primary = _primary(manifest)
+    repeats = _repeats(manifest)
+    by_review_id = {item.review_id: item for item in primary}
+
+    assert all(item.split is None for item in repeats)
+    assert all(item.review_id.startswith("rep-") for item in repeats)
+    for repeat in repeats:
+        origin = by_review_id[repeat.repeat_of]
+        assert repeat.content_hash == origin.content_hash
+    assert {repeat.stratum for repeat in repeats} == {
+        "trusted",
+        "failure",
+        "shadow",
+    }
+    assert {repeat.blueprint_category for repeat in repeats} == set(
+        calibration_ruler.BLUEPRINT_CATEGORIES
+    )
+
+
+def test_review_ids_are_opaque_and_sequential() -> None:
+    manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
+    primary_ids = sorted(item.review_id for item in _primary(manifest))
+    repeat_ids = sorted(item.review_id for item in _repeats(manifest))
+    assert primary_ids == [f"cal-{index:04d}" for index in range(1, 121)]
+    assert repeat_ids == [f"rep-{index:04d}" for index in range(1, 13)]
+
+
+def test_no_repeat_is_adjacent_to_its_original() -> None:
+    for seed in range(25):
+        manifest = calibration_ruler.build_ruler(*_inputs(), seed=seed)
+        hashes = [item.content_hash for item in manifest.items]
+        for left, right in zip(hashes, hashes[1:]):
+            assert left != right
+
+
+def test_hidden_fields_never_enter_pass_a_projection() -> None:
+    manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
+    shadow = next(item for item in _primary(manifest) if item.stratum == "shadow")
+    projection = shadow.pass_a_content()
+    assert set(projection) == {"stem", "choices", "figure"}
+    rendered = json.dumps(projection)
+    family = cast(str, shadow.metadata["model_family"])
+    for hidden in ("stratum", "split", "repeat_of", "model_family", "shadow", family):
+        assert hidden not in rendered
+
+
+def test_each_split_covers_every_category_when_feasible() -> None:
+    manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
+    primary = _primary(manifest)
+    calibration = {
+        item.blueprint_category for item in primary if item.split == "calibration"
+    }
+    validation = {
+        item.blueprint_category for item in primary if item.split == "validation"
+    }
+    assert calibration == set(calibration_ruler.BLUEPRINT_CATEGORIES)
+    assert validation == set(calibration_ruler.BLUEPRINT_CATEGORIES)
+
+
+def test_insufficient_stratum_count_is_rejected() -> None:
+    with pytest.raises(ValueError, match="trusted stratum"):
+        calibration_ruler.build_ruler(
+            _fixture_items("trusted", 39),
+            _fixture_items("failure", 60),
+            _fixture_items("shadow", 60),
+        )
+
+
+def test_missing_category_is_rejected_with_diagnostic() -> None:
+    eight = tuple(sorted(calibration_ruler.BLUEPRINT_CATEGORIES))[:8]
+    with pytest.raises(ValueError, match="categor"):
+        calibration_ruler.build_ruler(
+            _fixture_items("trusted", 60, categories=eight),
+            _fixture_items("failure", 60, categories=eight),
+            _fixture_items("shadow", 60, categories=eight),
+        )
+
+
+def test_duplicate_content_hash_is_rejected() -> None:
+    trusted = _fixture_items("trusted", 60)
+    duplicate = _fixture_item("trusted", 0)
+    duplicate["id"] = "trusted-duplicate"
+    trusted.append(duplicate)
+    with pytest.raises(ValueError, match="duplicate content hash"):
+        calibration_ruler.build_ruler(
+            trusted,
+            _fixture_items("failure", 60),
+            _fixture_items("shadow", 60),
+        )
+
+
+def test_gold_marker_input_is_rejected() -> None:
+    trusted = _fixture_items("trusted", 60)
+    trusted[0]["source_ref"] = "content/gold/problems/gold-1.json"
+    with pytest.raises(ValueError, match="private marker"):
+        calibration_ruler.build_ruler(
+            trusted,
+            _fixture_items("failure", 60),
+            _fixture_items("shadow", 60),
+        )
+
+
+def test_absent_shadow_family_fails_before_sampling() -> None:
+    shadow = _fixture_items("shadow", 60)
+    for item in shadow:
+        item["model_family"] = "sol"
+    with pytest.raises(ValueError, match="model famil"):
+        calibration_ruler.build_ruler(
+            _fixture_items("trusted", 60),
+            _fixture_items("failure", 60),
+            shadow,
+        )
+
+
+def test_unlabeled_inputs_do_not_require_human_labels() -> None:
+    manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
+    assert len(_primary(manifest)) == 120
+
+
+def test_label_imbalance_is_rejected_when_labels_are_available() -> None:
+    trusted = _fixture_items("trusted", 60)
+    for item in trusted:
+        item["human_label"] = "positive"
+    with pytest.raises(ValueError, match="fewer than five"):
+        calibration_ruler.build_ruler(
+            trusted,
+            _fixture_items("failure", 60),
+            _fixture_items("shadow", 60),
+        )
+
+
+def test_balanced_human_labels_are_accepted() -> None:
+    trusted = _fixture_items("trusted", 60)
+    failures = _fixture_items("failure", 60)
+    for item in trusted:
+        item["human_label"] = "positive"
+    for item in failures:
+        item["human_label"] = "negative"
+    manifest = calibration_ruler.build_ruler(
+        trusted,
+        failures,
+        _fixture_items("shadow", 60),
+        seed=7,
+    )
+    assert len(_primary(manifest)) == 120
+
+
+def test_validate_manifest_accepts_a_built_ruler() -> None:
+    manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
+    calibration_ruler.validate_manifest(manifest)
+
+
+def test_manifest_round_trip_is_stable_and_valid() -> None:
+    manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
+    restored = calibration_ruler.RulerManifest.from_dict(
+        json.loads(json.dumps(manifest.to_dict(), ensure_ascii=False))
+    )
+    assert restored.to_dict() == manifest.to_dict()
+    calibration_ruler.validate_manifest(restored)
+
+
+def test_validate_manifest_detects_count_tampering() -> None:
+    manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
+    payload = manifest.to_dict()
+    cast(list[object], payload["items"]).pop()
+    tampered = calibration_ruler.RulerManifest.from_dict(payload)
+    with pytest.raises(ValueError):
+        calibration_ruler.validate_manifest(tampered)
