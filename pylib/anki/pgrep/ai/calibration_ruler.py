@@ -85,6 +85,8 @@ _URL_FUNCTION = re.compile(
     r"""url\(\s*["']?([^)"'\s]+)["']?\s*\)""",
     re.IGNORECASE,
 )
+_SAFE_CSS_URL = re.compile(r"(?i)url\(#[A-Za-z_][A-Za-z0-9_-]*\)")
+_CSS_URL_WORD = re.compile(r"(?i)\burl\b")
 _EXTERNAL_URL = re.compile(
     r"(?i)(?:https?|ftp|file|data|javascript|vbscript)\s*:|(?:^|[\s('\"=])//"
 )
@@ -178,7 +180,11 @@ def _private_marker_error(
 
 def _is_identifier_key(key: str) -> bool:
     lowered = key.lower()
-    return lowered == "id" or lowered.endswith("_id") or lowered == "repeat_of"
+    return (
+        lowered in {"id", "ids", "repeat_of"}
+        or lowered.endswith("_id")
+        or lowered.endswith("_ids")
+    )
 
 
 def _is_path_key(key: str) -> bool:
@@ -218,7 +224,7 @@ def _validate_private_markers(
         _validate_private_markers(
             nested,
             child,
-            identifier=_is_identifier_key(key) or _is_path_key(key),
+            identifier=identifier or _is_identifier_key(key) or _is_path_key(key),
         )
 
 
@@ -292,10 +298,17 @@ def _dict_input(value: object, *, name: str) -> dict[str, object]:
     return cast(dict[str, object], value)
 
 
-def _non_empty_string(value: object, *, name: str) -> str:
+def _raw_non_empty_string(value: object, *, name: str) -> str:
     if type(value) is not str or not value.strip():
         raise ValueError(f"{name} must be a non-empty string")
-    return unicodedata.normalize("NFC", value)
+    return value
+
+
+def _non_empty_string(value: object, *, name: str) -> str:
+    return unicodedata.normalize(
+        "NFC",
+        _raw_non_empty_string(value, name=name),
+    )
 
 
 def _normalized_text(value: object, *, name: str) -> str:
@@ -373,6 +386,10 @@ def _namespace_and_name(name: str) -> tuple[str, str]:
 
 
 def _validate_url_value(value: str, *, name: str) -> None:
+    if "\\" in value:
+        raise ValueError(f"figure {name} CSS escapes are not allowed")
+    if _CSS_URL_WORD.search(_SAFE_CSS_URL.sub("", value)):
+        raise ValueError(f"figure {name} URLs must be strict local fragment references")
     if _EXTERNAL_URL.search(value):
         raise ValueError(f"figure {name} contains an external URL")
     for match in _URL_FUNCTION.finditer(value):
@@ -398,10 +415,10 @@ def _validate_svg_attribute(raw_name: str, value: str) -> None:
         raise ValueError(f"figure event handler {name!r} is not allowed")
     if lowered in {"href", "src"} and not value.strip().startswith("#"):
         raise ValueError(f"figure {name!r} contains an external URL")
-    if lowered == "style":
-        _validate_css(value, name="style attribute")
-    else:
-        _validate_url_value(value, name=f"attribute {name!r}")
+    _validate_css(
+        value,
+        name="style attribute" if lowered == "style" else f"attribute {name!r}",
+    )
 
 
 def _validate_svg_element(element: ElementTree.Element) -> None:
@@ -444,7 +461,7 @@ def _validated_figure(value: object, *, name: str = "figure") -> str:
 
 
 def _stem_and_figure(stem_value: object, figure_value: object) -> tuple[str, str]:
-    stem = _non_empty_string(stem_value, name="stem")
+    stem = _raw_non_empty_string(stem_value, name="stem")
     matches = list(_FIGURE_BLOCK.finditer(stem))
     open_count = len(_FIGURE_OPEN.findall(stem))
     if open_count != len(matches):
@@ -530,15 +547,40 @@ def _excerpt_from_item(
     item: dict[str, object],
     provenance: dict[str, object] | None,
 ) -> str | None:
-    if item.get("source_excerpt") is not None:
-        return _normalized_text(item["source_excerpt"], name="source_excerpt")
+    explicit = (
+        _normalized_text(item["source_excerpt"], name="source_excerpt")
+        if item.get("source_excerpt") is not None
+        else None
+    )
+    quote: str | None = None
     if provenance is not None:
-        quote = provenance.get("quote_anchor")
-        if type(quote) is str and quote.strip():
-            return _normalized_text(quote, name="provenance.quote_anchor")
-        if quote is not None and type(quote) is not str:
+        raw_quote = provenance.get("quote_anchor")
+        if type(raw_quote) is str and raw_quote.strip():
+            quote = _normalized_text(raw_quote, name="provenance.quote_anchor")
+        if raw_quote is not None and type(raw_quote) is not str:
             raise ValueError("provenance.quote_anchor must be a string or null")
-    return None
+    if explicit is not None and quote is not None and explicit != quote:
+        raise ValueError(
+            "source_excerpt must match provenance.quote_anchor after canonicalization"
+        )
+    return explicit or quote
+
+
+def _validate_provenance_source_ref(
+    item: dict[str, object],
+    provenance: dict[str, object] | None,
+) -> None:
+    if provenance is None or "source_ref" not in provenance:
+        return
+    provenance_ref = _normalized_text(
+        provenance["source_ref"],
+        name="provenance.source_ref",
+    )
+    if "source_ref" not in item:
+        raise ValueError("provenance.source_ref requires top-level source_ref")
+    source_ref = _normalized_text(item["source_ref"], name="source_ref")
+    if provenance_ref != source_ref:
+        raise ValueError("provenance.source_ref must match top-level source_ref")
 
 
 def _canonical_pass_b(
@@ -550,6 +592,7 @@ def _canonical_pass_b(
     _validate_json(item)
     _validate_private_markers(item)
     provenance = _canonical_object_field(item, "provenance")
+    _validate_provenance_source_ref(item, provenance)
     excerpt = _excerpt_from_item(item, provenance)
     if require_excerpt and excerpt is None:
         raise ValueError("Pass B source excerpt is unavailable")
@@ -840,7 +883,7 @@ class RulerItem:
         self._validate_assignment()
 
     def _validate_assignment(self) -> None:
-        _optional_string(self.review_id, name="review_id")
+        review_id = _optional_string(self.review_id, name="review_id")
         _allowed_optional_string(
             self.stratum,
             name="stratum",
@@ -851,7 +894,14 @@ class RulerItem:
             name="split",
             allowed=_VALID_SPLITS,
         )
-        _optional_string(self.repeat_of, name="repeat_of")
+        repeat_of = _optional_string(self.repeat_of, name="repeat_of")
+        for name, value in (("review_id", review_id), ("repeat_of", repeat_of)):
+            if value is not None:
+                _validate_private_markers(
+                    value,
+                    f"$.{name}",
+                    identifier=True,
+                )
 
     @classmethod
     def from_source_item(

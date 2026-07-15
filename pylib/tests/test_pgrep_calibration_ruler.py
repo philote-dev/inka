@@ -293,6 +293,48 @@ def test_provenance_quote_anchor_is_a_real_pass_b_excerpt() -> None:
     }
 
 
+def test_provenance_source_ref_must_match_top_level_source_ref() -> None:
+    item = _problem(
+        provenance={
+            "source_ref": "Different source, p. 2",
+            "quote_anchor": "Angular momentum is conserved.",
+        }
+    )
+
+    with pytest.raises(ValueError, match="provenance.source_ref.*source_ref"):
+        calibration_ruler.validate_source_item(item)
+
+
+def test_quote_anchor_and_explicit_excerpt_compare_canonically() -> None:
+    item = _problem(
+        source_excerpt="  Cafe\u0301   angular momentum. ",
+        provenance={
+            "source_ref": " OpenStax,   p. 1 ",
+            "quote_anchor": "Café angular   momentum.",
+        },
+    )
+
+    canonical = calibration_ruler.canonical_problem(item)
+
+    assert canonical["source_excerpt"] == "Café angular momentum."
+    assert cast(dict[str, object], canonical["provenance"])["source_ref"] == (
+        "OpenStax, p. 1"
+    )
+
+
+def test_quote_anchor_and_explicit_excerpt_must_not_contradict() -> None:
+    item = _problem(
+        source_excerpt="Angular momentum is conserved.",
+        provenance={
+            "source_ref": "OpenStax, p. 1",
+            "quote_anchor": "Angular momentum is not conserved.",
+        },
+    )
+
+    with pytest.raises(ValueError, match="source_excerpt.*quote_anchor"):
+        calibration_ruler.validate_source_item(item)
+
+
 def test_embedded_bundle_figure_is_extracted_without_rewriting_svg() -> None:
     item = _problem(
         stem=f'  A wheel rotates. \n<div class="pg-figure">\n{_SVG}\n</div> '
@@ -304,6 +346,34 @@ def test_embedded_bundle_figure_is_extracted_without_rewriting_svg() -> None:
     assert canonical["stem"] == "A wheel rotates."
     assert canonical["figure"] == _SVG
     assert item == original
+
+
+def test_embedded_svg_bytes_are_not_unicode_normalized() -> None:
+    nfd_svg = '<svg xmlns="http://www.w3.org/2000/svg"><text>Cafe\u0301</text></svg>'
+    item = _problem(
+        stem=(f' Cafe\u0301   prose <div class="pg-figure">{nfd_svg}</div>')
+    )
+
+    canonical = calibration_ruler.canonical_problem(item)
+    nfc_figure_item = _problem(
+        stem="Café prose", figure=nfd_svg.replace("e\u0301", "é")
+    )
+
+    assert canonical["stem"] == "Café prose"
+    assert canonical["figure"] == nfd_svg
+    assert calibration_ruler.pass_a_hash(item) != calibration_ruler.pass_a_hash(
+        nfc_figure_item
+    )
+
+
+def test_nfd_embedded_and_explicit_svg_match_by_raw_bytes() -> None:
+    nfd_svg = '<svg xmlns="http://www.w3.org/2000/svg"><text>Cafe\u0301</text></svg>'
+    item = _problem(
+        stem=f'A wheel rotates.<div class="pg-figure">{nfd_svg}</div>',
+        figure=nfd_svg,
+    )
+
+    assert calibration_ruler.canonical_problem(item)["figure"] == nfd_svg
 
 
 def test_matching_explicit_and_embedded_figures_are_allowed() -> None:
@@ -358,10 +428,14 @@ def test_unsafe_figure_markup_is_rejected_not_silently_modified(figure: str) -> 
     "style",
     [
         "@import url(#local); fill: currentColor",
+        r"\40 import url(#local); fill: currentColor",
         "width: expression(alert(1))",
+        r"fill: u\72l(\68ttps://example.com/fill.svg#x)",
         "fill: url(https://example.com/fill.svg#x)",
         "fill: url(//example.com/fill.svg#x)",
         "fill: url(data:image/svg+xml;base64,PHN2Zz4=)",
+        "fill: url( #fade )",
+        "fill: url('#fade')",
     ],
 )
 def test_unsafe_svg_style_attributes_are_rejected(style: str) -> None:
@@ -386,6 +460,25 @@ def test_safe_svg_style_fragment_reference_is_preserved() -> None:
     assert (
         calibration_ruler.canonical_problem(_problem(figure=figure))["figure"] == figure
     )
+
+
+@pytest.mark.parametrize(
+    "fill",
+    [
+        r"u\72l(\68ttps://example.com/fill.svg#x)",
+        "url('#fade')",
+        "url( #fade )",
+    ],
+)
+def test_svg_presentation_attributes_use_strict_css_urls(fill: str) -> None:
+    figure = (
+        '<svg xmlns="http://www.w3.org/2000/svg">'
+        f'<path fill="{fill}" d="M0 0 L1 1"/>'
+        "</svg>"
+    )
+
+    with pytest.raises(ValueError, match="figure"):
+        calibration_ruler.validate_source_item(_problem(figure=figure))
 
 
 @pytest.mark.parametrize(
@@ -682,6 +775,28 @@ def test_private_markers_are_rejected_in_nested_keys() -> None:
         calibration_ruler.validate_source_item(
             _problem(verifier={"gold_path": "hidden"})
         )
+
+
+def test_nested_source_path_context_reaches_wrapped_value() -> None:
+    item = _problem(source_path={"wrapper": [{"value": "gold"}]})
+
+    with pytest.raises(ValueError, match="private marker"):
+        calibration_ruler.validate_source_item(item)
+
+
+def test_repeat_of_is_validated_as_an_opaque_id() -> None:
+    with pytest.raises(ValueError, match="private marker"):
+        calibration_ruler.RulerItem.from_source_item(
+            _problem(),
+            repeat_of="heldout-17",
+        )
+
+
+def test_opaque_id_context_survives_list_and_dict_wrappers() -> None:
+    item = _problem(audit={"opaque_ids": [{"wrapper": {"value": "tier3-17"}}]})
+
+    with pytest.raises(ValueError, match="private marker"):
+        calibration_ruler.validate_source_item(item)
 
 
 def test_legitimate_gold_physics_prose_is_allowed() -> None:
