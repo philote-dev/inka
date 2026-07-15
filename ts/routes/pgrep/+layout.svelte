@@ -14,6 +14,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     import Landing from "$lib/components/Landing.svelte";
     import NavRail from "$lib/components/NavRail.svelte";
+    import RailEdgePill from "$lib/components/RailEdgePill.svelte";
     import SplashScreen from "$lib/components/SplashScreen.svelte";
     import {
         closeRail,
@@ -168,18 +169,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             ></button>
         {/if}
 
+        <!-- Desktop: one edge pill toggles hide/show (travels with the rail
+             edge). Phone: burger only while collapsed; the drawer closes via
+             the scrim or a destination tap. -->
+        <RailEdgePill />
         {#if !$railOpen}
-            <!-- Restore affordances, shown only while the rail is collapsed. The
-                 left-edge handle appears on hover; the top-left button is always
-                 there. Both bring the rail back. -->
-            <button
-                class="rail-edge"
-                type="button"
-                on:click={openRail}
-                aria-label="Show sidebar"
-            >
-                <span class="handle" aria-hidden="true"></span>
-            </button>
             <button
                 class="rail-burger"
                 type="button"
@@ -240,24 +234,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         top: 42px;
     }
 
-    :global(body.pgrep-native-titlebar) .rail-edge {
-        top: 28px;
-    }
-
     .page {
         flex: 1 1 auto;
         min-width: 0;
     }
 
-    /* Restore affordances, shown only while the rail is collapsed. */
+    /* Phone-only reopen control while the drawer is collapsed. Desktop uses the
+       edge pill instead. */
     .rail-burger {
+        display: none;
         position: fixed;
         top: 14px;
         left: 14px;
         z-index: 30;
         width: 40px;
         height: 40px;
-        display: inline-flex;
         align-items: center;
         justify-content: center;
         border: var(--hairline);
@@ -272,44 +263,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     .rail-burger:hover {
         color: var(--text);
         border-color: var(--muted);
-    }
-
-    /* A thin left-edge zone that reveals a small centred handle on hover. */
-    .rail-edge {
-        position: fixed;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        z-index: 25;
-        width: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        padding: 0;
-        border: none;
-        background: none;
-        cursor: pointer;
-    }
-
-    /* Always faintly visible so the collapsed rail is discoverable, growing more
-       prominent on hover or keyboard focus. */
-    .rail-edge .handle {
-        width: 4px;
-        height: 48px;
-        border-radius: var(--radius-pill);
-        background: var(--border);
-        opacity: 0.5;
-        transition:
-            opacity var(--duration-calm) var(--ease-spring),
-            width var(--duration-calm) var(--ease-spring),
-            background var(--duration-calm) var(--ease-spring);
-    }
-
-    .rail-edge:hover .handle,
-    .rail-edge:focus-visible .handle {
-        opacity: 1;
-        width: 6px;
-        background: var(--muted);
     }
 
     /* Phone drawer scrim: dims the content while the rail overlays it, and is
@@ -334,19 +287,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         }
     }
 
-    /* Phone: the edge-hover handle has no meaning on touch, so the burger is the
-       single, obvious way back to the rail. */
     @media (max-width: 640px) {
-        .rail-edge {
-            display: none;
+        .rail-burger {
+            display: inline-flex;
         }
     }
 
     @media (prefers-reduced-motion: reduce) {
-        .rail-edge .handle {
-            transition: opacity 0s;
-        }
-
         .rail-scrim {
             animation: none;
         }

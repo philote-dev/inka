@@ -44,8 +44,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     // is live with no rebuild. Defaults resemble the reference, just shorter.
     let tab = {
         h: 70, // vertical length (px)
-        wRest: 5, // how far it protrudes at rest (px)
-        wHover: 10, // how far it protrudes on hover (px)
+        wRest: 4, // how far it protrudes at rest (px)
+        wHover: 8, // how far it protrudes on hover (px)
         radius: 20, // outer (right) corner radius (px)
         chev: 0, // chevron size (px); 0 hides it
         opacity: 0.5, // rest opacity
@@ -711,22 +711,38 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         transition: opacity var(--duration-calm) var(--ease-spring);
     }
 
-    .proposed.is-collapsed .toggleSlot:hover::before,
-    .proposed.is-collapsed .toggleSlot:focus-within::before {
+    /* Hover only — :focus-within would paint the full-height wash on click-hold
+       and read as a giant outline of the hit area. Keyboard focus grows the pill. */
+    .proposed.is-collapsed .toggleSlot:hover::before {
         opacity: 1;
     }
 
     /* Transparent hit area over the whole slot; sits above the pill visual so
-       clicks land on it while the pill can sit flush on the edge underneath. */
+       clicks land on it while the pill can sit flush on the edge underneath.
+       Kill every border/outline/shadow so press/focus never reveals the full-
+       height hit rect (app-wide button rules otherwise paint one). */
     .proposed .toggle {
         position: absolute;
         inset: 0;
         z-index: 1;
         margin: 0;
         padding: 0;
-        border: 1px solid transparent;
-        background: none;
+        border: 1px solid transparent !important;
+        background: none !important;
+        box-shadow: none !important;
+        outline: none !important;
+        -webkit-tap-highlight-color: transparent;
         cursor: pointer;
+    }
+
+    .proposed .toggle:hover,
+    .proposed .toggle:active,
+    .proposed .toggle:focus,
+    .proposed .toggle:focus-visible {
+        border-color: transparent !important;
+        background: none !important;
+        box-shadow: none !important;
+        outline: none !important;
     }
 
     /* The tab: a slab flush to the edge (flat left), rounded on the outer (right)
