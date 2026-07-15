@@ -315,9 +315,10 @@ content/run/calibration/<run-id>/
 └── reports/
 ```
 
-Each block contains at most 20 judgments. `index.md` lists completion status and
-content hashes without model identity, stored answers, verifier output, or
-split assignments.
+Each block contains at most 20 judgments. `index.md` lists review IDs and
+completion placeholders only. It does not show content hashes, model identity,
+stored answers, verifier output, split assignments, or any other token that
+would let a reviewer detect hidden repeats.
 
 ### Pass A: independent problem judgment
 
