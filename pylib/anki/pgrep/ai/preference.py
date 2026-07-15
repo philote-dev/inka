@@ -484,6 +484,42 @@ def finalized_run_directories(root: str | Path) -> list[Path]:
     return sorted(directories)
 
 
+def _audit_preference_line(
+    line: str,
+    location: str,
+) -> tuple[dict | None, bool, list[str]]:
+    try:
+        record = json.loads(line, parse_constant=_reject_json_constant)
+    except (json.JSONDecodeError, ValueError) as error:
+        return None, False, [f"{location}: malformed JSON: {error}"]
+    is_synthetic = isinstance(record, dict) and record.get("synthetic") is True
+    validation_errors = validate_pair(record)
+    if validation_errors:
+        return (
+            None,
+            is_synthetic,
+            [f"{location}: {error}" for error in validation_errors],
+        )
+    return record, is_synthetic, []
+
+
+def _duplicate_identity(
+    record: dict,
+    location: str,
+    seen: dict[tuple[str, str], str],
+) -> dict[str, str] | None:
+    identity = (record["chosen"]["id"], record["rejected"]["id"])
+    if first := seen.get(identity):
+        return {
+            "chosen_id": identity[0],
+            "rejected_id": identity[1],
+            "first": first,
+            "duplicate": location,
+        }
+    seen[identity] = location
+    return None
+
+
 def audit_preferences(root: str | Path) -> dict[str, Any]:
     """Validate and summarize every preferences.jsonl below ``root``."""
     root_path = Path(root)
@@ -509,35 +545,23 @@ def audit_preferences(root: str | Path) -> dict[str, Any]:
             continue
         for lineno, line in enumerate(lines, start=1):
             location = f"{label}:line {lineno}"
-            try:
-                record = json.loads(line, parse_constant=_reject_json_constant)
-            except (json.JSONDecodeError, ValueError) as error:
-                errors.append(f"{location}: malformed JSON: {error}")
-                continue
-            is_synthetic = isinstance(record, dict) and record.get("synthetic") is True
+            record, is_synthetic, row_errors = _audit_preference_line(
+                line,
+                location,
+            )
             if is_synthetic:
                 synthetic_excluded += 1
-            validation_errors = validate_pair(record)
-            if validation_errors:
+            if row_errors:
                 target = synthetic_errors if is_synthetic else errors
-                target.extend(f"{location}: {error}" for error in validation_errors)
+                target.extend(row_errors)
                 continue
             if is_synthetic:
                 valid_synthetic_count += 1
                 continue
+            assert record is not None
             production_pairs.append(record)
-            identity = (record["chosen"]["id"], record["rejected"]["id"])
-            if first := seen.get(identity):
-                duplicates.append(
-                    {
-                        "chosen_id": identity[0],
-                        "rejected_id": identity[1],
-                        "first": first,
-                        "duplicate": location,
-                    }
-                )
-            else:
-                seen[identity] = location
+            if duplicate := _duplicate_identity(record, location, seen):
+                duplicates.append(duplicate)
 
     categories = sorted(
         {pair["slot"]["blueprint_category"] for pair in production_pairs}
