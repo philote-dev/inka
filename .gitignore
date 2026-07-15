@@ -20,7 +20,8 @@ ts/.svelte-kit
 .yarn
 .claude/settings.local.json
 .claude/user.md
-.venv
+# Python virtual environments at any depth
+**/.venv/
 docs/_build/
 docs/autoapi/
 .complexipy_cache

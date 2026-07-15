@@ -18,7 +18,8 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-WORKER_PATH = REPO_ROOT / "tools" / "shadow_worker" / "worker.py"
+WORKER_ROOT = REPO_ROOT / "tools" / "shadow_worker"
+WORKER_PATH = WORKER_ROOT / "worker.py"
 
 
 def _load_worker():
@@ -47,9 +48,14 @@ class _FakeModel:
 class _FakeModels:
     def __init__(self, models: list[_FakeModel]) -> None:
         self._models = models
+        self.error: Exception | None = None
+        self.last_api_key: str | None = None
 
     def list(self, *, client=None, api_key=None):
-        del client, api_key
+        del client
+        self.last_api_key = api_key
+        if self.error:
+            raise self.error
         return list(self._models)
 
 
@@ -58,6 +64,7 @@ class _FakeRunResult:
         self,
         *,
         status: str,
+        model_id: str | None,
         text: str = "",
         run_id: str = "run-1",
         agent_id: str = "agent-1",
@@ -66,6 +73,9 @@ class _FakeRunResult:
         self.result = text
         self.id = run_id
         self.agent_id = agent_id
+        self.model = (
+            types.SimpleNamespace(id=model_id) if model_id is not None else None
+        )
 
 
 class _FakeCursorAgentError(Exception):
@@ -88,33 +98,47 @@ class _FakeLocalAgentOptions:
 class _FakeAgent:
     last_prompt = None
     last_options = None
-    behavior = "finished"
+    startup_error: Exception | None = None
+    status = "finished"
+    returned_model_id: str | None = None
+    omit_model = False
+    result_text = "ok"
 
     @classmethod
     def prompt(cls, message, options=None, *, client=None):
         del client
         cls.last_prompt = message
         cls.last_options = options
-        if cls.behavior == "startup_error":
-            raise _FakeCursorAgentError("auth failed", is_retryable=False)
-        if cls.behavior == "run_error":
-            return _FakeRunResult(
-                status="error", text="", run_id="run-err", agent_id="agent-err"
-            )
+        if cls.startup_error:
+            raise cls.startup_error
+        requested_model = options.kwargs["model"]
+        model_id = (
+            None
+            if cls.omit_model
+            else cls.returned_model_id
+            if cls.returned_model_id is not None
+            else requested_model
+        )
         return _FakeRunResult(
-            status="finished",
-            text="ok",
-            run_id="run-ok",
-            agent_id="agent-ok",
+            status=cls.status,
+            model_id=model_id,
+            text=cls.result_text,
+            run_id="run-1",
+            agent_id="agent-1",
         )
 
 
 @pytest.fixture
-def fake_cursor():
-    _FakeAgent.behavior = "finished"
+def fake_cursor(monkeypatch):
+    monkeypatch.setenv("CURSOR_API_KEY", "cursor_test_secret")
     _FakeAgent.last_prompt = None
     _FakeAgent.last_options = None
-    cursor = types.SimpleNamespace(
+    _FakeAgent.startup_error = None
+    _FakeAgent.status = "finished"
+    _FakeAgent.returned_model_id = None
+    _FakeAgent.omit_model = False
+    _FakeAgent.result_text = "ok"
+    return types.SimpleNamespace(
         models=_FakeModels(
             [
                 _FakeModel("claude-opus-4-8-thinking-high-fast"),
@@ -127,7 +151,10 @@ def fake_cursor():
         LocalAgentOptions=_FakeLocalAgentOptions,
         CursorAgentError=_FakeCursorAgentError,
     )
-    return cursor
+
+
+def _prompt_payload(model_id: str = "gpt-5.6-sol-max") -> dict[str, str]:
+    return {"action": "prompt", "model_id": model_id, "prompt": "private prompt"}
 
 
 def test_worker_import_does_not_load_cursor_sdk(worker) -> None:
@@ -141,107 +168,253 @@ def test_models_action_serializes_account_ids(
     request = tmp_path / "request.json"
     result = tmp_path / "result.json"
     request.write_text('{"action":"models"}', encoding="utf-8")
-    worker.run(request, result, cursor=fake_cursor)
+    exit_code = worker.run(request, result, cursor=fake_cursor)
     payload = json.loads(result.read_text(encoding="utf-8"))
+    assert exit_code == 0
+    assert payload["status"] == "finished"
     assert [m["id"] for m in payload["models"]] == [
         "claude-opus-4-8-thinking-high-fast",
         "cursor-grok-4.5-high-fast",
         "gpt-5.6-sol-max",
     ]
-    assert "parameters" in payload["models"][0]
-    assert "variants" in payload["models"][0]
+    assert fake_cursor.models.last_api_key == "cursor_test_secret"
 
 
-def test_prompt_rejects_unlisted_model(worker, fake_cursor) -> None:
-    with pytest.raises(ValueError, match="not available"):
-        worker.run_prompt(
-            {"model_id": "auto", "prompt": "x"},
-            cursor=fake_cursor,
+def test_models_action_serializes_nested_parameter_metadata(
+    worker, fake_cursor
+) -> None:
+    fake_cursor.models._models = [
+        _FakeModel(
+            "gpt-5.6-sol-max",
+            parameters=(
+                types.SimpleNamespace(
+                    id="reasoning",
+                    display_name="Reasoning",
+                    values=(
+                        types.SimpleNamespace(value="high", display_name="High"),
+                    ),
+                ),
+            ),
+            variants=(
+                types.SimpleNamespace(
+                    display_name="Max",
+                    params=(types.SimpleNamespace(id="max", value="true"),),
+                    is_default=True,
+                ),
+            ),
         )
+    ]
+    assert worker.list_models(cursor=fake_cursor) == [
+        {
+            "id": "gpt-5.6-sol-max",
+            "parameters": [
+                {
+                    "id": "reasoning",
+                    "display_name": "Reasoning",
+                    "values": [{"value": "high", "display_name": "High"}],
+                }
+            ],
+            "variants": [
+                {
+                    "display_name": "Max",
+                    "params": [{"id": "max", "value": "true"}],
+                    "is_default": True,
+                }
+            ],
+        }
+    ]
+
+
+def test_prompt_rejects_auto_even_when_catalog_lists_it(worker, fake_cursor) -> None:
+    fake_cursor.models._models.append(_FakeModel("auto"))
+    with pytest.raises(ValueError, match="not available"):
+        worker.run_prompt(_prompt_payload("auto"), cursor=fake_cursor)
+
+
+def test_prompt_rejects_arbitrary_unlisted_model(worker, fake_cursor) -> None:
+    with pytest.raises(ValueError, match="not available"):
+        worker.run_prompt(_prompt_payload("invented-model"), cursor=fake_cursor)
 
 
 def test_prompt_rejects_missing_model_id(worker, fake_cursor) -> None:
     with pytest.raises(ValueError, match="not available"):
-        worker.run_prompt({"prompt": "x"}, cursor=fake_cursor)
+        worker.run_prompt(
+            {"action": "prompt", "prompt": "private prompt"},
+            cursor=fake_cursor,
+        )
 
 
-def test_prompt_records_finished_run(worker, fake_cursor, tmp_path: Path) -> None:
+def test_prompt_records_verified_finished_model(
+    worker, fake_cursor, tmp_path: Path
+) -> None:
     payload = worker.run_prompt(
-        {"model_id": "gpt-5.6-sol-max", "prompt": "secret-prompt"},
-        api_key="cursor_secret",
+        _prompt_payload(),
         workdir=str(tmp_path),
         cursor=fake_cursor,
     )
     assert payload == {
         "status": "finished",
         "text": "ok",
-        "agent_id": "agent-ok",
-        "run_id": "run-ok",
+        "agent_id": "agent-1",
+        "run_id": "run-1",
+        "requested_model_id": "gpt-5.6-sol-max",
         "model_id": "gpt-5.6-sol-max",
         "error_kind": None,
     }
     assert _FakeAgent.last_options.kwargs["model"] == "gpt-5.6-sol-max"
-    assert _FakeAgent.last_options.kwargs["api_key"] == "cursor_secret"
+    assert _FakeAgent.last_options.kwargs["api_key"] == "cursor_test_secret"
     assert _FakeAgent.last_options.kwargs["local"].kwargs["cwd"] == str(tmp_path)
 
 
-def test_prompt_distinguishes_startup_error_from_run_error(
+def test_prompt_fails_when_returned_model_is_substituted(worker, fake_cursor) -> None:
+    _FakeAgent.returned_model_id = "different-model"
+    payload = worker.run_prompt(_prompt_payload(), cursor=fake_cursor)
+    assert payload["status"] == "error"
+    assert payload["error_kind"] == "model_identity"
+    assert payload["requested_model_id"] == "gpt-5.6-sol-max"
+    assert payload["model_id"] == "different-model"
+    assert "gpt-5.6-sol-max" not in payload["model_id"]
+
+
+def test_prompt_fails_when_returned_model_is_missing(worker, fake_cursor) -> None:
+    _FakeAgent.omit_model = True
+    payload = worker.run_prompt(_prompt_payload(), cursor=fake_cursor)
+    assert payload["status"] == "error"
+    assert payload["error_kind"] == "model_identity"
+    assert payload["requested_model_id"] == "gpt-5.6-sol-max"
+    assert payload["model_id"] == ""
+
+
+def test_list_models_sdk_exception_is_startup_error(
     worker, fake_cursor, tmp_path: Path
 ) -> None:
-    _FakeAgent.behavior = "startup_error"
-    startup = worker.run_prompt(
-        {"model_id": "gpt-5.6-sol-max", "prompt": "x"},
-        api_key="k",
-        workdir=str(tmp_path),
-        cursor=fake_cursor,
-    )
-    assert startup["status"] == "startup_error"
-    assert startup["error_kind"] == "startup"
-    assert startup["model_id"] == "gpt-5.6-sol-max"
-    assert startup["agent_id"] == ""
-    assert startup["run_id"] == ""
-    assert "auth failed" in startup["text"]
-
-    _FakeAgent.behavior = "run_error"
-    run_err = worker.run_prompt(
-        {"model_id": "gpt-5.6-sol-max", "prompt": "x"},
-        api_key="k",
-        workdir=str(tmp_path),
-        cursor=fake_cursor,
-    )
-    assert run_err["status"] == "error"
-    assert run_err["error_kind"] == "run"
-    assert run_err["agent_id"] == "agent-err"
-    assert run_err["run_id"] == "run-err"
-    assert run_err["model_id"] == "gpt-5.6-sol-max"
+    fake_cursor.models.error = _FakeCursorAgentError("authentication failed")
+    request = tmp_path / "request.json"
+    result = tmp_path / "result.json"
+    request.write_text('{"action":"models"}', encoding="utf-8")
+    exit_code = worker.run(request, result, cursor=fake_cursor)
+    payload = json.loads(result.read_text(encoding="utf-8"))
+    assert exit_code == 1
+    assert payload["status"] == "startup_error"
+    assert payload["error_kind"] == "startup"
+    assert payload["models"] == []
 
 
-def test_run_prompt_action_writes_result_without_leaking_secrets(
-    worker, fake_cursor, tmp_path: Path, capsys
+def test_prompt_sdk_exception_is_startup_error(worker, fake_cursor) -> None:
+    _FakeAgent.startup_error = _FakeCursorAgentError("network unavailable")
+    payload = worker.run_prompt(_prompt_payload(), cursor=fake_cursor)
+    assert payload["status"] == "startup_error"
+    assert payload["error_kind"] == "startup"
+    assert payload["requested_model_id"] == "gpt-5.6-sol-max"
+    assert payload["model_id"] == ""
+    assert payload["agent_id"] == ""
+    assert payload["run_id"] == ""
+
+
+@pytest.mark.parametrize("status", ["error", "cancelled", "expired"])
+def test_terminal_nonfinished_status_is_explicit_run_failure(
+    worker, fake_cursor, tmp_path: Path, status: str
+) -> None:
+    _FakeAgent.status = status
+    request = tmp_path / "request.json"
+    result = tmp_path / "result.json"
+    request.write_text(json.dumps(_prompt_payload()), encoding="utf-8")
+    exit_code = worker.run(request, result, cursor=fake_cursor)
+    payload = json.loads(result.read_text(encoding="utf-8"))
+    assert exit_code != 0
+    assert payload["status"] == status
+    assert payload["error_kind"] == "run"
+    assert payload["model_id"] == "gpt-5.6-sol-max"
+
+
+def test_unknown_status_is_explicit_failure(
+    worker, fake_cursor, tmp_path: Path
+) -> None:
+    _FakeAgent.status = "surprising"
+    request = tmp_path / "request.json"
+    result = tmp_path / "result.json"
+    request.write_text(json.dumps(_prompt_payload()), encoding="utf-8")
+    exit_code = worker.run(request, result, cursor=fake_cursor)
+    payload = json.loads(result.read_text(encoding="utf-8"))
+    assert exit_code != 0
+    assert payload["status"] == "error"
+    assert payload["sdk_status"] == "surprising"
+    assert payload["error_kind"] == "unknown_status"
+
+
+def test_protocol_rejects_api_key_in_request(
+    worker, fake_cursor, tmp_path: Path
 ) -> None:
     request = tmp_path / "request.json"
     result = tmp_path / "result.json"
-    request.write_text(
-        json.dumps(
-            {
-                "action": "prompt",
-                "model_id": "cursor-grok-4.5-high-fast",
-                "prompt": "TOP-SECRET-PROMPT",
-                "api_key": "cursor_TOP-SECRET-KEY",
-                "workdir": str(tmp_path),
-            }
-        ),
-        encoding="utf-8",
+    payload = _prompt_payload() | {"api_key": "must-not-be-here"}
+    request.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="unexpected request fields"):
+        worker.run(request, result, cursor=fake_cursor)
+
+
+def test_startup_errors_redact_environment_key_prompt_and_authorization_tokens(
+    worker, fake_cursor, monkeypatch
+) -> None:
+    key = "cursor_super_secret_value"
+    prompt = "PRIVATE-PROMPT-CONTENT"
+    monkeypatch.setenv("CURSOR_API_KEY", key)
+    _FakeAgent.startup_error = _FakeCursorAgentError(
+        f"failed {key}; prompt={prompt}; "
+        "Authorization: Bearer eyJhbGciOiJIUzI1Ni.secret; "
+        "Proxy-Authorization: Basic dXNlcjpwYXNzd29yZA==; "
+        "api_key=sk-another-secret"
     )
-    worker.run(request, result, cursor=fake_cursor)
-    out = result.read_text(encoding="utf-8")
-    payload = json.loads(out)
-    assert payload["status"] == "finished"
-    assert payload["model_id"] == "cursor-grok-4.5-high-fast"
-    assert "TOP-SECRET-PROMPT" not in out
-    assert "TOP-SECRET-KEY" not in out
-    captured = capsys.readouterr()
-    assert "TOP-SECRET-PROMPT" not in captured.out
-    assert "TOP-SECRET-PROMPT" not in captured.err
-    assert "TOP-SECRET-KEY" not in captured.out
-    assert "TOP-SECRET-KEY" not in captured.err
+    payload = worker.run_prompt(
+        {"action": "prompt", "model_id": "gpt-5.6-sol-max", "prompt": prompt},
+        cursor=fake_cursor,
+    )
+    persisted = json.dumps(payload)
+    assert payload["status"] == "startup_error"
+    assert "[REDACTED]" in persisted
+    assert key not in persisted
+    assert prompt not in persisted
+    assert "eyJhbGciOiJIUzI1Ni.secret" not in persisted
+    assert "dXNlcjpwYXNzd29yZA==" not in persisted
+    assert "sk-another-secret" not in persisted
+
+
+def test_returned_error_text_redacts_secrets(worker, fake_cursor, monkeypatch) -> None:
+    key = "cursor_result_secret"
+    monkeypatch.setenv("CURSOR_API_KEY", key)
+    _FakeAgent.status = "error"
+    _FakeAgent.result_text = f"Authorization=Bearer token-value api-key: {key}"
+    payload = worker.run_prompt(_prompt_payload(), cursor=fake_cursor)
+    persisted = json.dumps(payload)
+    assert payload["error_kind"] == "run"
+    assert key not in persisted
+    assert "token-value" not in persisted
+
+
+def test_dockerfile_pins_exact_uv_python_and_digests() -> None:
+    dockerfile = (WORKER_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    from_lines = [
+        line for line in dockerfile.splitlines() if line.startswith("FROM ")
+    ]
+    assert "ghcr.io/astral-sh/uv:0.9.17@sha256:" in from_lines[0]
+    assert "python:3.13.13-slim-bookworm@sha256:" in from_lines[1]
+    assert all("@sha256:" in line for line in from_lines)
+    assert "COPY . " not in dockerfile
+
+
+def test_dockerignore_whitelists_worker_runtime_files() -> None:
+    dockerignore = (WORKER_ROOT / ".dockerignore").read_text(encoding="utf-8")
+    assert dockerignore.startswith("*\n")
+    assert "!.venv" not in dockerignore
+    assert "!worker.py" in dockerignore
+    assert "!pyproject.toml" in dockerignore
+    assert "!uv.lock" in dockerignore
+    assert "__pycache__/" in dockerignore
+    assert "test*" in dockerignore
+
+
+def test_worker_sync_recipe_uses_out_environment() -> None:
+    justfile = (REPO_ROOT / "justfile").read_text(encoding="utf-8")
+    assert "shadow-worker-sync:" in justfile
+    assert 'UV_PROJECT_ENVIRONMENT="$PWD/out/shadow-worker-venv"' in justfile
+    assert "sync --project tools/shadow_worker --locked --no-config" in justfile

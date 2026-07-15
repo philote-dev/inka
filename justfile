@@ -168,6 +168,11 @@ pgrep-ai-deps:
     {{ ninja }} pyenv
     {{ uv }} pip install --python out/pyenv/bin/python fastembed openai sympy sqlite-vec numpy
 
+# Sync the isolated Cursor worker without creating a nested virtualenv. macOS/Linux.
+[unix]
+shadow-worker-sync:
+    UV_PROJECT_ENVIRONMENT="$PWD/out/shadow-worker-venv" {{ uv }} sync --project tools/shadow_worker --locked --no-config
+
 # Build + run with the AI key loaded from the environment (or content/.env if
 # present), so the in-app AI toggle can grade the ladder and generate live. Run
 # `just pgrep-ai-deps` once first. macOS/Linux.
