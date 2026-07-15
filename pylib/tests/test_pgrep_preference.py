@@ -382,6 +382,31 @@ def test_validate_pair_rejects_invalid_failing_gates(invalid_gates):
     assert any("rejected.failing_gates" in err for err in errs)
 
 
+@pytest.mark.parametrize("refusal_field", ["refused", "panel"])
+def test_validate_pair_rejects_directly_injected_refusal_pair(refusal_field):
+    pair = _valid_pair()
+    if refusal_field == "refused":
+        pair["rejected"]["refused"] = True
+        pair["rejected"]["failing_gates"] = ["refusal"]
+    else:
+        pair["rejected"]["panel"]["refusal"] = True
+
+    errors = preference.validate_pair(pair)
+
+    assert any("refusal" in error and "preference" in error for error in errors)
+
+
+def test_scan_jsonl_rejects_directly_injected_refusal_pair(tmp_path: Path):
+    pair = _valid_pair()
+    pair["rejected"]["panel"]["refusal"] = True
+    path = tmp_path / "preferences.jsonl"
+    path.write_text(json.dumps(pair) + "\n", encoding="utf-8")
+
+    errors = preference.scan_jsonl(str(path))
+
+    assert any("line 1" in error and "refusal" in error for error in errors)
+
+
 def test_validate_pair_rejects_private_id_prefixes():
     pair = _valid_pair(chosen_id="gold-001")
     errs = preference.validate_pair(pair)
@@ -471,7 +496,16 @@ def test_scan_jsonl_reports_nested_panel_marker_path_and_line(tmp_path: Path):
 
 @pytest.mark.parametrize(
     "marker",
-    ["held-out:17", "held_out/17", "heldout-17", "tier-3:17", "tier_3/17"],
+    [
+        "held-out:17",
+        "held_out/17",
+        "held out:17",
+        "held-out item",
+        "heldout-17",
+        "tier-3:17",
+        "tier_3/17",
+        "tier 3/item",
+    ],
 )
 def test_scan_jsonl_reports_nested_slot_metadata_marker(tmp_path: Path, marker: str):
     pair = _valid_pair()
@@ -493,8 +527,11 @@ def test_scan_jsonl_reports_nested_slot_metadata_marker(tmp_path: Path, marker: 
         "heldout:17",
         "held-out:17",
         "held_out/17",
+        "held out:17",
+        "held-out item",
         "ets-17",
         "tier 3",
+        "tier 3/item",
         "tier3_17",
         "tier-3/17",
         "tier_3:17",
@@ -691,6 +728,51 @@ def test_audit_preferences_only_reads_finalized_run_directories(tmp_path: Path):
     assert audit["file_count"] == 1
     assert audit["validated_non_synthetic_pair_count"] == 1
     assert audit["errors"] == []
+
+
+def test_audit_preferences_ignores_duplicate_synthetic_identities(tmp_path: Path):
+    duplicate_synthetic = _valid_pair(
+        "dry-chosen",
+        "dry-rejected",
+        synthetic=True,
+    )
+    for run_name in ("dry-run-a", "dry-run-b"):
+        path = tmp_path / run_name / "preferences.jsonl"
+        preference.write_jsonl(str(path), [duplicate_synthetic])
+        _finalize_preferences(path)
+
+    for index, run_name in enumerate(("real-run-a", "real-run-b")):
+        path = tmp_path / run_name / "preferences.jsonl"
+        preference.write_jsonl(
+            str(path),
+            [_valid_pair(f"real-chosen-{index}", f"real-rejected-{index}")],
+        )
+        _finalize_preferences(path)
+
+    audit = preference.audit_preferences(tmp_path)
+
+    assert audit["validated_non_synthetic_pair_count"] == 2
+    assert audit["synthetic_excluded"] == 2
+    assert audit["duplicates"] == []
+    assert audit["errors"] == []
+    assert not audit["tier3_ready"]
+
+
+def test_audit_preferences_reports_synthetic_validation_errors_separately(
+    tmp_path: Path,
+):
+    synthetic = _valid_pair(synthetic=True)
+    synthetic["slot"]["blueprint_category"] = "invalid"
+    path = tmp_path / "dry-run" / "preferences.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(synthetic) + "\n", encoding="utf-8")
+    _finalize_preferences(path)
+
+    audit = preference.audit_preferences(tmp_path)
+
+    assert audit["errors"] == []
+    assert audit["synthetic_excluded"] == 1
+    assert any("blueprint_category" in error for error in audit["synthetic_errors"])
 
 
 def test_audit_preferences_detects_duplicates_across_runs(tmp_path: Path):
