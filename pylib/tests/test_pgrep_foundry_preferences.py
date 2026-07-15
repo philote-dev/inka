@@ -280,6 +280,25 @@ def test_write_result_rejects_preference_count_mismatch(tmp_path: Path) -> None:
     assert list(tmp_path.iterdir()) == []
 
 
+def test_invalid_training_candidate_aborts_without_finalized_run(
+    tmp_path: Path,
+) -> None:
+    result = foundry._dry_run("dynamics", 2, category="mechanics")
+    del result.accepted[0]["source_ref"]
+
+    with pytest.raises(ValueError, match=r"chosen\.source_ref"):
+        foundry._write_result(
+            str(tmp_path),
+            "invalid-candidate",
+            result,
+            {"topic": "dynamics", "blueprint_category": "mechanics"},
+            synthetic=True,
+        )
+
+    assert not (tmp_path / "invalid-candidate").exists()
+    assert not any(path.name == "_SUCCESS" for path in tmp_path.rglob("*"))
+
+
 def test_write_result_uses_exclusive_publication_lock(tmp_path: Path) -> None:
     result = foundry._dry_run("optics", 3, category="optics_waves")
     slot = {"topic": "optics", "blueprint_category": "optics_waves"}
@@ -468,6 +487,39 @@ def test_foundry_preference_check_rejects_cross_run_duplicates(tmp_path: Path):
 
     assert not result.ok
     assert any("duplicate chosen/rejected pair" in hit for hit in result.hits)
+
+
+def test_leakage_ignores_duplicate_synthetic_pairs_across_runs(tmp_path: Path):
+    synthetic = _valid_pair()
+    synthetic["synthetic"] = True
+    synthetic["chosen"]["id"] = "dry-chosen"
+    synthetic["rejected"]["id"] = "dry-rejected"
+    synthetic["chosen"]["source_ref"] = "synthetic://dry/chosen"
+    synthetic["rejected"]["source_ref"] = "synthetic://dry/rejected"
+    for run_name in ("dry-run-a", "dry-run-b"):
+        path = tmp_path / run_name / "preferences.jsonl"
+        _write_pair(path, synthetic)
+        _finalize(path)
+
+    real = _valid_pair()
+    real_path = tmp_path / "real-run" / "preferences.jsonl"
+    _write_pair(real_path, real)
+    _finalize(real_path)
+    db_path = tmp_path / "corpus.db"
+    _write_index(
+        db_path,
+        [real["chosen"]["source_ref"], real["rejected"]["source_ref"]],
+    )
+
+    result = leakage_check.check_foundry_preferences(
+        [],
+        leakage_check.DEFAULT_SPAN_THRESHOLD,
+        foundry_dir=str(tmp_path),
+        db_path=str(db_path),
+    )
+
+    assert result.ok
+    assert not any("duplicate" in hit for hit in result.hits)
 
 
 def test_leakage_discovery_only_reads_finalized_runs(tmp_path: Path):

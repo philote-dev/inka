@@ -41,7 +41,8 @@ SUCCESS_MARKER = "_SUCCESS"
 
 _PRIVATE_MARKER = re.compile(
     r"(?i)(?<![a-z0-9])(?:"
-    r"(?:gold|held[-_]?out|ets|gr9677|gr1777)(?=$|[-_/:\\])"
+    r"(?:gold|ets|gr9677|gr1777)(?=$|[-_/:\\])"
+    r"|held[\s_-]*out(?=$|[\s_/:\\-])"
     r"|tier[\s_-]*3(?=$|[\s_/:\\-])"
     r")"
 )
@@ -210,12 +211,12 @@ def _validate_failing_gates(rejected: object) -> list[str]:
     if type(refused) is not bool:
         errors.append("rejected.refused must be a boolean")
         return errors
-    if refused:
-        if gates != ["refusal"]:
-            errors.append("rejected refusal must use failing_gates ['refusal']")
+    panel = rejected.get("panel")
+    panel_refusal = isinstance(panel, dict) and panel.get("refusal") is True
+    if refused or panel_refusal:
+        errors.append("refusal outcomes are not valid preference records")
         return errors
 
-    panel = rejected.get("panel")
     checks = panel.get("checks") if isinstance(panel, dict) else None
     failed_hard = [
         check.get("name")
@@ -493,9 +494,12 @@ def audit_preferences(root: str | Path) -> dict[str, Any]:
     ]
 
     errors: list[str] = []
+    synthetic_errors: list[str] = []
     duplicates: list[dict[str, str]] = []
     seen: dict[tuple[str, str], str] = {}
-    valid_pairs: list[dict] = []
+    production_pairs: list[dict] = []
+    valid_synthetic_count = 0
+    synthetic_excluded = 0
     for path in files:
         label = _audit_file_label(root_path, path)
         try:
@@ -510,11 +514,18 @@ def audit_preferences(root: str | Path) -> dict[str, Any]:
             except (json.JSONDecodeError, ValueError) as error:
                 errors.append(f"{location}: malformed JSON: {error}")
                 continue
+            is_synthetic = isinstance(record, dict) and record.get("synthetic") is True
+            if is_synthetic:
+                synthetic_excluded += 1
             validation_errors = validate_pair(record)
             if validation_errors:
-                errors.extend(f"{location}: {error}" for error in validation_errors)
+                target = synthetic_errors if is_synthetic else errors
+                target.extend(f"{location}: {error}" for error in validation_errors)
                 continue
-            valid_pairs.append(record)
+            if is_synthetic:
+                valid_synthetic_count += 1
+                continue
+            production_pairs.append(record)
             identity = (record["chosen"]["id"], record["rejected"]["id"])
             if first := seen.get(identity):
                 duplicates.append(
@@ -528,19 +539,22 @@ def audit_preferences(root: str | Path) -> dict[str, Any]:
             else:
                 seen[identity] = location
 
-    eligible = [pair for pair in valid_pairs if not pair["synthetic"]]
-    categories = sorted({pair["slot"]["blueprint_category"] for pair in eligible})
+    categories = sorted(
+        {pair["slot"]["blueprint_category"] for pair in production_pairs}
+    )
     return {
         "file_count": len(files),
-        "validated_pair_count": len(valid_pairs),
-        "validated_non_synthetic_pair_count": len(eligible),
-        "excluded_synthetic_pair_count": len(valid_pairs) - len(eligible),
+        "validated_pair_count": len(production_pairs) + valid_synthetic_count,
+        "validated_non_synthetic_pair_count": len(production_pairs),
+        "excluded_synthetic_pair_count": synthetic_excluded,
+        "synthetic_excluded": synthetic_excluded,
+        "synthetic_errors": synthetic_errors,
         "categories": categories,
         "category_count": len(categories),
         "duplicates": duplicates,
         "errors": errors,
         "tier3_ready": (
-            len(eligible) >= TIER3_MIN_PAIRS
+            len(production_pairs) >= TIER3_MIN_PAIRS
             and len(categories) >= TIER3_MIN_CATEGORIES
             and not duplicates
             and not errors
