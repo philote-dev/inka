@@ -39,14 +39,22 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
+import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+try:
+    import pwd
+except ImportError:  # pragma: no cover - OCI runtimes are Unix-only here.
+    pwd = None  # type: ignore[assignment]
 
 import _ai_path  # noqa: E402
 
@@ -58,6 +66,12 @@ WORK_MOUNT = "/work"
 DEFAULT_TIMEOUT_SECONDS = 900.0
 DEFAULT_BUILD_TIMEOUT_SECONDS = 1800.0
 DEFAULT_CLEANUP_TIMEOUT_SECONDS = 30.0
+MAX_REQUEST_ENTRIES = 128
+MAX_REQUEST_DEPTH = 4
+MAX_FILE_BYTES = 1024 * 1024
+MAX_TOTAL_BYTES = 2 * 1024 * 1024
+MAX_RESULT_JSON_BYTES = 512 * 1024
+MAX_PROBE_BYTES = 256
 _RUNTIME_CANDIDATES = ("docker", "podman")
 _ALLOWED_NETWORKS = frozenset({"bridge", "default"})
 _WORKER_CONTEXT_FILES = (
@@ -68,33 +82,15 @@ _WORKER_CONTEXT_FILES = (
     "worker.py",
 )
 
-# Minimal host variables the container CLI itself needs. The API key is added
-# separately and forwarded into the container by name. Nothing else from the
-# ambient environment is exposed to the subprocess.
-_HOST_ENV_ALLOWLIST = (
-    "PATH",
-    "HOME",
-    "TMPDIR",
-    "TEMP",
-    "TMP",
-    "LANG",
-    "LC_ALL",
-    "LC_CTYPE",
-    "DOCKER_HOST",
-    "DOCKER_CONFIG",
-    "DOCKER_CERT_PATH",
-    "DOCKER_TLS_VERIFY",
-    "DOCKER_CONTEXT",
-    "CONTAINER_HOST",
-    "CONTAINERS_CONF",
-    "CONTAINERS_STORAGE_CONF",
-    "XDG_RUNTIME_DIR",
-    "XDG_CONFIG_HOME",
-    "SystemRoot",
-    "USERPROFILE",
-    "ComSpec",
-    "windir",
+_IMAGE_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
+_REMOTE_ENDPOINT_RE = re.compile(r"(?i)^(?:ssh|tcp|http|https|npipe|unix)://")
+_ABSENT_CONTAINER_MARKERS = (
+    "no such object",
+    "no such container",
+    "does not exist",
 )
+_MOUNT_PROBE_CACHE: set[tuple[str, str, str]] = set()
+_MOUNT_PROBE_LOCK = threading.Lock()
 
 # Keep this boundary-aware expression aligned with model_backend.py's hardened
 # training-data firewall. In particular, "marigold" must not match "gold".
@@ -157,6 +153,30 @@ class LeakageError(SandboxError):
     """A private training-data marker appeared in a request path or payload."""
 
 
+class RuntimeEndpointError(SandboxError):
+    """The runtime endpoint is not a verified local Unix socket."""
+
+
+class MountProbeError(SandboxError):
+    """The keyless two-way mount probe failed."""
+
+
+class SecurityCleanupError(SandboxError):
+    """A named container could not be proven absent."""
+
+
+class RequestCleanupError(SandboxError):
+    """A request path could not be proven removed."""
+
+
+class SandboxLimitError(SandboxError):
+    """Container output exceeded a strict filesystem bound."""
+
+
+class DescriptorOpenError(SandboxError):
+    """The host cannot safely open files relative to a directory descriptor."""
+
+
 @dataclass(frozen=True)
 class CommandResult:
     """The captured outcome of one runner invocation."""
@@ -164,6 +184,17 @@ class CommandResult:
     returncode: int
     stdout: str = ""
     stderr: str = ""
+
+
+@dataclass(frozen=True)
+class LocalRuntime:
+    """A verified executable and local Unix socket with stable identities."""
+
+    kind: str
+    binary: Path
+    socket: Path
+    binary_identity: str
+    socket_identity: str
 
 
 class CommandRunner(Protocol):
@@ -250,6 +281,186 @@ def detect_runtime(
     )
 
 
+def _account_home(uid: int) -> Path:
+    if pwd is None:
+        raise RuntimeEndpointError("local Unix runtime discovery is unsupported")
+    try:
+        return Path(pwd.getpwuid(uid).pw_dir)
+    except (KeyError, OSError) as err:
+        raise RuntimeEndpointError("could not resolve the local account home") from err
+
+
+def _local_socket_candidates(
+    runtime: str,
+    *,
+    platform: str = sys.platform,
+    uid: int | None = None,
+    home: Path | None = None,
+) -> tuple[Path, ...]:
+    """Return only structurally local sockets supported by this host."""
+    if uid is None:
+        if not hasattr(os, "getuid"):
+            return ()
+        uid = os.getuid()
+    if home is None:
+        home = _account_home(uid)
+
+    if runtime == "docker":
+        if platform == "darwin":
+            return (
+                home / ".docker" / "run" / "docker.sock",
+                Path("/var/run/docker.sock"),
+            )
+        if platform.startswith("linux"):
+            return (
+                Path("/var/run/docker.sock"),
+                Path("/run/docker.sock"),
+                Path(f"/run/user/{uid}/docker.sock"),
+            )
+        return ()
+    if runtime == "podman":
+        # Podman on macOS is always backed by a VM connection. Even though its
+        # forwarded API endpoint is a Unix socket, it is not a local engine.
+        if platform == "darwin":
+            return ()
+        if platform.startswith("linux"):
+            return (
+                Path(f"/run/user/{uid}/podman/podman.sock"),
+                Path("/run/podman/podman.sock"),
+            )
+    return ()
+
+
+def _normalize_socket_candidate(runtime: str, candidate: Path | str) -> Path:
+    rendered = os.fspath(candidate)
+    if not isinstance(rendered, str):
+        raise RuntimeEndpointError("runtime socket path must be text")
+    if _REMOTE_ENDPOINT_RE.match(rendered) or not Path(rendered).is_absolute():
+        raise RuntimeEndpointError(
+            f"{runtime} endpoint must be an absolute local Unix socket path"
+        )
+    if runtime == "podman" and "podman-machine" in rendered.lower():
+        raise RuntimeEndpointError("Podman machine endpoints are not local")
+    return Path(rendered)
+
+
+def _path_identity(path: Path, info: os.stat_result) -> str:
+    return f"{path}:{info.st_dev}:{info.st_ino}:{info.st_mtime_ns}:{info.st_size}"
+
+
+def _verified_local_runtime(
+    runtime: str,
+    binary: Path | str,
+    socket_path: Path | str,
+    *,
+    allowed_sockets: Sequence[Path | str],
+) -> LocalRuntime:
+    if runtime not in _RUNTIME_CANDIDATES:
+        raise RuntimeEndpointError("unsupported container runtime")
+    if not hasattr(os, "getuid"):
+        raise RuntimeEndpointError("local Unix runtime endpoints are required")
+    uid = os.getuid()
+
+    try:
+        binary_path = Path(binary).resolve(strict=True)
+        binary_info = binary_path.stat()
+    except OSError as err:
+        raise RuntimeEndpointError("runtime binary is unavailable") from err
+    if (
+        not stat.S_ISREG(binary_info.st_mode)
+        or not os.access(binary_path, os.X_OK)
+        or binary_info.st_uid not in (0, uid)
+    ):
+        raise RuntimeEndpointError("runtime binary is not a trusted executable")
+
+    selected = _normalize_socket_candidate(runtime, socket_path)
+    try:
+        selected_lstat = selected.lstat()
+        resolved_socket = selected.resolve(strict=True)
+        socket_info = resolved_socket.stat()
+    except OSError as err:
+        raise RuntimeEndpointError("local runtime socket is unavailable") from err
+    if stat.S_ISLNK(selected_lstat.st_mode):
+        raise RuntimeEndpointError("runtime socket must not be a symlink")
+    if not stat.S_ISSOCK(socket_info.st_mode) or socket_info.st_uid not in (0, uid):
+        raise RuntimeEndpointError("runtime endpoint is not a trusted Unix socket")
+
+    allowed_resolved: set[Path] = set()
+    for candidate in allowed_sockets:
+        normalized = _normalize_socket_candidate(runtime, candidate)
+        try:
+            allowed_resolved.add(normalized.resolve(strict=True))
+        except OSError:
+            continue
+    if resolved_socket not in allowed_resolved:
+        raise RuntimeEndpointError("runtime socket is outside the local allowlist")
+
+    return LocalRuntime(
+        kind=runtime,
+        binary=binary_path,
+        socket=resolved_socket,
+        binary_identity=_path_identity(binary_path, binary_info),
+        socket_identity=_path_identity(resolved_socket, socket_info),
+    )
+
+
+def discover_local_runtime(
+    runtime: str,
+    *,
+    which: Callable[[str], str | None] = shutil.which,
+    socket_candidates: Callable[[str], Sequence[Path | str]] | None = None,
+) -> LocalRuntime:
+    """Discover a verified runtime binary and allowlisted local Unix socket."""
+    binary = which(runtime)
+    if not binary:
+        raise RuntimeUnavailableError(
+            f"{runtime} executable was not found on this host"
+        )
+    candidates = tuple((socket_candidates or _local_socket_candidates)(runtime))
+    if not candidates:
+        raise RuntimeEndpointError(
+            f"no verified local Unix socket is supported for {runtime}"
+        )
+    errors: list[BaseException] = []
+    for candidate in candidates:
+        try:
+            return _verified_local_runtime(
+                runtime,
+                binary,
+                candidate,
+                allowed_sockets=candidates,
+            )
+        except RuntimeEndpointError as err:
+            errors.append(err)
+    raise RuntimeEndpointError(
+        f"no verified local Unix socket is available for {runtime}"
+    ) from errors[-1]
+
+
+def _revalidate_local_runtime(endpoint: LocalRuntime) -> LocalRuntime:
+    refreshed = _verified_local_runtime(
+        endpoint.kind,
+        endpoint.binary,
+        endpoint.socket,
+        allowed_sockets=_local_socket_candidates(endpoint.kind),
+    )
+    if (
+        refreshed.binary_identity != endpoint.binary_identity
+        or refreshed.socket_identity != endpoint.socket_identity
+    ):
+        raise RuntimeEndpointError("runtime binary or socket identity changed")
+    return refreshed
+
+
+def _endpoint_environment(endpoint: LocalRuntime) -> dict[str, str]:
+    value = f"unix://{endpoint.socket}"
+    if endpoint.kind == "docker":
+        return {"DOCKER_HOST": value}
+    if endpoint.kind == "podman":
+        return {"CONTAINER_HOST": value}
+    raise RuntimeEndpointError("unsupported container runtime")
+
+
 def _redact(text: object, *sensitive_values: str) -> str:
     redacted = str(text or "")
     for value in sensitive_values:
@@ -310,35 +521,71 @@ def _validated_parent(path: Path) -> Path:
     return final
 
 
-def _walk_request_directory(directory: Path, request_root: Path) -> None:
+@dataclass
+class _DirectoryUsage:
+    entries: int = 0
+    total_bytes: int = 0
+
+
+def _walk_request_directory(
+    directory: Path,
+    request_root: Path,
+    usage: _DirectoryUsage,
+    *,
+    depth: int,
+) -> None:
     try:
-        entries = list(os.scandir(directory))
+        iterator = os.scandir(directory)
     except OSError as err:
         raise RequestDirectoryError("request directory could not be inspected") from err
-    for entry in entries:
-        try:
-            info = entry.stat(follow_symlinks=False)
-        except OSError as err:
-            raise RequestDirectoryError(
-                f"request entry could not be inspected: {entry.name}"
-            ) from err
-        relative = Path(entry.path).relative_to(request_root)
-        _reject_private_markers(str(relative))
-        if stat.S_ISLNK(info.st_mode):
-            raise RequestDirectoryError(
-                f"request directory contains a symlink: {relative}"
-            )
-        if stat.S_ISREG(info.st_mode):
-            if info.st_nlink != 1:
-                raise RequestDirectoryError(
-                    f"request directory contains a hard link: {relative}"
+    with iterator:
+        for entry in iterator:
+            usage.entries += 1
+            if usage.entries > MAX_REQUEST_ENTRIES:
+                raise SandboxLimitError(
+                    f"request directory exceeds {MAX_REQUEST_ENTRIES} entries"
                 )
-        elif stat.S_ISDIR(info.st_mode):
-            _walk_request_directory(Path(entry.path), request_root)
-        else:
-            raise RequestDirectoryError(
-                f"request directory contains a non-regular entry: {relative}"
-            )
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except OSError as err:
+                raise RequestDirectoryError(
+                    f"request entry could not be inspected: {entry.name}"
+                ) from err
+            relative = Path(entry.path).relative_to(request_root)
+            _reject_private_markers(str(relative))
+            if stat.S_ISLNK(info.st_mode):
+                raise RequestDirectoryError(
+                    f"request directory contains a symlink: {relative}"
+                )
+            if stat.S_ISREG(info.st_mode):
+                if info.st_nlink != 1:
+                    raise RequestDirectoryError(
+                        f"request directory contains a hard link: {relative}"
+                    )
+                if info.st_size > MAX_FILE_BYTES:
+                    raise SandboxLimitError(
+                        f"request file exceeds {MAX_FILE_BYTES} bytes: {relative}"
+                    )
+                usage.total_bytes += info.st_size
+                if usage.total_bytes > MAX_TOTAL_BYTES:
+                    raise SandboxLimitError(
+                        f"request directory total exceeds {MAX_TOTAL_BYTES} bytes"
+                    )
+            elif stat.S_ISDIR(info.st_mode):
+                if depth >= MAX_REQUEST_DEPTH:
+                    raise SandboxLimitError(
+                        f"request directory exceeds depth {MAX_REQUEST_DEPTH}"
+                    )
+                _walk_request_directory(
+                    Path(entry.path),
+                    request_root,
+                    usage,
+                    depth=depth + 1,
+                )
+            else:
+                raise RequestDirectoryError(
+                    f"request directory contains a non-regular entry: {relative}"
+                )
 
 
 def _ensure_isolated_request_dir(request_dir: Path, parent: Path) -> None:
@@ -360,35 +607,117 @@ def _ensure_isolated_request_dir(request_dir: Path, parent: Path) -> None:
     if resolved.parent != parent_resolved:
         raise RequestDirectoryError("request directory escapes its parent")
     _reject_private_markers(str(parent_resolved), str(resolved))
-    _walk_request_directory(resolved, resolved)
+    _walk_request_directory(
+        resolved,
+        resolved,
+        _DirectoryUsage(),
+        depth=0,
+    )
 
 
-def _write_request_file(request_dir: Path, payload: dict[str, object]) -> None:
+def _write_named_file_nofollow(
+    request_dir: Path,
+    filename: str,
+    content: bytes,
+) -> None:
+    if not filename or "/" in filename or filename in (".", ".."):
+        raise RequestDirectoryError("unsafe internal request filename")
     nofollow = getattr(os, "O_NOFOLLOW", None)
     if nofollow is None:
-        raise RequestDirectoryError("host does not support O_NOFOLLOW")
+        raise DescriptorOpenError("host does not support O_NOFOLLOW")
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow
     flags |= getattr(os, "O_CLOEXEC", 0)
     try:
-        descriptor = os.open(request_dir / "request.json", flags, 0o600)
+        descriptor = os.open(request_dir / filename, flags, 0o600)
+    except (TypeError, NotImplementedError, ValueError) as err:
+        raise DescriptorOpenError("safe file creation is unsupported") from err
     except OSError as err:
-        raise RequestDirectoryError("request.json could not be created safely") from err
-    with os.fdopen(descriptor, "w", encoding="utf-8") as request_file:
-        json.dump(payload, request_file, sort_keys=True)
+        raise RequestDirectoryError(f"{filename} could not be created safely") from err
+    with os.fdopen(descriptor, "wb") as output:
+        output.write(content)
 
 
-def _read_result_file_nofollow(request_dir: Path) -> str:
-    """Open result.json relative to a no-follow directory descriptor."""
+def _write_request_file(request_dir: Path, payload: dict[str, object]) -> None:
+    rendered = json.dumps(payload, sort_keys=True).encode("utf-8")
+    _write_named_file_nofollow(request_dir, "request.json", rendered)
+
+
+def _unlink_named_file_nofollow(request_dir: Path, filename: str) -> None:
+    if not filename or "/" in filename or filename in (".", ".."):
+        raise RequestCleanupError("unsafe internal cleanup filename")
     nofollow = getattr(os, "O_NOFOLLOW", None)
     directory_flag = getattr(os, "O_DIRECTORY", None)
     if nofollow is None or directory_flag is None:
-        raise RequestDirectoryError(
+        raise DescriptorOpenError(
+            "host must support O_NOFOLLOW and O_DIRECTORY for cleanup"
+        )
+    flags = os.O_RDONLY | nofollow | directory_flag
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    try:
+        directory_descriptor = os.open(request_dir, flags)
+    except (TypeError, NotImplementedError, ValueError) as err:
+        raise DescriptorOpenError("safe cleanup directory open is unsupported") from err
+    except OSError as err:
+        raise RequestCleanupError(
+            "request directory changed before artifact cleanup"
+        ) from err
+    try:
+        try:
+            os.unlink(filename, dir_fd=directory_descriptor)
+        except FileNotFoundError:
+            return
+        except (TypeError, NotImplementedError, ValueError) as err:
+            raise DescriptorOpenError(
+                "descriptor-relative unlink is unsupported"
+            ) from err
+        except OSError as err:
+            raise RequestCleanupError(
+                f"could not remove request artifact {filename}"
+            ) from err
+        try:
+            os.stat(
+                filename,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return
+        except (TypeError, NotImplementedError, ValueError) as err:
+            raise DescriptorOpenError(
+                "descriptor-relative cleanup verification is unsupported"
+            ) from err
+        except OSError as err:
+            raise RequestCleanupError(
+                f"could not verify request artifact removal: {filename}"
+            ) from err
+        raise RequestCleanupError(
+            f"request artifact still exists after cleanup: {filename}"
+        )
+    finally:
+        os.close(directory_descriptor)
+
+
+def _read_named_file_nofollow(
+    request_dir: Path,
+    filename: str,
+    *,
+    max_bytes: int,
+) -> bytes:
+    """Open a bounded regular file relative to a no-follow directory."""
+    if not filename or "/" in filename or filename in (".", ".."):
+        raise RequestDirectoryError("unsafe internal request filename")
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory_flag = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory_flag is None:
+        raise DescriptorOpenError(
             "host must support O_NOFOLLOW and O_DIRECTORY for sandbox output"
         )
     directory_flags = os.O_RDONLY | nofollow | directory_flag
     directory_flags |= getattr(os, "O_CLOEXEC", 0)
     try:
         directory_descriptor = os.open(request_dir, directory_flags)
+    except (TypeError, NotImplementedError, ValueError) as err:
+        raise DescriptorOpenError("safe directory open is unsupported") from err
     except OSError as err:
         raise RequestDirectoryError(
             "request directory changed before result read"
@@ -398,33 +727,50 @@ def _read_result_file_nofollow(request_dir: Path) -> str:
         result_flags |= getattr(os, "O_CLOEXEC", 0)
         try:
             result_descriptor = os.open(
-                "result.json",
+                filename,
                 result_flags,
                 dir_fd=directory_descriptor,
             )
         except FileNotFoundError:
             raise
+        except (TypeError, NotImplementedError, ValueError) as err:
+            raise DescriptorOpenError(
+                "descriptor-relative file open is unsupported"
+            ) from err
         except OSError as err:
             if err.errno in (errno.ELOOP, errno.EMLINK):
                 raise RequestDirectoryError(
-                    "result.json must not be a symlink"
+                    f"{filename} must not be a symlink"
                 ) from err
-            raise SandboxOutputError("result.json could not be opened safely") from err
+            raise SandboxOutputError(f"{filename} could not be opened safely") from err
 
         try:
             result_stat = os.fstat(result_descriptor)
             if not stat.S_ISREG(result_stat.st_mode):
-                raise RequestDirectoryError("result.json must be a regular file")
+                raise RequestDirectoryError(f"{filename} must be a regular file")
             if result_stat.st_nlink != 1:
-                raise RequestDirectoryError("result.json must not be a hard link")
-            with os.fdopen(result_descriptor, "r", encoding="utf-8") as result_file:
+                raise RequestDirectoryError(f"{filename} must not be a hard link")
+            if result_stat.st_size > max_bytes:
+                raise SandboxLimitError(f"{filename} exceeds {max_bytes} bytes")
+            with os.fdopen(result_descriptor, "rb") as result_file:
                 result_descriptor = -1
-                return result_file.read()
+                content = result_file.read(max_bytes + 1)
+                if len(content) > max_bytes:
+                    raise SandboxLimitError(f"{filename} exceeds {max_bytes} bytes")
+                return content
         finally:
             if result_descriptor >= 0:
                 os.close(result_descriptor)
     finally:
         os.close(directory_descriptor)
+
+
+def _read_result_file_nofollow(request_dir: Path) -> str:
+    return _read_named_file_nofollow(
+        request_dir,
+        "result.json",
+        max_bytes=MAX_RESULT_JSON_BYTES,
+    ).decode("utf-8")
 
 
 def _default_worker_context() -> Path:
@@ -480,14 +826,17 @@ def _validated_worker_context(context: Path | str | None) -> Path:
 
 
 def _retain_location_ok(path: Path) -> bool:
-    resolved = path.resolve()
-    temp_root = Path(tempfile.gettempdir()).resolve()
-    if resolved == temp_root or temp_root in resolved.parents:
-        return True
-    for ancestor in (resolved, *resolved.parents):
-        if ancestor.name == "run" and ancestor.parent.name == "content":
-            return True
-    return False
+    resolved = path.resolve(strict=False)
+    temp_root = Path(tempfile.gettempdir()).resolve(strict=True)
+    repo_run_root = (Path(__file__).resolve().parents[2] / "content" / "run").resolve(
+        strict=False
+    )
+    return (
+        resolved == temp_root
+        or temp_root in resolved.parents
+        or resolved == repo_run_root
+        or repo_run_root in resolved.parents
+    )
 
 
 def _container_name(request_dir: Path) -> str:
@@ -495,18 +844,58 @@ def _container_name(request_dir: Path) -> str:
     return f"pgrep-shadow-{digest}"
 
 
+def _rmtree(path: Path) -> None:
+    shutil.rmtree(path)
+
+
 def _remove_request_path(request_dir: Path) -> None:
     try:
         request_stat = request_dir.lstat()
     except FileNotFoundError:
         return
-    if stat.S_ISDIR(request_stat.st_mode) and not stat.S_ISLNK(request_stat.st_mode):
-        shutil.rmtree(request_dir, ignore_errors=True)
-    else:
-        try:
+    except Exception as err:
+        raise RequestCleanupError(
+            f"request cleanup could not inspect {request_dir}"
+        ) from err
+    try:
+        if stat.S_ISDIR(request_stat.st_mode) and not stat.S_ISLNK(
+            request_stat.st_mode
+        ):
+            _rmtree(request_dir)
+        else:
             request_dir.unlink()
-        except OSError:
-            pass
+    except Exception as err:
+        raise RequestCleanupError(f"request cleanup failed for {request_dir}") from err
+    try:
+        request_dir.lstat()
+    except FileNotFoundError:
+        return
+    except Exception as err:
+        raise RequestCleanupError(
+            f"request cleanup could not verify removal: {request_dir}"
+        ) from err
+    raise RequestCleanupError(f"request path still exists after cleanup: {request_dir}")
+
+
+def _verify_retained_request_path(request_dir: Path, parent: Path) -> None:
+    try:
+        request_info = request_dir.lstat()
+        resolved = request_dir.resolve(strict=True)
+    except OSError as err:
+        _remove_request_path(request_dir)
+        raise RequestCleanupError(
+            "debug-retained request path could not be verified"
+        ) from err
+    if (
+        stat.S_ISLNK(request_info.st_mode)
+        or not stat.S_ISDIR(request_info.st_mode)
+        or resolved.parent != parent
+        or not _retain_location_ok(resolved)
+    ):
+        _remove_request_path(request_dir)
+        raise RequestCleanupError(
+            "debug-retained request path escaped its allowed root"
+        )
 
 
 class CursorSandbox:
@@ -518,18 +907,21 @@ class CursorSandbox:
         *,
         runner: CommandRunner | None = None,
         api_key: str = "",
+        endpoint_resolver: Callable[[str], LocalRuntime] | None = None,
     ) -> None:
         self._config = config
         self._runner: CommandRunner = (
             runner if runner is not None else SubprocessRunner()
         )
         self._api_key = api_key
+        self._endpoint_resolver = endpoint_resolver
 
     def build_image(self, *, context: Path | str | None = None) -> str:
         """Build the worker image from a whitelisted build context."""
+        endpoint = self._local_runtime()
         context_dir = _validated_worker_context(context)
         command = [
-            self._config.runtime,
+            str(endpoint.binary),
             "build",
             "-t",
             self._config.image,
@@ -539,7 +931,7 @@ class CursorSandbox:
         try:
             completed = self._runner.run(
                 command,
-                env=self._build_subprocess_env(),
+                env=self._endpoint_subprocess_env(endpoint),
                 timeout=self._config.build_timeout,
             )
         except subprocess.TimeoutExpired as err:
@@ -598,7 +990,7 @@ class CursorSandbox:
         parent_dir = _validated_parent(parent_path)
         if self._config.debug_retain and not _retain_location_ok(parent_dir):
             raise SandboxError(
-                "debug retain requires a parent under content/run or the OS temp tree"
+                "debug retention requires the exact repo content/run or OS temp root"
             )
         request_dir = Path(tempfile.mkdtemp(prefix="shadow-", dir=parent_dir))
         try:
@@ -607,36 +999,212 @@ class CursorSandbox:
             _write_request_file(request_dir, payload)
             _ensure_isolated_request_dir(request_dir, parent_dir)
             _reject_private_markers(json.dumps(payload, sort_keys=True))
+            endpoint = self._local_runtime()
+            image_digest = self._ensure_mount_probe(endpoint, request_dir)
             container_name = _validate_cli_value(
                 _container_name(request_dir),
                 name="container name",
             )
             completed = self._run_worker(
+                endpoint=endpoint,
                 request_dir=request_dir,
                 container_name=container_name,
+                image_digest=image_digest,
             )
             _ensure_isolated_request_dir(request_dir, parent_dir)
             return self._load_result(request_dir, completed)
         finally:
-            if not self._config.debug_retain:
+            if self._config.debug_retain:
+                _verify_retained_request_path(request_dir, parent_dir)
+            else:
                 _remove_request_path(request_dir)
+
+    def _local_runtime(self) -> LocalRuntime:
+        resolver = self._endpoint_resolver or discover_local_runtime
+        endpoint = resolver(self._config.runtime)
+        if type(endpoint) is not LocalRuntime:
+            raise RuntimeEndpointError(
+                "runtime resolver did not return a verified LocalRuntime"
+            )
+        if endpoint.kind != self._config.runtime:
+            raise RuntimeEndpointError("runtime resolver returned the wrong runtime")
+        return _revalidate_local_runtime(endpoint)
+
+    def _endpoint_subprocess_env(
+        self,
+        endpoint: LocalRuntime,
+    ) -> dict[str, str]:
+        return _endpoint_environment(_revalidate_local_runtime(endpoint))
+
+    def _inspect_image_digest(self, endpoint: LocalRuntime) -> str:
+        command = [
+            str(endpoint.binary),
+            "image",
+            "inspect",
+            "--format",
+            "{{.Id}}",
+            "--",
+            self._config.image,
+        ]
+        try:
+            completed = self._runner.run(
+                command,
+                env=self._endpoint_subprocess_env(endpoint),
+                timeout=self._config.timeout,
+            )
+        except Exception as err:
+            raise MountProbeError(
+                self._redact_text(err or "worker image inspection failed")
+            ) from err
+        digest = completed.stdout.strip()
+        if completed.returncode != 0 or not _IMAGE_DIGEST_RE.fullmatch(digest):
+            raise MountProbeError("worker image has no verified immutable digest")
+        return digest
+
+    def _ensure_mount_probe(
+        self,
+        endpoint: LocalRuntime,
+        request_dir: Path,
+    ) -> str:
+        image_digest = self._inspect_image_digest(endpoint)
+        cache_key = (
+            endpoint.binary_identity,
+            endpoint.socket_identity,
+            image_digest,
+        )
+        with _MOUNT_PROBE_LOCK:
+            if cache_key in _MOUNT_PROBE_CACHE:
+                return image_digest
+            self._perform_mount_probe(
+                endpoint=endpoint,
+                request_dir=request_dir,
+                image_digest=image_digest,
+                cache_key=cache_key,
+            )
+            _MOUNT_PROBE_CACHE.add(cache_key)
+        return image_digest
+
+    def _perform_mount_probe(
+        self,
+        *,
+        endpoint: LocalRuntime,
+        request_dir: Path,
+        image_digest: str,
+        cache_key: tuple[str, str, str],
+    ) -> None:
+        nonce = secrets.token_hex(32).encode("ascii")
+        _write_named_file_nofollow(
+            request_dir,
+            ".mount-probe-input",
+            nonce,
+        )
+        probe_identity = "|".join((*cache_key, str(request_dir)))
+        probe_digest = hashlib.sha256(probe_identity.encode("utf-8")).hexdigest()[:24]
+        container_name = f"pgrep-probe-{probe_digest}"
+        command = self._probe_command(
+            endpoint=endpoint,
+            request_dir=request_dir,
+            container_name=container_name,
+            image_digest=image_digest,
+        )
+        try:
+            try:
+                completed = self._run_named_container(
+                    endpoint=endpoint,
+                    command=command,
+                    container_name=container_name,
+                    timeout=self._config.timeout,
+                )
+            except SecurityCleanupError:
+                raise
+            except subprocess.TimeoutExpired as err:
+                raise MountProbeError("mount nonce probe timed out") from err
+            except Exception as err:
+                raise MountProbeError(
+                    self._redact_text(err or "mount nonce probe failed")
+                ) from err
+            if completed.returncode != 0:
+                raise MountProbeError("mount nonce probe process failed")
+            _ensure_isolated_request_dir(request_dir, request_dir.parent)
+            try:
+                returned = _read_named_file_nofollow(
+                    request_dir,
+                    ".mount-probe-output",
+                    max_bytes=MAX_PROBE_BYTES,
+                )
+            except FileNotFoundError as err:
+                raise MountProbeError("mount nonce probe produced no output") from err
+            if returned != nonce:
+                raise MountProbeError("mount nonce probe returned the wrong value")
+        finally:
+            self._remove_probe_artifacts(request_dir)
+
+    def _remove_probe_artifacts(self, request_dir: Path) -> None:
+        for filename in (".mount-probe-input", ".mount-probe-output"):
+            _unlink_named_file_nofollow(request_dir, filename)
+        _ensure_isolated_request_dir(request_dir, request_dir.parent)
+
+    def _host_user(self) -> str:
+        if not hasattr(os, "getuid") or not hasattr(os, "getgid"):
+            raise RuntimeEndpointError("host uid:gid is required for OCI runs")
+        return f"{os.getuid()}:{os.getgid()}"
+
+    def _probe_command(
+        self,
+        *,
+        endpoint: LocalRuntime,
+        request_dir: Path,
+        container_name: str,
+        image_digest: str,
+    ) -> list[str]:
+        return [
+            str(endpoint.binary),
+            "run",
+            "--rm",
+            "--name",
+            _validate_cli_value(container_name, name="container name"),
+            "--network",
+            "none",
+            "--user",
+            self._host_user(),
+            "--entrypoint",
+            "/bin/sh",
+            "--volume",
+            f"{request_dir}:{WORK_MOUNT}",
+            "--workdir",
+            WORK_MOUNT,
+            "--",
+            image_digest,
+            "-c",
+            ("umask 077; cat /work/.mount-probe-input > /work/.mount-probe-output"),
+        ]
 
     def _run_worker(
         self,
         *,
+        endpoint: LocalRuntime,
         request_dir: Path,
         container_name: str,
+        image_digest: str,
     ) -> CommandResult:
-        command = self._run_command(request_dir, container_name)
-        run_environment = self._run_subprocess_env()
+        command = self._run_command(
+            endpoint,
+            request_dir,
+            container_name,
+            image_digest,
+        )
+        environment = self._run_subprocess_env(endpoint)
         try:
-            completed = self._runner.run(
-                command,
-                env=run_environment,
+            return self._run_named_container(
+                endpoint=endpoint,
+                command=command,
+                container_name=container_name,
                 timeout=self._config.timeout,
+                environment=environment,
             )
+        except SecurityCleanupError:
+            raise
         except BaseException as err:
-            self._force_remove_container(container_name)
             if isinstance(err, subprocess.TimeoutExpired):
                 raise SandboxTimeout(
                     f"worker timed out after {self._config.timeout} seconds"
@@ -646,43 +1214,112 @@ class CursorSandbox:
                     self._redact_text(err or "worker process failed")
                 ) from err
             raise
-        if completed.returncode != 0:
-            self._force_remove_container(container_name)
+
+    def _run_named_container(
+        self,
+        *,
+        endpoint: LocalRuntime,
+        command: Sequence[str],
+        container_name: str,
+        timeout: float,
+        environment: Mapping[str, str] | None = None,
+    ) -> CommandResult:
+        if environment is None:
+            environment = self._endpoint_subprocess_env(endpoint)
+        try:
+            completed = self._runner.run(
+                command,
+                env=environment,
+                timeout=timeout,
+            )
+        except BaseException as primary:
+            try:
+                self._remove_and_verify_container(endpoint, container_name)
+            except SecurityCleanupError as cleanup:
+                raise cleanup from primary
+            raise
+        self._remove_and_verify_container(endpoint, container_name)
         return completed
 
-    def _force_remove_container(self, container_name: str) -> None:
-        command = [
-            self._config.runtime,
+    def _remove_and_verify_container(
+        self,
+        endpoint: LocalRuntime,
+        container_name: str,
+    ) -> None:
+        name = _validate_cli_value(container_name, name="container name")
+        try:
+            environment = self._endpoint_subprocess_env(endpoint)
+        except Exception as err:
+            raise SecurityCleanupError(
+                f"could not reach local endpoint to remove container: {name}"
+            ) from err
+        remove_command = [
+            str(endpoint.binary),
             "rm",
             "-f",
             "--",
-            _validate_cli_value(container_name, name="container name"),
+            name,
         ]
+        remove_error: BaseException | None = None
         try:
             self._runner.run(
-                command,
-                env=self._build_subprocess_env(),
+                remove_command,
+                env=environment,
                 timeout=DEFAULT_CLEANUP_TIMEOUT_SECONDS,
             )
-        except BaseException:
-            # Preserve the primary timeout, interruption, or process failure.
-            # The stable name lets an operator retry this exact cleanup command.
-            pass
+        except BaseException as err:
+            remove_error = err
+
+        inspect_command = [
+            str(endpoint.binary),
+            "container",
+            "inspect",
+            "--format",
+            "{{.Id}}",
+            "--",
+            name,
+        ]
+        try:
+            inspected = self._runner.run(
+                inspect_command,
+                env=environment,
+                timeout=DEFAULT_CLEANUP_TIMEOUT_SECONDS,
+            )
+        except BaseException as err:
+            raise SecurityCleanupError(
+                f"could not verify container absence: {name}"
+            ) from (remove_error or err)
+        rendered_error = inspected.stderr.lower()
+        absent = (
+            inspected.returncode != 0
+            and not inspected.stdout.strip()
+            and any(marker in rendered_error for marker in _ABSENT_CONTAINER_MARKERS)
+        )
+        if not absent:
+            raise SecurityCleanupError(
+                f"container could not be proven absent: {name}"
+            ) from remove_error
+        if remove_error is not None and not isinstance(remove_error, Exception):
+            raise remove_error
 
     def _run_command(
         self,
+        endpoint: LocalRuntime,
         request_dir: Path,
         container_name: str,
+        image_digest: str,
     ) -> list[str]:
         # Only the request directory is mounted, the key is forwarded by name,
         # and network stays on the bridge/default path so the container can
         # reach the Cursor API without host networking.
         command = [
-            self._config.runtime,
+            str(endpoint.binary),
             "run",
             "--rm",
             "--name",
             _validate_cli_value(container_name, name="container name"),
+            "--user",
+            self._host_user(),
         ]
         if self._config.network == "bridge":
             command.extend(["--network", "bridge"])
@@ -695,7 +1332,7 @@ class CursorSandbox:
                 "--workdir",
                 WORK_MOUNT,
                 "--",
-                self._config.image,
+                image_digest,
             ]
         )
         return command
@@ -766,13 +1403,11 @@ class CursorSandbox:
                 raise ModelMismatchError(message) from err
             raise SandboxOutputError(self._redact_text(message)) from err
 
-    def _build_subprocess_env(self) -> dict[str, str]:
-        return {
-            name: os.environ[name] for name in _HOST_ENV_ALLOWLIST if name in os.environ
-        }
-
-    def _run_subprocess_env(self) -> dict[str, str]:
-        env = self._build_subprocess_env()
+    def _run_subprocess_env(
+        self,
+        endpoint: LocalRuntime,
+    ) -> dict[str, str]:
+        env = self._endpoint_subprocess_env(endpoint)
         key = self._api_key or os.environ.get("CURSOR_API_KEY", "")
         if not key:
             raise SandboxError("CURSOR_API_KEY is required for sandboxed model calls")
