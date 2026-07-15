@@ -77,17 +77,17 @@ _PRIVATE_MARKER = re.compile(
     r")"
 )
 _ABSOLUTE_PATH = re.compile(
-    r"(?i)(?:^|[\s\"'=(:])(?:"
-    r"/(?:Users|home|root|var|tmp|private|run|work|usr|etc)(?:/|$)"
-    r"|[A-Za-z]:\\|\\\\[^\\\s]+\\)"
+    r"(?i)(?:^|[\s\"'=(:])(?:/[A-Za-z0-9._~-]+(?:/|$)|[A-Za-z]:\\|\\\\)"
 )
 _RELATIVE_PATH = re.compile(
-    r"(?i)(?:^|[\s\"'=(:])(?:\.\.?/|~/|"
-    r"(?:content|pylib|qt|rslib|tools|docs_pgrep|\.git)/)"
-    r"|(?<![A-Za-z0-9])(?:[A-Za-z0-9_.-]+/)+"
-    r"[A-Za-z0-9_.-]+\.(?:jsonl?|db|sqlite|pdf|py|toml|yaml|yml|env|md|txt)\b"
+    r"(?i)(?:^|[\s\"'=(:])(?:\.\.?[/\\]|~[/\\]|"
+    r"(?:content|pylib|qt|rslib|tools|docs_pgrep|\.git)[/\\])"
+    r"|(?<![A-Za-z0-9])(?:[A-Za-z0-9_.-]+[/\\])+"
+    r"[A-Za-z0-9_.-]+\.(?:jsonl?|db|sqlite|pdf|py|toml|ya?ml|env|md|txt"
+    r"|svg|png|jpe?g|tex)\b"
     r"|(?<![A-Za-z0-9_.-])[A-Za-z0-9_.-]+\."
-    r"(?:jsonl?|md|txt)(?![A-Za-z0-9_.-])"
+    r"(?:jsonl?|db|sqlite|pdf|py|toml|ya?ml|env|md|txt|svg|png|jpe?g|tex)"
+    r"(?![A-Za-z0-9_.-])"
 )
 _SECRET_PATTERNS = (
     re.compile(

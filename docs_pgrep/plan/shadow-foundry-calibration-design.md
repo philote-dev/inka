@@ -238,6 +238,12 @@ never written. Synthetic and self-check runs always use `synthetic: true`,
 `execution_mode: test-fake`, and an OS-temp output root; they cannot publish in
 the production shadow root.
 
+The raw-response firewall treats absolute paths and relative directory/file
+forms ending in SVG, PNG, JPG/JPEG, TeX, Markdown, text, JSON/JSONL, YAML,
+PDF, database, Python, TOML, or environment suffixes consistently with the
+ruler input firewall. This scan applies recursively to stems, choices, and
+decomposition text before evidence persistence.
+
 ## Strict output handling
 
 The provider-neutral boundary returns text. The pipeline then:

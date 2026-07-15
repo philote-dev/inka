@@ -21,6 +21,7 @@ import _ai_path  # noqa: E402
 _ai_path.add_ai_core()
 
 import build_calibration_ruler as builder  # noqa: E402
+from pgrep.ai import model_backend, shadow_portfolio  # noqa: E402
 
 # --- Fixtures --------------------------------------------------------------
 
@@ -30,18 +31,24 @@ def _clean_repo_state() -> tuple[str, str]:
 
 
 def _stable_attestation() -> builder.ExecutionAttestation:
-    digest = "b" * 64
+    sources = {
+        name: builder.SourceAttestation(
+            loaded_sha256=character * 64,
+            current_sha256=character * 64,
+            head_blob_sha256=character * 64,
+        )
+        for name, character in {
+            "build_calibration_ruler": "b",
+            "calibration_ruler": "c",
+            "calibration_sheet": "d",
+            "shadow_foundry": "e",
+            "shadow_portfolio": "f",
+        }.items()
+    }
     return builder.ExecutionAttestation(
         head_sha="a" * 40,
         tree_status="clean",
-        loaded_builder_sha256=digest,
-        current_builder_sha256=digest,
-        head_builder_sha256=digest,
-        core_source_sha256={
-            "calibration_ruler": "c" * 64,
-            "calibration_sheet": "d" * 64,
-            "shadow_foundry": "e" * 64,
-        },
+        source_hashes=sources,
     )
 
 
@@ -51,14 +58,173 @@ def _write_items(path: Path, stratum: str, count: int) -> Path:
     return path
 
 
+class _ProductionFixtureBackend:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete(
+        self,
+        request: model_backend.ModelRequest,
+    ) -> model_backend.ModelResult:
+        self.calls += 1
+        if request.role == "generator":
+            candidate = builder.shadow_foundry._offline_candidate()
+            candidate["stem"] = (
+                "A particle moves uniformly in a circle. "
+                f"Fixture variant {request.seed} has distinct wording."
+            )
+            text = json.dumps(candidate)
+        else:
+            text = json.dumps(
+                {
+                    "answer": "A",
+                    "reasoning": f"{request.model.family} independent solve",
+                    "confidence": 0.75,
+                }
+            )
+        return model_backend.ModelResult(
+            request_id=request.request_id,
+            model_id=request.model.model_id,
+            status="finished",
+            text=text,
+            agent_id=f"fixture-agent-{self.calls}",
+            run_id=f"fixture-run-{self.calls}",
+        )
+
+
+def _production_fixture_environment() -> "builder.shadow_foundry.RunEnvironment":
+    image_digest = "sha256:" + hashlib.sha256(b"fixture-worker").hexdigest()
+    corpus = b"fixture-corpus"
+    probe = builder.shadow_foundry.make_probe_metadata(
+        [
+            {"id": "gpt-5.6-sol-max", "parameters": [], "variants": []},
+            {
+                "id": "claude-opus-4-8-thinking-high-fast",
+                "parameters": [],
+                "variants": [],
+            },
+            {
+                "id": "cursor-grok-4.5-high-fast",
+                "parameters": [],
+                "variants": [],
+            },
+        ],
+        sdk_version="test-fixture-1",
+    )
+    return builder.shadow_foundry.RunEnvironment(
+        code_sha="a" * 40,
+        tree_status="clean",
+        worker_image=image_digest,
+        worker_image_digest=image_digest,
+        corpus_index_fingerprint="sha256:" + hashlib.sha256(corpus).hexdigest(),
+        probe=probe,
+        synthetic=False,
+        execution_mode="real",
+        corpus_index_mtime_ns=0,
+        corpus_index_size=len(corpus),
+    )
+
+
+def _write_production_shaped_shadow_run(
+    root: Path,
+    *,
+    run_id: str,
+    n: int,
+    seed: int = builder.shadow_foundry.DEFAULT_SEED,
+) -> Path:
+    roles = builder.shadow_foundry._default_roles()
+    environment = _production_fixture_environment()
+    allocation = shadow_portfolio.allocate_families(n, seed=seed)
+    recorder = builder.shadow_foundry._RecordingBackend(
+        _ProductionFixtureBackend(),
+        secrets=(),
+    )
+    chunks = builder.shadow_foundry.sanitize_retrieved(
+        builder.shadow_foundry._offline_search(builder.shadow_foundry.DEFAULT_TOPIC)
+    )
+    candidates: list[dict[str, object]] = []
+    raw_responses: list[dict[str, object]] = []
+    for slot, origin in enumerate(allocation):
+        recorder.slot = slot
+        recorder.bind_retrieval(chunks, origin=origin)
+        record = shadow_portfolio.run_candidate(
+            topic=builder.shadow_foundry.DEFAULT_TOPIC,
+            retrieved=chunks,
+            origin=origin,
+            roles=roles,
+            backend=recorder,
+            seed=seed + slot,
+        )
+        builder.shadow_foundry._bind_candidate_replay_metadata(
+            record,
+            topic=builder.shadow_foundry.DEFAULT_TOPIC,
+            seed=seed + slot,
+            retrieved=chunks,
+        )
+        candidate, raw = builder.shadow_foundry._sanitize_candidate_evidence(
+            record,
+            slot=slot,
+            secrets=(),
+        )
+        candidates.append(candidate)
+        raw_responses.extend(raw)
+    manifest = builder.shadow_foundry.build_run_manifest(
+        run_id=run_id,
+        status="success",
+        roles=roles,
+        environment=environment,
+        topic=builder.shadow_foundry.DEFAULT_TOPIC,
+        expected_candidate_count=n,
+        seed=seed,
+        allocation=allocation,
+        candidates=candidates,
+        failures=[],
+        raw_responses=raw_responses,
+    )
+    artifacts = builder.shadow_foundry._publication_artifact_bytes(
+        candidates,
+        [],
+        manifest["probe"],
+        raw_responses,
+    )
+    builder.shadow_foundry.validate_manifest(
+        manifest,
+        candidates=candidates,
+        failures=[],
+        raw_responses=raw_responses,
+        artifact_bytes=artifacts,
+        publication_run_id=run_id,
+    )
+    run_dir = root / run_id
+    run_dir.mkdir(mode=0o700)
+    payloads = {
+        "manifest.json": manifest,
+        "candidates.json": candidates,
+        "failures.json": [],
+        "probe.json": manifest["probe"],
+        "raw-responses.json": raw_responses,
+    }
+    for filename, payload in payloads.items():
+        (run_dir / filename).write_text(
+            builder.shadow_foundry._strict_json(payload),
+            encoding="utf-8",
+        )
+    (run_dir / "_SUCCESS").write_text("ok\n", encoding="utf-8")
+    return run_dir
+
+
 @pytest.fixture(scope="session")
 def shadow_run(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp("shadow-runs")
-    return builder._production_shaped_test_shadow_run(
+    return _write_production_shaped_shadow_run(
         root,
         run_id="test-shadow",
         n=45,
     )
+
+
+def test_production_module_exposes_no_real_shaped_fixture_bypass() -> None:
+    assert not hasattr(builder, "_production_shaped_test_shadow_run")
 
 
 @pytest.fixture()
@@ -107,14 +273,17 @@ def test_manifest_is_private_and_records_provenance(
     assert manifest["seed"] == 7
     assert manifest["build"]["code_sha"]
     assert manifest["build"]["tree_status"] == "clean"
-    assert manifest["build"]["builder_source"]["loaded_sha256"]
-    assert manifest["build"]["builder_source"]["current_sha256"]
-    assert manifest["build"]["builder_source"]["head_blob_sha256"]
-    assert set(manifest["build"]["core_sources"]) == {
+    assert set(manifest["build"]["source_hashes"]) == {
+        "build_calibration_ruler",
         "calibration_ruler",
         "calibration_sheet",
         "shadow_foundry",
+        "shadow_portfolio",
     }
+    for hashes in manifest["build"]["source_hashes"].values():
+        assert hashes["loaded_sha256"]
+        assert hashes["current_sha256"]
+        assert hashes["head_blob_sha256"]
     assert manifest["inputs"]["trusted"]["sha256"]
     assert manifest["inputs"]["failure"]["sha256"]
     assert manifest["inputs"]["shadow"]["manifest_sha256"]
@@ -153,19 +322,34 @@ def test_build_requires_resolved_clean_repo_state_before_publication(
     assert not (tmp_path / "calibration" / "dirty-build").exists()
 
 
-def test_dirty_loaded_then_reverted_builder_source_is_rejected(
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "build_calibration_ruler",
+        "calibration_ruler",
+        "calibration_sheet",
+        "shadow_foundry",
+        "shadow_portfolio",
+    ],
+)
+def test_dirty_loaded_then_reverted_source_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
+    module_name: str,
 ) -> None:
-    current = Path(builder.__file__).resolve().read_bytes()
+    current_by_path = {
+        path: path.read_bytes() for path in builder._SOURCE_PATHS.values()
+    }
+    loaded = dict(builder._LOADED_SOURCE_SHA256)
+    loaded[module_name] = hashlib.sha256(b"dirty loaded source").hexdigest()
     monkeypatch.setattr(
         builder,
-        "_LOADED_BUILDER_SHA256",
-        hashlib.sha256(b"dirty loaded source").hexdigest(),
+        "_LOADED_SOURCE_SHA256",
+        loaded,
     )
-    with pytest.raises(ValueError, match="loaded builder source"):
+    with pytest.raises(ValueError, match=module_name):
         builder._capture_execution_attestation(
             repo_state_fn=_clean_repo_state,
-            head_blob_fn=lambda _head, _path: current,
+            head_blob_fn=lambda _head, path: current_by_path[path],
         )
 
 
@@ -973,21 +1157,33 @@ def test_during_build_input_drift_removes_final_output(
     assert not (out_root / "input-drift" / "_SUCCESS").exists()
 
 
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "build_calibration_ruler",
+        "calibration_ruler",
+        "calibration_sheet",
+        "shadow_foundry",
+        "shadow_portfolio",
+    ],
+)
 def test_during_build_source_or_head_drift_removes_final_output(
     tmp_path: Path,
     inputs: dict[str, Path],
+    module_name: str,
 ) -> None:
     entry = _stable_attestation()
+    changed_sources = dict(entry.source_hashes)
+    original = changed_sources[module_name]
+    changed_sources[module_name] = builder.SourceAttestation(
+        loaded_sha256=original.loaded_sha256,
+        current_sha256="0" * 64,
+        head_blob_sha256=original.head_blob_sha256,
+    )
     changed = builder.ExecutionAttestation(
         head_sha="f" * 40,
         tree_status="clean",
-        loaded_builder_sha256=entry.loaded_builder_sha256,
-        current_builder_sha256=entry.current_builder_sha256,
-        head_builder_sha256=entry.head_builder_sha256,
-        core_source_sha256={
-            **entry.core_source_sha256,
-            "shadow_foundry": "0" * 64,
-        },
+        source_hashes=changed_sources,
     )
     attestations = iter((entry, changed))
     out_root = tmp_path / "calibration"
@@ -1193,6 +1389,74 @@ def test_svg_structured_answer_disclosure_channels_fail(
             allow_test_paths=True,
             _repo_state_fn=_clean_repo_state,
         )
+
+
+@pytest.mark.parametrize(
+    ("channel", "disclosure"),
+    [
+        ("text", "answer: C"),
+        ("title", "INTENDED ANSWER = C"),
+        ("desc", "AnSwEr \t : \t C"),
+        ("style", "/* intended_answer:C */"),
+    ],
+)
+def test_svg_bare_and_intended_answer_assignments_fail(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+    channel: str,
+    disclosure: str,
+) -> None:
+    body = (
+        f"<style>{disclosure}</style>"
+        if channel == "style"
+        else f"<{channel}>{disclosure}</{channel}>"
+    )
+    figure = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">{body}</svg>'
+    items = [builder.offline_problem_item("trusted", index) for index in range(50)]
+    for index, item in enumerate(items):
+        item["correct"] = "C"
+        item["stem"] = f'Configuration {index}.<div class="pg-figure">{figure}</div>'
+    trusted = tmp_path / f"bare-answer-{channel}.json"
+    trusted.write_text(json.dumps(items), encoding="utf-8")
+    with pytest.raises(ValueError, match="figure asset.*answer"):
+        builder.build(
+            trusted_path=trusted,
+            failures_path=inputs["failures"],
+            shadow_path=inputs["shadow"],
+            out_root=tmp_path / "calibration",
+            run_id=f"bare-answer-{channel}",
+            seed=7,
+            allow_test_paths=True,
+            _repo_state_fn=_clean_repo_state,
+        )
+
+
+def test_svg_generic_answer_prose_is_not_a_false_positive(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    figure = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+        "<text>The answer depends on the field; choice C labels the axis.</text>"
+        "</svg>"
+    )
+    items = [builder.offline_problem_item("trusted", index) for index in range(50)]
+    for index, item in enumerate(items):
+        item["correct"] = "C"
+        item["stem"] = f'Configuration {index}.<div class="pg-figure">{figure}</div>'
+    trusted = tmp_path / "generic-answer-prose.json"
+    trusted.write_text(json.dumps(items), encoding="utf-8")
+    run_dir = builder.build(
+        trusted_path=trusted,
+        failures_path=inputs["failures"],
+        shadow_path=inputs["shadow"],
+        out_root=tmp_path / "calibration",
+        run_id="generic-answer-prose",
+        seed=7,
+        allow_test_paths=True,
+        _repo_state_fn=_clean_repo_state,
+    )
+    assert (run_dir / "_SUCCESS").is_file()
 
 
 def test_svg_bare_choice_letters_and_gold_foil_prose_are_allowed(

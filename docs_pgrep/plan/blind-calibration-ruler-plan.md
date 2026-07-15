@@ -541,10 +541,13 @@ Reuse the owned exclusive lock and temporary sibling pattern from
 `content/tools/shadow_foundry.py`. Reserve the final directory exclusively,
 hard-link verified payloads into it, remove and verify the owned lock, and
 write `_SUCCESS` last. Never rename over an existing directory. At module load,
-freeze the builder source hash. At build entry require loaded source, current
-source, and the HEAD blob to match in a clean checkout. Immediately before
-success, re-attest HEAD/status, builder/core source hashes, and every input
-fingerprint; any drift removes the final run.
+freeze source hashes for the builder, ruler, sheet, shadow runner, and shadow
+portfolio. At build entry require every loaded hash, current file, and HEAD
+blob to match in a clean checkout. Immediately before success, re-attest
+HEAD/status, all five source triples, and every input fingerprint; any drift
+removes the final run. Production modules expose no helper that can label fake
+evidence as real/non-synthetic. Tests write already-validated production-shaped
+artifact bytes directly under `tmp_path`.
 
 - [ ] **Step 4: Add recipe**
 

@@ -348,6 +348,43 @@ def test_raw_response_is_private_marker_and_path_scanned(unsafe: str) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "unsafe"),
+    [
+        ("stem", "Read figures/answer.svg before solving."),
+        ("choice", r"Inspect images\answer.png"),
+        ("decomposition", "Open tex/solution.tex for the derivation."),
+    ],
+)
+def test_raw_candidate_path_values_never_persist_as_evidence(
+    tmp_path: Path,
+    field: str,
+    unsafe: str,
+) -> None:
+    candidate = _candidate()
+    if field == "stem":
+        candidate["stem"] = unsafe
+    elif field == "choice":
+        candidate["choices"][0] = unsafe
+    else:
+        candidate["solution_decomposition"][0]["subgoal"] = unsafe
+    with pytest.raises(shadow_foundry.ShadowRunFailed) as raised:
+        shadow_foundry.run_shadow(
+            roles=_roles(),
+            backend=FakeBackend([json.dumps(candidate)]),
+            environment=_environment(),
+            output_root=tmp_path,
+            allow_test_output=True,
+            search_fn=_fake_search,
+            n=3,
+            seed=7,
+            topic="mechanics/circular-motion",
+            run_id=f"unsafe-{field}",
+        )
+    assert (raised.value.run_dir / "_FAILED").is_file()
+    assert unsafe not in (raised.value.run_dir / "raw-responses.json").read_text()
+
+
 def test_offline_environment_is_explicitly_synthetic_test_fake() -> None:
     environment = shadow_foundry._offline_environment()
     assert environment.synthetic is True

@@ -49,8 +49,17 @@ from pgrep.ai import (  # type: ignore[import-not-found]  # noqa: E402
     shadow_portfolio,
 )
 
-_BUILDER_SOURCE_PATH = Path(__file__).resolve()
-_LOADED_BUILDER_SHA256 = hashlib.sha256(_BUILDER_SOURCE_PATH.read_bytes()).hexdigest()
+_SOURCE_PATHS = {
+    "build_calibration_ruler": Path(__file__).resolve(),
+    "calibration_ruler": Path(calibration_ruler.__file__).resolve(),
+    "calibration_sheet": Path(calibration_sheet.__file__).resolve(),
+    "shadow_foundry": Path(shadow_foundry.__file__).resolve(),
+    "shadow_portfolio": Path(shadow_portfolio.__file__).resolve(),
+}
+_LOADED_SOURCE_SHA256 = {
+    name: hashlib.sha256(path.read_bytes()).hexdigest()
+    for name, path in _SOURCE_PATHS.items()
+}
 
 REPO_ROOT = _AI_ROOT.parents[1]
 CONTENT_RUN_ROOT = REPO_ROOT / "content" / "run"
@@ -96,6 +105,9 @@ _RELATIVE_PATH = re.compile(
     r"|(?<![A-Za-z0-9])(?:[A-Za-z0-9_.-]+[/\\])+"
     r"[A-Za-z0-9_.-]+\.(?:jsonl?|db|sqlite|pdf|py|toml|ya?ml|env|md|txt"
     r"|svg|png|jpe?g|tex)\b"
+    r"|(?<![A-Za-z0-9_.-])[A-Za-z0-9_.-]+\."
+    r"(?:jsonl?|db|sqlite|pdf|py|toml|ya?ml|env|md|txt|svg|png|jpe?g|tex)"
+    r"(?![A-Za-z0-9_.-])"
 )
 _FORBIDDEN_ASSET_TERMS = frozenset(
     {
@@ -166,24 +178,32 @@ AttestationFn = Callable[[], "ExecutionAttestation"]
 
 
 @dataclass(frozen=True)
+class SourceAttestation:
+    loaded_sha256: str
+    current_sha256: str
+    head_blob_sha256: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "loaded_sha256": self.loaded_sha256,
+            "current_sha256": self.current_sha256,
+            "head_blob_sha256": self.head_blob_sha256,
+        }
+
+
+@dataclass(frozen=True)
 class ExecutionAttestation:
     head_sha: str
     tree_status: str
-    loaded_builder_sha256: str
-    current_builder_sha256: str
-    head_builder_sha256: str
-    core_source_sha256: dict[str, str]
+    source_hashes: dict[str, SourceAttestation]
 
     def to_dict(self) -> dict[str, object]:
         return {
             "head_sha": self.head_sha,
             "tree_status": self.tree_status,
-            "builder_source": {
-                "loaded_sha256": self.loaded_builder_sha256,
-                "current_sha256": self.current_builder_sha256,
-                "head_blob_sha256": self.head_builder_sha256,
+            "source_hashes": {
+                name: hashes.to_dict() for name, hashes in self.source_hashes.items()
             },
-            "core_sources": dict(self.core_source_sha256),
         }
 
 
@@ -1018,14 +1038,6 @@ def _source_hash(path: Path) -> str:
     return hashlib.sha256(path.resolve().read_bytes()).hexdigest()
 
 
-def _core_source_hashes() -> dict[str, str]:
-    return {
-        "calibration_ruler": _source_hash(Path(calibration_ruler.__file__)),
-        "calibration_sheet": _source_hash(Path(calibration_sheet.__file__)),
-        "shadow_foundry": _source_hash(Path(shadow_foundry.__file__)),
-    }
-
-
 def _require_clean_repo_state(repo_state_fn: RepoStateFn) -> tuple[str, str]:
     code_sha, tree_status = repo_state_fn()
     if not re.fullmatch(r"[0-9a-f]{40,64}", code_sha):
@@ -1041,23 +1053,24 @@ def _capture_execution_attestation(
     head_blob_fn: HeadBlobFn = _read_head_blob,
 ) -> ExecutionAttestation:
     head_sha, tree_status = _require_clean_repo_state(repo_state_fn)
-    current_sha = _source_hash(_BUILDER_SOURCE_PATH)
-    head_sha256 = hashlib.sha256(
-        head_blob_fn(head_sha, _BUILDER_SOURCE_PATH)
-    ).hexdigest()
-    if _LOADED_BUILDER_SHA256 != current_sha:
-        raise RulerBuildError(
-            "loaded builder source differs from the current builder file"
+    source_hashes: dict[str, SourceAttestation] = {}
+    for name, path in _SOURCE_PATHS.items():
+        loaded_sha = _LOADED_SOURCE_SHA256[name]
+        current_sha = _source_hash(path)
+        head_sha256 = hashlib.sha256(head_blob_fn(head_sha, path)).hexdigest()
+        if loaded_sha != current_sha:
+            raise RulerBuildError(f"loaded source differs from current bytes: {name}")
+        if current_sha != head_sha256:
+            raise RulerBuildError(f"current source differs from HEAD blob: {name}")
+        source_hashes[name] = SourceAttestation(
+            loaded_sha256=loaded_sha,
+            current_sha256=current_sha,
+            head_blob_sha256=head_sha256,
         )
-    if current_sha != head_sha256:
-        raise RulerBuildError("current builder source differs from the HEAD blob")
     return ExecutionAttestation(
         head_sha=head_sha,
         tree_status=tree_status,
-        loaded_builder_sha256=_LOADED_BUILDER_SHA256,
-        current_builder_sha256=current_sha,
-        head_builder_sha256=head_sha256,
-        core_source_sha256=_core_source_hashes(),
+        source_hashes=source_hashes,
     )
 
 
@@ -1067,13 +1080,13 @@ def _test_execution_attestation(repo_state_fn: RepoStateFn) -> ExecutionAttestat
     return ExecutionAttestation(
         head_sha=head_sha,
         tree_status=tree_status,
-        loaded_builder_sha256=digest,
-        current_builder_sha256=digest,
-        head_builder_sha256=digest,
-        core_source_sha256={
-            "calibration_ruler": digest,
-            "calibration_sheet": digest,
-            "shadow_foundry": digest,
+        source_hashes={
+            name: SourceAttestation(
+                loaded_sha256=digest,
+                current_sha256=digest,
+                head_blob_sha256=digest,
+            )
+            for name in _SOURCE_PATHS
         },
     )
 
@@ -1264,6 +1277,7 @@ def _assert_blind_figure_assets(
         answer_disclosure = re.compile(
             rf"(?ix)(?<![\w])(?:"
             rf"answer[\s_-]*key"
+            rf"|(?:intended[\s_-]*)?answer"
             rf"|correct(?:[\s_-]*(?:answer|key|value))?"
             rf"|key"
             rf")\s*[:=]\s*(?:choice\s*)?{stored_key}(?![\w])"
@@ -1728,24 +1742,6 @@ def offline_shadow_run(
         run_id=run_id,
         n=n,
         seed=seed,
-        environment=_fixture_environment(synthetic=True),
-    )
-
-
-def _production_shaped_test_shadow_run(
-    root: Path | str,
-    *,
-    run_id: str = "test-shadow",
-    n: int = 45,
-    seed: int = shadow_foundry.DEFAULT_SEED,
-) -> Path:
-    """Publish a production-contract-shaped fixture under an OS-temp test root."""
-    return _fixture_shadow_run(
-        root,
-        run_id=run_id,
-        n=n,
-        seed=seed,
-        environment=_fixture_environment(synthetic=False),
     )
 
 
@@ -1755,7 +1751,6 @@ def _fixture_shadow_run(
     run_id: str,
     n: int,
     seed: int,
-    environment: "shadow_foundry.RunEnvironment",
 ) -> Path:
     from pgrep.ai import shadow_portfolio  # type: ignore[import-not-found]
 
@@ -1797,7 +1792,7 @@ def _fixture_shadow_run(
         run_id=run_id,
         status="success",
         roles=roles,
-        environment=environment,
+        environment=_synthetic_fixture_environment(),
         topic=shadow_foundry.DEFAULT_TOPIC,
         expected_candidate_count=n,
         seed=seed,
@@ -1817,10 +1812,7 @@ def _fixture_shadow_run(
     )
 
 
-def _fixture_environment(
-    *,
-    synthetic: bool,
-) -> "shadow_foundry.RunEnvironment":
+def _synthetic_fixture_environment() -> "shadow_foundry.RunEnvironment":
     sha, _tree_status = shadow_foundry.collect_repo_state()
     probe = shadow_foundry.make_probe_metadata(
         [
@@ -1839,14 +1831,12 @@ def _fixture_environment(
     return shadow_foundry.RunEnvironment(
         code_sha=sha,
         tree_status="clean",
-        worker_image=(
-            "pgrep-shadow-worker:synthetic-test" if synthetic else image_digest
-        ),
+        worker_image="pgrep-shadow-worker:synthetic-test",
         worker_image_digest=image_digest,
         corpus_index_fingerprint="sha256:" + hashlib.sha256(fixture).hexdigest(),
         probe=probe,
-        synthetic=synthetic,
-        execution_mode="test-fake" if synthetic else "real",
+        synthetic=True,
+        execution_mode="test-fake",
         corpus_index_mtime_ns=0,
         corpus_index_size=len(fixture),
     )
