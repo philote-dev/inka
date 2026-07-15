@@ -127,7 +127,9 @@ The first shadow runner uses the Python Cursor SDK because the content pipeline
 is Python and the account already exposes all three model families.
 
 Each model invocation is a one-shot `Agent.prompt()` call inside a disposable
-OCI container (Docker or Podman):
+Docker container. The first implementation is Docker-only and requires a
+verified local Unix socket; it does not claim or silently accept another
+runtime. Podman is explicitly not supported by this first implementation:
 
 - local Cursor runtime inside the container, with an explicit temporary working
   directory;
@@ -143,11 +145,11 @@ The sandbox directory contains no gold, human labels, held-out material, private
 item files, or repository metadata. The container receives network access for
 the Cursor API, an explicit `CURSOR_API_KEY`, and no other host credentials. A
 working-directory convention alone is not treated as isolation because a local
-agent could navigate elsewhere on the host. If no supported OCI runtime is
-available, or the mount boundary cannot be verified, Cursor models are
-unavailable for private-corpus runs and the run fails before the first prompt.
-Direct provider adapters remain an allowed fallback because they receive only
-the explicit request payload.
+agent could navigate elsewhere on the host. If no verified local Docker engine
+is available, or the mount boundary cannot be verified for that request
+directory, Cursor models are unavailable for private-corpus runs and the run
+fails before the first prompt. Direct provider adapters remain an allowed
+fallback because they receive only the explicit request payload.
 
 ### Candidate allocation
 

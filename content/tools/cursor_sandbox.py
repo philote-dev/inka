@@ -1,11 +1,11 @@
 # Copyright: Ankitects Pty Ltd and contributors
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
-"""Host-side OCI sandbox adapter for the isolated Cursor model worker.
+"""Host-side Docker sandbox adapter for the isolated Cursor model worker.
 
 The adapter runs the worker image (see ``tools/shadow_worker/``) inside a
-disposable Docker or Podman container. It enforces the isolation the shadow
-design requires:
+disposable local Docker container. It enforces the isolation the shadow design
+requires:
 
 - the only host mount is a freshly created, empty request directory bound to
   ``/work``; no repository, parent project, HOME, Docker socket, or extra
@@ -28,7 +28,7 @@ identity and the actual returned model identity. Missing runtime, image build
 failure, timeout, process error, missing or malformed output, model mismatch,
 and worker-declared failure are all distinguished as separate errors.
 
-Tests inject a fake command runner, so no Docker, Podman, network, Cursor key,
+Tests inject a fake command runner, so no Docker daemon, network, Cursor key,
 or model call is required.
 """
 
@@ -45,7 +45,6 @@ import stat
 import subprocess
 import sys
 import tempfile
-import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -72,7 +71,6 @@ MAX_FILE_BYTES = 1024 * 1024
 MAX_TOTAL_BYTES = 2 * 1024 * 1024
 MAX_RESULT_JSON_BYTES = 512 * 1024
 MAX_PROBE_BYTES = 256
-_RUNTIME_CANDIDATES = ("docker", "podman")
 _ALLOWED_NETWORKS = frozenset({"bridge", "default"})
 _WORKER_CONTEXT_FILES = (
     ".dockerignore",
@@ -80,6 +78,21 @@ _WORKER_CONTEXT_FILES = (
     "pyproject.toml",
     "uv.lock",
     "worker.py",
+)
+_DOCKER_HARDENING_OPTIONS = (
+    "--read-only",
+    "--cap-drop",
+    "ALL",
+    "--security-opt",
+    "no-new-privileges=true",
+    "--pids-limit",
+    "128",
+    "--memory",
+    "1g",
+    "--cpus",
+    "2",
+    "--tmpfs",
+    "/tmp:rw,noexec,nosuid,size=64m",
 )
 
 _IMAGE_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
@@ -89,8 +102,6 @@ _ABSENT_CONTAINER_MARKERS = (
     "no such container",
     "does not exist",
 )
-_MOUNT_PROBE_CACHE: set[tuple[str, str, str]] = set()
-_MOUNT_PROBE_LOCK = threading.Lock()
 
 # Keep this boundary-aware expression aligned with model_backend.py's hardened
 # training-data firewall. In particular, "marigold" must not match "gold".
@@ -167,6 +178,10 @@ class SecurityCleanupError(SandboxError):
 
 class RequestCleanupError(SandboxError):
     """A request path could not be proven removed."""
+
+
+class RequestRetentionError(RequestCleanupError):
+    """An unsafe request path was removed instead of debug-retained."""
 
 
 class SandboxLimitError(SandboxError):
@@ -249,9 +264,8 @@ class SandboxConfig:
     network: str = "bridge"
 
     def __post_init__(self) -> None:
-        if self.runtime not in _RUNTIME_CANDIDATES:
-            allowed = ", ".join(_RUNTIME_CANDIDATES)
-            raise ValueError(f"runtime must be one of: {allowed}")
+        if self.runtime != "docker":
+            raise ValueError("runtime must be Docker")
         if not isinstance(self.image, str) or not self.image.strip():
             raise ValueError("image must be a non-empty string")
         if self.image.startswith("-"):
@@ -266,18 +280,16 @@ class SandboxConfig:
 def detect_runtime(
     *,
     which: Callable[[str], str | None] = shutil.which,
-    candidates: Sequence[str] = _RUNTIME_CANDIDATES,
 ) -> str:
-    """Return the first available container runtime, else raise.
+    """Return Docker when installed, else raise.
 
-    The message names Docker or Podman so callers can fail before any request
-    directory or model call is created.
+    Docker-only discovery lets callers fail before any request directory or
+    model call is created.
     """
-    for name in candidates:
-        if which(name):
-            return name
+    if which("docker"):
+        return "docker"
     raise RuntimeUnavailableError(
-        "no container runtime found; install Docker or Podman for sandboxed runs"
+        "Docker was not found; install local Docker for sandboxed runs"
     )
 
 
@@ -305,29 +317,19 @@ def _local_socket_candidates(
     if home is None:
         home = _account_home(uid)
 
-    if runtime == "docker":
-        if platform == "darwin":
-            return (
-                home / ".docker" / "run" / "docker.sock",
-                Path("/var/run/docker.sock"),
-            )
-        if platform.startswith("linux"):
-            return (
-                Path("/var/run/docker.sock"),
-                Path("/run/docker.sock"),
-                Path(f"/run/user/{uid}/docker.sock"),
-            )
+    if runtime != "docker":
         return ()
-    if runtime == "podman":
-        # Podman on macOS is always backed by a VM connection. Even though its
-        # forwarded API endpoint is a Unix socket, it is not a local engine.
-        if platform == "darwin":
-            return ()
-        if platform.startswith("linux"):
-            return (
-                Path(f"/run/user/{uid}/podman/podman.sock"),
-                Path("/run/podman/podman.sock"),
-            )
+    if platform == "darwin":
+        return (
+            home / ".docker" / "run" / "docker.sock",
+            Path("/var/run/docker.sock"),
+        )
+    if platform.startswith("linux"):
+        return (
+            Path("/var/run/docker.sock"),
+            Path("/run/docker.sock"),
+            Path(f"/run/user/{uid}/docker.sock"),
+        )
     return ()
 
 
@@ -339,8 +341,6 @@ def _normalize_socket_candidate(runtime: str, candidate: Path | str) -> Path:
         raise RuntimeEndpointError(
             f"{runtime} endpoint must be an absolute local Unix socket path"
         )
-    if runtime == "podman" and "podman-machine" in rendered.lower():
-        raise RuntimeEndpointError("Podman machine endpoints are not local")
     return Path(rendered)
 
 
@@ -355,8 +355,8 @@ def _verified_local_runtime(
     *,
     allowed_sockets: Sequence[Path | str],
 ) -> LocalRuntime:
-    if runtime not in _RUNTIME_CANDIDATES:
-        raise RuntimeEndpointError("unsupported container runtime")
+    if runtime != "docker":
+        raise RuntimeEndpointError("only Docker is supported")
     if not hasattr(os, "getuid"):
         raise RuntimeEndpointError("local Unix runtime endpoints are required")
     uid = os.getuid()
@@ -453,12 +453,10 @@ def _revalidate_local_runtime(endpoint: LocalRuntime) -> LocalRuntime:
 
 
 def _endpoint_environment(endpoint: LocalRuntime) -> dict[str, str]:
+    if endpoint.kind != "docker":
+        raise RuntimeEndpointError("only Docker is supported")
     value = f"unix://{endpoint.socket}"
-    if endpoint.kind == "docker":
-        return {"DOCKER_HOST": value}
-    if endpoint.kind == "podman":
-        return {"CONTAINER_HOST": value}
-    raise RuntimeEndpointError("unsupported container runtime")
+    return {"DOCKER_HOST": value}
 
 
 def _redact(text: object, *sensitive_values: str) -> str:
@@ -527,12 +525,52 @@ class _DirectoryUsage:
     total_bytes: int = 0
 
 
+def _verify_regular_file_readable(
+    path: Path,
+    expected: os.stat_result,
+) -> None:
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        raise DescriptorOpenError("host does not support O_NOFOLLOW")
+    flags = os.O_RDONLY | nofollow | getattr(os, "O_NONBLOCK", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except (TypeError, NotImplementedError, ValueError) as err:
+        raise DescriptorOpenError("safe retention read is unsupported") from err
+    except OSError as err:
+        raise RequestDirectoryError(
+            f"request content is unreadable: {path.name}"
+        ) from err
+    try:
+        actual = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(actual.st_mode)
+            or actual.st_nlink != 1
+            or actual.st_dev != expected.st_dev
+            or actual.st_ino != expected.st_ino
+            or actual.st_size != expected.st_size
+        ):
+            raise RequestDirectoryError(
+                f"request content changed during retention validation: {path.name}"
+            )
+        if actual.st_size:
+            os.read(descriptor, 1)
+    except OSError as err:
+        raise RequestDirectoryError(
+            f"request content is unreadable: {path.name}"
+        ) from err
+    finally:
+        os.close(descriptor)
+
+
 def _walk_request_directory(
     directory: Path,
     request_root: Path,
     usage: _DirectoryUsage,
     *,
     depth: int,
+    require_readable: bool,
 ) -> None:
     try:
         iterator = os.scandir(directory)
@@ -571,6 +609,8 @@ def _walk_request_directory(
                     raise SandboxLimitError(
                         f"request directory total exceeds {MAX_TOTAL_BYTES} bytes"
                     )
+                if require_readable:
+                    _verify_regular_file_readable(Path(entry.path), info)
             elif stat.S_ISDIR(info.st_mode):
                 if depth >= MAX_REQUEST_DEPTH:
                     raise SandboxLimitError(
@@ -581,6 +621,7 @@ def _walk_request_directory(
                     request_root,
                     usage,
                     depth=depth + 1,
+                    require_readable=require_readable,
                 )
             else:
                 raise RequestDirectoryError(
@@ -588,7 +629,12 @@ def _walk_request_directory(
                 )
 
 
-def _ensure_isolated_request_dir(request_dir: Path, parent: Path) -> None:
+def _ensure_isolated_request_dir(
+    request_dir: Path,
+    parent: Path,
+    *,
+    require_readable: bool = False,
+) -> None:
     """Reject symlinks, hard links, special files, and path escapes."""
     try:
         request_stat = request_dir.lstat()
@@ -612,6 +658,7 @@ def _ensure_isolated_request_dir(request_dir: Path, parent: Path) -> None:
         resolved,
         _DirectoryUsage(),
         depth=0,
+        require_readable=require_readable,
     )
 
 
@@ -881,25 +928,29 @@ def _verify_retained_request_path(request_dir: Path, parent: Path) -> None:
     try:
         request_info = request_dir.lstat()
         resolved = request_dir.resolve(strict=True)
-    except OSError as err:
-        _remove_request_path(request_dir)
-        raise RequestCleanupError(
-            "debug-retained request path could not be verified"
-        ) from err
-    if (
-        stat.S_ISLNK(request_info.st_mode)
-        or not stat.S_ISDIR(request_info.st_mode)
-        or resolved.parent != parent
-        or not _retain_location_ok(resolved)
-    ):
-        _remove_request_path(request_dir)
-        raise RequestCleanupError(
-            "debug-retained request path escaped its allowed root"
+        if (
+            stat.S_ISLNK(request_info.st_mode)
+            or not stat.S_ISDIR(request_info.st_mode)
+            or resolved.parent != parent
+            or not _retain_location_ok(resolved)
+        ):
+            raise RequestDirectoryError(
+                "debug-retained request path escaped its allowed root"
+            )
+        _ensure_isolated_request_dir(
+            resolved,
+            parent,
+            require_readable=True,
         )
+    except Exception as err:
+        _remove_request_path(request_dir)
+        raise RequestRetentionError(
+            "unsafe request directory was removed instead of retained"
+        ) from err
 
 
 class CursorSandbox:
-    """Runs the Cursor worker image inside a disposable OCI container."""
+    """Runs the Cursor worker image inside a disposable Docker container."""
 
     def __init__(
         self,
@@ -1067,21 +1118,11 @@ class CursorSandbox:
         request_dir: Path,
     ) -> str:
         image_digest = self._inspect_image_digest(endpoint)
-        cache_key = (
-            endpoint.binary_identity,
-            endpoint.socket_identity,
-            image_digest,
+        self._perform_mount_probe(
+            endpoint=endpoint,
+            request_dir=request_dir,
+            image_digest=image_digest,
         )
-        with _MOUNT_PROBE_LOCK:
-            if cache_key in _MOUNT_PROBE_CACHE:
-                return image_digest
-            self._perform_mount_probe(
-                endpoint=endpoint,
-                request_dir=request_dir,
-                image_digest=image_digest,
-                cache_key=cache_key,
-            )
-            _MOUNT_PROBE_CACHE.add(cache_key)
         return image_digest
 
     def _perform_mount_probe(
@@ -1090,7 +1131,6 @@ class CursorSandbox:
         endpoint: LocalRuntime,
         request_dir: Path,
         image_digest: str,
-        cache_key: tuple[str, str, str],
     ) -> None:
         nonce = secrets.token_hex(32).encode("ascii")
         _write_named_file_nofollow(
@@ -1098,7 +1138,14 @@ class CursorSandbox:
             ".mount-probe-input",
             nonce,
         )
-        probe_identity = "|".join((*cache_key, str(request_dir)))
+        probe_identity = "|".join(
+            (
+                endpoint.binary_identity,
+                endpoint.socket_identity,
+                image_digest,
+                str(request_dir),
+            )
+        )
         probe_digest = hashlib.sha256(probe_identity.encode("utf-8")).hexdigest()[:24]
         container_name = f"pgrep-probe-{probe_digest}"
         command = self._probe_command(
@@ -1146,7 +1193,7 @@ class CursorSandbox:
 
     def _host_user(self) -> str:
         if not hasattr(os, "getuid") or not hasattr(os, "getgid"):
-            raise RuntimeEndpointError("host uid:gid is required for OCI runs")
+            raise RuntimeEndpointError("host uid:gid is required for Docker runs")
         return f"{os.getuid()}:{os.getgid()}"
 
     def _probe_command(
@@ -1163,6 +1210,7 @@ class CursorSandbox:
             "--rm",
             "--name",
             _validate_cli_value(container_name, name="container name"),
+            *_DOCKER_HARDENING_OPTIONS,
             "--network",
             "none",
             "--user",
@@ -1318,6 +1366,7 @@ class CursorSandbox:
             "--rm",
             "--name",
             _validate_cli_value(container_name, name="container name"),
+            *_DOCKER_HARDENING_OPTIONS,
             "--user",
             self._host_user(),
         ]

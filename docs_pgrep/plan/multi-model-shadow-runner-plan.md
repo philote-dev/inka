@@ -15,9 +15,10 @@ is one request directory. A tracked content tool retrieves corpus excerpts,
 allocates candidates across exact user-selected model IDs, cross-verifies each
 candidate with the other two families, and atomically publishes a shadow run.
 
-**Tech Stack:** Python 3.13, `cursor-sdk` in an isolated worker project, Docker
-or Podman, existing `generation_core`, `retrieval`, `consensus`, `verify`,
-`provenance`, pytest, and `just`.
+**Tech Stack:** Python 3.13, `cursor-sdk` in an isolated worker project, a
+Docker-only local runtime for the first implementation, existing
+`generation_core`, `retrieval`, `consensus`, `verify`, `provenance`, pytest,
+and `just`.
 
 ## Global constraints
 
@@ -31,10 +32,12 @@ or Podman, existing `generation_core`, `retrieval`, `consensus`, `verify`,
 - A candidate's originating family cannot be one of its two independent
   cross-verifiers.
 - SymPy, provenance, schema, and leakage failures override model agreement.
-- The Cursor SDK process runs inside an OCI container with only the request
+- The Cursor SDK process runs inside a Docker container with only the request
   directory mounted. A host working-directory convention is not isolation.
-- If Docker or Podman, the requested models, the API key, or the mount boundary
-  is unavailable, fail before the first candidate call.
+- If a verified local Docker Unix socket, the requested models, the API key,
+  or the mount boundary is unavailable, fail before the first candidate call.
+  The first implementation does not claim or silently accept Podman or another
+  runtime.
 - All CI tests use fakes. No network, model, corpus index, Cursor key, or OCI
   runtime is required in CI.
 - Raw artifacts live below git-ignored `content/run/shadow-foundry/`.
@@ -429,16 +432,17 @@ def test_prompt_mounts_only_request_directory(tmp_path):
 
 
 def test_missing_runtime_fails_before_request(tmp_path):
-    with pytest.raises(RuntimeError, match="Docker or Podman"):
+    with pytest.raises(RuntimeError, match="Docker"):
         detect_runtime(which=lambda _: None)
 ```
 
 - [ ] **Step 2: Implement minimal adapter**
 
 Use `subprocess.run()` with an explicit argument list, `check=False`, captured
-output, a timeout, and an environment containing only `CURSOR_API_KEY` plus
-required system variables. Pass the secret with `--env CURSOR_API_KEY`, never as
-an argument value. Reject symlinks in the request directory.
+output, and a timeout. Build each environment from scratch with only a verified
+local `DOCKER_HOST=unix://...`; add `CURSOR_API_KEY` only after the per-request
+mount proof succeeds. Pass the secret with `--env CURSOR_API_KEY`, never as an
+argument value. Reject symlinks in the request directory.
 
 - [ ] **Step 3: Test failure boundaries**
 

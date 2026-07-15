@@ -1,12 +1,12 @@
 # Copyright: Ankitects Pty Ltd and contributors
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
-"""Offline tests for the host OCI sandbox adapter.
+"""Offline tests for the host Docker sandbox adapter.
 
-Every test injects a fake command runner. No Docker or Podman runtime, no
-network, no Cursor key, and no model call is required. The fake runner records
-the exact command and environment it was handed and simulates the worker by
-writing a ``result.json`` into the mounted request directory.
+Every test injects a fake command runner. No Docker daemon, network, Cursor
+key, or model call is required. The fake runner records the exact command and
+environment it was handed and simulates the worker by writing a
+``result.json`` into the mounted request directory.
 """
 
 from __future__ import annotations
@@ -31,7 +31,6 @@ from pgrep.ai import model_backend  # type: ignore[import-not-found]  # noqa: E4
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKER_ROOT = REPO_ROOT / "tools" / "shadow_worker"
 IMAGE_DIGEST = "sha256:" + ("a" * 64)
-OTHER_IMAGE_DIGEST = "sha256:" + ("b" * 64)
 _TEST_ENDPOINT = None
 
 
@@ -64,12 +63,10 @@ def _verified_local_runtime(monkeypatch: pytest.MonkeyPatch):
         which=lambda _runtime: sys.executable,
         socket_candidates=lambda _runtime: (socket_path,),
     )
-    cursor_sandbox._MOUNT_PROBE_CACHE.clear()
     try:
         yield
     finally:
         _TEST_ENDPOINT = None
-        cursor_sandbox._MOUNT_PROBE_CACHE.clear()
         listener.close()
         socket_path.unlink(missing_ok=True)
         shutil.rmtree(runtime_root)
@@ -129,6 +126,7 @@ class FakeRunner:
         raise_interrupt: bool = False,
         poison_result: str | None = None,
         probe_mode: str = "success",
+        probe_modes: list[str] | None = None,
         probe_returncode: int = 0,
         image_digests: list[str] | None = None,
         cleanup_rm_returncode: int = 0,
@@ -147,7 +145,8 @@ class FakeRunner:
         self._raise_timeout = raise_timeout
         self._raise_interrupt = raise_interrupt
         self._poison_result = poison_result
-        self._probe_mode = probe_mode
+        self._probe_modes = probe_modes or [probe_mode]
+        self._probe_mode_index = 0
         self._probe_returncode = probe_returncode
         self._image_digests = image_digests or [IMAGE_DIGEST]
         self._image_digest_index = 0
@@ -202,12 +201,15 @@ class FakeRunner:
                 work = Path(source)
         is_probe = action == "run" and "--entrypoint" in command
         if is_probe:
+            index = min(self._probe_mode_index, len(self._probe_modes) - 1)
+            probe_mode = self._probe_modes[index]
+            self._probe_mode_index += 1
             if self._probe_returncode:
                 return cursor_sandbox.CommandResult(
                     self._probe_returncode,
                     stderr="probe failed",
                 )
-            if work is not None and self._probe_mode == "request-symlink":
+            if work is not None and probe_mode == "request-symlink":
                 outside_dir = work.parent / "probe-outside"
                 outside_dir.mkdir()
                 (outside_dir / ".mount-probe-input").write_bytes(b"outside-input")
@@ -215,9 +217,9 @@ class FakeRunner:
                 shutil.rmtree(work)
                 work.symlink_to(outside_dir, target_is_directory=True)
                 return cursor_sandbox.CommandResult(0)
-            if work is not None and self._probe_mode != "missing":
+            if work is not None and probe_mode != "missing":
                 nonce = (work / ".mount-probe-input").read_bytes()
-                if self._probe_mode == "wrong":
+                if probe_mode == "wrong":
                     nonce = b"wrong-nonce"
                 (work / ".mount-probe-output").write_bytes(nonce)
             return cursor_sandbox.CommandResult(0)
@@ -325,23 +327,27 @@ def _env_for(runner: FakeRunner, command: list[str]) -> dict[str, str]:
 
 
 def test_missing_runtime_fails_before_request() -> None:
-    with pytest.raises(RuntimeError, match="Docker or Podman"):
+    with pytest.raises(RuntimeError, match="Docker"):
         cursor_sandbox.detect_runtime(which=lambda _: None)
 
 
-def test_detect_runtime_prefers_docker_then_podman() -> None:
-    assert (
-        cursor_sandbox.detect_runtime(
-            which=lambda name: "/usr/bin/docker" if name == "docker" else None
+def test_detect_runtime_checks_only_docker() -> None:
+    checked: list[str] = []
+
+    def which(name: str) -> str | None:
+        checked.append(name)
+        return "/usr/bin/docker" if name == "docker" else "/usr/bin/other"
+
+    assert cursor_sandbox.detect_runtime(which=which) == "docker"
+    assert checked == ["docker"]
+
+
+def test_config_rejects_non_docker_runtime() -> None:
+    with pytest.raises(ValueError, match="Docker"):
+        cursor_sandbox.SandboxConfig(
+            runtime="other-runtime",
+            image="pgrep-shadow-worker:test",
         )
-        == "docker"
-    )
-    assert (
-        cursor_sandbox.detect_runtime(
-            which=lambda name: "/usr/bin/podman" if name == "podman" else None
-        )
-        == "podman"
-    )
 
 
 @pytest.mark.parametrize(
@@ -350,7 +356,7 @@ def test_detect_runtime_prefers_docker_then_podman() -> None:
         "ssh://host/run/docker.sock",
         "tcp://127.0.0.1:2375",
         "npipe:////./pipe/docker_engine",
-        "unix:///var/folders/x/podman/podman-machine-default-api.sock",
+        "unix:///tmp/remote-docker.sock",
     ],
 )
 def test_discovery_rejects_remote_endpoint_candidates(candidate: str) -> None:
@@ -372,18 +378,6 @@ def test_docker_desktop_user_socket_is_an_allowed_local_candidate(
         home=tmp_path,
     )
     assert tmp_path / ".docker" / "run" / "docker.sock" in candidates
-
-
-def test_podman_machine_has_no_allowed_darwin_socket(tmp_path: Path) -> None:
-    assert (
-        cursor_sandbox._local_socket_candidates(
-            "podman",
-            platform="darwin",
-            uid=os.getuid(),
-            home=tmp_path,
-        )
-        == ()
-    )
 
 
 def test_prompt_mounts_only_request_directory(tmp_path: Path) -> None:
@@ -503,7 +497,6 @@ def test_mount_probe_rejects_wrong_or_missing_nonce(
         _sandbox(runner).complete(_request(), parent=tmp_path)
     assert len(_probe_commands(runner)) == 1
     assert _worker_commands(runner) == []
-    assert cursor_sandbox._MOUNT_PROBE_CACHE == set()
 
 
 def test_mount_probe_rejects_process_failure(tmp_path: Path) -> None:
@@ -511,7 +504,6 @@ def test_mount_probe_rejects_process_failure(tmp_path: Path) -> None:
     with pytest.raises(cursor_sandbox.MountProbeError):
         _sandbox(runner).complete(_request(), parent=tmp_path)
     assert _worker_commands(runner) == []
-    assert cursor_sandbox._MOUNT_PROBE_CACHE == set()
 
 
 def test_mount_probe_cleanup_never_follows_replaced_request_path(
@@ -528,50 +520,36 @@ def test_mount_probe_cleanup_never_follows_replaced_request_path(
     assert (outside / ".mount-probe-output").read_bytes() == b"outside-output"
 
 
-def test_mount_probe_cache_keys_exact_image_digest(tmp_path: Path) -> None:
+def test_each_request_directory_runs_its_own_mount_probe(tmp_path: Path) -> None:
+    first_parent = tmp_path / "first"
+    second_parent = tmp_path / "second"
+    first_parent.mkdir()
+    second_parent.mkdir()
+    runner = FakeRunner(result_body=_finished_body())
+    sandbox = _sandbox(runner)
+    sandbox.complete(_request(), parent=first_parent)
+    sandbox.complete(_request(), parent=second_parent)
+    probes = _probe_commands(runner)
+    assert len(probes) == 2
+    assert Path(_mounts(probes[0])[0][0]).parent == first_parent
+    assert Path(_mounts(probes[1])[0][0]).parent == second_parent
+
+
+def test_prior_mount_proof_cannot_bypass_later_failure(tmp_path: Path) -> None:
+    first_parent = tmp_path / "first"
+    second_parent = tmp_path / "second"
+    first_parent.mkdir()
+    second_parent.mkdir()
     runner = FakeRunner(
         result_body=_finished_body(),
-        image_digests=[IMAGE_DIGEST, IMAGE_DIGEST, OTHER_IMAGE_DIGEST],
+        probe_modes=["success", "wrong"],
     )
     sandbox = _sandbox(runner)
-    sandbox.complete(_request(), parent=tmp_path)
-    sandbox.complete(_request(), parent=tmp_path)
-    sandbox.complete(_request(), parent=tmp_path)
+    sandbox.complete(_request(), parent=first_parent)
+    with pytest.raises(cursor_sandbox.MountProbeError):
+        sandbox.complete(_request(), parent=second_parent)
     assert len(_probe_commands(runner)) == 2
-    assert len(cursor_sandbox._MOUNT_PROBE_CACHE) == 2
-
-
-def test_mount_probe_cache_keys_exact_runtime_socket(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    second_root = Path(tempfile.mkdtemp(prefix="cs-second-", dir="/tmp"))
-    second_socket_path = second_root / "docker.sock"
-    second_listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    second_listener.bind(str(second_socket_path))
-    monkeypatch.setattr(
-        cursor_sandbox,
-        "_local_socket_candidates",
-        lambda _runtime: (_TEST_ENDPOINT.socket, second_socket_path),
-    )
-    second_endpoint = cursor_sandbox.discover_local_runtime(
-        "docker",
-        which=lambda _runtime: sys.executable,
-        socket_candidates=lambda _runtime: (second_socket_path,),
-    )
-    try:
-        runner = FakeRunner(result_body=_finished_body())
-        _sandbox(runner).complete(_request(), parent=tmp_path)
-        _sandbox(
-            runner,
-            endpoint_resolver=lambda _runtime: second_endpoint,
-        ).complete(_request(), parent=tmp_path)
-        assert len(_probe_commands(runner)) == 2
-        assert len(cursor_sandbox._MOUNT_PROBE_CACHE) == 2
-    finally:
-        second_listener.close()
-        second_socket_path.unlink(missing_ok=True)
-        shutil.rmtree(second_root)
+    assert len(_worker_commands(runner)) == 1
 
 
 def test_worker_runs_as_host_uid_and_gid(tmp_path: Path) -> None:
@@ -579,6 +557,24 @@ def test_worker_runs_as_host_uid_and_gid(tmp_path: Path) -> None:
     _sandbox(runner).complete(_request(), parent=tmp_path)
     worker = _worker_commands(runner)[-1]
     assert worker[worker.index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
+
+
+def test_probe_and_worker_use_portable_docker_hardening(tmp_path: Path) -> None:
+    runner = FakeRunner(result_body=_finished_body())
+    _sandbox(runner).complete(_request(), parent=tmp_path)
+    for command in (*_probe_commands(runner), *_worker_commands(runner)):
+        assert "--read-only" in command
+        assert command[command.index("--cap-drop") + 1] == "ALL"
+        assert command[command.index("--security-opt") + 1] == "no-new-privileges=true"
+        assert command[command.index("--pids-limit") + 1] == "128"
+        assert command[command.index("--memory") + 1] == "1g"
+        assert command[command.index("--cpus") + 1] == "2"
+        assert command[command.index("--tmpfs") + 1] == "/tmp:rw,noexec,nosuid,size=64m"
+        assert command[command.index("--user") + 1] == (f"{os.getuid()}:{os.getgid()}")
+        assert "--privileged" not in command
+        assert command[command.index("--network") + 1] != "host"
+        assert len(_mounts(command)) == 1
+        assert "/var/run/docker.sock" not in " ".join(command)
 
 
 def test_run_network_allows_egress_without_host_network_or_sensitive_mounts(
@@ -730,9 +726,92 @@ def test_debug_retain_refuses_poisoned_path_escape(tmp_path: Path) -> None:
         result_body=_finished_body(),
         poison_result="request-symlink",
     )
-    with pytest.raises(cursor_sandbox.RequestCleanupError):
+    with pytest.raises(cursor_sandbox.RequestRetentionError):
         _sandbox(runner, debug_retain=True).complete(_request(), parent=tmp_path)
     assert not any(path.is_symlink() for path in tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("kind", ["symlink", "hardlink"])
+def test_debug_retain_removes_link_poison(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    runner = FakeRunner(
+        result_body=_finished_body(),
+        poison_result=kind,
+    )
+    with pytest.raises(cursor_sandbox.RequestRetentionError):
+        _sandbox(runner, debug_retain=True).complete(_request(), parent=tmp_path)
+    assert not list(tmp_path.glob("shadow-*"))
+
+
+def test_debug_retain_removes_special_file_poison(tmp_path: Path) -> None:
+    def add_fifo(work: Path) -> None:
+        os.mkfifo(work / "special.fifo")
+
+    runner = FakeRunner(
+        result_body=_finished_body(),
+        output_mutator=add_fifo,
+    )
+    with pytest.raises(cursor_sandbox.RequestRetentionError):
+        _sandbox(runner, debug_retain=True).complete(_request(), parent=tmp_path)
+    assert not list(tmp_path.glob("shadow-*"))
+
+
+def test_debug_retain_removes_oversized_file_poison(tmp_path: Path) -> None:
+    def add_oversized_file(work: Path) -> None:
+        with (work / "oversized.bin").open("wb") as output:
+            output.truncate(cursor_sandbox.MAX_FILE_BYTES + 1)
+
+    runner = FakeRunner(
+        result_body=_finished_body(),
+        output_mutator=add_oversized_file,
+    )
+    with pytest.raises(cursor_sandbox.RequestRetentionError):
+        _sandbox(runner, debug_retain=True).complete(_request(), parent=tmp_path)
+    assert not list(tmp_path.glob("shadow-*"))
+
+
+def test_debug_retain_removes_deep_tree_poison(tmp_path: Path) -> None:
+    def add_deep_tree(work: Path) -> None:
+        current = work
+        for index in range(cursor_sandbox.MAX_REQUEST_DEPTH + 1):
+            current /= f"depth-{index}"
+            current.mkdir()
+
+    runner = FakeRunner(
+        result_body=_finished_body(),
+        output_mutator=add_deep_tree,
+    )
+    with pytest.raises(cursor_sandbox.RequestRetentionError):
+        _sandbox(runner, debug_retain=True).complete(_request(), parent=tmp_path)
+    assert not list(tmp_path.glob("shadow-*"))
+
+
+def test_debug_retain_removes_unreadable_content(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def add_unreadable_file(work: Path) -> None:
+        (work / "unreadable.bin").write_bytes(b"x")
+
+    def reject_unreadable(path: Path, _info) -> None:  # noqa: ANN001
+        if path.name == "unreadable.bin":
+            raise cursor_sandbox.RequestDirectoryError("unreadable content")
+
+    monkeypatch.setattr(
+        cursor_sandbox,
+        "_verify_regular_file_readable",
+        reject_unreadable,
+        raising=False,
+    )
+    runner = FakeRunner(
+        result_body=_finished_body(),
+        output_mutator=add_unreadable_file,
+    )
+    with pytest.raises(cursor_sandbox.RequestRetentionError):
+        _sandbox(runner, debug_retain=True).complete(_request(), parent=tmp_path)
+    assert not list(tmp_path.glob("shadow-*"))
 
 
 def test_nonzero_exit_without_output_is_process_error(tmp_path: Path) -> None:
@@ -1251,3 +1330,14 @@ def test_worker_context_cannot_be_rebased_by_current_directory(
     (attacker_context / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     assert cursor_sandbox._default_worker_context().resolve() == WORKER_ROOT.resolve()
+
+
+def test_approved_docs_state_first_runner_is_docker_only() -> None:
+    plan = (
+        REPO_ROOT / "docs_pgrep" / "plan" / "multi-model-shadow-runner-plan.md"
+    ).read_text(encoding="utf-8")
+    design = (
+        REPO_ROOT / "docs_pgrep" / "plan" / "shadow-foundry-calibration-design.md"
+    ).read_text(encoding="utf-8")
+    assert "Docker-only" in plan
+    assert "Docker-only" in design
