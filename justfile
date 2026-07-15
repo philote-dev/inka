@@ -266,6 +266,12 @@ shadow-foundry *args:
     {{ ninja }} pyenv
     out/pyenv/bin/python content/tools/shadow_foundry.py --shadow {{ args }}
 
+# Build the private blind human ruler and Pass A Markdown blocks.
+[unix]
+calibration-ruler *args:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/build_calibration_ruler.py {{ args }}
+
 # Standing verifier evaluation over precomputed labels, entirely offline
 [unix]
 eval-verifier *args:
