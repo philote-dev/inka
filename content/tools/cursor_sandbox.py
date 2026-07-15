@@ -1408,11 +1408,7 @@ class CursorSandbox:
                 f"container could not be proven absent: {name}"
             ) from remove_error
         lifecycle.prove_absence()
-        if (
-            remove_error is not None
-            or remove_result is None
-            or remove_result.returncode != 0
-        ):
+        if remove_error is not None or remove_result is None:
             lifecycle.forbid_retention()
             raise SecurityCleanupError(
                 f"container removal command failed: {name}"

@@ -130,6 +130,7 @@ class FakeRunner:
         probe_returncode: int = 0,
         image_digests: list[str] | None = None,
         cleanup_rm_returncode: int = 0,
+        cleanup_rm_exception: bool = False,
         cleanup_inspect: str = "absent",
         cleanup_inspects: list[str] | None = None,
         output_mutator: Callable[[Path], None] | None = None,
@@ -151,6 +152,7 @@ class FakeRunner:
         self._image_digests = image_digests or [IMAGE_DIGEST]
         self._image_digest_index = 0
         self._cleanup_rm_returncode = cleanup_rm_returncode
+        self._cleanup_rm_exception = cleanup_rm_exception
         self._cleanup_inspects = cleanup_inspects or [cleanup_inspect]
         self._cleanup_inspect_index = 0
         self._output_mutator = output_mutator
@@ -166,6 +168,8 @@ class FakeRunner:
             self._image_digest_index += 1
             return cursor_sandbox.CommandResult(0, stdout=digest + "\n")
         if action == "rm":
+            if self._cleanup_rm_exception:
+                raise OSError("remove failed")
             return cursor_sandbox.CommandResult(
                 self._cleanup_rm_returncode,
                 stderr="remove failed" if self._cleanup_rm_returncode else "",
@@ -1041,7 +1045,7 @@ def test_cleanup_requires_proof_container_is_absent(
         _sandbox(runner).complete(_request(), parent=tmp_path)
 
 
-def test_rm_failure_is_security_error_even_when_inspect_proves_absence(
+def test_docker_auto_removal_accepts_rm_nonzero_when_inspect_proves_absence(
     tmp_path: Path,
 ) -> None:
     runner = FakeRunner(
@@ -1049,8 +1053,8 @@ def test_rm_failure_is_security_error_even_when_inspect_proves_absence(
         cleanup_rm_returncode=1,
         cleanup_inspect="absent",
     )
-    with pytest.raises(cursor_sandbox.SecurityCleanupError):
-        _sandbox(runner).complete(_request(), parent=tmp_path)
+    result = _sandbox(runner).complete(_request(), parent=tmp_path)
+    assert result.status == "finished"
 
 
 def test_debug_retain_timeout_removes_request_path(tmp_path: Path) -> None:
@@ -1060,10 +1064,23 @@ def test_debug_retain_timeout_removes_request_path(tmp_path: Path) -> None:
     assert not list(tmp_path.glob("shadow-*"))
 
 
-def test_debug_retain_rm_failure_removes_request_path(tmp_path: Path) -> None:
+def test_debug_retain_accepts_verified_docker_auto_removal(tmp_path: Path) -> None:
     runner = FakeRunner(
         result_body=_finished_body(),
         cleanup_rm_returncode=1,
+        cleanup_inspect="absent",
+    )
+    result = _sandbox(runner, debug_retain=True).complete(
+        _request(),
+        parent=tmp_path,
+    )
+    assert result.status == "finished"
+    assert len(list(tmp_path.glob("shadow-*"))) == 1
+
+
+def test_debug_retain_rm_exception_removes_request_path(tmp_path: Path) -> None:
+    runner = FakeRunner(
+        cleanup_rm_exception=True,
         cleanup_inspect="absent",
     )
     with pytest.raises(cursor_sandbox.SecurityCleanupError):
@@ -1087,6 +1104,37 @@ def test_debug_retain_present_container_removes_request_path(
     with pytest.raises(cursor_sandbox.SecurityCleanupError):
         _sandbox(runner, debug_retain=True).complete(_request(), parent=tmp_path)
     assert not list(tmp_path.glob("shadow-*"))
+
+
+def test_debug_retain_later_present_container_overrides_prior_absence(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner(
+        result_body=_finished_body(),
+        cleanup_rm_returncode=1,
+        cleanup_inspects=["absent", "present"],
+    )
+    with pytest.raises(cursor_sandbox.SecurityCleanupError):
+        _sandbox(runner, debug_retain=True).complete(_request(), parent=tmp_path)
+    assert len(_worker_commands(runner)) == 1
+    assert len(_action_commands(runner, "container")) == 2
+    assert not list(tmp_path.glob("shadow-*"))
+
+
+def test_verified_auto_removal_preserves_worker_failure_semantics(
+    tmp_path: Path,
+) -> None:
+    body = _finished_body()
+    body["status"] = "error"
+    body["error_kind"] = "run"
+    runner = FakeRunner(
+        result_body=body,
+        returncode=2,
+        cleanup_rm_returncode=1,
+        cleanup_inspect="absent",
+    )
+    with pytest.raises(cursor_sandbox.WorkerFailure):
+        _sandbox(runner).complete(_request(), parent=tmp_path)
 
 
 def test_cleanup_failure_overrides_primary_timeout(tmp_path: Path) -> None:
