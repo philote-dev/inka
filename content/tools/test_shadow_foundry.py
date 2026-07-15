@@ -8,7 +8,9 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import types
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -789,23 +791,19 @@ def test_real_sandbox_wiring_discovers_builds_and_pins_image() -> None:
         kind="docker",
         socket=Path("/var/run/docker.sock"),
     )
-    observed: dict[str, object] = {}
+    observed: dict[str, object] = {"configs": []}
 
     class FakeSandbox:
         def __init__(self, config, **kwargs):  # noqa: ANN001
-            observed["config"] = config
+            observed["configs"].append(config)
             observed["kwargs"] = kwargs
-            self.built = False
 
         def image_digest(self) -> str:
-            if not self.built:
-                raise shadow_foundry.cursor_sandbox.MountProbeError("image missing")
             return "sha256:" + ("d" * 64)
 
         def build_image(self, *, context=None):  # noqa: ANN001
             observed["context"] = context
-            self.built = True
-            return observed["config"].image
+            return observed["configs"][0].image
 
     prepared = shadow_foundry.prepare_real_sandbox(
         "cursor_test_key",
@@ -813,11 +811,13 @@ def test_real_sandbox_wiring_discovers_builds_and_pins_image() -> None:
         runtime_discoverer=lambda runtime: endpoint,
         sandbox_factory=FakeSandbox,
     )
-    config = observed["config"]
-    assert config.runtime == "docker"
-    assert config.socket == "/var/run/docker.sock"
-    assert config.image.startswith("pgrep-shadow-worker:")
+    tagged, immutable = observed["configs"]
+    assert tagged.runtime == "docker"
+    assert tagged.socket == "/var/run/docker.sock"
+    assert tagged.image.startswith("pgrep-shadow-worker:")
+    assert immutable.image == "sha256:" + ("d" * 64)
     assert observed["context"] == shadow_foundry.WORKER_CONTEXT
+    assert prepared.image == "sha256:" + ("d" * 64)
     assert prepared.image_digest == "sha256:" + ("d" * 64)
 
 
@@ -1018,3 +1018,482 @@ def test_same_vendor_triple_fails_semantic_role_validation() -> None:
     ]
     with pytest.raises(ValueError, match="family identity"):
         shadow_foundry.validate_exact_roles(roles, models)
+
+
+class HoldingPublicationIO(shadow_foundry.PublicationIO):
+    def __init__(self) -> None:
+        self.locked = threading.Event()
+        self.release = threading.Event()
+
+    def create_temp(self, root: Path, run_id: str) -> Path:
+        self.locked.set()
+        if not self.release.wait(timeout=5):
+            raise TimeoutError("test did not release publication")
+        return super().create_temp(root, run_id)
+
+
+def test_concurrent_lock_failure_never_removes_owned_lock(tmp_path: Path) -> None:
+    candidates, manifest = shadow_foundry.offline_fixture(
+        run_id="concurrent-lock",
+        environment=_environment(),
+    )
+    holding = HoldingPublicationIO()
+    lock_path = tmp_path / ".concurrent-lock.lock"
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(
+            shadow_foundry.publish_run,
+            tmp_path,
+            "concurrent-lock",
+            candidates=candidates,
+            failures=[],
+            manifest=manifest,
+            allow_test_output=True,
+            io=holding,
+        )
+        assert holding.locked.wait(timeout=5)
+        try:
+            with pytest.raises(FileExistsError):
+                shadow_foundry.publish_run(
+                    tmp_path,
+                    "concurrent-lock",
+                    candidates=candidates,
+                    failures=[],
+                    manifest=manifest,
+                    allow_test_output=True,
+                )
+            lock_survived = lock_path.is_file()
+        finally:
+            holding.release.set()
+        assert first.result(timeout=5) == tmp_path / "concurrent-lock"
+    assert lock_survived
+
+
+def test_preexisting_lock_is_never_unlinked(tmp_path: Path) -> None:
+    candidates, manifest = shadow_foundry.offline_fixture(
+        run_id="foreign-lock",
+        environment=_environment(),
+    )
+    lock_path = tmp_path / ".foreign-lock.lock"
+    lock_path.write_text("foreign-owner\n", encoding="utf-8")
+    with pytest.raises(FileExistsError):
+        shadow_foundry.publish_run(
+            tmp_path,
+            "foreign-lock",
+            candidates=candidates,
+            failures=[],
+            manifest=manifest,
+            allow_test_output=True,
+        )
+    assert lock_path.read_text(encoding="utf-8") == "foreign-owner\n"
+    assert not (tmp_path / "foreign-lock").exists()
+
+
+@pytest.mark.parametrize("cancel", [KeyboardInterrupt(), SystemExit(9)])
+def test_candidate_cancellation_propagates_without_later_calls(
+    tmp_path: Path,
+    cancel: BaseException,
+) -> None:
+    class CancellingBackend(FakeBackend):
+        def complete(
+            self,
+            request: model_backend.ModelRequest,
+        ) -> model_backend.ModelResult:
+            self.requests.append(request)
+            raise cancel
+
+    backend = CancellingBackend()
+    with pytest.raises(type(cancel)):
+        shadow_foundry.run_shadow(
+            roles=_roles(),
+            backend=backend,
+            output_root=tmp_path,
+            allow_test_output=True,
+            search_fn=_fake_search,
+            n=3,
+            seed=7,
+            topic="mechanics/circular-motion",
+            run_id=f"cancel-{type(cancel).__name__}",
+            environment=_environment(),
+        )
+    assert len(backend.requests) == 1
+    assert not list(tmp_path.rglob("_FAILED"))
+    assert not list(tmp_path.rglob("_SUCCESS"))
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    [
+        shadow_foundry.cursor_sandbox.ModelMismatchError,
+        shadow_foundry.cursor_sandbox.RequestDirectoryError,
+        shadow_foundry.cursor_sandbox.LeakageError,
+        shadow_foundry.cursor_sandbox.RuntimeEndpointError,
+        shadow_foundry.cursor_sandbox.MountProbeError,
+        shadow_foundry.cursor_sandbox.SecurityCleanupError,
+        shadow_foundry.cursor_sandbox.RequestCleanupError,
+        shadow_foundry.cursor_sandbox.RequestRetentionError,
+        shadow_foundry.cursor_sandbox.SandboxLimitError,
+        shadow_foundry.cursor_sandbox.DescriptorOpenError,
+    ],
+)
+def test_every_sandbox_security_error_stops_later_model_calls(
+    tmp_path: Path,
+    error_type: type[Exception],
+) -> None:
+    class SecurityBackend(FakeBackend):
+        def complete(
+            self,
+            request: model_backend.ModelRequest,
+        ) -> model_backend.ModelResult:
+            self.requests.append(request)
+            raise error_type("injected security failure")
+
+    backend = SecurityBackend()
+    with pytest.raises(shadow_foundry.ShadowRunFailed) as raised:
+        shadow_foundry.run_shadow(
+            roles=_roles(),
+            backend=backend,
+            output_root=tmp_path,
+            allow_test_output=True,
+            search_fn=_fake_search,
+            n=3,
+            seed=7,
+            topic="mechanics/circular-motion",
+            run_id=f"security-{error_type.__name__}",
+            environment=_environment(),
+        )
+    assert len(backend.requests) == 1
+    assert (raised.value.run_dir / "_FAILED").is_file()
+
+
+def test_prepared_sandbox_executes_only_immutable_digest() -> None:
+    endpoint = types.SimpleNamespace(
+        kind="docker",
+        socket=Path("/var/run/docker.sock"),
+    )
+    digest = "sha256:" + ("d" * 64)
+    instances: list[object] = []
+
+    class FakeSandbox:
+        def __init__(self, config, **_kwargs):  # noqa: ANN001
+            self.config = config
+            self.built = False
+            instances.append(self)
+
+        def build_image(self, *, context=None):  # noqa: ANN001
+            assert context == shadow_foundry.WORKER_CONTEXT
+            self.built = True
+            return self.config.image
+
+        def image_digest(self) -> str:
+            return digest
+
+    prepared = shadow_foundry.prepare_real_sandbox(
+        "cursor_test_key",
+        runtime_detector=lambda: "docker",
+        runtime_discoverer=lambda _runtime: endpoint,
+        sandbox_factory=FakeSandbox,
+    )
+    assert len(instances) == 2
+    assert instances[0].built is True
+    assert instances[0].config.image.startswith("pgrep-shadow-worker:")
+    assert instances[1].config.image == digest
+    assert prepared.sandbox is instances[1]
+    assert prepared.image == digest
+    assert prepared.image_digest == digest
+
+
+def test_manifest_run_id_must_match_publication_directory(tmp_path: Path) -> None:
+    candidates, manifest = shadow_foundry.offline_fixture(
+        run_id="manifest-id",
+        environment=_environment(),
+    )
+    with pytest.raises(ValueError, match="run ID"):
+        shadow_foundry.publish_run(
+            tmp_path,
+            "different-directory",
+            candidates=candidates,
+            failures=[],
+            manifest=manifest,
+            allow_test_output=True,
+        )
+    assert not list(tmp_path.rglob("_SUCCESS"))
+
+
+def test_candidate_replay_metadata_is_complete() -> None:
+    candidates, manifest = shadow_foundry.offline_fixture(
+        run_id="replay-complete",
+        environment=_environment(),
+    )
+    assert manifest["category"] == "mechanics"
+    assert manifest["execution_mode"] == "test-fake"
+    assert manifest["replayable"] is False
+    for slot, candidate in enumerate(candidates):
+        assert candidate["topic"] == manifest["topic"]
+        assert candidate["category"] == manifest["category"]
+        assert candidate["seed"] == manifest["seeds"]["slots"][slot]
+        assert candidate["origin_family"] == manifest["allocation"][slot]
+        assert candidate["retrieval"] == {
+            "chunk_ids": ["chunk-self-check-1"],
+            "source_refs": ["OpenStax University Physics, p. 1"],
+        }
+        traces = shadow_foundry._candidate_traces(candidate)
+        assert traces
+        assert all(trace["request_hash"] for trace in traces)
+        assert all(trace["response_hash"] for trace in traces)
+        assert all(
+            trace["retrieved_chunk_ids"] == candidate["retrieval"]["chunk_ids"]
+            for trace in traces
+        )
+        assert all(
+            trace["retrieved_source_refs"] == candidate["retrieval"]["source_refs"]
+            for trace in traces
+        )
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    ["topic", "category", "candidate_seed", "portfolio_seed"],
+)
+def test_manifest_replay_cross_checks_reject_tampering(
+    tmp_path: Path,
+    tamper: str,
+) -> None:
+    candidates, manifest = shadow_foundry.offline_fixture(
+        run_id=f"tamper-{tamper}",
+        environment=_environment(),
+    )
+    if tamper == "topic":
+        candidates[0]["topic"] = "electromagnetism/fields"
+    elif tamper == "category":
+        candidates[0]["category"] = "electromagnetism"
+    elif tamper == "candidate_seed":
+        candidates[0]["seed"] = 999
+    else:
+        manifest["seeds"]["portfolio"] = 999
+    with pytest.raises(ValueError, match="topic|category|seed|allocation"):
+        shadow_foundry.publish_run(
+            tmp_path,
+            f"tamper-{tamper}",
+            candidates=candidates,
+            failures=[],
+            manifest=manifest,
+            allow_test_output=True,
+        )
+    assert not list(tmp_path.rglob("_SUCCESS"))
+
+
+def test_dirty_real_run_refuses_success_before_model_calls(tmp_path: Path) -> None:
+    environment = _environment()
+    object.__setattr__(environment, "execution_mode", "real")
+    backend = FakeBackend()
+    with pytest.raises(shadow_foundry.ShadowRunFailed) as raised:
+        shadow_foundry.run_shadow(
+            roles=_roles(),
+            backend=backend,
+            output_root=tmp_path,
+            allow_test_output=True,
+            search_fn=_fake_search,
+            n=3,
+            seed=7,
+            topic="mechanics/circular-motion",
+            run_id="dirty-real",
+            environment=environment,
+        )
+    assert backend.requests == []
+    assert (raised.value.run_dir / "_FAILED").is_file()
+
+
+def _request_with(
+    *,
+    user: str = "CORPUS CONTEXT: safe physics.",
+    source_refs: tuple[str, ...] = ("OpenStax University Physics, p. 1",),
+) -> model_backend.ModelRequest:
+    return model_backend.ModelRequest(
+        request_id="security-request",
+        role="generator",
+        model=_roles().sol,
+        system="Return strict JSON.",
+        user=user,
+        prompt_version=shadow_portfolio.GENERATOR_PROMPT_VERSION,
+        schema_version=shadow_portfolio.SCHEMA_VERSION,
+        seed=7,
+        corpus_chunk_ids=("chunk-1",),
+        source_refs=source_refs,
+    )
+
+
+def test_original_request_secret_is_rejected_before_backend() -> None:
+    backend = FakeBackend()
+    recorder = shadow_foundry._RecordingBackend(
+        backend,
+        secrets=("cursor_test_secret",),
+    )
+    recorder.allowed_source_refs = frozenset({"OpenStax University Physics, p. 1"})
+    request = _request_with(user="api_key=cursor_test_secret")
+    with pytest.raises(shadow_foundry.ShadowLeakageError, match="secret"):
+        recorder.complete(request)
+    assert backend.requests == []
+
+
+def test_request_source_refs_must_match_bound_retrieval_exactly() -> None:
+    backend = FakeBackend()
+    recorder = shadow_foundry._RecordingBackend(backend, secrets=())
+    recorder.allowed_source_refs = frozenset({"OpenStax University Physics, p. 1"})
+    request = _request_with(source_refs=("Different citation",))
+    with pytest.raises(shadow_foundry.ShadowLeakageError, match="source reference"):
+        recorder.complete(request)
+    assert backend.requests == []
+
+
+@pytest.mark.parametrize(
+    "source_ref",
+    [
+        "/work/request.json",
+        "/usr/local/share/model.txt",
+        "/etc/passwd",
+        "/home/user/notes.md",
+        "../private/notes.txt",
+        "notes.md",
+        "results.json",
+    ],
+)
+def test_path_like_source_refs_are_rejected(source_ref: str) -> None:
+    dirty = _retrieved()
+    dirty[0]["source_ref"] = source_ref
+    with pytest.raises(shadow_foundry.ShadowLeakageError, match="filesystem path"):
+        shadow_foundry.sanitize_retrieved(dirty)
+
+
+class RecordingDurabilityIO(shadow_foundry.PublicationIO):
+    def __init__(self, root: Path, run_id: str) -> None:
+        self.root = root
+        self.run_id = run_id
+        self.events: list[str] = []
+
+    def _label(self, path: Path) -> str:
+        if path == self.root:
+            return "root"
+        if path.name == self.run_id:
+            return "final"
+        return "temp"
+
+    def write_payload(self, path: Path, content: str) -> None:
+        self.events.append("payload")
+        super().write_payload(path, content)
+
+    def reserve_final(self, path: Path) -> None:
+        self.events.append("reserve")
+        super().reserve_final(path)
+
+    def link_payload(self, source: Path, destination: Path) -> None:
+        self.events.append("link")
+        super().link_payload(source, destination)
+
+    def sync_directory(self, path: Path) -> None:
+        self.events.append(f"sync:{self._label(path)}")
+        super().sync_directory(path)
+
+    def cleanup_tree(self, path: Path) -> None:
+        self.events.append(f"cleanup:{self._label(path)}")
+        super().cleanup_tree(path)
+
+    def remove_lock(
+        self,
+        path: Path,
+        identity: shadow_foundry.LockIdentity,
+    ) -> None:
+        self.events.append("remove-lock")
+        super().remove_lock(path, identity)
+
+    def write_marker(self, path: Path, content: str) -> None:
+        self.events.append("marker")
+        super().write_marker(path, content)
+
+
+def test_publication_fsync_order_makes_payloads_durable_before_marker(
+    tmp_path: Path,
+) -> None:
+    candidates, manifest = shadow_foundry.offline_fixture(
+        run_id="durable",
+        environment=_environment(),
+    )
+    io = RecordingDurabilityIO(tmp_path, "durable")
+    shadow_foundry.publish_run(
+        tmp_path,
+        "durable",
+        candidates=candidates,
+        failures=[],
+        manifest=manifest,
+        allow_test_output=True,
+        io=io,
+    )
+    marker = io.events.index("marker")
+    assert io.events.index("sync:temp") < io.events.index("reserve")
+    assert io.events.index("sync:final") < marker
+    assert io.events.index("remove-lock") < marker
+    assert io.events[marker + 1 : marker + 3] == ["sync:final", "sync:root"]
+
+
+class FailingDirectorySyncIO(shadow_foundry.PublicationIO):
+    def __init__(self, run_id: str) -> None:
+        self.run_id = run_id
+
+    def sync_directory(self, path: Path) -> None:
+        if path.name == self.run_id:
+            raise OSError("injected directory fsync failure")
+        super().sync_directory(path)
+
+
+def test_directory_fsync_failure_cleans_false_finalization(tmp_path: Path) -> None:
+    candidates, manifest = shadow_foundry.offline_fixture(
+        run_id="sync-failure",
+        environment=_environment(),
+    )
+    with pytest.raises(OSError, match="fsync"):
+        shadow_foundry.publish_run(
+            tmp_path,
+            "sync-failure",
+            candidates=candidates,
+            failures=[],
+            manifest=manifest,
+            allow_test_output=True,
+            io=FailingDirectorySyncIO("sync-failure"),
+        )
+    assert not (tmp_path / "sync-failure").exists()
+    assert not list(tmp_path.rglob("_SUCCESS"))
+    assert not list(tmp_path.glob(".*.tmp"))
+    assert not list(tmp_path.glob(".*.lock"))
+
+
+class FailingPostMarkerSyncIO(shadow_foundry.PublicationIO):
+    def __init__(self, run_id: str) -> None:
+        self.run_id = run_id
+        self.final_syncs = 0
+
+    def sync_directory(self, path: Path) -> None:
+        if path.name == self.run_id:
+            self.final_syncs += 1
+            if self.final_syncs == 2:
+                raise OSError("injected post-marker fsync failure")
+        super().sync_directory(path)
+
+
+def test_post_marker_fsync_failure_removes_false_marker(tmp_path: Path) -> None:
+    candidates, manifest = shadow_foundry.offline_fixture(
+        run_id="post-marker-sync-failure",
+        environment=_environment(),
+    )
+    with pytest.raises(OSError, match="post-marker"):
+        shadow_foundry.publish_run(
+            tmp_path,
+            "post-marker-sync-failure",
+            candidates=candidates,
+            failures=[],
+            manifest=manifest,
+            allow_test_output=True,
+            io=FailingPostMarkerSyncIO("post-marker-sync-failure"),
+        )
+    assert not (tmp_path / "post-marker-sync-failure").exists()
+    assert not list(tmp_path.rglob("_SUCCESS"))
+    assert not list(tmp_path.glob(".*.tmp"))
+    assert not list(tmp_path.glob(".*.lock"))

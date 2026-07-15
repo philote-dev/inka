@@ -128,6 +128,10 @@ class SandboxError(RuntimeError):
     """Base class for every host sandbox failure."""
 
 
+class SandboxSecurityError(SandboxError):
+    """A sandbox identity, isolation, path, limit, or cleanup failure."""
+
+
 class RuntimeUnavailableError(SandboxError):
     """No supported container runtime is installed."""
 
@@ -152,31 +156,31 @@ class WorkerFailure(SandboxError):
     """The worker ran and declared a non-finished status."""
 
 
-class ModelMismatchError(SandboxError):
+class ModelMismatchError(SandboxSecurityError):
     """The returned model identity did not match the requested model."""
 
 
-class RequestDirectoryError(SandboxError):
+class RequestDirectoryError(SandboxSecurityError):
     """The request directory is unsafe (symlink, hard link, or escape)."""
 
 
-class LeakageError(SandboxError):
+class LeakageError(SandboxSecurityError):
     """A private training-data marker appeared in a request path or payload."""
 
 
-class RuntimeEndpointError(SandboxError):
+class RuntimeEndpointError(SandboxSecurityError):
     """The runtime endpoint is not a verified local Unix socket."""
 
 
-class MountProbeError(SandboxError):
+class MountProbeError(SandboxSecurityError):
     """The keyless two-way mount probe failed."""
 
 
-class SecurityCleanupError(SandboxError):
+class SecurityCleanupError(SandboxSecurityError):
     """A named container could not be proven absent."""
 
 
-class RequestCleanupError(SandboxError):
+class RequestCleanupError(SandboxSecurityError):
     """A request path could not be proven removed."""
 
 
@@ -184,11 +188,11 @@ class RequestRetentionError(RequestCleanupError):
     """An unsafe request path was removed instead of debug-retained."""
 
 
-class SandboxLimitError(SandboxError):
+class SandboxLimitError(SandboxSecurityError):
     """Container output exceeded a strict filesystem bound."""
 
 
-class DescriptorOpenError(SandboxError):
+class DescriptorOpenError(SandboxSecurityError):
     """The host cannot safely open files relative to a directory descriptor."""
 
 
@@ -1186,6 +1190,12 @@ class CursorSandbox:
         digest = completed.stdout.strip()
         if completed.returncode != 0 or not _IMAGE_DIGEST_RE.fullmatch(digest):
             raise MountProbeError("worker image has no verified immutable digest")
+        if _IMAGE_DIGEST_RE.fullmatch(self._config.image) and (
+            digest != self._config.image
+        ):
+            raise MountProbeError(
+                "immutable worker image resolved to a different digest"
+            )
         return digest
 
     def _ensure_mount_probe(

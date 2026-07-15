@@ -51,7 +51,7 @@ DEFAULT_REASONING = "high"
 
 SUCCESS_MARKER = "_SUCCESS"
 FAILED_MARKER = "_FAILED"
-MANIFEST_VERSION = "pgrep-shadow-run/v2"
+MANIFEST_VERSION = "pgrep-shadow-run/v3"
 
 _FAMILIES = ("sol", "opus", "grok")
 _WORKER_FILES = ("Dockerfile", "pyproject.toml", "uv.lock", "worker.py")
@@ -65,14 +65,17 @@ _PRIVATE_MARKER = re.compile(
     r")"
 )
 _ABSOLUTE_PATH = re.compile(
-    r"(?i)(?:^|[\s\"'=(:])(?:/Users/|/home/|/var/|/tmp/|/private/|"
-    r"/run/|/etc/|[A-Za-z]:\\|\\\\[^\\\s]+\\)"
+    r"(?i)(?:^|[\s\"'=(:])(?:"
+    r"/(?:Users|home|root|var|tmp|private|run|work|usr|etc)(?:/|$)"
+    r"|[A-Za-z]:\\|\\\\[^\\\s]+\\)"
 )
 _RELATIVE_PATH = re.compile(
     r"(?i)(?:^|[\s\"'=(:])(?:\.\.?/|~/|"
     r"(?:content|pylib|qt|rslib|tools|docs_pgrep|\.git)/)"
     r"|(?<![A-Za-z0-9])(?:[A-Za-z0-9_.-]+/)+"
-    r"[A-Za-z0-9_.-]+\.(?:jsonl?|db|sqlite|pdf|py|toml|yaml|yml|env)\b"
+    r"[A-Za-z0-9_.-]+\.(?:jsonl?|db|sqlite|pdf|py|toml|yaml|yml|env|md|txt)\b"
+    r"|(?<![A-Za-z0-9_.-])[A-Za-z0-9_.-]+\."
+    r"(?:jsonl?|md|txt)(?![A-Za-z0-9_.-])"
 )
 _SECRET_PATTERNS = (
     re.compile(
@@ -103,6 +106,8 @@ _TOP_LEVEL_FIELDS = frozenset(
     {
         "manifest_version",
         "mode",
+        "execution_mode",
+        "replayable",
         "status",
         "run_id",
         "training_eligible",
@@ -116,6 +121,7 @@ _TOP_LEVEL_FIELDS = frozenset(
         "worker",
         "corpus_index",
         "topic",
+        "category",
         "allocation",
         "seeds",
         "choice_permutations",
@@ -131,6 +137,7 @@ _TRACE_FIELDS = frozenset(
         "phase",
         "attempt",
         "request_hash",
+        "response_hash",
         "role",
         "family",
         "requested_model_id",
@@ -138,6 +145,8 @@ _TRACE_FIELDS = frozenset(
         "prompt_version",
         "schema_version",
         "seed",
+        "retrieved_chunk_ids",
+        "retrieved_source_refs",
         "choice_order",
         "agent_id",
         "run_id",
@@ -176,12 +185,15 @@ class RunEnvironment:
     worker_image_digest: str | None
     corpus_index_fingerprint: str | None
     probe: Mapping[str, object]
+    execution_mode: str = "test-fake"
 
     def __post_init__(self) -> None:
         if not _SHA_RE.fullmatch(self.code_sha):
             raise ValueError("code SHA must be a complete hexadecimal commit ID")
         if self.tree_status not in {"clean", "dirty"}:
             raise ValueError("tree status must be clean or dirty")
+        if self.execution_mode not in {"real", "offline-self-check", "test-fake"}:
+            raise ValueError("execution mode is invalid")
         _non_empty_string(self.worker_image, name="worker image")
         if self.worker_image_digest is not None and not _DIGEST_RE.fullmatch(
             self.worker_image_digest
@@ -213,6 +225,29 @@ class SandboxFactory(Protocol):
     ) -> cursor_sandbox.CursorSandbox: ...
 
 
+LockIdentity = tuple[int, int]
+
+
+def _descriptor_identity(fd: int) -> LockIdentity:
+    info = os.fstat(fd)
+    return (info.st_dev, info.st_ino)
+
+
+def _path_matches_identity(path: Path, identity: LockIdentity) -> bool:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    return (
+        not stat.S_ISLNK(info.st_mode)
+        and (
+            info.st_dev,
+            info.st_ino,
+        )
+        == identity
+    )
+
+
 def _strict_json(value: object) -> str:
     return (
         json.dumps(
@@ -233,12 +268,14 @@ class PublicationIO:
 
     def create_lock(self, path: Path) -> int:
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        identity = _descriptor_identity(fd)
         try:
             os.write(fd, f"pid={os.getpid()}\n".encode())
             os.fsync(fd)
         except BaseException:
             os.close(fd)
-            path.unlink()
+            if _path_matches_identity(path, identity):
+                path.unlink()
             raise
         return fd
 
@@ -257,10 +294,24 @@ class PublicationIO:
     def write_marker(self, path: Path, content: str) -> None:
         _write_exclusive(path, content)
 
+    def sync_directory(self, path: Path) -> None:
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(path, flags)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
     def cleanup_tree(self, path: Path) -> None:
         _remove_tree_verified(path)
 
-    def remove_lock(self, path: Path) -> None:
+    def remove_lock(self, path: Path, identity: LockIdentity) -> None:
+        if not _path_matches_identity(path, identity):
+            raise PublicationCleanupError(
+                "publication lock identity changed before removal"
+            )
         path.unlink()
         if path.exists() or path.is_symlink():
             raise PublicationCleanupError(f"publication lock remains: {path}")
@@ -326,36 +377,76 @@ def _looks_like_filesystem_path(value: str) -> bool:
     return bool(_ABSOLUTE_PATH.search(value) or _RELATIVE_PATH.search(value))
 
 
+def _assert_safe_string(
+    value: str,
+    *,
+    path: str,
+    source_reference: bool,
+    allowed_source_refs: frozenset[str] | None,
+) -> None:
+    if marker := _PRIVATE_MARKER.search(value):
+        raise ShadowLeakageError(
+            f"{path}: private marker {marker.group(0)!r} is forbidden"
+        )
+    if _looks_like_filesystem_path(value):
+        raise ShadowLeakageError(f"{path}: filesystem path is forbidden")
+    if (
+        source_reference
+        and allowed_source_refs is not None
+        and value not in allowed_source_refs
+    ):
+        raise ShadowLeakageError(
+            f"{path}: source reference does not match bound retrieval"
+        )
+
+
+def _assert_safe_mapping(
+    value: dict[object, object],
+    *,
+    path: str,
+    allowed_source_refs: frozenset[str] | None,
+) -> None:
+    for raw_key, nested in value.items():
+        key = str(raw_key)
+        child = f"{path}.{key}"
+        lowered = key.lower()
+        if lowered in _FORBIDDEN_PATH_KEYS:
+            raise ShadowLeakageError(f"{child}: path field is forbidden")
+        if _looks_like_filesystem_path(key):
+            raise ShadowLeakageError(f"{child}: filesystem path key is forbidden")
+        if marker := _PRIVATE_MARKER.search(key):
+            raise ShadowLeakageError(
+                f"{child}: private marker {marker.group(0)!r} is forbidden"
+            )
+        _assert_safe_value(
+            nested,
+            child,
+            source_reference=lowered in _SOURCE_REF_KEYS,
+            allowed_source_refs=allowed_source_refs,
+        )
+
+
 def _assert_safe_value(
     value: object,
     path: str = "$",
     *,
     source_reference: bool = False,
+    allowed_source_refs: frozenset[str] | None = None,
 ) -> None:
     if type(value) is str:
-        if marker := _PRIVATE_MARKER.search(value):
-            raise ShadowLeakageError(
-                f"{path}: private marker {marker.group(0)!r} is forbidden"
-            )
-        if not source_reference and _looks_like_filesystem_path(value):
-            raise ShadowLeakageError(f"{path}: filesystem path is forbidden")
+        _assert_safe_string(
+            value,
+            path=path,
+            source_reference=source_reference,
+            allowed_source_refs=allowed_source_refs,
+        )
         return
     if type(value) is dict:
-        for raw_key, nested in cast(dict[object, object], value).items():
-            key = str(raw_key)
-            child = f"{path}.{key}"
-            lowered = key.lower()
-            if lowered in _FORBIDDEN_PATH_KEYS:
-                raise ShadowLeakageError(f"{child}: path field is forbidden")
-            if marker := _PRIVATE_MARKER.search(key):
-                raise ShadowLeakageError(
-                    f"{child}: private marker {marker.group(0)!r} is forbidden"
-                )
-            _assert_safe_value(
-                nested,
-                child,
-                source_reference=lowered in _SOURCE_REF_KEYS,
-            )
+        _assert_safe_mapping(
+            cast(dict[object, object], value),
+            path=path,
+            allowed_source_refs=allowed_source_refs,
+        )
         return
     if type(value) is list or type(value) is tuple:
         for index, nested in enumerate(value):
@@ -363,6 +454,39 @@ def _assert_safe_value(
                 nested,
                 f"{path}[{index}]",
                 source_reference=source_reference,
+                allowed_source_refs=allowed_source_refs,
+            )
+
+
+def _assert_no_secrets(
+    value: object,
+    *,
+    secrets: Sequence[str],
+    path: str = "$",
+) -> None:
+    if type(value) is str:
+        if _redact_string(value, secrets) != value:
+            raise ShadowLeakageError(f"{path}: secret is forbidden")
+        return
+    if type(value) is dict:
+        for key, nested in cast(dict[object, object], value).items():
+            _assert_no_secrets(
+                str(key),
+                secrets=secrets,
+                path=f"{path}.[key]",
+            )
+            _assert_no_secrets(
+                nested,
+                secrets=secrets,
+                path=f"{path}.{key}",
+            )
+        return
+    if type(value) is list or type(value) is tuple:
+        for index, nested in enumerate(value):
+            _assert_no_secrets(
+                nested,
+                secrets=secrets,
+                path=f"{path}[{index}]",
             )
 
 
@@ -693,7 +817,11 @@ def sanitize_retrieved(chunks: Sequence[object]) -> list[dict[str, object]]:
             "text": text,
             "score": float(numeric_score),
         }
-        _assert_safe_value(projected, f"retrieved[{index}]")
+        _assert_safe_value(
+            projected,
+            f"retrieved[{index}]",
+            allowed_source_refs=frozenset({source_ref}),
+        )
         sanitized.append(projected)
     return sanitized
 
@@ -768,7 +896,8 @@ def prepare_real_sandbox(
     runtime_discoverer: Callable[[str], object] = cursor_sandbox.discover_local_runtime,
     sandbox_factory: SandboxFactory = cursor_sandbox.CursorSandbox,
 ) -> PreparedSandbox:
-    """Discover local Docker and build or locate the pinned worker image."""
+    """Build, attest, and bind execution to one immutable worker digest."""
+    del force_build
     runtime = runtime_detector()
     endpoint = runtime_discoverer(runtime)
     kind = _non_empty_string(getattr(endpoint, "kind", ""), name="runtime kind")
@@ -778,32 +907,39 @@ def prepare_real_sandbox(
             "verified runtime did not provide an absolute local socket"
         )
     image = worker_image_tag()
-    config = cursor_sandbox.SandboxConfig(
+    tagged_config = cursor_sandbox.SandboxConfig(
         runtime=kind,
         socket=socket,
         image=image,
     )
-    sandbox = sandbox_factory(
-        config,
+    attestation_sandbox = sandbox_factory(
+        tagged_config,
         api_key=api_key,
         endpoint_resolver=lambda _runtime: endpoint,
     )
-    if force_build:
-        sandbox.build_image(context=WORKER_CONTEXT)
-    try:
-        digest = sandbox.image_digest()
-    except cursor_sandbox.MountProbeError:
-        if force_build:
-            raise
-        sandbox.build_image(context=WORKER_CONTEXT)
-        digest = sandbox.image_digest()
+    attestation_sandbox.build_image(context=WORKER_CONTEXT)
+    digest = attestation_sandbox.image_digest()
     if not _DIGEST_RE.fullmatch(digest):
         raise cursor_sandbox.MountProbeError(
             "worker image has no verified immutable digest"
         )
+    immutable_config = cursor_sandbox.SandboxConfig(
+        runtime=kind,
+        socket=socket,
+        image=digest,
+    )
+    sandbox = sandbox_factory(
+        immutable_config,
+        api_key=api_key,
+        endpoint_resolver=lambda _runtime: endpoint,
+    )
+    if sandbox.image_digest() != digest:
+        raise cursor_sandbox.MountProbeError(
+            "immutable worker image digest attestation changed"
+        )
     return PreparedSandbox(
         sandbox=sandbox,
-        image=image,
+        image=digest,
         image_digest=digest,
         runtime=kind,
         socket=socket,
@@ -833,6 +969,19 @@ def _trace_summary(
     seed = request.get("seed", 0)
     if type(attempt) is not int or type(seed) is not int:
         raise ValueError("trace attempt and seed must be integers")
+    response_text = result.get("text")
+    if type(response_text) is not str:
+        raise ValueError("trace result text must be a string")
+    chunk_ids = request.get("corpus_chunk_ids")
+    source_refs = request.get("source_refs")
+    if not isinstance(chunk_ids, list) or not all(
+        type(value) is str for value in chunk_ids
+    ):
+        raise ValueError("trace retrieved chunk IDs are invalid")
+    if not isinstance(source_refs, list) or not all(
+        type(value) is str for value in source_refs
+    ):
+        raise ValueError("trace retrieved source refs are invalid")
     return {
         "slot": slot,
         "phase": _non_empty_string(safe.get("phase"), name="trace phase"),
@@ -840,6 +989,7 @@ def _trace_summary(
         "request_hash": _non_empty_string(
             safe.get("request_hash"), name="request hash"
         ),
+        "response_hash": hashlib.sha256(response_text.encode()).hexdigest(),
         "role": _non_empty_string(request.get("role"), name="trace role"),
         "family": _non_empty_string(model.get("family"), name="trace family"),
         "requested_model_id": _non_empty_string(
@@ -855,6 +1005,8 @@ def _trace_summary(
             request.get("schema_version"), name="schema version"
         ),
         "seed": seed,
+        "retrieved_chunk_ids": list(chunk_ids),
+        "retrieved_source_refs": list(source_refs),
         "choice_order": list(choice_order) if choice_order is not None else None,
         "agent_id": _non_empty_string(result.get("agent_id"), name="agent ID"),
         "run_id": _non_empty_string(result.get("run_id"), name="run ID"),
@@ -910,6 +1062,23 @@ def _sanitize_candidate_record(
     return redacted
 
 
+def _bind_candidate_replay_metadata(
+    record: dict[str, object],
+    *,
+    topic: str,
+    seed: int,
+    retrieved: Sequence[Mapping[str, object]],
+) -> None:
+    category = topic.split("/", 1)[0]
+    _non_empty_string(category, name="topic category")
+    record["category"] = category
+    record["seed"] = seed
+    record["retrieval"] = {
+        "chunk_ids": [str(chunk["chunk_id"]) for chunk in retrieved],
+        "source_refs": [str(chunk["source_ref"]) for chunk in retrieved],
+    }
+
+
 def _candidate_provenance(record: Mapping[str, object]) -> None:
     candidate = record.get("candidate")
     if not isinstance(candidate, Mapping):
@@ -921,6 +1090,15 @@ def _candidate_provenance(record: Mapping[str, object]) -> None:
         raise ValueError("non-refused candidate has no bound provenance")
     for field in ("source_ref", "chunk_id", "source_title"):
         _non_empty_string(evidence.get(field), name=f"provenance {field}")
+    retrieval = cast(Mapping[str, object], record["retrieval"])
+    source_refs = cast(list[object], retrieval["source_refs"])
+    chunk_ids = cast(list[object], retrieval["chunk_ids"])
+    if (
+        evidence.get("source_ref") not in source_refs
+        or evidence.get("chunk_id") not in chunk_ids
+        or candidate.get("source_ref") != evidence.get("source_ref")
+    ):
+        raise ValueError("candidate provenance is not bound to retrieved sources")
     score = evidence.get("support_score")
     if type(score) not in (int, float) or not math.isfinite(float(score)):
         raise ValueError("provenance support score must be finite")
@@ -1013,6 +1191,8 @@ def build_run_manifest(
     manifest: dict[str, object] = {
         "manifest_version": MANIFEST_VERSION,
         "mode": "shadow",
+        "execution_mode": environment.execution_mode,
+        "replayable": environment.tree_status == "clean",
         "status": status,
         "run_id": run_id,
         "training_eligible": False,
@@ -1040,6 +1220,7 @@ def build_run_manifest(
             "fingerprint": environment.corpus_index_fingerprint,
         },
         "topic": topic,
+        "category": topic.split("/", 1)[0],
         "allocation": list(allocation),
         "seeds": {
             "portfolio": seed,
@@ -1067,16 +1248,20 @@ def build_run_manifest(
     return cast(dict[str, object], _sanitize_for_publication(manifest))
 
 
-def _validate_trace(
+def _validate_trace_hashes_and_identity(
     trace: Mapping[str, object],
     roles: Mapping[str, object],
     *,
     success: bool,
 ) -> None:
-    _validate_exact_fields(trace, _TRACE_FIELDS, name="request trace")
     request_hash = _non_empty_string(trace["request_hash"], name="request hash")
     if not re.fullmatch(r"[0-9a-f]{64}", request_hash):
         raise ValueError("request hash must be SHA-256")
+    response_hash = trace["response_hash"]
+    if response_hash is not None and not re.fullmatch(
+        r"[0-9a-f]{64}", str(response_hash)
+    ):
+        raise ValueError("response hash must be SHA-256")
     family = _non_empty_string(trace["family"], name="trace family")
     if family not in _FAMILIES:
         raise ValueError("trace family is unknown")
@@ -1092,12 +1277,29 @@ def _validate_trace(
     if success and actual != requested:
         raise ValueError("success trace actual model does not match requested model")
     if success:
+        if response_hash is None:
+            raise ValueError("success trace has no sanitized response hash")
         _non_empty_string(trace["agent_id"], name="trace agent ID")
         _non_empty_string(trace["run_id"], name="trace run ID")
         if trace["status"] != "finished":
             raise ValueError("success trace did not finish")
+
+
+def _validate_trace_replay(
+    trace: Mapping[str, object],
+    *,
+    success: bool,
+) -> None:
     if type(trace["attempt"]) is not int or type(trace["seed"]) is not int:
         raise ValueError("trace attempt and seed must be integers")
+    for name in ("retrieved_chunk_ids", "retrieved_source_refs"):
+        values = trace[name]
+        if (
+            not isinstance(values, list)
+            or not values
+            or not all(type(value) is str and value for value in values)
+        ):
+            raise ValueError(f"trace {name} is invalid")
     if trace["parser_outcome"] not in {
         "parsed",
         "parse_error",
@@ -1109,6 +1311,21 @@ def _validate_trace(
         order = trace["choice_order"]
         if not isinstance(order, list) or sorted(order) != list("ABCDE"):
             raise ValueError("verifier trace choice permutation is invalid")
+
+
+def _validate_trace(
+    trace: Mapping[str, object],
+    roles: Mapping[str, object],
+    *,
+    success: bool,
+) -> None:
+    _validate_exact_fields(trace, _TRACE_FIELDS, name="request trace")
+    _validate_trace_hashes_and_identity(
+        trace,
+        roles,
+        success=success,
+    )
+    _validate_trace_replay(trace, success=success)
 
 
 def _validate_verifier_records(
@@ -1150,6 +1367,24 @@ def _validate_candidate_structure(
     if origin_value not in _FAMILIES:
         raise ValueError("candidate origin family is invalid")
     origin = cast(str, origin_value)
+    if type(record.get("seed")) is not int:
+        raise ValueError("candidate seed is invalid")
+    _non_empty_string(record.get("topic"), name="candidate topic")
+    _non_empty_string(record.get("category"), name="candidate category")
+    retrieval = record.get("retrieval")
+    if not isinstance(retrieval, Mapping) or set(retrieval) != {
+        "chunk_ids",
+        "source_refs",
+    }:
+        raise ValueError("candidate retrieval metadata is invalid")
+    for name in ("chunk_ids", "source_refs"):
+        values = retrieval[name]
+        if (
+            not isinstance(values, list)
+            or not values
+            or not all(type(value) is str and value for value in values)
+        ):
+            raise ValueError(f"candidate retrieval {name} is invalid")
     generator = record.get("generator")
     if not isinstance(generator, Mapping):
         raise ValueError("candidate generator record is missing")
@@ -1259,11 +1494,25 @@ def _validate_manifest_environment(
     *,
     status: str,
 ) -> Mapping[str, object]:
+    execution_mode = manifest["execution_mode"]
+    if execution_mode not in {"real", "offline-self-check", "test-fake"}:
+        raise ValueError("manifest execution mode is invalid")
     code = cast(Mapping[str, object], manifest["code"])
     if not _SHA_RE.fullmatch(str(code.get("sha", ""))):
         raise ValueError("manifest code SHA is missing or unknown")
     if code.get("tree_status") not in {"clean", "dirty"}:
         raise ValueError("manifest tree status is invalid")
+    replayable = manifest["replayable"]
+    if type(replayable) is not bool or replayable is not (
+        code.get("tree_status") == "clean"
+    ):
+        raise ValueError("manifest replayability does not match tree status")
+    if (
+        status == "success"
+        and execution_mode == "real"
+        and code.get("tree_status") != "clean"
+    ):
+        raise ValueError("successful real shadow runs require a clean git tree")
     probe = manifest["probe"]
     if not isinstance(probe, Mapping):
         raise ValueError("manifest probe is missing")
@@ -1275,6 +1524,12 @@ def _validate_manifest_environment(
         str(worker.get("image_digest", ""))
     ):
         raise ValueError("success manifest has no worker image digest")
+    if (
+        status == "success"
+        and execution_mode == "real"
+        and worker.get("image") != worker.get("image_digest")
+    ):
+        raise ValueError("real manifest is not bound to its immutable worker image")
     if status == "success" and not _DIGEST_RE.fullmatch(
         str(corpus.get("fingerprint", ""))
     ):
@@ -1293,9 +1548,14 @@ def _manifest_allocation_and_traces(
     seeds = cast(Mapping[str, object], manifest["seeds"])
     if not isinstance(allocation, list) or len(allocation) != expected:
         raise ValueError("manifest allocation count is incomplete")
+    portfolio_seed = seeds.get("portfolio")
+    if type(portfolio_seed) is not int:
+        raise ValueError("manifest portfolio seed is invalid")
     slots = seeds.get("slots")
     if not isinstance(slots, list) or len(slots) != expected:
         raise ValueError("manifest slot seeds are incomplete")
+    if slots != [portfolio_seed + index for index in range(expected)]:
+        raise ValueError("manifest slot seeds do not derive from portfolio seed")
     traces = manifest["request_traces"]
     if not isinstance(traces, list):
         raise ValueError("manifest request traces must be an array")
@@ -1353,6 +1613,36 @@ def _validate_success_role_models(
     )
 
 
+def _validate_candidate_replay_binding(
+    candidate: Mapping[str, object],
+    *,
+    manifest: Mapping[str, object],
+    allocation: Sequence[object],
+    slot_seeds: Sequence[object],
+) -> None:
+    slot = cast(int, candidate["slot"])
+    if candidate.get("topic") != manifest["topic"]:
+        raise ValueError("candidate topic does not match manifest topic")
+    if candidate.get("category") != manifest["category"]:
+        raise ValueError("candidate category does not match manifest category")
+    if candidate.get("seed") != slot_seeds[slot]:
+        raise ValueError("candidate seed does not match manifest slot seed")
+    if allocation[slot] != candidate.get("origin_family"):
+        raise ValueError("candidate origin does not match deterministic allocation")
+    retrieval = cast(Mapping[str, object], candidate["retrieval"])
+    chunk_ids = retrieval["chunk_ids"]
+    source_refs = retrieval["source_refs"]
+    for trace in _candidate_traces(candidate):
+        if trace["slot"] != slot:
+            raise ValueError("candidate trace slot does not match candidate")
+        if trace["seed"] != candidate["seed"] and trace["role"] == "generator":
+            raise ValueError("generator trace seed does not match candidate seed")
+        if trace["retrieved_chunk_ids"] != chunk_ids:
+            raise ValueError("trace chunk IDs do not match candidate retrieval")
+        if trace["retrieved_source_refs"] != source_refs:
+            raise ValueError("trace source refs do not match candidate retrieval")
+
+
 def _validate_success_portfolio(
     manifest: Mapping[str, object],
     *,
@@ -1378,10 +1668,26 @@ def _validate_success_portfolio(
     slots = {candidate.get("slot") for candidate in candidates}
     if slots != set(range(expected)):
         raise ValueError("success candidate slots are incomplete")
+    seeds = cast(Mapping[str, object], manifest["seeds"])
+    portfolio_seed = cast(int, seeds["portfolio"])
+    deterministic = shadow_portfolio.allocate_families(
+        expected,
+        seed=portfolio_seed,
+    )
+    if list(allocation) != deterministic:
+        raise ValueError("manifest allocation is not deterministic for its seed")
+    topic = _non_empty_string(manifest["topic"], name="manifest topic")
+    category = _non_empty_string(manifest["category"], name="manifest category")
+    if category != topic.split("/", 1)[0]:
+        raise ValueError("manifest category does not derive from topic")
+    slot_seeds = cast(Sequence[object], seeds["slots"])
     for candidate in candidates:
-        slot = cast(int, candidate["slot"])
-        if allocation[slot] != candidate.get("origin_family"):
-            raise ValueError("candidate origin does not match its allocation")
+        _validate_candidate_replay_binding(
+            candidate,
+            manifest=manifest,
+            allocation=allocation,
+            slot_seeds=slot_seeds,
+        )
     if manifest["choice_permutations"] != _choice_permutations(candidates):
         raise ValueError("manifest choice permutations do not match candidates")
     candidate_hashes = [
@@ -1401,11 +1707,14 @@ def validate_manifest(
     *,
     candidates: Sequence[object],
     failures: Sequence[object],
+    publication_run_id: str | None = None,
 ) -> None:
     """Reject any manifest that could produce a false finalized marker."""
     _validate_exact_fields(manifest, _TOP_LEVEL_FIELDS, name="manifest")
     if manifest["manifest_version"] != MANIFEST_VERSION:
         raise ValueError("manifest version is invalid")
+    if publication_run_id is not None and manifest["run_id"] != publication_run_id:
+        raise ValueError("manifest run ID does not match publication directory")
     _validate_manifest_nested_objects(manifest)
     if manifest["mode"] != "shadow" or manifest["training_eligible"] is not False:
         raise ValueError("manifest must be shadow-only and not training eligible")
@@ -1447,13 +1756,17 @@ def validate_manifest(
 def _cleanup_publication(
     io: PublicationIO,
     *,
+    root: Path,
     temporary: Path | None,
     final: Path | None,
     lock_path: Path,
     lock_fd: int | None,
+    lock_identity: LockIdentity | None,
+    lock_owned: bool,
     primary: BaseException,
 ) -> None:
     errors: list[BaseException] = []
+    changed_parent = temporary is not None or final is not None or lock_owned
     if lock_fd is not None:
         try:
             os.close(lock_fd)
@@ -1466,9 +1779,16 @@ def _cleanup_publication(
             io.cleanup_tree(path)
         except BaseException as err:
             errors.append(err)
-    if lock_path.exists() or lock_path.is_symlink():
+    if lock_owned:
         try:
-            io.remove_lock(lock_path)
+            if lock_identity is None:
+                raise PublicationCleanupError("owned lock has no identity")
+            io.remove_lock(lock_path, lock_identity)
+        except BaseException as err:
+            errors.append(err)
+    if changed_parent:
+        try:
+            io.sync_directory(root)
         except BaseException as err:
             errors.append(err)
     if errors:
@@ -1508,6 +1828,7 @@ def publish_run(
         safe_manifest,
         candidates=safe_candidates,
         failures=safe_failures,
+        publication_run_id=run_id,
     )
     status = cast(str, safe_manifest["status"])
     marker = SUCCESS_MARKER if status == "success" else FAILED_MARKER
@@ -1524,24 +1845,38 @@ def publish_run(
         raise ValueError(f"shadow run directory already exists: {run_dir}")
 
     lock_fd: int | None = None
+    lock_identity: LockIdentity | None = None
+    lock_owned = False
     temporary: Path | None = None
     final: Path | None = None
     try:
         lock_fd = publisher.create_lock(lock_path)
+        lock_identity = _descriptor_identity(lock_fd)
+        lock_owned = True
+        publisher.sync_directory(root)
         temporary = publisher.create_temp(root, run_id)
+        publisher.sync_directory(root)
         for name, content in rendered.items():
             publisher.write_payload(temporary / name, content)
+        publisher.sync_directory(temporary)
         publisher.reserve_final(run_dir)
         final = run_dir
+        publisher.sync_directory(root)
         for name in rendered:
             publisher.link_payload(temporary / name, run_dir / name)
+        publisher.sync_directory(run_dir)
         publisher.cleanup_tree(temporary)
         temporary = None
+        publisher.sync_directory(root)
         os.close(lock_fd)
         lock_fd = None
-        publisher.remove_lock(lock_path)
+        publisher.remove_lock(lock_path, lock_identity)
+        lock_owned = False
+        publisher.sync_directory(root)
         _reject_symlink_components(run_dir)
         publisher.write_marker(run_dir / marker, "ok\n")
+        publisher.sync_directory(run_dir)
+        publisher.sync_directory(root)
         if not (run_dir / marker).is_file():
             raise OSError("final marker write could not be verified")
         final = None
@@ -1549,10 +1884,13 @@ def publish_run(
     except BaseException as error:
         _cleanup_publication(
             publisher,
+            root=root,
             temporary=temporary,
             final=final,
             lock_path=lock_path,
             lock_fd=lock_fd,
+            lock_identity=lock_identity,
+            lock_owned=lock_owned,
             primary=error,
         )
         raise
@@ -1605,17 +1943,10 @@ def _error_trace_summaries(
 
 
 def _is_immediate_abort(error: BaseException) -> bool:
-    security_types = (
-        ShadowLeakageError,
-        cursor_sandbox.LeakageError,
-        cursor_sandbox.ModelMismatchError,
-        cursor_sandbox.SecurityCleanupError,
-        cursor_sandbox.RequestCleanupError,
-        cursor_sandbox.RequestRetentionError,
-        cursor_sandbox.RuntimeEndpointError,
-        cursor_sandbox.MountProbeError,
-    )
-    if isinstance(error, security_types):
+    if isinstance(
+        error,
+        (ShadowLeakageError, cursor_sandbox.SandboxSecurityError),
+    ):
         return True
     lowered = str(error).lower()
     return "model_id does not match" in lowered or "model identity" in lowered
@@ -1634,15 +1965,37 @@ class _RecordingBackend:
         self.secrets = tuple(secrets)
         self.events: list[dict[str, object]] = []
         self.slot = 0
+        self.allowed_source_refs: frozenset[str] = frozenset()
+        self.allowed_chunk_ids: frozenset[str] = frozenset()
+
+    def bind_retrieval(self, chunks: Sequence[Mapping[str, object]]) -> None:
+        self.allowed_source_refs = frozenset(
+            str(chunk["source_ref"]) for chunk in chunks
+        )
+        self.allowed_chunk_ids = frozenset(str(chunk["chunk_id"]) for chunk in chunks)
 
     def complete(
         self,
         request: model_backend.ModelRequest,
     ) -> model_backend.ModelResult:
+        original_request = request.to_dict()
+        _assert_no_secrets(original_request, secrets=self.secrets)
+        _assert_safe_value(
+            original_request,
+            allowed_source_refs=self.allowed_source_refs,
+        )
+        if frozenset(request.source_refs) != self.allowed_source_refs:
+            raise ShadowLeakageError(
+                "request source reference set does not match bound retrieval"
+            )
+        if frozenset(request.corpus_chunk_ids) != self.allowed_chunk_ids:
+            raise ShadowLeakageError(
+                "request chunk ID set does not match bound retrieval"
+            )
         safe_request = cast(
             Mapping[str, object],
             _sanitize_for_publication(
-                request.to_dict(),
+                original_request,
                 secrets=self.secrets,
             ),
         )
@@ -1652,6 +2005,7 @@ class _RecordingBackend:
             "phase": "backend_call",
             "attempt": 0,
             "request_hash": model_backend.request_hash(request),
+            "response_hash": None,
             "role": safe_request["role"],
             "family": model["family"],
             "requested_model_id": model["model_id"],
@@ -1659,6 +2013,8 @@ class _RecordingBackend:
             "prompt_version": safe_request["prompt_version"],
             "schema_version": safe_request["schema_version"],
             "seed": safe_request["seed"],
+            "retrieved_chunk_ids": list(request.corpus_chunk_ids),
+            "retrieved_source_refs": list(request.source_refs),
             "choice_order": None,
             "agent_id": None,
             "run_id": None,
@@ -1682,13 +2038,16 @@ class _RecordingBackend:
                     secrets=self.secrets,
                 ),
             )
-        except BaseException:
+        except Exception:
             self.events.append(base)
             raise
         event = dict(base)
         event.update(
             {
                 "actual_model_id": safe_result["model_id"],
+                "response_hash": hashlib.sha256(
+                    cast(str, safe_result["text"]).encode()
+                ).hexdigest(),
                 "agent_id": safe_result["agent_id"],
                 "run_id": safe_result["run_id"],
                 "status": safe_result["status"],
@@ -1772,6 +2131,8 @@ def run_shadow(
     try:
         if n < 3:
             raise ValueError("shadow runs require at least three candidates")
+        if environment.execution_mode == "real" and environment.tree_status != "clean":
+            raise ValueError("real shadow runs require a clean git tree")
         _validate_probe(environment.probe, allow_incomplete=False)
         validate_exact_roles(
             roles,
@@ -1780,7 +2141,7 @@ def run_shadow(
         allocation = shadow_portfolio.allocate_families(n, seed=seed)
         if set(allocation) != set(_FAMILIES):
             raise ValueError("allocation must cover all three model families")
-    except BaseException as error:
+    except Exception as error:
         failures.append(
             _failure_record(
                 error,
@@ -1816,6 +2177,7 @@ def run_shadow(
             chunks = sanitize_retrieved(
                 search_fn(topic, k=generation_core.CONTEXT_CHUNKS)
             )
+            recorder.bind_retrieval(chunks)
             record = shadow_portfolio.run_candidate(
                 topic=topic,
                 retrieved=chunks,
@@ -1824,6 +2186,12 @@ def run_shadow(
                 backend=recorder,
                 seed=slot_seed,
             )
+            _bind_candidate_replay_metadata(
+                record,
+                topic=topic,
+                seed=slot_seed,
+                retrieved=chunks,
+            )
             sanitized = _sanitize_candidate_record(
                 record,
                 slot=slot,
@@ -1831,7 +2199,7 @@ def run_shadow(
             )
             _candidate_provenance(sanitized)
             candidates.append(sanitized)
-        except BaseException as error:
+        except Exception as error:
             failure_traces.extend(
                 _error_trace_summaries(
                     error,
@@ -2050,6 +2418,7 @@ def _offline_environment() -> RunEnvironment:
             "sha256:" + hashlib.sha256(b"offline-corpus-fixture").hexdigest()
         ),
         probe=probe,
+        execution_mode="offline-self-check",
     )
 
 
@@ -2066,6 +2435,7 @@ def offline_fixture(
     chunks = sanitize_retrieved(_offline_search(DEFAULT_TOPIC))
     for slot, origin in enumerate(allocation):
         recorder.slot = slot
+        recorder.bind_retrieval(chunks)
         record = shadow_portfolio.run_candidate(
             topic=DEFAULT_TOPIC,
             retrieved=chunks,
@@ -2073,6 +2443,12 @@ def offline_fixture(
             roles=roles,
             backend=recorder,
             seed=DEFAULT_SEED + slot,
+        )
+        _bind_candidate_replay_metadata(
+            record,
+            topic=DEFAULT_TOPIC,
+            seed=DEFAULT_SEED + slot,
+            retrieved=chunks,
         )
         candidates.append(_sanitize_candidate_record(record, slot=slot, secrets=()))
     manifest = build_run_manifest(
@@ -2163,6 +2539,7 @@ def _partial_environment(
             [],
             sdk_version="unavailable",
         ),
+        execution_mode="real",
     )
 
 

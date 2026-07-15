@@ -279,11 +279,12 @@ def _sandbox(
     debug_retain: bool = False,
     network: str = "bridge",
     api_key: str = "secret",
+    image: str = "pgrep-shadow-worker:test",
     endpoint_resolver=None,  # noqa: ANN001
 ) -> cursor_sandbox.CursorSandbox:
     config_kwargs: dict[str, object] = {
         "runtime": "docker",
-        "image": "pgrep-shadow-worker:test",
+        "image": image,
         "debug_retain": debug_retain,
     }
     if network != "bridge":
@@ -354,6 +355,39 @@ def test_config_rejects_non_docker_runtime() -> None:
             runtime="other-runtime",
             image="pgrep-shadow-worker:test",
         )
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    [
+        cursor_sandbox.ModelMismatchError,
+        cursor_sandbox.RequestDirectoryError,
+        cursor_sandbox.LeakageError,
+        cursor_sandbox.RuntimeEndpointError,
+        cursor_sandbox.MountProbeError,
+        cursor_sandbox.SecurityCleanupError,
+        cursor_sandbox.RequestCleanupError,
+        cursor_sandbox.RequestRetentionError,
+        cursor_sandbox.SandboxLimitError,
+        cursor_sandbox.DescriptorOpenError,
+    ],
+)
+def test_security_errors_share_common_base(error_type: type[Exception]) -> None:
+    base = getattr(cursor_sandbox, "SandboxSecurityError", None)
+    assert base is not None
+    assert issubclass(error_type, base)
+
+
+def test_immutable_image_rejects_per_call_digest_mismatch(tmp_path: Path) -> None:
+    requested = "sha256:" + ("a" * 64)
+    returned = "sha256:" + ("b" * 64)
+    runner = FakeRunner(
+        result_body=_finished_body(),
+        image_digests=[returned],
+    )
+    with pytest.raises(cursor_sandbox.MountProbeError, match="immutable"):
+        _sandbox(runner, image=requested).complete(_request(), parent=tmp_path)
+    assert _worker_commands(runner) == []
 
 
 @pytest.mark.parametrize(
