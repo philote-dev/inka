@@ -37,23 +37,28 @@ constraints:
   rejected reason and evidence, JSON-compatible values, and finite numbers
   throughout. The category must be one of the nine locked slugs.
 - Only validated accepted by rejected combinations within one slot become
-  pairs. Escalations, invalid candidates, and one-sided slots do not.
+  pairs. Escalations, invalid candidates, one-sided slots, and explicit panel
+  refusals do not. Exclusions are counted by reason in the run summary.
 - Every nested key and value passes the private-marker firewall. JSONL errors
   include line numbers and nested paths. Run publication is atomic and refuses
-  an existing run directory. An exclusive sibling lock closes the final race.
+  an existing run directory. An exclusive sibling lock closes the final race;
+  `_SUCCESS` marks the atomic publication boundary.
 - Cross-run audit rejects duplicate identities. Non-synthetic source references
   must exist in the corpus index; synthetic pairs never count toward Tier 3.
 - Standing-eval labels contain explicit `calibration.properties` and
   `heldout.properties` objects with aligned opaque IDs and no cross-split
   overlap. Thresholds fit calibration predicted positives only and remain fixed
-  on held-out labels.
+  on held-out labels. IDs come from a frozen manifest and remain stable across
+  runs.
 - Standing gates use post-threshold held-out agreement, balanced accuracy,
   accepted precision with interval bounds, and measured consistency. Explicit
-  item, class, retained-accept, and consistency support minima apply.
+  item, class, retained-accept, and consistency support minima apply. Key and
+  figure precision also requires a 95% Wilson lower bound of at least 0.95.
 - Foundry confidence intervals bootstrap non-empty slot rates. Headline rates
   use that same unweighted slot estimand; pooled candidate rates are
   diagnostics. Six non-empty slots and six valid categories are required for
-  green. Legacy aggregates have point rates only.
+  green. Legacy aggregates have point rates only. Directory aggregation reads
+  finalized non-temporary runs and excludes synthetic runs by default.
 - A valid red report is printed and exits 1; invalid input exits 2; the passing
   offline self-check exits 0.
 
