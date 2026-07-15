@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, cast
+from xml.etree import ElementTree
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -1257,6 +1258,20 @@ def _decode_css_escapes(value: str) -> str:
     return _CSS_ESCAPE.sub(replace, value)
 
 
+def _is_default_ignorable(character: str) -> bool:
+    codepoint = ord(character)
+    return (
+        unicodedata.category(character) == "Cf"
+        or codepoint in {0x034F, 0x3164, 0xFFA0}
+        or 0x115F <= codepoint <= 0x1160
+        or 0x17B4 <= codepoint <= 0x17B5
+        or 0x180B <= codepoint <= 0x180F
+        or 0xFE00 <= codepoint <= 0xFE0F
+        or 0x1BCA0 <= codepoint <= 0x1BCAF
+        or 0xE0100 <= codepoint <= 0xE01EF
+    )
+
+
 def _decode_svg_scan_text(value: str) -> str:
     decoded = value
     for _ in range(4):
@@ -1264,7 +1279,11 @@ def _decode_svg_scan_text(value: str) -> str:
         if unescaped == decoded:
             break
         decoded = unescaped
-    return unicodedata.normalize("NFKC", _decode_css_escapes(decoded))
+    compatible = unicodedata.normalize("NFKC", _decode_css_escapes(decoded))
+    visible = "".join(
+        character for character in compatible if not _is_default_ignorable(character)
+    )
+    return unicodedata.normalize("NFC", visible)
 
 
 def _forbidden_svg_words(value: str) -> set[str]:
@@ -1272,6 +1291,54 @@ def _forbidden_svg_words(value: str) -> set[str]:
     camel_split = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", value)
     words.update(re.findall(r"[^\W_]+", camel_split.casefold()))
     return words & _BLIND_FIGURE_FORBIDDEN_WORDS
+
+
+def _svg_scan_values(raw: bytes, *, path: str) -> tuple[str, ...]:
+    try:
+        decoded = raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as error:
+        raise RulerBuildError(f"figure asset {path} is not strict UTF-8") from error
+    try:
+        root = ElementTree.fromstring(decoded)
+    except ElementTree.ParseError as error:
+        raise RulerBuildError(f"figure asset {path} is not valid XML") from error
+    values: list[str] = []
+    for element in root.iter():
+        descendant_text = "".join(element.itertext())
+        if descendant_text:
+            values.append(_decode_svg_scan_text(descendant_text))
+        values.extend(
+            _decode_svg_scan_text(attribute)
+            for attribute in element.attrib.values()
+            if attribute
+        )
+    return tuple(values)
+
+
+def _assert_blind_svg_value(
+    value: str,
+    *,
+    path: str,
+    sentinels: set[str],
+) -> None:
+    forbidden_words = _forbidden_svg_words(value)
+    if forbidden_words:
+        raise RulerBuildError(
+            f"figure asset {path} contains forbidden word(s): "
+            + ", ".join(sorted(forbidden_words))
+        )
+    if _looks_like_filesystem_path(value):
+        raise RulerBuildError(
+            f"figure asset {path} contains a forbidden filesystem path"
+        )
+    for term in _FORBIDDEN_ASSET_TERMS:
+        if _contains_token(value, term):
+            raise RulerBuildError(
+                f"figure asset {path} contains forbidden metadata term"
+            )
+    for sentinel in sentinels:
+        if _contains_token(value, sentinel):
+            raise RulerBuildError(f"figure asset {path} exposes hidden ruler content")
 
 
 def _assert_blind_figure_assets(
@@ -1285,35 +1352,12 @@ def _assert_blind_figure_assets(
         item.review_id: item for item in ruler.items if item.review_id is not None
     }
     for path, raw in assets.items():
-        try:
-            decoded = raw.decode("utf-8", errors="strict")
-        except UnicodeDecodeError as error:
-            raise RulerBuildError(f"figure asset {path} is not strict UTF-8") from error
-        visible = _decode_svg_scan_text(decoded)
-        forbidden_words = _forbidden_svg_words(visible)
-        if forbidden_words:
-            raise RulerBuildError(
-                f"figure asset {path} contains forbidden word(s): "
-                + ", ".join(sorted(forbidden_words))
-            )
-        if _looks_like_filesystem_path(visible):
-            raise RulerBuildError(
-                f"figure asset {path} contains a forbidden filesystem path"
-            )
-        for term in _FORBIDDEN_ASSET_TERMS:
-            if _contains_token(visible, term):
-                raise RulerBuildError(
-                    f"figure asset {path} contains forbidden metadata term"
-                )
         review_id = Path(path).stem
         item = items_by_review_id.get(review_id)
         if item is None:
             raise RulerBuildError(f"figure asset {path} has no manifest item")
-        for sentinel in sentinels:
-            if _contains_token(visible, sentinel):
-                raise RulerBuildError(
-                    f"figure asset {path} exposes hidden ruler content"
-                )
+        for value in _svg_scan_values(raw, path=path):
+            _assert_blind_svg_value(value, path=path, sentinels=sentinels)
 
 
 def _assert_no_blinding_leak(

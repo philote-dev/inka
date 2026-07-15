@@ -1387,6 +1387,29 @@ def test_svg_forbidden_answer_words_fail_closed(body: str) -> None:
         _scan_single_svg(svg)
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "<text>ans<tspan>wer</tspan></text>",
+        "<text>an</text><text>swer</text>",
+        "<text>ans&#x200B;wer</text>",
+        "<text>ans&#x200C;wer</text>",
+        "<text>ans&#x200D;wer</text>",
+        "<text>ans&#x202E;wer</text>",
+        "<text>ans&#xFE0F;wer</text>",
+        "<text>ans&#xAD;wer</text>",
+        '<text aria-label="ans&#x200B;wer">A</text>',
+        "<text>an&#115;wer</text>",
+    ],
+)
+def test_svg_structural_text_reconstruction_rejects_hidden_words(
+    body: str,
+) -> None:
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">{body}</svg>'
+    with pytest.raises(ValueError, match="figure asset.*forbidden word"):
+        _scan_single_svg(svg)
+
+
 def test_svg_css_escapes_are_decoded_before_word_scan() -> None:
     decoded = builder._decode_svg_scan_text(r".\61 nswer \63 hoice")
     assert decoded == ".answer choice"
@@ -1398,6 +1421,8 @@ def test_svg_related_words_and_physics_labels_are_allowed() -> None:
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
         "<title>Vectors A and B are orthogonal.</title>"
         "<desc>C is heat capacity; E is electric field.</desc>"
+        "<text>A<tspan> + B</tspan> = C; vec&#x200B;tor D is finite.</text>"
+        "<text>&#x202A;E&#x202C; labels the electric field.</text>"
         "<text>Answering requires modeling and a correction factor.</text>"
         "<style>/* keyed shaft; confident estimate; verification step; "
         "recommending refinement */</style>"
