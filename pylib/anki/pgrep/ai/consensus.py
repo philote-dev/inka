@@ -135,10 +135,15 @@ class KeyConsensus:
 
     def to_dict(self) -> dict:
         return {
-            "accepted": self.accepted, "predicted": self.predicted,
-            "stored": self.stored, "agree_count": self.agree_count, "n": self.n,
-            "stable": self.stable, "sympy_ok": self.sympy_ok,
-            "backward_ok": self.backward_ok, "confidence": self.confidence,
+            "accepted": self.accepted,
+            "predicted": self.predicted,
+            "stored": self.stored,
+            "agree_count": self.agree_count,
+            "n": self.n,
+            "stable": self.stable,
+            "sympy_ok": self.sympy_ok,
+            "backward_ok": self.backward_ok,
+            "confidence": self.confidence,
             "opinions": self.opinions,
         }
 
@@ -152,7 +157,8 @@ def sympy_check(problem: dict) -> bool | None:
     from . import verify
 
     return verify.cas_check_value(
-        str(expr), float(problem["answer_value"]),
+        str(expr),
+        float(problem["answer_value"]),
         subs=problem.get("answer_subs") or None,
     )
 
@@ -180,7 +186,7 @@ def backward_check(
     ki = _LETTERS.index(proposed_key)
     if ki >= len(choices):
         return None
-    masked = stem[: m.start()] + "<X>" + stem[m.end():]
+    masked = stem[: m.start()] + "<X>" + stem[m.end() :]
     user = (
         f"STEM (one value masked as <X>):\n{masked}\n\n"
         f"STATED ANSWER: {choices[ki]}\n\nRecover <X>."
@@ -195,8 +201,14 @@ def backward_check(
 
 
 def _decide(
-    stored: str, predicted: str, agree_count: int, n: int, n_valid: int,
-    stable: bool, sympy_ok: bool | None, backward_ok: bool | None,
+    stored: str,
+    predicted: str,
+    agree_count: int,
+    n: int,
+    n_valid: int,
+    stable: bool,
+    sympy_ok: bool | None,
+    backward_ok: bool | None,
 ) -> tuple[bool, float]:
     # Deterministic disproof wins outright, ahead of any model vote.
     if sympy_ok is True:
@@ -230,8 +242,12 @@ def _decide(
 
 
 def key_consensus(
-    problem: dict, clients: Sequence[_Client], *, use_sympy: bool = True,
-    backward_client: _Client | None = None, seed: int = 0,
+    problem: dict,
+    clients: Sequence[_Client],
+    *,
+    use_sympy: bool = True,
+    backward_client: _Client | None = None,
+    seed: int = 0,
 ) -> KeyConsensus:
     stored = str(problem.get("correct", "")).strip().upper()[:1]
     n_choices = len(problem.get("choices", []) or [])
@@ -253,5 +269,15 @@ def key_consensus(
     accepted, confidence = _decide(
         stored, predicted, agree_count, n, n_valid, stable, sympy_ok, backward_ok
     )
-    return KeyConsensus(accepted, predicted, stored, agree_count, n, stable,
-                        sympy_ok, backward_ok, confidence, opinions)
+    return KeyConsensus(
+        accepted,
+        predicted,
+        stored,
+        agree_count,
+        n,
+        stable,
+        sympy_ok,
+        backward_ok,
+        confidence,
+        opinions,
+    )

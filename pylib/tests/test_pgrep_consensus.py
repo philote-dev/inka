@@ -111,9 +111,11 @@ def test_sympy_disproof_rejects_even_if_models_agree():
 
 def test_backward_check_recovers_masked_value():
     prob = {
-        "id": "p", "kind": "computational",
+        "id": "p",
+        "kind": "computational",
         "stem": "A mass travels 12 meters in the field.",
-        "choices": ["1 J", "2 J", "3 J", "4 J", "5 J"], "correct": "C",
+        "choices": ["1 J", "2 J", "3 J", "4 J", "5 J"],
+        "correct": "C",
     }
     assert consensus.backward_check(FakeClient(['{"value": 12}']), prob, "C") is True
     assert consensus.backward_check(FakeClient(['{"value": 99}']), prob, "C") is False
@@ -137,9 +139,11 @@ def test_no_valid_solves_escalates():
 
 def test_backward_disproof_rejects_via_key_consensus():
     prob = {
-        "id": "p", "kind": "computational",
+        "id": "p",
+        "kind": "computational",
         "stem": "A 3 kg mass is pushed once.",
-        "choices": ["1 J", "2 J", "3 J", "4 J", "5 J"], "correct": "C",
+        "choices": ["1 J", "2 J", "3 J", "4 J", "5 J"],
+        "correct": "C",
     }
     clients = [SolverFake("3 J") for _ in range(3)]  # models agree with the key
     back = FakeClient(['{"value": 999}'])  # but backward disproves it

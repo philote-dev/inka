@@ -134,7 +134,7 @@ a full build with `just check` first.
 
 - **The three scores** are the product's reason to exist — the memory →
   performance → readiness bridge stock Anki lacks. Memory = P(recall now) via
-  FSRS; Performance = P(correct on a *new* exam-style question); Readiness =
+  FSRS; Performance = P(correct on a _new_ exam-style question); Readiness =
   projected 200–990 score with an explicit range, coverage gate, and abstain
   ("not enough yet") rule. The math and the honest negatives are documented in
   `docs_pgrep/research/three-scores.md` and `performance-model.md`. The exam

@@ -198,7 +198,7 @@ def root_redirect() -> Response:
     # The bare host has no page of its own, so it would 404. Send it to the pgrep
     # app instead, so opening http://127.0.0.1:40000 (the `just dev` serve) just
     # works rather than showing a "not found" page.
-    return flask.redirect("/pgrep", code=302)
+    return app.redirect("/pgrep", code=302)
 
 
 def _mime_for_path(path: str) -> str:

@@ -2,6 +2,7 @@
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
 import json
+from collections.abc import Sequence
 
 from anki.pgrep.ai import verifier
 from anki.pgrep.ai.consensus import KeyConsensus
@@ -60,15 +61,13 @@ def _kc(accepted, conf):
 
 def _kc_for(letter, accepted, conf):
     votes = [letter, letter, letter]
-    return KeyConsensus(
-        accepted, letter, letter, 3, 3, True, None, None, conf, votes
-    )
+    return KeyConsensus(accepted, letter, letter, 3, 3, True, None, None, conf, votes)
 
 
 class _FakeWeakClient:
     """Picks the display letter for a fixed original option after shuffle."""
 
-    def __init__(self, letter: str, *, choices: list[str]):
+    def __init__(self, letter: str, *, choices: Sequence[str]):
         self.letter = letter
         self.choices = choices
 
@@ -79,9 +78,7 @@ class _FakeWeakClient:
         orig_text = self.choices[orig_i]
         disp_i = display_choices.index(orig_text)
         display_letter = _LETTERS[disp_i]
-        return (
-            f'{{"answer": "{display_letter}", "reasoning": "x", "confidence": 0.5}}'
-        )
+        return f'{{"answer": "{display_letter}", "reasoning": "x", "confidence": 0.5}}'
 
 
 def test_accepts_when_all_hard_checks_certain_pass():
