@@ -29,8 +29,9 @@ pytest, and `just`.
 - All nine exact blueprint category slugs must appear.
 - Pass A hides stored key, source, solution, decomposition, model identity,
   model output, verifier output, stratum, split, and repeat identity.
-- Pass A contains only stem, five choices, figure markup when present, and the
-  approved machine-readable rubric.
+- Pass A contains only stem, five choices, a per-review relative figure link
+  when present, and the approved machine-readable rubric. Raw SVG is stored as
+  a separate asset and never appears in Markdown.
 - Files contain at most 20 judgments and live below git-ignored
   `content/run/calibration/<run-id>/`.
 - The manifest uses immutable SHA-256 content hashes and opaque review IDs.
@@ -50,8 +51,8 @@ pytest, and `just`.
   content hash, source-stratum counts, deterministic sampling, split assignment,
   hidden repeats, and manifest validation.
 - Create `pylib/anki/pgrep/ai/calibration_sheet.py`: Pass A and Pass B field
-  schemas, Markdown rendering, strict parsing, immutable-content validation, and
-  repeat consistency.
+  schemas, reversible Markdown text protection, separate figure assets, strict
+  parsing, immutable-content validation, and repeat consistency.
 - Create `content/tools/build_calibration_ruler.py`: private input loading,
   firewall checks, run publication, index, and Pass A blocks.
 - Create `content/tools/import_calibration_pass.py`: Pass A import, Pass B
@@ -308,8 +309,9 @@ git commit -m "feat(pgrep): build stratified blind calibration ruler"
 
 **Interfaces:**
 
-- Produces `PASS_A_FIELDS`, `render_pass_a_block()`, `render_blocks()`, and
-  `render_index()`.
+- Produces `PASS_A_FIELDS`, `protect_markdown_text()`,
+  `unprotect_markdown_text()`, `figure_assets()`, `render_pass_a_block()`,
+  `render_blocks()`, and `render_index()`.
 - Blocks contain at most 20 items.
 
 - [ ] **Step 1: Write blind-rendering tests**
@@ -361,9 +363,12 @@ Do not prefill a recommendation or default.
 
 - [ ] **Step 3: Render figures safely**
 
-Inline only existing `.pg-figure` SVG markup from the immutable stem. Strip
-scripts, event-handler attributes, external URLs, and non-SVG HTML. A figure
-hash in the manifest must match the rendered markup.
+Render only `![Figure](../figures/<review-id>.svg)` in Markdown. Return a pure
+mapping from safe run-root-relative `figures/<review-id>.svg` paths to the exact
+UTF-8 bytes of the SVG already validated by the immutable item schema. Distinct
+review IDs, including repeats, receive distinct paths. Reject unsafe IDs,
+traversal, absolute paths, ambiguous spaces, and collisions. The Markdown
+contains no raw SVG.
 
 - [ ] **Step 4: Run focused tests**
 
@@ -434,11 +439,14 @@ DIFFICULTY = {"1", "2", "3", "4", "5", "UNSURE"}
 OVERALL = {"KEEP", "DROP", "UNSURE"}
 ```
 
-The parser recomputes `pass_a_hash` from the visible stem, choices, and figure
-in each Markdown block and compares it with the private manifest. It cannot
-recompute hidden source or decomposition fields from Pass A, so it must not
-pretend the full `content_hash` is visible. The Pass B parser performs the same
-check with `pass_b_hash`. Neither parser trusts the visible review ID alone.
+The parser receives each linked figure's asset bytes separately. It decodes the
+bytes as strict UTF-8 and recomputes `pass_a_hash` from the visible stem, choices,
+and exact figure string, then compares the result with the private manifest. It
+must restore stem and choice text with `unprotect_markdown_text()` rather than
+stripping zero-width or other characters. It cannot recompute hidden source or
+decomposition fields from Pass A, so it must not pretend the full
+`content_hash` is visible. The Pass B parser performs the same check with
+`pass_b_hash`. Neither parser trusts the visible review ID alone.
 
 - [ ] **Step 3: Add hidden-repeat consistency**
 
@@ -473,7 +481,8 @@ git commit -m "feat(pgrep): validate blind calibration labels"
 **Interfaces:**
 
 - Consumes explicit paths for trusted, failure, and finalized shadow JSON.
-- Publishes `index.md`, `manifest.json`, `pass-a/block-*.md`, and `_SUCCESS`.
+- Publishes `index.md`, `manifest.json`, `figures/<review-id>.svg`,
+  `pass-a/block-*.md`, and `_SUCCESS`.
 - Never writes Pass B before a valid Pass A import.
 
 - [ ] **Step 1: Write failing CLI integration tests**
@@ -491,6 +500,7 @@ def test_build_publishes_private_pass_a_workspace(tmp_path):
     assert (run_dir / "_SUCCESS").exists()
     assert (run_dir / "manifest.json").exists()
     assert len(list((run_dir / "pass-a").glob("block-*.md"))) == 7
+    assert (run_dir / "figures").is_dir()
     assert not (run_dir / "pass-b").exists()
 
 
@@ -676,13 +686,14 @@ Run `calibration-ruler` with seed 7. Verify:
 - 40/40/40 strata;
 - all nine categories;
 - seven Pass A block files;
+- one byte-identical figure asset per displayed review ID that has a figure;
 - no hidden metadata in any block.
 
 - [ ] **Step 5: Stop for human labeling**
 
-Return the exact `index.md` and `pass-a/` paths. Do not import, render Pass B,
-fit thresholds, unlock acceptance, or generate preference pairs until the user
-finishes Pass A.
+Return the exact `index.md`, `pass-a/`, and `figures/` paths. Do not import,
+render Pass B, fit thresholds, unlock acceptance, or generate preference pairs
+until the user finishes Pass A.
 
 - [ ] **Step 6: Commit documentation only**
 

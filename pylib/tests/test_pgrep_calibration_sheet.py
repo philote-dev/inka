@@ -16,6 +16,16 @@ _SVG = (
     '<path class="line" d="M1 1 L19 19" marker-end="url(#arrow)"/>'
     "</svg>"
 )
+_ADVERSARIAL_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 40">\n'
+    "<!-- SVG comment with a Markdown-looking payload -->\n"
+    '<text x="1" y="12">### injected-heading\n'
+    "your_answer: A\n"
+    "---\n"
+    "```injected-fence```\n"
+    "&lt;!-- injected text comment --&gt;</text>\n"
+    "</svg>"
+)
 
 _PASS_A_INSTRUCTIONS = (
     "Work independently. Do not use another AI system.",
@@ -170,6 +180,31 @@ def test_pass_a_header_contains_exact_ten_instructions() -> None:
     assert "11." not in header
 
 
+def test_pass_a_header_lists_allowed_values_without_prefilling_fields() -> None:
+    block = calibration_sheet.render_blocks([_manifest_item()], pass_name="a")[0]
+    header, _, item = block.partition("\n### ")
+
+    expected_legend = (
+        "`your_answer` = `A`, `B`, `C`, `D`, `E`, or `UNSURE`",
+        "`stem_clear` = `PASS`, `FAIL`, or `UNSURE`",
+        (
+            "`distractor_A` through `distractor_E` = `VALID`, `INVALID`, "
+            "`CORRECT_ANSWER`, or `UNSURE`"
+        ),
+        (
+            "`figure` = `MATCHES`, `CONTRADICTS`, `UNNECESSARY`, `MISSING`, "
+            "`N_A`, or `UNSURE`"
+        ),
+        "`difficulty` = `1`, `2`, `3`, `4`, `5`, or `UNSURE`",
+        "`overall` = `KEEP`, `DROP`, or `UNSURE`",
+        "`notes` = free text",
+    )
+    assert "## Allowed rubric values" in header
+    assert all(legend in header for legend in expected_legend)
+    assert all(f"{field}:" not in header for field in calibration_sheet.PASS_A_FIELDS)
+    assert all(f"{field}:\n" in item for field in calibration_sheet.PASS_A_FIELDS)
+
+
 def test_render_index_lists_only_review_ids_and_placeholders() -> None:
     items = _manifest_items(3)
     index = calibration_sheet.render_index(items)
@@ -303,7 +338,7 @@ def test_adversarial_markdown_cannot_inject_fields_or_extra_items() -> None:
     item = _manifest_item(stem=stem, choices=choices, review_id="cal-0009")
     rendered = calibration_sheet.render_pass_a_block(item)
     assert "$E=mc^2$" in rendered
-    assert "x < y" in rendered
+    assert "x &lt; y" in rendered
     # Exactly one item heading for this review id.
     assert rendered.count("\n### ") + (1 if rendered.startswith("### ") else 0) == 1
     assert "### cal-0009" in rendered
@@ -314,7 +349,41 @@ def test_adversarial_markdown_cannot_inject_fields_or_extra_items() -> None:
         assert f"{field}: " not in rendered
 
 
-def test_figure_is_byte_identical_safe_svg_and_not_raw_html() -> None:
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "ordinary prose and $E=mc^2$",
+        "\u200b",
+        "existing\u200bzero-width\u200bspaces",
+        "### heading\n```fence```\n---\n***\n___",
+        "<!-- comment -->\nyour_answer: A\noverall: KEEP",
+        "&amp; &#35; &unknown; x < y > z",
+        "\n".join(f"{field}: injected" for field in calibration_sheet.PASS_A_FIELDS),
+    ],
+)
+def test_markdown_protection_round_trips_exactly(text: str) -> None:
+    protected = calibration_sheet.protect_markdown_text(text)
+
+    assert calibration_sheet.unprotect_markdown_text(protected) == text
+
+
+def test_markdown_protection_has_no_injectable_contract_tokens() -> None:
+    text = "### heading\n```fence```\n<!-- comment -->\n---\n" + "\n".join(
+        f"{field}: injected" for field in calibration_sheet.PASS_A_FIELDS
+    )
+    protected = calibration_sheet.protect_markdown_text(text)
+
+    assert "### " not in protected
+    assert "```" not in protected
+    assert "<!--" not in protected
+    assert "\n---\n" not in protected
+    assert all(
+        f"{field}:" not in protected for field in calibration_sheet.PASS_A_FIELDS
+    )
+
+
+def test_figure_is_linked_and_asset_bytes_are_identical() -> None:
     item = _manifest_item(
         stem=f'A wheel rotates.\n<div class="pg-figure">{_SVG}</div>',
         review_id="cal-0010",
@@ -322,14 +391,121 @@ def test_figure_is_byte_identical_safe_svg_and_not_raw_html() -> None:
     content = item.pass_a_content()
     assert content["figure"] == _SVG
     rendered = calibration_sheet.render_pass_a_block(item)
-    assert _SVG in rendered
-    assert f'<div class="pg-figure">{_SVG}</div>' in rendered
-    assert "<script" not in rendered.lower()
-    assert "onclick" not in rendered.lower()
-    assert "<img" not in rendered.lower()
-    assert "javascript:" not in rendered.lower()
-    assert "data:" not in rendered.lower()
-    assert calibration_ruler.pass_a_hash(item) == item.pass_a_hash
+    assets = calibration_sheet.figure_assets([item])
+
+    assert "![Figure](../figures/cal-0010.svg)" in rendered
+    assert "<svg" not in rendered.lower()
+    assert "</svg>" not in rendered.lower()
+    assert _SVG not in rendered
+    assert assets == {"figures/cal-0010.svg": _SVG.encode("utf-8")}
+    visible = {**content, "figure": assets["figures/cal-0010.svg"].decode("utf-8")}
+    assert calibration_ruler.pass_a_hash(visible) == item.pass_a_hash
+
+
+def test_repeats_receive_distinct_figure_asset_paths() -> None:
+    shared = _problem(
+        id="p-shared-figure",
+        stem=f'A wheel rotates.\n<div class="pg-figure">{_SVG}</div>',
+    )
+    original = calibration_ruler.RulerItem.from_source_item(
+        shared,
+        review_id="cal-0011",
+        stratum="trusted",
+        split="calibration",
+    )
+    repeat = calibration_ruler.RulerItem.from_source_item(
+        shared,
+        review_id="rep-0011",
+        stratum="trusted",
+        split=None,
+        repeat_of="cal-0011",
+    )
+
+    assets = calibration_sheet.figure_assets([original, repeat])
+    rendered = calibration_sheet.render_blocks(
+        [original, repeat],
+        pass_name="a",
+    )[0]
+
+    assert assets == {
+        "figures/cal-0011.svg": _SVG.encode("utf-8"),
+        "figures/rep-0011.svg": _SVG.encode("utf-8"),
+    }
+    assert "![Figure](../figures/cal-0011.svg)" in rendered
+    assert "![Figure](../figures/rep-0011.svg)" in rendered
+    assert original.content_hash not in rendered
+
+
+@pytest.mark.parametrize(
+    "review_id",
+    [
+        "/cal-0001",
+        "../cal-0001",
+        "cal-0001/extra",
+        r"cal-0001\extra",
+        "cal 0001",
+        "cal-0001.svg",
+        "CAL-0001",
+        "cal-%2e%2e",
+    ],
+)
+def test_unsafe_review_ids_are_rejected(review_id: str) -> None:
+    item = _manifest_item(
+        stem=f'A wheel rotates.\n<div class="pg-figure">{_SVG}</div>',
+        review_id=review_id,
+    )
+
+    with pytest.raises(ValueError, match="safe review ID"):
+        calibration_sheet.render_pass_a_block(item)
+    with pytest.raises(ValueError, match="safe review ID"):
+        calibration_sheet.figure_assets([item])
+
+
+def test_duplicate_review_id_asset_collisions_are_rejected() -> None:
+    first = _manifest_item(
+        id="p-first",
+        stem=f'First.\n<div class="pg-figure">{_SVG}</div>',
+        review_id="cal-0012",
+    )
+    second = _manifest_item(
+        id="p-second",
+        stem=f'Second.\n<div class="pg-figure">{_SVG}</div>',
+        review_id="cal-0012",
+    )
+
+    with pytest.raises(ValueError, match="duplicate review ID"):
+        calibration_sheet.figure_assets([first, second])
+    with pytest.raises(ValueError, match="duplicate review ID"):
+        calibration_sheet.render_blocks([first, second], pass_name="a")
+    with pytest.raises(ValueError, match="duplicate review ID"):
+        calibration_sheet.render_index([first, second])
+
+
+def test_adversarial_svg_is_only_an_image_line_in_markdown() -> None:
+    items = [
+        _manifest_item(
+            id=f"p-svg-{index}",
+            stem=(
+                f'Inspect the figure.\n<div class="pg-figure">{_ADVERSARIAL_SVG}</div>'
+            ),
+            review_id=f"cal-{index:04d}",
+        )
+        for index in range(1, 22)
+    ]
+
+    blocks = calibration_sheet.render_blocks(items, pass_name="a")
+    assets = calibration_sheet.figure_assets(items)
+    rendered = "\n".join(blocks)
+
+    assert len(blocks) == 2
+    assert [block.count("\n### ") for block in blocks] == [20, 1]
+    assert [block.count("![Figure](") for block in blocks] == [20, 1]
+    assert "<svg" not in rendered.lower()
+    assert "### injected-heading" not in rendered
+    assert "your_answer: A" not in rendered
+    assert "```injected-fence```" not in rendered
+    assert "<!-- SVG comment" not in rendered
+    assert assets["figures/cal-0001.svg"] == _ADVERSARIAL_SVG.encode("utf-8")
 
 
 def test_same_manifest_renders_byte_identically() -> None:

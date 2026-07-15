@@ -304,6 +304,10 @@ The private, git-ignored review workspace is:
 content/run/calibration/<run-id>/
 ├── index.md
 ├── manifest.json
+├── figures/
+│   ├── cal-0001.svg
+│   ├── rep-0001.svg
+│   └── ...
 ├── pass-a/
 │   ├── block-01.md
 │   ├── block-02.md
@@ -326,7 +330,16 @@ Pass A shows:
 
 - stem;
 - choices;
-- figure, when present.
+- a relative link to a per-review figure asset, when present.
+
+Raw SVG never appears in Markdown. Each display review ID, including a hidden
+repeat, gets a distinct `figures/<review-id>.svg` path. Pass A block files link
+to that asset as `../figures/<review-id>.svg`. The asset bytes are the exact
+UTF-8 encoding of the SVG validated and preserved by the immutable item schema.
+The importer receives those bytes separately, decodes them strictly, and uses
+them with the unprotected visible stem and choices to recompute `pass_a_hash`.
+It must use the renderer's reversible unprotect function instead of deleting
+zero-width or other characters.
 
 It hides:
 
@@ -387,6 +400,9 @@ The generated sheets include these instructions:
 8. Do not infer model identity from writing style.
 9. Do not edit item IDs or machine-parseable field names.
 10. Complete Pass A and import it before opening Pass B.
+
+The Pass A header also prints the allowed value set for every rubric field.
+This legend does not prefill any item field.
 
 The importer rejects incomplete values, unknown labels, duplicate review IDs,
 changed content hashes, exposed model metadata, and edits to immutable problem

@@ -1,17 +1,21 @@
 # Copyright: Ankitects Pty Ltd and contributors
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
-"""Blind Markdown rendering for the human calibration ruler.
+"""Blind Markdown rendering and figure assets for the calibration ruler.
 
-Pass A sheets expose only the review ID, stem, five choices, and a sanitized
-inline figure, plus unfilled rubric fields. Hidden metadata stays in the private
-manifest. This module is pure: no filesystem or network access.
+Pass A sheets expose only the review ID, protected stem, five protected choices,
+a relative figure link when needed, and unfilled rubric fields. Sanitized SVG
+bytes are returned separately by :func:`figure_assets`. Hidden metadata stays
+in the private manifest. This module is pure, with no filesystem or network
+access.
 """
 
 from __future__ import annotations
 
+import html
 import re
 from collections.abc import Sequence
+from pathlib import PurePosixPath
 
 from .calibration_ruler import RulerItem, RulerManifest
 
@@ -45,63 +49,103 @@ PASS_A_INSTRUCTIONS = (
     "Complete Pass A and import it before opening Pass B.",
 )
 
+PASS_A_VALUE_LEGEND = (
+    "`your_answer` = `A`, `B`, `C`, `D`, `E`, or `UNSURE`",
+    "`stem_clear` = `PASS`, `FAIL`, or `UNSURE`",
+    (
+        "`distractor_A` through `distractor_E` = `VALID`, `INVALID`, "
+        "`CORRECT_ANSWER`, or `UNSURE`"
+    ),
+    (
+        "`figure` = `MATCHES`, `CONTRADICTS`, `UNNECESSARY`, `MISSING`, "
+        "`N_A`, or `UNSURE`"
+    ),
+    "`difficulty` = `1`, `2`, `3`, `4`, `5`, or `UNSURE`",
+    "`overall` = `KEEP`, `DROP`, or `UNSURE`",
+    "`notes` = free text",
+)
+
 BLOCK_CAPACITY = 20
 _CHOICE_LABELS = ("A", "B", "C", "D", "E")
-_THEMATIC_BREAK = re.compile(r"^(?:-{3,}|\*{3,}|_{3,})$")
-_ZWSP = "\u200b"
+_SAFE_REVIEW_ID = re.compile(r"(?:cal|rep)-[0-9]{4}\Z", re.ASCII)
+_MARKDOWN_PROTECTION = str.maketrans(
+    {
+        "#": "&#35;",
+        "`": "&#96;",
+        "-": "&#45;",
+        "*": "&#42;",
+        "_": "&#95;",
+        ":": "&#58;",
+    }
+)
 
 
 def _items_from(value: object) -> tuple[RulerItem, ...]:
     if isinstance(value, RulerManifest):
-        return value.items
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        items = value.items
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         items = tuple(value)
-        if all(isinstance(item, RulerItem) for item in items):
-            return items
-    raise TypeError("expected a RulerManifest or a sequence of RulerItem")
+        if not all(isinstance(item, RulerItem) for item in items):
+            raise TypeError("expected a RulerManifest or a sequence of RulerItem")
+    else:
+        raise TypeError("expected a RulerManifest or a sequence of RulerItem")
+
+    seen: set[str] = set()
+    for item in items:
+        review_id = _require_review_id(item)
+        if review_id in seen:
+            raise ValueError(f"duplicate review ID: {review_id}")
+        seen.add(review_id)
+    return items
 
 
 def _require_review_id(item: RulerItem) -> str:
-    if item.review_id is None:
-        raise ValueError("review_id is required for Pass A rendering")
-    return item.review_id
+    review_id = item.review_id
+    if type(review_id) is not str or _SAFE_REVIEW_ID.fullmatch(review_id) is None:
+        raise ValueError("safe review ID must match 'cal-0000' or 'rep-0000' shape")
+    return review_id
 
 
-def _protect_prose(text: str) -> str:
-    """Neutralize Markdown constructs that could inject headings or fields.
+def protect_markdown_text(text: str) -> str:
+    """Reversibly neutralize structural Markdown and HTML tokens.
 
-    Pass A stems are whitespace-collapsed by the ruler schema, so attacks may
-    sit mid-line. Break heading markers, fences, comments, separators, and
-    rubric field names wherever they appear, while leaving math prose readable.
+    HTML-sensitive characters and Markdown punctuation used by headings, code
+    fences, separators, and rubric fields become character references. Markdown
+    renders those references as the original human-readable text but does not
+    reinterpret them as structure. Existing entities and zero-width characters
+    survive an exact protect/unprotect round trip.
     """
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    normalized = normalized.replace("<!--", f"<!{_ZWSP}--")
-    normalized = normalized.replace("-->", f"--{_ZWSP}>")
-    normalized = normalized.replace("```", f"`{_ZWSP}``")
-    # Insert ZWSP so "###" is never a contiguous token reviewers or parsers see.
-    normalized = normalized.replace("###", f"##{_ZWSP}#")
-    normalized = normalized.replace("##", f"#{_ZWSP}#")
-    lines: list[str] = []
-    for line in normalized.split("\n"):
-        stripped = line.lstrip()
-        if stripped.startswith("#"):
-            hash_at = line.index("#")
-            line = f"{line[:hash_at]}#{_ZWSP}{line[hash_at + 1 :]}"
-            stripped = line.lstrip()
-        if _THEMATIC_BREAK.fullmatch(stripped):
-            line = stripped[0] + _ZWSP + stripped[1:]
-        lines.append(line)
-    protected = "\n".join(lines)
-    protected = re.sub(r"(?<!\S)---(?!\S)", f"-{_ZWSP}--", protected)
-    for field in PASS_A_FIELDS:
-        protected = protected.replace(f"{field}:", f"{field}{_ZWSP}:")
-    return protected
+    if type(text) is not str:
+        raise TypeError("Markdown text must be a string")
+    return html.escape(text, quote=False).translate(_MARKDOWN_PROTECTION)
 
 
-def _render_figure(figure: str) -> str:
+def unprotect_markdown_text(text: str) -> str:
+    """Restore text emitted by :func:`protect_markdown_text` exactly.
+
+    A future parser must call this function on visible stem and choice text. It
+    must not strip zero-width or other characters.
+    """
+    if type(text) is not str:
+        raise TypeError("protected Markdown text must be a string")
+    return html.unescape(text)
+
+
+def _figure_asset_path(review_id: str) -> str:
+    path = PurePosixPath("figures", f"{review_id}.svg")
+    if (
+        path.is_absolute()
+        or path.parts != ("figures", f"{review_id}.svg")
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise ValueError(f"unsafe figure asset path for review ID: {review_id}")
+    return path.as_posix()
+
+
+def _render_figure(review_id: str, figure: str) -> str:
     if not figure:
         return ""
-    return f'<div class="pg-figure">{figure}</div>'
+    return f"![Figure](../{_figure_asset_path(review_id)})"
 
 
 def _render_rubric() -> str:
@@ -112,6 +156,8 @@ def _render_header() -> str:
     lines = ["# Pass A", ""]
     for index, instruction in enumerate(PASS_A_INSTRUCTIONS, start=1):
         lines.append(f"{index}. {instruction}")
+    lines.extend(["", "## Allowed rubric values", ""])
+    lines.extend(f"- {legend}" for legend in PASS_A_VALUE_LEGEND)
     lines.extend(["", "---", ""])
     return "\n".join(lines)
 
@@ -122,15 +168,15 @@ def render_pass_a_block(item: RulerItem) -> str:
         raise TypeError("render_pass_a_block expects a RulerItem")
     review_id = _require_review_id(item)
     content = item.pass_a_content()
-    stem = _protect_prose(str(content["stem"]))
+    stem = protect_markdown_text(str(content["stem"]))
     choices = _as_choices(content["choices"])
     figure = str(content["figure"])
 
     lines = [f"### {review_id}", "", "**Stem.**", "", stem, ""]
     for label, choice in zip(_CHOICE_LABELS, choices, strict=True):
-        lines.append(f"**{label})** {_protect_prose(choice)}")
+        lines.append(f"**{label})** {protect_markdown_text(choice)}")
     lines.append("")
-    if figure_markup := _render_figure(figure):
+    if figure_markup := _render_figure(review_id, figure):
         lines.extend([figure_markup, ""])
     lines.extend([_render_rubric(), "", "---", ""])
     return "\n".join(lines)
@@ -140,6 +186,29 @@ def _as_choices(value: object) -> list[str]:
     if type(value) is not list or len(value) != 5:
         raise ValueError("Pass A choices must contain exactly five strings")
     return [str(choice) for choice in value]
+
+
+def figure_assets(
+    items: RulerManifest | Sequence[RulerItem],
+) -> dict[str, bytes]:
+    """Map safe run-root-relative asset paths to exact validated SVG bytes.
+
+    Each review ID gets its own path, including hidden repeats. A publisher
+    writes these bytes below the review workspace without modification. A
+    future parser receives the bytes separately, decodes UTF-8 strictly, and
+    includes that exact figure string when recomputing ``pass_a_hash``.
+    """
+    assets: dict[str, bytes] = {}
+    for item in _items_from(items):
+        review_id = _require_review_id(item)
+        figure = str(item.pass_a_content()["figure"])
+        if not figure:
+            continue
+        path = _figure_asset_path(review_id)
+        if path in assets:
+            raise ValueError(f"figure asset path collision: {path}")
+        assets[path] = figure.encode("utf-8")
+    return assets
 
 
 def render_blocks(
