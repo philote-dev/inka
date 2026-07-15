@@ -521,6 +521,175 @@ reached, and no Tier 2 or Tier 3 training has started.
 
 ---
 
+## The shadow foundry (Phase 4)
+
+Phase 4 adds real multi-model generation in a quarantine-only shadow mode. It
+runs the exact frontier portfolio and prompts intended for future production,
+but every output is quarantined. Nothing it produces can enter
+`content_bundle.json` or `preferences.jsonl`. The design is
+[`shadow-foundry-calibration-design.md`](../plan/shadow-foundry-calibration-design.md)
+and the runner plan is
+[`multi-model-shadow-runner-plan.md`](../plan/multi-model-shadow-runner-plan.md).
+
+The seam is provider-neutral: `pylib/anki/pgrep/ai/model_backend.py` defines
+`ModelSpec`, `ModelRequest`, `ModelResult`, and the `ModelBackend` protocol, and
+`pylib/anki/pgrep/ai/shadow_portfolio.py` holds the pure allocation, strict
+candidate parsing, and origin-excluding cross-verification. `content/tools/`
+holds the two host-side tools: `cursor_sandbox.py` (the Docker adapter) and
+`shadow_foundry.py` (the CLI, corpus retrieval, model probe, firewall checks,
+and atomic publication).
+
+### Docker-only local Unix socket
+
+The Cursor SDK call runs inside a disposable local Docker container, one prompt
+per container. This first implementation is Docker-only. `detect_runtime`
+returns Docker or raises, and `discover_local_runtime` accepts only a verified,
+allowlisted local Unix socket: on macOS `~/.docker/run/docker.sock` or
+`/var/run/docker.sock`, on Linux `/var/run/docker.sock`, `/run/docker.sock`, or
+`/run/user/<uid>/docker.sock`. Remote endpoints (`ssh://`, `tcp://`, `http://`,
+`https://`, `npipe://`, or an explicit `unix://` URL) are rejected, the socket
+must not be a symlink, and it must be a real socket owned by root or the calling
+user. Podman and any other runtime are not supported. If no verified local
+Docker socket is available, or the per-request mount boundary cannot be proven,
+the run fails before the first prompt. There is no non-Docker fallback: an
+unavailable engine is a hard stop, not a reason to run a model on the host.
+
+Each container is hardened: only the freshly created request directory is bound
+to `/work`, the API key is forwarded by name (`--env CURSOR_API_KEY`, never as
+an argument or in `request.json`), and the container runs read-only with
+`--cap-drop ALL`, `no-new-privileges`, a pids limit, memory and CPU caps, and a
+`noexec` tmpfs. No repository checkout, parent path, HOME, Docker socket, MCP
+server, ambient setting source, or other host credential is exposed. Before the
+worker runs, a keyless two-way mount-nonce probe proves that the container sees
+exactly that request directory and nothing else. Symlinks, hard links, path
+escapes, and private training-data markers (gold, held-out, ETS, GR9677,
+GR1777, Tier 3) are rejected before any container spawns, and every captured
+error is redacted.
+
+### Worker build and sync
+
+The isolated worker lives under `tools/shadow_worker/` (`Dockerfile`,
+`pyproject.toml`, `uv.lock`, `worker.py`) and depends only on `cursor-sdk` in
+its own locked environment. `worker.py` reads `/work/request.json`, writes
+`/work/result.json`, and supports only the `models` and `prompt` actions; it
+imports `cursor_sdk` lazily so root CI can load the protocol without the SDK.
+
+- `just shadow-worker-sync` installs the worker's locked environment into
+  `out/shadow-worker-venv` without creating a nested project virtualenv. It does
+  not build an image and needs no Docker daemon.
+- `just shadow-worker-build` builds the pinned Docker image and prints its
+  immutable `sha256:` digest. It needs a running local Docker engine.
+
+The runner does not rely on a floating image tag. `prepare_real_sandbox` builds
+the image from the whitelisted `tools/shadow_worker/` context, inspects its
+immutable digest, and rebinds the sandbox to that exact digest, so the model
+call, the mount probe, and the manifest all reference one immutable image. The
+image tag itself is derived from a fingerprint of the worker context files
+(`pgrep-shadow-worker:<hash>`).
+
+### Exact model probe and required IDs
+
+The runner never assumes a display name is a callable model. Inside the sandbox,
+the worker calls `Cursor.models.list()` and returns the account catalog with its
+per-model `parameters` and `variants` plus the actual `cursor-sdk` version. The
+host normalizes this into a probe object with `models`, `sdk_version`,
+`probed_at`, and a `model_catalog_hash`.
+
+`just shadow-models` runs only the probe. It prints a human-readable list and
+the strict JSON, and generates nothing. Real generation requires three exact,
+distinct, account-listed IDs, one per family. The shipped defaults, and the IDs
+`shadow-models` must show, are:
+
+| Family | Required model ID                    |
+| ------ | ------------------------------------ |
+| Sol    | `gpt-5.6-sol-max`                    |
+| Opus   | `claude-opus-4-8-thinking-high-fast` |
+| Grok   | `cursor-grok-4.5-high-fast`          |
+
+`validate_exact_roles` requires that each requested ID is present in the account
+probe, that the three IDs are distinct, and that each ID matches its family
+identity (a Sol ID must read as GPT 5.6 Sol, an Opus ID as Claude Opus 4.8, a
+Grok ID as Grok 4.5). `auto` and any `auto/...` alias are forbidden. If a
+requested family's exact model is missing or renamed, the run fails before the
+first candidate call and does not substitute another model. A missing family is
+an external handoff blocker, not an implementation failure, and no model is
+treated as verified until the probe lists it.
+
+### Quarantine root and artifacts
+
+Every run is written under the git-ignored quarantine root
+`content/run/shadow-foundry/<run-id>/`. Each run directory contains exactly:
+
+- `manifest.json`, the strict run manifest;
+- `candidates.json`, the quarantined candidates with their generation and
+  cross-verification traces;
+- `failures.json`, the recorded failures and reasons;
+- one marker, `_SUCCESS` for a complete portfolio or `_FAILED` for a diagnostic
+  (partial or preflight failure) run.
+
+Publication is atomic. An exclusive sibling lock, a temporary sibling directory,
+strict JSON, and hard-link finalization mean the marker is written last. An
+interrupted run leaves no marker, and downstream readers ignore any directory
+without one. Diagnostic `_FAILED` runs are preserved for inspection. Raw
+transcripts stay under the run directory; API keys and authorization headers are
+never written, and captured errors are redacted.
+
+### Immutable image and replay manifest
+
+The manifest (`manifest_version` `pgrep-shadow-run/v4`) binds the run to the
+exact code, image, corpus, and model state so a success is replayable:
+
+- `worker.image` and `worker.image_digest`, the immutable `sha256:` digest the
+  run actually executed;
+- `code.sha` and `code.tree_status`, with `replayable` true only for a success
+  produced from a clean tree;
+- `corpus_index` fingerprint, `mtime_ns`, and size;
+- `probe`, the full account catalog plus `sdk_version` and `model_catalog_hash`;
+- `roles`, `allocation`, `seeds`, and `choice_permutations`;
+- `prompt_versions`, `schema_versions`, and per-candidate `request_traces` with
+  request hashes;
+- `execution_mode` (`real` for a corpus run, `offline-self-check` for the
+  smoke).
+
+### No acceptance, pairs, or landing
+
+Shadow mode has no path to acceptance, preference pairs, or bundle landing. The
+manifest records `training_eligible: false` and an `artifacts` block with
+`accepted_json`, `preferences_jsonl`, `bundle_mutation`, and `assemble_call` all
+false. Cross-verification only records the two non-origin families' blind solve
+opinions; it never accepts or rejects. There is no arrow from a shadow run to
+`assemble_bundle.py` or `preferences.jsonl`, and no command-line flag changes
+this. Building the human calibration ruler and any unlock decision are separate,
+later work (`blind-calibration-ruler-plan.md`).
+
+### Offline smoke
+
+`just shadow-smoke` runs `shadow_foundry.py --self-check`: a fully offline
+fake-client portfolio with no network, no Docker, and no key. It exercises
+allocation, parsing, cross-verification, manifest assembly, and atomic
+publication into the real quarantine root, then reports the run directory. This
+is the per-commit-safe check; the account probe and any real run are on-demand.
+
+### Troubleshooting
+
+- `CURSOR_API_KEY is required for model probing or shadow mode`: export
+  `CURSOR_API_KEY` or add it to `content/.env` (or a repo-root `.env`). The
+  probe and real generation both need it; `shadow-smoke` and
+  `shadow-worker-sync` do not.
+- `Docker was not found`: install local Docker.
+- `local runtime socket is unavailable` or `no verified local Unix socket`: the
+  Docker CLI is present but the daemon is not running, or its socket is not one
+  of the allowlisted local paths. Start the local engine. The runner will not
+  fall back to a non-Docker path.
+- `exact model <id> ... is not in the account probe` or `does not match its
+  family identity`: run `just shadow-models`, use an exact listed ID per family,
+  and never substitute. A missing family is an external blocker.
+- A `_FAILED` run directory: read its `manifest.json` and `failures.json`. A
+  preflight failure (missing Docker, missing model, mount-probe failure) records
+  the redacted reason without touching the corpus.
+
+---
+
 ## Commands
 
 | Command                      | What it does                                                                                                       |
@@ -535,9 +704,20 @@ reached, and no Tier 2 or Tier 3 training has started.
 | `calibrate_verifier.py`      | Offline smoke (`--self-check`) of the calibration stats and card assembly.                                         |
 | `leakage_check.py`           | Recursively validate foundry preference schema, private-root markers, and private-item copy-in.                    |
 | `just eval-verifier`         | Fit calibration-only thresholds, score held-out labels, apply standing gates, and report slot-clustered intervals. |
+| `just shadow-smoke`          | Offline fake-client shadow portfolio (`shadow_foundry.py --self-check`), no network, Docker, or key.               |
+| `just shadow-models`         | On-demand account model probe; needs a running local Docker engine and `CURSOR_API_KEY`.                           |
+| `just shadow-worker-build`   | Build the pinned Docker worker image and print its immutable digest; needs local Docker.                           |
+| `just shadow-worker-sync`    | Install the worker's locked environment into `out/shadow-worker-venv`; no Docker or key needed.                    |
+| `just shadow-foundry`        | Quarantined multi-model generation with exact `--sol-model`/`--opus-model`/`--grok-model`; never lands or pairs.   |
 | `just check`                 | The overall gate (format, build, lint, all tests), which includes `test-py`.                                       |
 
 The LLM audits and the foundry loop need the optional AI runtime and a key when
 they call models; install it once with `just pgrep-ai-deps` and set
 `OPENAI_API_KEY` (or add it to `content/.env`). `just foundry-dry`, `--dry-run`,
 `just eval-verifier`, and the deterministic audits run without a key.
+
+The shadow foundry is separate. `just shadow-smoke` and `just shadow-worker-sync`
+run fully offline. `just shadow-models`, `just shadow-worker-build`, and
+`just shadow-foundry` need a running local Docker engine, and the probe and real
+generation also need `CURSOR_API_KEY` (in the environment, `content/.env`, or a
+repo-root `.env`).

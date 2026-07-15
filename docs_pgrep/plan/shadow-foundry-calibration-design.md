@@ -104,8 +104,8 @@ No arrow from shadow generation reaches `assemble_bundle.py` or
 ### Model discovery
 
 The checked-in runner never assumes that a display name is a callable model ID.
-At startup it calls `Cursor.models.list()` and records the IDs, presets, and
-reasoning parameters available to the calling account.
+At startup it calls `Cursor.models.list()` and records each model's ID, its
+`parameters`, and its `variants` as reported to the calling account.
 
 The desired roles are:
 
@@ -148,8 +148,11 @@ working-directory convention alone is not treated as isolation because a local
 agent could navigate elsewhere on the host. If no verified local Docker engine
 is available, or the mount boundary cannot be verified for that request
 directory, Cursor models are unavailable for private-corpus runs and the run
-fails before the first prompt. Direct provider adapters remain an allowed
-fallback because they receive only the explicit request payload.
+fails before the first prompt. The shipped first implementation has no
+non-Docker fallback: an unavailable engine or unverifiable mount boundary is a
+hard stop, never a reason to run a model on the host. The provider-neutral seam
+still allows a future direct provider adapter, which would receive only the
+explicit request payload, but no such adapter is wired into the shadow runner.
 
 ### Candidate allocation
 
