@@ -299,6 +299,32 @@ def test_invalid_training_candidate_aborts_without_finalized_run(
     assert not any(path.name == "_SUCCESS" for path in tmp_path.rglob("*"))
 
 
+@pytest.mark.parametrize("role", ["accepted", "rejected"])
+def test_valid_one_sided_run_publishes_zero_pairs(
+    tmp_path: Path,
+    role: str,
+) -> None:
+    dry_result = foundry._dry_run("dynamics", 2, category="mechanics")
+    result = foundry.foundry_loop.SlotResult(
+        accepted=dry_result.accepted if role == "accepted" else [],
+        rejected=dry_result.rejected if role == "rejected" else [],
+    )
+
+    run_dir = foundry._write_result(
+        str(tmp_path),
+        f"{role}-only",
+        result,
+        {"topic": "dynamics", "blueprint_category": "mechanics"},
+        synthetic=True,
+    )
+
+    assert (run_dir / "_SUCCESS").is_file()
+    assert (run_dir / "preferences.jsonl").read_text() == ""
+    summary = json.loads((run_dir / "summary.json").read_text())
+    assert summary["preference_summary"]["emitted"] == 0
+    assert summary["preference_summary"]["excluded"] == 0
+
+
 def test_write_result_uses_exclusive_publication_lock(tmp_path: Path) -> None:
     result = foundry._dry_run("optics", 3, category="optics_waves")
     slot = {"topic": "optics", "blueprint_category": "optics_waves"}

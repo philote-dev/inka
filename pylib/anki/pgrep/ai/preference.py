@@ -360,6 +360,68 @@ def _pair_record(
     }
 
 
+def _project_candidate(candidate: object, *, accepted: bool) -> object:
+    if not isinstance(candidate, dict):
+        return candidate
+    projected = {
+        "id": candidate.get("id", ""),
+        "stem": candidate.get("stem", ""),
+        "choices": list(candidate.get("choices") or []),
+        "correct": candidate.get("correct") or candidate.get("key") or "",
+        "source_ref": candidate.get("source_ref", ""),
+        "panel": copy.deepcopy(candidate.get("panel")),
+    }
+    if not accepted:
+        projected.update(
+            {
+                "failing_gates": _failing_gates(candidate),
+                "reason": candidate.get("reason", ""),
+                "refused": candidate.get("refused") is True,
+            }
+        )
+    return projected
+
+
+def _validate_training_candidate(
+    candidate: object,
+    *,
+    accepted: bool,
+    synthetic: bool,
+) -> list[str]:
+    side = "chosen" if accepted else "rejected"
+    decision = "accept" if accepted else "reject"
+    projected = _project_candidate(candidate, accepted=accepted)
+    errors = _validate_item(side, projected, decision)
+    if accepted:
+        errors.extend(_validate_chosen_panel(projected, synthetic=synthetic))
+    else:
+        errors.extend(_validate_failing_gates(projected))
+    errors.extend(_recursive_data_errors(projected, f"$.{side}"))
+    return errors
+
+
+def _validate_training_candidates(
+    accepted: list[dict],
+    rejected: list[dict],
+    *,
+    synthetic: bool,
+) -> None:
+    for role, candidates, is_accepted in (
+        ("accepted", accepted, True),
+        ("rejected", rejected, False),
+    ):
+        for index, candidate in enumerate(candidates):
+            if errors := _validate_training_candidate(
+                candidate,
+                accepted=is_accepted,
+                synthetic=synthetic,
+            ):
+                raise ValueError(
+                    f"invalid {role} training candidate at index {index}: "
+                    f"{'; '.join(errors)}"
+                )
+
+
 def build_pairs_from_slot(
     slot: dict,
     result: SlotResult,
@@ -373,6 +435,11 @@ def build_pairs_from_slot(
     eligible_rejected = [
         rejected for rejected in result.rejected if not _is_panel_refusal(rejected)
     ]
+    _validate_training_candidates(
+        result.accepted,
+        eligible_rejected,
+        synthetic=synthetic,
+    )
     pairs: list[dict] = []
     if max_pairs > 0:
         for chosen in result.accepted:

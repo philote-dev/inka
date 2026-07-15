@@ -592,6 +592,74 @@ def test_pairs_from_slot_nonpositive_cap_emits_no_records(max_pairs):
     )
 
 
+def test_malformed_one_sided_accepted_candidate_fails_closed():
+    accepted = _item(1, "accept")
+    del accepted["source_ref"]
+    result = foundry_loop.SlotResult(accepted=[accepted])
+
+    with pytest.raises(
+        ValueError,
+        match=r"invalid accepted training candidate at index 0.*chosen\.source_ref",
+    ):
+        preference.pairs_from_slot(_slot(), result, run_id="run-1")
+
+
+def test_malformed_one_sided_rejected_candidate_fails_closed():
+    rejected = _item(2, "reject")
+    del rejected["stem"]
+    result = foundry_loop.SlotResult(rejected=[rejected])
+
+    with pytest.raises(
+        ValueError,
+        match=r"invalid rejected training candidate at index 0.*rejected\.stem",
+    ):
+        preference.pairs_from_slot(_slot(), result, run_id="run-1")
+
+
+def test_malformed_accepted_with_only_refusal_counterpart_fails_closed():
+    accepted = _item(1, "accept")
+    del accepted["choices"]
+    refusal = {
+        "panel": {"decision": "reject", "checks": [], "refusal": True},
+        "reason": "generation incomplete",
+    }
+    result = foundry_loop.SlotResult(
+        accepted=[accepted],
+        rejected=[refusal],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"invalid accepted training candidate at index 0.*chosen\.choices",
+    ):
+        preference.pairs_from_slot(_slot(), result, run_id="run-1")
+
+
+def test_valid_one_sided_candidates_emit_zero_pairs():
+    accepted_only = foundry_loop.SlotResult(accepted=[_item(1, "accept")])
+    rejected_only = foundry_loop.SlotResult(rejected=[_item(2, "reject")])
+
+    assert preference.pairs_from_slot(_slot(), accepted_only, run_id="a") == []
+    assert preference.pairs_from_slot(_slot(), rejected_only, run_id="b") == []
+
+
+def test_zero_pair_cap_still_validates_all_candidates():
+    accepted = _item(1, "accept")
+    del accepted["correct"]
+    result = foundry_loop.SlotResult(accepted=[accepted])
+
+    with pytest.raises(
+        ValueError,
+        match=r"invalid accepted training candidate at index 0.*chosen\.correct",
+    ):
+        preference.pairs_from_slot(
+            _slot(),
+            result,
+            run_id="run-1",
+            max_pairs=0,
+        )
+
+
 def test_pairs_from_slot_ignores_escalated():
     result = foundry_loop.SlotResult(
         accepted=[_item(1, "accept")],
