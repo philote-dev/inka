@@ -1,0 +1,7 @@
+[project]
+name = "shadow-worker"
+version = "0.1.0"
+requires-python = ">=3.13.13"
+dependencies = [
+  "cursor-sdk>=0.1.9",
+]
