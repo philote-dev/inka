@@ -51,7 +51,7 @@ DEFAULT_REASONING = "high"
 
 SUCCESS_MARKER = "_SUCCESS"
 FAILED_MARKER = "_FAILED"
-MANIFEST_VERSION = "pgrep-shadow-run/v3"
+MANIFEST_VERSION = "pgrep-shadow-run/v4"
 
 _FAMILIES = ("sol", "opus", "grok")
 _WORKER_FILES = ("Dockerfile", "pyproject.toml", "uv.lock", "worker.py")
@@ -133,6 +133,7 @@ _TOP_LEVEL_FIELDS = frozenset(
 )
 _TRACE_FIELDS = frozenset(
     {
+        "request_id",
         "slot",
         "phase",
         "attempt",
@@ -153,6 +154,15 @@ _TRACE_FIELDS = frozenset(
         "status",
         "parser_outcome",
         "parse_error",
+        "binding",
+    }
+)
+_TRACE_BINDING_FIELDS = frozenset(
+    {
+        "candidate_slot",
+        "candidate_origin_family",
+        "kind",
+        "verifier_family",
     }
 )
 
@@ -186,6 +196,9 @@ class RunEnvironment:
     corpus_index_fingerprint: str | None
     probe: Mapping[str, object]
     execution_mode: str = "test-fake"
+    corpus_index_mtime_ns: int | None = None
+    corpus_index_size: int | None = None
+    corpus_index_path: Path | None = None
 
     def __post_init__(self) -> None:
         if not _SHA_RE.fullmatch(self.code_sha):
@@ -203,6 +216,12 @@ class RunEnvironment:
             self.corpus_index_fingerprint
         ):
             raise ValueError("corpus index fingerprint must be sha256")
+        for name, value in (
+            ("corpus index mtime", self.corpus_index_mtime_ns),
+            ("corpus index size", self.corpus_index_size),
+        ):
+            if value is not None and (type(value) is not int or value < 0):
+                raise ValueError(f"{name} must be a non-negative integer")
         _validate_probe(self.probe, allow_incomplete=True)
 
 
@@ -854,23 +873,86 @@ def collect_repo_state(
     return sha, "dirty" if status.stdout.strip() else "clean"
 
 
-def file_fingerprint(path: Path | str) -> str:
-    """Hash a regular, non-symlink file for replay identity."""
+def file_attestation(path: Path | str) -> tuple[str, int, int]:
+    """Hash one stable regular file and record its mtime/size."""
     candidate = Path(path)
     _reject_symlink_components(candidate)
     try:
-        info = candidate.lstat()
+        before = candidate.lstat()
     except OSError as err:
         raise RuntimeError(
             f"required fingerprint input is unavailable: {candidate.name}"
         ) from err
-    if not stat.S_ISREG(info.st_mode):
+    if not stat.S_ISREG(before.st_mode):
         raise RuntimeError(f"fingerprint input is not a regular file: {candidate.name}")
     digest = hashlib.sha256()
     with candidate.open("rb") as handle:
         while block := handle.read(1024 * 1024):
             digest.update(block)
-    return "sha256:" + digest.hexdigest()
+    after = candidate.lstat()
+    if (
+        before.st_dev,
+        before.st_ino,
+        before.st_mtime_ns,
+        before.st_size,
+    ) != (
+        after.st_dev,
+        after.st_ino,
+        after.st_mtime_ns,
+        after.st_size,
+    ):
+        raise RuntimeError("fingerprint input changed while it was hashed")
+    return (
+        "sha256:" + digest.hexdigest(),
+        after.st_mtime_ns,
+        after.st_size,
+    )
+
+
+def file_fingerprint(path: Path | str) -> str:
+    return file_attestation(path)[0]
+
+
+ReplayState = tuple[str, str, str, int, int]
+
+
+def _expected_replay_state(environment: RunEnvironment) -> ReplayState:
+    fingerprint = _non_empty_string(
+        environment.corpus_index_fingerprint,
+        name="corpus index fingerprint",
+    )
+    mtime_ns = environment.corpus_index_mtime_ns
+    size = environment.corpus_index_size
+    if type(mtime_ns) is not int or type(size) is not int:
+        raise ValueError("corpus index replay metadata is incomplete")
+    return (
+        environment.code_sha,
+        environment.tree_status,
+        fingerprint,
+        mtime_ns,
+        size,
+    )
+
+
+def _reattest_success_state(environment: RunEnvironment) -> ReplayState:
+    """Re-read real repository/index state immediately before success."""
+    expected = _expected_replay_state(environment)
+    if environment.execution_mode != "real":
+        return expected
+    if environment.corpus_index_path is None:
+        raise RuntimeError("real run has no corpus index path for re-attestation")
+    sha, tree_status = collect_repo_state()
+    fingerprint, mtime_ns, size = file_attestation(environment.corpus_index_path)
+    return (sha, tree_status, fingerprint, mtime_ns, size)
+
+
+def _require_unchanged_success_state(environment: RunEnvironment) -> None:
+    expected = _expected_replay_state(environment)
+    attested = _reattest_success_state(environment)
+    if attested != expected:
+        raise RuntimeError("repository or corpus replay state changed during run")
+    if environment.execution_mode == "real" and attested[1] != "clean":
+        raise RuntimeError("real run git tree is not clean at final re-attestation")
 
 
 def worker_context_fingerprint() -> str:
@@ -946,11 +1028,27 @@ def prepare_real_sandbox(
     )
 
 
+def _trace_binding(
+    *,
+    slot: int,
+    origin: str,
+    role: str,
+    model_family: str,
+) -> dict[str, object]:
+    return {
+        "candidate_slot": slot,
+        "candidate_origin_family": origin,
+        "kind": role,
+        "verifier_family": model_family if role == "verifier" else None,
+    }
+
+
 def _trace_summary(
     trace: Mapping[str, object],
     *,
     slot: int,
     choice_order: Sequence[str] | None,
+    binding: Mapping[str, object],
     secrets: Sequence[str],
 ) -> dict[str, object]:
     safe = cast(
@@ -983,6 +1081,10 @@ def _trace_summary(
     ):
         raise ValueError("trace retrieved source refs are invalid")
     return {
+        "request_id": _non_empty_string(
+            request.get("request_id"),
+            name="request ID",
+        ),
         "slot": slot,
         "phase": _non_empty_string(safe.get("phase"), name="trace phase"),
         "attempt": attempt,
@@ -1013,6 +1115,7 @@ def _trace_summary(
         "status": _non_empty_string(result.get("status"), name="trace status"),
         "parser_outcome": "parsed" if parse_error is None else "parse_error",
         "parse_error": parse_error,
+        "binding": copy.deepcopy(dict(binding)),
     }
 
 
@@ -1029,6 +1132,10 @@ def _sanitize_candidate_record(
     generator = redacted.get("generator")
     if not isinstance(generator, dict):
         raise ValueError("candidate generator metadata is missing")
+    origin = _non_empty_string(
+        redacted.get("origin_family"),
+        name="candidate origin",
+    )
     traces = generator.get("traces")
     if not isinstance(traces, list):
         raise ValueError("candidate generator traces are missing")
@@ -1037,6 +1144,12 @@ def _sanitize_candidate_record(
             cast(Mapping[str, object], trace),
             slot=slot,
             choice_order=None,
+            binding=_trace_binding(
+                slot=slot,
+                origin=origin,
+                role="generator",
+                model_family=origin,
+            ),
             secrets=secrets,
         )
         for trace in traces
@@ -1050,12 +1163,22 @@ def _sanitize_candidate_record(
             raise ValueError("verifier record must be an object")
         order = verifier.get("choice_order")
         trace = verifier.get("trace")
+        verifier_family = _non_empty_string(
+            verifier.get("family"),
+            name="verifier family",
+        )
         if not isinstance(order, list) or not isinstance(trace, Mapping):
             raise ValueError("verifier trace or choice permutation is missing")
         verifier["trace"] = _trace_summary(
             trace,
             slot=slot,
             choice_order=cast(list[str], order),
+            binding=_trace_binding(
+                slot=slot,
+                origin=origin,
+                role="verifier",
+                model_family=verifier_family,
+            ),
             secrets=secrets,
         )
     redacted["slot"] = slot
@@ -1156,17 +1279,102 @@ def _roles_dict(
     }
 
 
-def _dedupe_traces(
+def _canonical_bound_trace(
+    trace: Mapping[str, object],
+    *,
+    expected_binding: Mapping[str, object],
+) -> dict[str, object]:
+    _validate_exact_fields(trace, _TRACE_FIELDS, name="candidate trace")
+    binding = trace.get("binding")
+    if not isinstance(binding, Mapping):
+        raise ValueError("candidate trace binding is missing")
+    _validate_exact_fields(
+        binding,
+        _TRACE_BINDING_FIELDS,
+        name="candidate trace binding",
+    )
+    if dict(binding) != dict(expected_binding):
+        raise ValueError("candidate trace binding does not match its enclosure")
+    return copy.deepcopy(dict(trace))
+
+
+def _dedupe_complete_traces(
     traces: Sequence[Mapping[str, object]],
 ) -> list[dict[str, object]]:
     deduped: list[dict[str, object]] = []
-    seen: set[str] = set()
+    by_request_id: dict[str, dict[str, object]] = {}
+    by_request_hash: dict[str, dict[str, object]] = {}
     for trace in traces:
+        request_id = _non_empty_string(trace.get("request_id"), name="request ID")
         request_hash = str(trace.get("request_hash") or "")
-        if request_hash and request_hash not in seen:
-            seen.add(request_hash)
-            deduped.append(dict(trace))
+        rendered = copy.deepcopy(dict(trace))
+        previous_id = by_request_id.get(request_id)
+        previous_hash = by_request_hash.get(request_hash)
+        for previous in (previous_id, previous_hash):
+            if previous is not None and previous != rendered:
+                raise ValueError("conflicting duplicate canonical trace summary")
+        if previous_id is not None or previous_hash is not None:
+            continue
+        by_request_id[request_id] = rendered
+        by_request_hash[request_hash] = rendered
+        deduped.append(rendered)
     return deduped
+
+
+def canonical_candidate_trace_summaries(
+    candidates: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    """Return complete traces bound to their candidate/verifier enclosures."""
+    summaries: list[dict[str, object]] = []
+    ordered = sorted(candidates, key=lambda candidate: cast(int, candidate["slot"]))
+    for candidate in ordered:
+        slot = cast(int, candidate["slot"])
+        origin = cast(str, candidate["origin_family"])
+        generator = cast(Mapping[str, object], candidate["generator"])
+        for trace in cast(list[Mapping[str, object]], generator["traces"]):
+            summaries.append(
+                _canonical_bound_trace(
+                    trace,
+                    expected_binding=_trace_binding(
+                        slot=slot,
+                        origin=origin,
+                        role="generator",
+                        model_family=origin,
+                    ),
+                )
+            )
+        for verifier in cast(list[Mapping[str, object]], candidate["verifiers"]):
+            family = cast(str, verifier["family"])
+            summaries.append(
+                _canonical_bound_trace(
+                    cast(Mapping[str, object], verifier["trace"]),
+                    expected_binding=_trace_binding(
+                        slot=slot,
+                        origin=origin,
+                        role="verifier",
+                        model_family=family,
+                    ),
+                )
+            )
+    return _dedupe_complete_traces(summaries)
+
+
+def _merge_failure_trace_summaries(
+    candidate_traces: Sequence[Mapping[str, object]],
+    failure_traces: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    merged = [copy.deepcopy(dict(trace)) for trace in candidate_traces]
+    seen_ids = {str(trace["request_id"]) for trace in merged}
+    seen_hashes = {str(trace["request_hash"]) for trace in merged}
+    for trace in failure_traces:
+        request_id = str(trace.get("request_id") or "")
+        request_hash = str(trace.get("request_hash") or "")
+        if request_id in seen_ids or request_hash in seen_hashes:
+            continue
+        merged.append(copy.deepcopy(dict(trace)))
+        seen_ids.add(request_id)
+        seen_hashes.add(request_hash)
+    return _dedupe_complete_traces(merged)
 
 
 def build_run_manifest(
@@ -1184,15 +1392,13 @@ def build_run_manifest(
     failure_traces: Sequence[Mapping[str, object]] = (),
 ) -> dict[str, object]:
     """Build the one strict manifest shape used by success and diagnostics."""
-    traces = [
-        trace for candidate in candidates for trace in _candidate_traces(candidate)
-    ]
-    traces.extend(dict(trace) for trace in failure_traces)
+    candidate_traces = canonical_candidate_trace_summaries(candidates)
+    traces = _merge_failure_trace_summaries(candidate_traces, failure_traces)
     manifest: dict[str, object] = {
         "manifest_version": MANIFEST_VERSION,
         "mode": "shadow",
         "execution_mode": environment.execution_mode,
-        "replayable": environment.tree_status == "clean",
+        "replayable": status == "success" and environment.tree_status == "clean",
         "status": status,
         "run_id": run_id,
         "training_eligible": False,
@@ -1218,6 +1424,8 @@ def build_run_manifest(
         },
         "corpus_index": {
             "fingerprint": environment.corpus_index_fingerprint,
+            "mtime_ns": environment.corpus_index_mtime_ns,
+            "size": environment.corpus_index_size,
         },
         "topic": topic,
         "category": topic.split("/", 1)[0],
@@ -1237,7 +1445,7 @@ def build_run_manifest(
             "problem": shadow_portfolio.SCHEMA_VERSION,
             "solve": shadow_portfolio.VERIFIER_SCHEMA_VERSION,
         },
-        "request_traces": _dedupe_traces(traces),
+        "request_traces": traces,
         "artifacts": {
             "accepted_json": False,
             "preferences_jsonl": False,
@@ -1254,6 +1462,7 @@ def _validate_trace_hashes_and_identity(
     *,
     success: bool,
 ) -> None:
+    _non_empty_string(trace["request_id"], name="request ID")
     request_hash = _non_empty_string(trace["request_hash"], name="request hash")
     if not re.fullmatch(r"[0-9a-f]{64}", request_hash):
         raise ValueError("request hash must be SHA-256")
@@ -1307,6 +1516,18 @@ def _validate_trace_replay(
         "not_returned",
     }:
         raise ValueError("trace parser outcome is invalid")
+    binding = trace["binding"]
+    if not isinstance(binding, Mapping):
+        raise ValueError("trace binding is missing")
+    _validate_exact_fields(binding, _TRACE_BINDING_FIELDS, name="trace binding")
+    if binding["candidate_slot"] != trace["slot"]:
+        raise ValueError("trace binding slot does not match trace slot")
+    if binding["kind"] != trace["role"]:
+        raise ValueError("trace binding kind does not match trace role")
+    if trace["role"] == "generator" and binding["verifier_family"] is not None:
+        raise ValueError("generator trace has verifier binding")
+    if trace["role"] == "verifier" and (binding["verifier_family"] != trace["family"]):
+        raise ValueError("verifier trace binding does not match trace family")
     if trace["role"] == "verifier" and (success or trace["choice_order"] is not None):
         order = trace["choice_order"]
         if not isinstance(order, list) or sorted(order) != list("ABCDE"):
@@ -1407,7 +1628,7 @@ def _validate_manifest_nested_objects(manifest: Mapping[str, object]) -> None:
     exact_shapes = {
         "code": frozenset({"sha", "tree_status"}),
         "worker": frozenset({"image", "image_digest"}),
-        "corpus_index": frozenset({"fingerprint"}),
+        "corpus_index": frozenset({"fingerprint", "mtime_ns", "size"}),
         "seeds": frozenset({"portfolio", "slots"}),
         "prompt_versions": frozenset(
             {"generator", "correction", "verifier", "generation_core_problem"}
@@ -1489,11 +1710,11 @@ def _manifest_roles(manifest: Mapping[str, object]) -> Mapping[str, object]:
     return roles
 
 
-def _validate_manifest_environment(
+def _validate_manifest_replayability(
     manifest: Mapping[str, object],
     *,
     status: str,
-) -> Mapping[str, object]:
+) -> str:
     execution_mode = manifest["execution_mode"]
     if execution_mode not in {"real", "offline-self-check", "test-fake"}:
         raise ValueError("manifest execution mode is invalid")
@@ -1504,7 +1725,7 @@ def _validate_manifest_environment(
         raise ValueError("manifest tree status is invalid")
     replayable = manifest["replayable"]
     if type(replayable) is not bool or replayable is not (
-        code.get("tree_status") == "clean"
+        status == "success" and code.get("tree_status") == "clean"
     ):
         raise ValueError("manifest replayability does not match tree status")
     if (
@@ -1513,10 +1734,15 @@ def _validate_manifest_environment(
         and code.get("tree_status") != "clean"
     ):
         raise ValueError("successful real shadow runs require a clean git tree")
-    probe = manifest["probe"]
-    if not isinstance(probe, Mapping):
-        raise ValueError("manifest probe is missing")
-    _validate_probe(probe, allow_incomplete=status == "failed")
+    return cast(str, execution_mode)
+
+
+def _validate_manifest_worker_corpus(
+    manifest: Mapping[str, object],
+    *,
+    status: str,
+    execution_mode: str,
+) -> None:
     worker = cast(Mapping[str, object], manifest["worker"])
     corpus = cast(Mapping[str, object], manifest["corpus_index"])
     _non_empty_string(worker.get("image"), name="worker image")
@@ -1534,6 +1760,28 @@ def _validate_manifest_environment(
         str(corpus.get("fingerprint", ""))
     ):
         raise ValueError("success manifest has no corpus index fingerprint")
+    if status == "success":
+        for name in ("mtime_ns", "size"):
+            value = corpus.get(name)
+            if type(value) is not int or value < 0:
+                raise ValueError(f"success manifest corpus {name} is invalid")
+
+
+def _validate_manifest_environment(
+    manifest: Mapping[str, object],
+    *,
+    status: str,
+) -> Mapping[str, object]:
+    execution_mode = _validate_manifest_replayability(manifest, status=status)
+    probe = manifest["probe"]
+    if not isinstance(probe, Mapping):
+        raise ValueError("manifest probe is missing")
+    _validate_probe(probe, allow_incomplete=status == "failed")
+    _validate_manifest_worker_corpus(
+        manifest,
+        status=status,
+        execution_mode=execution_mode,
+    )
     return probe
 
 
@@ -1690,16 +1938,12 @@ def _validate_success_portfolio(
         )
     if manifest["choice_permutations"] != _choice_permutations(candidates):
         raise ValueError("manifest choice permutations do not match candidates")
-    candidate_hashes = [
-        trace["request_hash"]
-        for candidate in candidates
-        for trace in _candidate_traces(candidate)
-    ]
-    manifest_hashes = [
-        cast(Mapping[str, object], trace)["request_hash"] for trace in traces
-    ]
-    if manifest_hashes != candidate_hashes:
-        raise ValueError("manifest request traces do not match candidate traces")
+    canonical = canonical_candidate_trace_summaries(candidates)
+    manifest_summaries = [dict(cast(Mapping[str, object], trace)) for trace in traces]
+    if manifest_summaries != canonical:
+        raise ValueError(
+            "manifest canonical trace summaries do not match candidate traces"
+        )
 
 
 def validate_manifest(
@@ -1919,6 +2163,7 @@ def _error_trace_summaries(
     error: BaseException,
     *,
     slot: int,
+    origin: str,
     secrets: Sequence[str],
 ) -> list[dict[str, object]]:
     traces = getattr(error, "traces", ())
@@ -1929,11 +2174,25 @@ def _error_trace_summaries(
         if not isinstance(trace, Mapping):
             continue
         try:
+            request = trace.get("request")
+            if not isinstance(request, Mapping):
+                continue
+            model = request.get("model")
+            if not isinstance(model, Mapping):
+                continue
+            role = _non_empty_string(request.get("role"), name="trace role")
+            family = _non_empty_string(model.get("family"), name="trace family")
             summaries.append(
                 _trace_summary(
                     trace,
                     slot=slot,
                     choice_order=None,
+                    binding=_trace_binding(
+                        slot=slot,
+                        origin=origin,
+                        role=role,
+                        model_family=family,
+                    ),
                     secrets=secrets,
                 )
             )
@@ -1965,10 +2224,17 @@ class _RecordingBackend:
         self.secrets = tuple(secrets)
         self.events: list[dict[str, object]] = []
         self.slot = 0
+        self.origin = ""
         self.allowed_source_refs: frozenset[str] = frozenset()
         self.allowed_chunk_ids: frozenset[str] = frozenset()
 
-    def bind_retrieval(self, chunks: Sequence[Mapping[str, object]]) -> None:
+    def bind_retrieval(
+        self,
+        chunks: Sequence[Mapping[str, object]],
+        *,
+        origin: str,
+    ) -> None:
+        self.origin = origin
         self.allowed_source_refs = frozenset(
             str(chunk["source_ref"]) for chunk in chunks
         )
@@ -2001,6 +2267,7 @@ class _RecordingBackend:
         )
         model = cast(Mapping[str, object], safe_request["model"])
         base = {
+            "request_id": request.request_id,
             "slot": self.slot,
             "phase": "backend_call",
             "attempt": 0,
@@ -2021,6 +2288,12 @@ class _RecordingBackend:
             "status": "error",
             "parser_outcome": "not_returned",
             "parse_error": None,
+            "binding": _trace_binding(
+                slot=self.slot,
+                origin=self.origin,
+                role=request.role,
+                model_family=request.model.family,
+            ),
         }
         try:
             result = self.backend.complete(request)
@@ -2177,7 +2450,7 @@ def run_shadow(
             chunks = sanitize_retrieved(
                 search_fn(topic, k=generation_core.CONTEXT_CHUNKS)
             )
-            recorder.bind_retrieval(chunks)
+            recorder.bind_retrieval(chunks, origin=origin)
             record = shadow_portfolio.run_candidate(
                 topic=topic,
                 retrieved=chunks,
@@ -2204,6 +2477,7 @@ def run_shadow(
                 _error_trace_summaries(
                     error,
                     slot=slot,
+                    origin=origin,
                     secrets=secrets,
                 )
             )
@@ -2250,6 +2524,38 @@ def run_shadow(
             run_dir,
             "shadow run did not complete all three model families",
         )
+
+    try:
+        _require_unchanged_success_state(environment)
+    except Exception as error:
+        failures.append(
+            _failure_record(
+                error,
+                stage="reattest",
+                slot=None,
+                origin=None,
+                seed=None,
+                secrets=secrets,
+            )
+        )
+        run_dir = _publish_failed_run(
+            output_root=output_root,
+            allow_test_output=allow_test_output,
+            run_id=resolved_run_id,
+            roles=roles,
+            environment=environment,
+            topic=topic,
+            expected_candidate_count=n,
+            seed=seed,
+            allocation=allocation,
+            candidates=candidates,
+            failures=failures,
+            failure_traces=[*failure_traces, *recorder.events],
+        )
+        raise ShadowRunFailed(
+            run_dir,
+            "shadow replay state changed before publication",
+        ) from error
 
     manifest = build_run_manifest(
         run_id=resolved_run_id,
@@ -2419,6 +2725,8 @@ def _offline_environment() -> RunEnvironment:
         ),
         probe=probe,
         execution_mode="offline-self-check",
+        corpus_index_mtime_ns=0,
+        corpus_index_size=len(b"offline-corpus-fixture"),
     )
 
 
@@ -2435,7 +2743,7 @@ def offline_fixture(
     chunks = sanitize_retrieved(_offline_search(DEFAULT_TOPIC))
     for slot, origin in enumerate(allocation):
         recorder.slot = slot
-        recorder.bind_retrieval(chunks)
+        recorder.bind_retrieval(chunks, origin=origin)
         record = shadow_portfolio.run_candidate(
             topic=DEFAULT_TOPIC,
             retrieved=chunks,
@@ -2526,6 +2834,9 @@ def _partial_environment(
     digest: str | None = None,
     probe: Mapping[str, object] | None = None,
     corpus_fingerprint: str | None = None,
+    corpus_mtime_ns: int | None = None,
+    corpus_size: int | None = None,
+    corpus_path: Path | None = None,
 ) -> RunEnvironment:
     sha, tree_status = collect_repo_state()
     return RunEnvironment(
@@ -2540,6 +2851,9 @@ def _partial_environment(
             sdk_version="unavailable",
         ),
         execution_mode="real",
+        corpus_index_mtime_ns=corpus_mtime_ns,
+        corpus_index_size=corpus_size,
+        corpus_index_path=corpus_path,
     )
 
 
@@ -2694,11 +3008,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         from pgrep.ai import retrieval  # type: ignore[import-not-found]
 
         index_path = Path(retrieval.default_index_path())
+        corpus_fingerprint, corpus_mtime_ns, corpus_size = file_attestation(index_path)
         environment = _partial_environment(
             image=prepared.image,
             digest=prepared.image_digest,
             probe=probe,
-            corpus_fingerprint=file_fingerprint(index_path),
+            corpus_fingerprint=corpus_fingerprint,
+            corpus_mtime_ns=corpus_mtime_ns,
+            corpus_size=corpus_size,
+            corpus_path=index_path,
         )
         run_dir = run_shadow(
             roles=roles,

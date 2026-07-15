@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import sys
@@ -496,6 +497,8 @@ def _environment() -> shadow_foundry.RunEnvironment:
         worker_image_digest="sha256:" + ("b" * 64),
         corpus_index_fingerprint="sha256:" + ("c" * 64),
         probe=_probe_metadata(),
+        corpus_index_mtime_ns=123456789,
+        corpus_index_size=4096,
     )
 
 
@@ -846,8 +849,8 @@ def test_real_shadow_cli_wires_host_retrieval(
     )
     monkeypatch.setattr(
         shadow_foundry,
-        "file_fingerprint",
-        lambda _path: "sha256:" + ("c" * 64),
+        "file_attestation",
+        lambda _path: ("sha256:" + ("c" * 64), 123456789, 4096),
     )
     from pgrep.ai import retrieval
 
@@ -1497,3 +1500,239 @@ def test_post_marker_fsync_failure_removes_false_marker(tmp_path: Path) -> None:
     assert not list(tmp_path.rglob("_SUCCESS"))
     assert not list(tmp_path.glob(".*.tmp"))
     assert not list(tmp_path.glob(".*.lock"))
+
+
+_CANONICAL_TRACE_FIELDS = (
+    "request_id",
+    "request_hash",
+    "role",
+    "family",
+    "requested_model_id",
+    "actual_model_id",
+    "response_hash",
+    "prompt_version",
+    "schema_version",
+    "agent_id",
+    "run_id",
+    "seed",
+    "choice_order",
+    "parser_outcome",
+    "phase",
+    "attempt",
+    "binding",
+)
+
+
+def test_canonical_trace_summary_contains_complete_binding() -> None:
+    candidates, manifest = shadow_foundry.offline_fixture(
+        run_id="canonical-trace",
+        environment=_environment(),
+    )
+    trace = manifest["request_traces"][0]
+    assert set(_CANONICAL_TRACE_FIELDS) <= set(trace)
+    assert trace["binding"] == {
+        "candidate_slot": candidates[0]["slot"],
+        "candidate_origin_family": candidates[0]["origin_family"],
+        "kind": "generator",
+        "verifier_family": None,
+    }
+    assert "request" not in trace
+    assert "result" not in trace
+
+
+def _mutated_trace_value(field: str, current: object) -> object:
+    if field in {"request_hash", "response_hash"}:
+        return "f" * 64 if current != "f" * 64 else "e" * 64
+    if field in {"seed", "attempt"}:
+        return int(current) + 100
+    if field == "choice_order":
+        return list(reversed(current)) if current else list("EDCBA")
+    if field == "binding":
+        changed = dict(current)
+        changed["candidate_slot"] = int(changed["candidate_slot"]) + 1
+        return changed
+    return f"mutated-{field}"
+
+
+@pytest.mark.parametrize("field", _CANONICAL_TRACE_FIELDS)
+def test_manifest_rejects_every_canonical_trace_field_mismatch(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    candidates, manifest = shadow_foundry.offline_fixture(
+        run_id=f"trace-field-{field}",
+        environment=_environment(),
+    )
+    trace = manifest["request_traces"][0]
+    if field not in trace:
+        pytest.fail(f"canonical trace is missing {field}")
+    trace[field] = _mutated_trace_value(field, trace[field])
+    with pytest.raises(ValueError, match="trace|binding|model|seed|hash|role|family"):
+        shadow_foundry.publish_run(
+            tmp_path,
+            f"trace-field-{field}",
+            candidates=candidates,
+            failures=[],
+            manifest=manifest,
+            allow_test_output=True,
+        )
+    assert not list(tmp_path.rglob("_SUCCESS"))
+
+
+def test_candidate_trace_enclosing_binding_mismatch_fails_closed(
+    tmp_path: Path,
+) -> None:
+    candidates, manifest = shadow_foundry.offline_fixture(
+        run_id="enclosing-binding",
+        environment=_environment(),
+    )
+    verifier = candidates[0]["verifiers"][0]
+    verifier["trace"]["binding"]["verifier_family"] = "wrong-family"
+    with pytest.raises(ValueError, match="binding"):
+        shadow_foundry.publish_run(
+            tmp_path,
+            "enclosing-binding",
+            candidates=candidates,
+            failures=[],
+            manifest=manifest,
+            allow_test_output=True,
+        )
+    assert not list(tmp_path.rglob("_SUCCESS"))
+
+
+def test_conflicting_duplicate_candidate_trace_fails_closed(tmp_path: Path) -> None:
+    candidates, manifest = shadow_foundry.offline_fixture(
+        run_id="duplicate-trace",
+        environment=_environment(),
+    )
+    duplicate = copy.deepcopy(candidates[0]["generator"]["traces"][0])
+    duplicate["response_hash"] = "f" * 64
+    candidates[0]["generator"]["traces"].append(duplicate)
+    with pytest.raises(ValueError, match="duplicate|trace"):
+        shadow_foundry.publish_run(
+            tmp_path,
+            "duplicate-trace",
+            candidates=candidates,
+            failures=[],
+            manifest=manifest,
+            allow_test_output=True,
+        )
+    assert not list(tmp_path.rglob("_SUCCESS"))
+
+
+def _clean_real_environment() -> shadow_foundry.RunEnvironment:
+    environment = _environment()
+    object.__setattr__(environment, "tree_status", "clean")
+    object.__setattr__(environment, "execution_mode", "real")
+    object.__setattr__(
+        environment,
+        "worker_image",
+        environment.worker_image_digest,
+    )
+    object.__setattr__(environment, "corpus_index_mtime_ns", 123456789)
+    object.__setattr__(environment, "corpus_index_size", 4096)
+    return environment
+
+
+@pytest.mark.parametrize(
+    ("change", "attested"),
+    [
+        (
+            "head",
+            ("b" * 40, "clean", "sha256:" + ("c" * 64), 123456789, 4096),
+        ),
+        (
+            "dirty",
+            ("a" * 40, "dirty", "sha256:" + ("c" * 64), 123456789, 4096),
+        ),
+        (
+            "index-bytes",
+            ("a" * 40, "clean", "sha256:" + ("d" * 64), 123456789, 4096),
+        ),
+        (
+            "index-mtime",
+            ("a" * 40, "clean", "sha256:" + ("c" * 64), 123456790, 4096),
+        ),
+    ],
+)
+def test_final_state_change_publishes_failed_diagnostic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+    attested: tuple[str, str, str, int, int],
+) -> None:
+    environment = _clean_real_environment()
+    calls: list[bool] = []
+
+    def reattest(_environment: shadow_foundry.RunEnvironment):
+        calls.append(True)
+        return attested
+
+    monkeypatch.setattr(
+        shadow_foundry,
+        "_reattest_success_state",
+        reattest,
+        raising=False,
+    )
+    with pytest.raises(shadow_foundry.ShadowRunFailed) as raised:
+        shadow_foundry.run_shadow(
+            roles=_roles(),
+            backend=FakeBackend(),
+            output_root=tmp_path,
+            allow_test_output=True,
+            search_fn=_fake_search,
+            n=3,
+            seed=7,
+            topic="mechanics/circular-motion",
+            run_id=f"reattest-{change}",
+            environment=environment,
+        )
+    assert calls == [True]
+    assert (raised.value.run_dir / "_FAILED").is_file()
+    assert not (raised.value.run_dir / "_SUCCESS").exists()
+    manifest = json.loads((raised.value.run_dir / "manifest.json").read_text())
+    failures = json.loads((raised.value.run_dir / "failures.json").read_text())
+    assert manifest["status"] == "failed"
+    assert manifest["training_eligible"] is False
+    assert manifest["replayable"] is False
+    assert failures[-1]["stage"] == "reattest"
+
+
+def test_final_clean_unchanged_state_publishes_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _clean_real_environment()
+    calls: list[bool] = []
+
+    def reattest(_environment: shadow_foundry.RunEnvironment):
+        calls.append(True)
+        return (
+            environment.code_sha,
+            "clean",
+            environment.corpus_index_fingerprint,
+            environment.corpus_index_mtime_ns,
+            environment.corpus_index_size,
+        )
+
+    monkeypatch.setattr(
+        shadow_foundry,
+        "_reattest_success_state",
+        reattest,
+        raising=False,
+    )
+    run_dir = shadow_foundry.run_shadow(
+        roles=_roles(),
+        backend=FakeBackend(),
+        output_root=tmp_path,
+        allow_test_output=True,
+        search_fn=_fake_search,
+        n=3,
+        seed=7,
+        topic="mechanics/circular-motion",
+        run_id="reattest-clean",
+        environment=environment,
+    )
+    assert calls == [True]
+    assert (run_dir / "_SUCCESS").is_file()
+    assert not (run_dir / "_FAILED").exists()

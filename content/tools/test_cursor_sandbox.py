@@ -1222,20 +1222,24 @@ def test_complete_rejects_poisoned_request_before_spawn(
     monkeypatch: pytest.MonkeyPatch,
     kind: str,
 ) -> None:
-    real_mkdtemp = cursor_sandbox.tempfile.mkdtemp
+    real_create = cursor_sandbox._create_request_directory
     outside = tmp_path / f"outside-{kind}.json"
     outside.write_text("{}", encoding="utf-8")
 
-    def poisoned_mkdtemp(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
-        request_dir = Path(real_mkdtemp(*args, **kwargs))
+    def poisoned_create(parent: Path) -> Path:
+        request_dir = real_create(parent)
         poison = request_dir / "poison.json"
         if kind == "symlink":
             poison.symlink_to(outside)
         else:
             os.link(outside, poison)
-        return str(request_dir)
+        return request_dir
 
-    monkeypatch.setattr(cursor_sandbox.tempfile, "mkdtemp", poisoned_mkdtemp)
+    monkeypatch.setattr(
+        cursor_sandbox,
+        "_create_request_directory",
+        poisoned_create,
+    )
     runner = FakeRunner(result_body=_finished_body())
     expected = "symlink" if kind == "symlink" else "hard link"
     with pytest.raises(cursor_sandbox.RequestDirectoryError, match=expected):

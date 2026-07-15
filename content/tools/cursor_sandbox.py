@@ -925,6 +925,17 @@ def _container_name(request_dir: Path) -> str:
     return f"pgrep-shadow-{digest}"
 
 
+def _create_request_directory(parent: Path) -> Path:
+    for _attempt in range(10):
+        request_dir = parent / f"shadow-{secrets.token_hex(16)}"
+        try:
+            request_dir.mkdir(mode=0o700)
+        except FileExistsError:
+            continue
+        return request_dir
+    raise RequestDirectoryError("could not reserve a unique request directory")
+
+
 def _rmtree(path: Path) -> None:
     shutil.rmtree(path)
 
@@ -1097,7 +1108,7 @@ class CursorSandbox:
             raise SandboxError(
                 "debug retention requires the exact repo content/run or OS temp root"
             )
-        request_dir = Path(tempfile.mkdtemp(prefix="shadow-", dir=parent_dir))
+        request_dir = _create_request_directory(parent_dir)
         lifecycle = _LifecycleState()
         try:
             _ensure_isolated_request_dir(request_dir, parent_dir)
