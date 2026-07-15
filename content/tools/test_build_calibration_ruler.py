@@ -1431,6 +1431,81 @@ def test_svg_bare_and_intended_answer_assignments_fail(
         )
 
 
+@pytest.mark.parametrize(
+    ("channel", "disclosure", "stored_key"),
+    [
+        ("text", "answer is C", "C"),
+        ("title", "Intended answer is choice B.", "B"),
+        ("desc", "D is the answer!", "D"),
+        ("style", "/* choice E is correct */", "E"),
+        ("text", "correct choice is A", "A"),
+        ("desc", "THE ANSWER... IS [C]!", "C"),
+        ("text", "answer&#32;is&#32;C", "C"),
+    ],
+)
+def test_svg_natural_language_answer_disclosures_fail(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+    channel: str,
+    disclosure: str,
+    stored_key: str,
+) -> None:
+    body = (
+        f"<style>{disclosure}</style>"
+        if channel == "style"
+        else f"<{channel}>{disclosure}</{channel}>"
+    )
+    figure = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">{body}</svg>'
+    items = [builder.offline_problem_item("trusted", index) for index in range(50)]
+    for index, item in enumerate(items):
+        item["correct"] = stored_key
+        item["stem"] = f'Configuration {index}.<div class="pg-figure">{figure}</div>'
+    trusted = tmp_path / f"natural-answer-{channel}-{stored_key}.json"
+    trusted.write_text(json.dumps(items), encoding="utf-8")
+    with pytest.raises(ValueError, match="figure asset.*answer"):
+        builder.build(
+            trusted_path=trusted,
+            failures_path=inputs["failures"],
+            shadow_path=inputs["shadow"],
+            out_root=tmp_path / "calibration",
+            run_id=f"natural-answer-{channel}-{stored_key}",
+            seed=7,
+            allow_test_paths=True,
+            _repo_state_fn=_clean_repo_state,
+        )
+
+
+def test_svg_variable_label_prose_is_not_an_answer_leak(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    figure = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+        "<title>Vector A is perpendicular to B.</title>"
+        "<desc>C is the heat capacity; E is the electric field.</desc>"
+        "<text>Choice C labels the contour. The answer depends on variable C.</text>"
+        "<style>/* The correct choice of gauge is arbitrary. */</style>"
+        "</svg>"
+    )
+    items = [builder.offline_problem_item("trusted", index) for index in range(50)]
+    for index, item in enumerate(items):
+        item["correct"] = "C"
+        item["stem"] = f'Configuration {index}.<div class="pg-figure">{figure}</div>'
+    trusted = tmp_path / "variable-label-prose.json"
+    trusted.write_text(json.dumps(items), encoding="utf-8")
+    run_dir = builder.build(
+        trusted_path=trusted,
+        failures_path=inputs["failures"],
+        shadow_path=inputs["shadow"],
+        out_root=tmp_path / "calibration",
+        run_id="variable-label-prose",
+        seed=7,
+        allow_test_paths=True,
+        _repo_state_fn=_clean_repo_state,
+    )
+    assert (run_dir / "_SUCCESS").is_file()
+
+
 def test_svg_generic_answer_prose_is_not_a_false_positive(
     tmp_path: Path,
     inputs: dict[str, Path],

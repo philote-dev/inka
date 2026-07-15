@@ -1286,6 +1286,25 @@ def _assert_blind_figure_assets(
             raise RulerBuildError(
                 f"figure asset {path} contains structured answer disclosure"
             )
+        separator = r"[\W_]+"
+        optional_separator = r"[\W_]*"
+        natural_answer_disclosure = re.compile(
+            rf"(?ix)(?:"
+            rf"(?<![\w])(?:the{separator})?"
+            rf"(?:intended{separator})?answer{separator}is{separator}"
+            rf"(?:choice{separator})?{stored_key}(?![\w])"
+            rf"|(?<![\w]){stored_key}{separator}is{separator}"
+            rf"(?:the{separator})?answer(?![\w])"
+            rf"|(?<![\w])choice{separator}{stored_key}{separator}"
+            rf"is{separator}correct(?![\w])"
+            rf"|(?<![\w])correct{separator}choice{separator}is"
+            rf"{optional_separator}{stored_key}(?![\w])"
+            rf")"
+        )
+        if natural_answer_disclosure.search(visible):
+            raise RulerBuildError(
+                f"figure asset {path} contains natural-language answer disclosure"
+            )
         for sentinel in sentinels:
             if _contains_token(visible, sentinel):
                 raise RulerBuildError(
