@@ -279,9 +279,11 @@ WS9}.
 
 - The loop emits pairs only for validated accepted by rejected combinations
   from the same blueprint slot. Chosen means passed all gates; rejected records
-  the specific failing gate and its evidence. Escalations, invalid candidates,
-  one-sided slots, and `panel.refusal` outcomes do not become preference pairs.
-  Run summaries report emitted and excluded counts plus exclusion reasons.
+  the specific failing gate and its evidence. Escalations and one-sided slots
+  make no pairs. `panel.refusal` outcomes are explicitly excluded, and run
+  summaries report their counts and reasons. A malformed accepted or rejected
+  training candidate fails the run closed; no final directory or `_SUCCESS`
+  marker is published.
 - Schema v1 preserves the slot topic and blueprint category, requires source
   references on both sides, and validates panel decisions, reject evidence,
   reject reasons, JSON-compatible values, and finite numbers. The category is

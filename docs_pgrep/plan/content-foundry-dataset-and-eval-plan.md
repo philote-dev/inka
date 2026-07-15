@@ -37,8 +37,9 @@ constraints:
   rejected reason and evidence, JSON-compatible values, and finite numbers
   throughout. The category must be one of the nine locked slugs.
 - Only validated accepted by rejected combinations within one slot become
-  pairs. Escalations, invalid candidates, one-sided slots, and explicit panel
-  refusals do not. Exclusions are counted by reason in the run summary.
+  pairs. Escalations and one-sided slots make no pairs. Explicit panel refusals
+  are excluded and counted by reason. Any other malformed accepted or rejected
+  training candidate aborts the run before final publication.
 - Every nested key and value passes the private-marker firewall. JSONL errors
   include line numbers and nested paths. Run publication is atomic and refuses
   an existing run directory. An exclusive sibling lock closes the final race;
@@ -120,8 +121,9 @@ normative where a sketch differs.
   - `def validate_pair(pair: dict) -> list[str]` (empty list means ok)
   - `def pairs_from_slot(slot: dict, result: SlotResult, *, run_id: str) -> list[dict]`
     - For each valid accepted item A and valid rejected item R, emit one pair
-      within the same slot, capped if needed. Invalid, escalated, and one-sided
-      slots do not emit pairs.
+      within the same slot, capped if needed. Escalated and one-sided slots make
+      no pairs. Panel refusals are counted exclusions. Any other malformed
+      training candidate raises `ValueError` and aborts publication.
   - `def write_jsonl(path: str, pairs: list[dict]) -> int`, an atomic overwrite
     that rejects invalid and duplicate pairs.
 
