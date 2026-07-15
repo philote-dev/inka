@@ -1,7 +1,12 @@
 # Copyright: Ankitects Pty Ltd and contributors
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
-"""Canonical, blind-safe problem records for the human calibration ruler."""
+"""Canonical, blind-safe problem records for the human calibration ruler.
+
+Visible prose uses Unicode NFC and collapsed whitespace. Decomposition and
+grounding-provenance strings use the same normalization recursively. Figure
+markup is validated but otherwise preserved.
+"""
 
 from __future__ import annotations
 
@@ -9,8 +14,11 @@ import hashlib
 import json
 import math
 import re
+import unicodedata
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import cast
 from xml.etree import ElementTree
 
@@ -29,18 +37,37 @@ BLUEPRINT_CATEGORIES = frozenset(
 )
 
 _VALID_KEYS = frozenset("ABCDE")
-_VALID_KINDS = frozenset({"conceptual", "computational"})
+_AUTHORED_KINDS = frozenset({"conceptual", "computational"})
+_VALID_KINDS = _AUTHORED_KINDS | frozenset({"unspecified"})
 _VALID_STRATA = frozenset({"trusted", "failure", "shadow"})
 _VALID_SPLITS = frozenset({"calibration", "validation"})
 
-# Boundaries are Unicode-aware while underscores remain separators. This catches
-# path and filename forms without treating "marigold" as a gold-set marker.
-_PRIVATE_MARKER = re.compile(
+# Broad dataset tokens apply only to identifier fields. Boundaries are
+# Unicode-aware while underscores remain separators, so "marigold" stays safe.
+_PRIVATE_ID_MARKER = re.compile(
     r"(?i)(?<![^\W_])(?:"
     r"gold|ets|gr9677|gr1777"
     r"|held[\s_./\\-]*out"
     r"|tier[\s_./\\-]*3"
     r")(?![^\W_])"
+)
+# Path-shaped markers apply recursively to all strings. Bare physics prose such
+# as "gold foil" does not match any alternative.
+_PRIVATE_PATH_MARKER = re.compile(
+    r"(?ix)(?<![^\W_])(?:"
+    r"content[\\/]+(?:gold|ets|held[\s_.\\/-]*out|tier[\s_.\\/-]*3)"
+    r"(?=$|[\\/._:-])"
+    r"|gold(?:[\s_.-]*(?:set|items?))?(?=[\\/])"
+    r"|gold[\s_.-]+(?:set|items?)(?=$|[\\/._:-])"
+    r"|held[\s_.\\/-]*out(?=[\\/])"
+    r"|ets(?:[\s_.-]*private)?(?=[\\/])"
+    r"|ets[\s_.-]+private(?=$|[\\/._:-])"
+    r"|tier[\s_.\\/-]*3(?:[\s_.-]*private)?(?=[\\/])"
+    r"|tier[\s_.\\/-]*3[\s_.-]+private(?=$|[\\/._:-])"
+    r"|(?:gold|ets|held[\s_.\\/-]*out|tier[\s_.\\/-]*3)"
+    r"(?=[._-](?:jsonl?|ya?ml|csv|md|txt|pdf)\b)"
+    r"|gr9677|gr1777"
+    r")"
 )
 
 _FIGURE_BLOCK = re.compile(
@@ -118,6 +145,7 @@ _CONTENT_FIELDS = frozenset(
         "solution_decomposition",
         "decomposition",
         "provenance",
+        "computational",
     }
 )
 _ASSIGNMENT_FIELDS = frozenset({"review_id", "stratum", "split", "repeat_of"})
@@ -134,10 +162,64 @@ def _child_path(path: str, key: object) -> str:
     return f"{path}.{key}" if type(key) is str else f"{path}[{key!r}]"
 
 
-def _private_marker_error(value: str, path: str) -> ValueError | None:
-    if marker := _PRIVATE_MARKER.search(value):
-        return ValueError(f"{path}: private marker {marker.group(0)!r} is not allowed")
-    return None
+def _private_marker_error(
+    value: str,
+    path: str,
+    *,
+    identifier: bool = False,
+) -> ValueError | None:
+    marker = _PRIVATE_PATH_MARKER.search(value)
+    if marker is None and identifier:
+        marker = _PRIVATE_ID_MARKER.search(value)
+    if marker is None:
+        return None
+    return ValueError(f"{path}: private marker {marker.group(0)!r} is not allowed")
+
+
+def _is_identifier_key(key: str) -> bool:
+    lowered = key.lower()
+    return lowered == "id" or lowered.endswith("_id") or lowered == "repeat_of"
+
+
+def _is_path_key(key: str) -> bool:
+    lowered = key.lower()
+    return any(
+        token in lowered
+        for token in ("path", "file", "dataset", "heldout", "held_out", "tier3")
+    )
+
+
+def _validate_private_markers(
+    value: object,
+    path: str = "$",
+    *,
+    identifier: bool = False,
+) -> None:
+    if type(value) is str:
+        if error := _private_marker_error(value, path, identifier=identifier):
+            raise error
+        return
+    if type(value) is list:
+        for index, nested in enumerate(cast(list[object], value)):
+            _validate_private_markers(
+                nested,
+                f"{path}[{index}]",
+                identifier=identifier,
+            )
+        return
+    if type(value) is not dict:
+        return
+    for key, nested in cast(dict[str, object], value).items():
+        child = _child_path(path, key)
+        if _is_path_key(key) and (
+            error := _private_marker_error(key, f"{child} (key)", identifier=True)
+        ):
+            raise error
+        _validate_private_markers(
+            nested,
+            child,
+            identifier=_is_identifier_key(key) or _is_path_key(key),
+        )
 
 
 def _validate_json(
@@ -152,8 +234,6 @@ def _validate_json(
             raise ValueError(f"{path}: non-finite numbers are not allowed")
         return
     if type(value) is str:
-        if error := _private_marker_error(value, path):
-            raise error
         return
     if type(value) is list:
         _validate_json_array(cast(list[object], value), path, active)
@@ -199,8 +279,6 @@ def _validate_json_object(
             child = _child_path(path, key)
             if type(key) is not str:
                 raise ValueError(f"{child} (key): JSON object keys must be strings")
-            if error := _private_marker_error(key, f"{child} (key)"):
-                raise error
             _validate_json(nested, child, containers)
     finally:
         containers.remove(id(value))
@@ -217,11 +295,55 @@ def _dict_input(value: object, *, name: str) -> dict[str, object]:
 def _non_empty_string(value: object, *, name: str) -> str:
     if type(value) is not str or not value.strip():
         raise ValueError(f"{name} must be a non-empty string")
-    return value
+    return unicodedata.normalize("NFC", value)
 
 
 def _normalized_text(value: object, *, name: str) -> str:
     return " ".join(_non_empty_string(value, name=name).split())
+
+
+def _canonicalize_json(value: object, *, collapse_text: bool) -> object:
+    if type(value) is str:
+        normalized_text = unicodedata.normalize("NFC", value)
+        return " ".join(normalized_text.split()) if collapse_text else normalized_text
+    if type(value) is list:
+        return [
+            _canonicalize_json(nested, collapse_text=collapse_text)
+            for nested in cast(list[object], value)
+        ]
+    if type(value) is dict:
+        normalized_object: dict[str, object] = {}
+        for key, nested in cast(dict[str, object], value).items():
+            normalized_key = unicodedata.normalize("NFC", key)
+            if normalized_key in normalized_object:
+                raise ValueError(
+                    f"JSON object keys collide after NFC normalization: {key!r}"
+                )
+            normalized_object[normalized_key] = _canonicalize_json(
+                nested,
+                collapse_text=collapse_text,
+            )
+        return normalized_object
+    return value
+
+
+def _freeze_json(value: object) -> object:
+    if type(value) is list:
+        return tuple(_freeze_json(nested) for nested in cast(list[object], value))
+    if type(value) is dict:
+        mapping = cast(dict[str, object], value)
+        return MappingProxyType(
+            {key: _freeze_json(mapping[key]) for key in sorted(mapping)}
+        )
+    return value
+
+
+def _thaw_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _thaw_json(nested) for key, nested in value.items()}
+    if type(value) is tuple:
+        return [_thaw_json(nested) for nested in cast(tuple[object, ...], value)]
+    return value
 
 
 def _optional_string(value: object, *, name: str) -> str | None:
@@ -258,6 +380,15 @@ def _validate_url_value(value: str, *, name: str) -> None:
             raise ValueError(f"figure {name} contains an external URL")
 
 
+def _validate_css(value: str, *, name: str) -> None:
+    lowered = value.lower()
+    if "@import" in lowered:
+        raise ValueError(f"figure {name} imports are not allowed")
+    if re.search(r"(?i)\bexpression\s*\(", value):
+        raise ValueError(f"figure {name} expressions are not allowed")
+    _validate_url_value(value, name=name)
+
+
 def _validate_svg_attribute(raw_name: str, value: str) -> None:
     namespace, name = _namespace_and_name(raw_name)
     lowered = name.lower()
@@ -267,7 +398,10 @@ def _validate_svg_attribute(raw_name: str, value: str) -> None:
         raise ValueError(f"figure event handler {name!r} is not allowed")
     if lowered in {"href", "src"} and not value.strip().startswith("#"):
         raise ValueError(f"figure {name!r} contains an external URL")
-    _validate_url_value(value, name=f"attribute {name!r}")
+    if lowered == "style":
+        _validate_css(value, name="style attribute")
+    else:
+        _validate_url_value(value, name=f"attribute {name!r}")
 
 
 def _validate_svg_element(element: ElementTree.Element) -> None:
@@ -282,10 +416,7 @@ def _validate_svg_element(element: ElementTree.Element) -> None:
     for raw_name, value in element.attrib.items():
         _validate_svg_attribute(raw_name, value)
     if lowered == "style":
-        style = element.text or ""
-        if "@import" in style.lower():
-            raise ValueError("figure style imports are not allowed")
-        _validate_url_value(style, name="style")
+        _validate_css(element.text or "", name="style")
 
 
 def _validated_figure(value: object, *, name: str = "figure") -> str:
@@ -350,6 +481,7 @@ def _canonical_choices(value: object) -> list[str]:
 def _canonical_pass_a(value: object) -> dict[str, object]:
     item = _dict_input(value, name="Pass A content")
     _validate_json(item)
+    _validate_private_markers(item)
     figure_value = item["figure"] if "figure" in item else ""
     stem, figure = _stem_and_figure(item.get("stem"), figure_value)
     return {
@@ -373,25 +505,56 @@ def _canonical_decomposition(item: dict[str, object]) -> list[object]:
         value = []
     if type(value) is not list:
         raise ValueError("solution_decomposition must be a JSON array")
-    return deepcopy(cast(list[object], value))
+    return cast(
+        list[object],
+        _canonicalize_json(value, collapse_text=True),
+    )
 
 
-def _excerpt_from_item(item: dict[str, object]) -> str:
-    if "source_excerpt" in item:
+def _canonical_object_field(
+    item: dict[str, object],
+    name: str,
+) -> dict[str, object] | None:
+    value = item.get(name)
+    if value is None:
+        return None
+    if type(value) is not dict:
+        raise ValueError(f"{name} must be a JSON object or null")
+    return cast(
+        dict[str, object],
+        _canonicalize_json(value, collapse_text=True),
+    )
+
+
+def _excerpt_from_item(
+    item: dict[str, object],
+    provenance: dict[str, object] | None,
+) -> str | None:
+    if item.get("source_excerpt") is not None:
         return _normalized_text(item["source_excerpt"], name="source_excerpt")
-    provenance = item.get("provenance")
-    if type(provenance) is dict:
-        quote = cast(dict[object, object], provenance).get("quote_anchor")
-        if quote is not None:
+    if provenance is not None:
+        quote = provenance.get("quote_anchor")
+        if type(quote) is str and quote.strip():
             return _normalized_text(quote, name="provenance.quote_anchor")
-    return _normalized_text(item.get("source_ref"), name="source_excerpt")
+        if quote is not None and type(quote) is not str:
+            raise ValueError("provenance.quote_anchor must be a string or null")
+    return None
 
 
-def _canonical_pass_b(value: object) -> dict[str, object]:
+def _canonical_pass_b(
+    value: object,
+    *,
+    require_excerpt: bool = True,
+) -> dict[str, object]:
     item = _dict_input(value, name="Pass B content")
     _validate_json(item)
+    _validate_private_markers(item)
+    provenance = _canonical_object_field(item, "provenance")
+    excerpt = _excerpt_from_item(item, provenance)
+    if require_excerpt and excerpt is None:
+        raise ValueError("Pass B source excerpt is unavailable")
     return {
-        "source_excerpt": _excerpt_from_item(item),
+        "source_excerpt": excerpt,
         "solution_decomposition": _canonical_decomposition(item),
     }
 
@@ -426,23 +589,50 @@ def _category(item: dict[str, object], topic: str) -> str:
     return explicit
 
 
+def _has_computational_evidence(item: dict[str, object]) -> bool:
+    value = item.get("computational")
+    if type(value) is not dict:
+        return False
+    computational = cast(dict[str, object], value)
+    expression = computational.get("expression")
+    expected = computational.get("expected")
+    tolerance = computational.get("tolerance")
+    return (
+        type(expression) is str
+        and bool(expression.strip())
+        and type(expected) in (int, float)
+        and math.isfinite(float(cast(int | float, expected)))
+        and type(tolerance) in (int, float)
+        and math.isfinite(float(cast(int | float, tolerance)))
+        and float(cast(int | float, tolerance)) >= 0
+    )
+
+
 def _kind(item: dict[str, object]) -> str:
     has_kind = "kind" in item
     has_problem_kind = "problem_kind" in item
     kind = item.get("kind")
     problem_kind = item.get("problem_kind")
     if has_problem_kind and (
-        type(problem_kind) is not str or problem_kind not in _VALID_KINDS
+        type(problem_kind) is not str or problem_kind not in _AUTHORED_KINDS
     ):
         raise ValueError("problem_kind must be exactly conceptual or computational")
     if kind == "problem":
-        kind = problem_kind
+        kind = (
+            problem_kind
+            if has_problem_kind
+            else (
+                "computational" if _has_computational_evidence(item) else "unspecified"
+            )
+        )
     elif not has_kind:
-        kind = problem_kind
+        kind = problem_kind if has_problem_kind else "unspecified"
     elif has_problem_kind and problem_kind != kind:
         raise ValueError("kind and problem_kind fields must not conflict")
     if type(kind) is not str or kind not in _VALID_KINDS:
-        raise ValueError("kind must be exactly conceptual or computational")
+        raise ValueError(
+            "kind must be exactly conceptual, computational, or unspecified"
+        )
     return kind
 
 
@@ -458,13 +648,14 @@ def _difficulty(value: object) -> float:
 
 
 def canonical_problem(value: object) -> dict[str, object]:
-    """Return all immutable problem content in one canonical JSON form."""
+    """Return immutable content using NFC and deterministic prose whitespace."""
     item = _dict_input(value, name="source item")
     _validate_json(item)
+    _validate_private_markers(item)
     _non_empty_string(item.get("id"), name="id")
     topic = _normalized_text(item.get("topic"), name="topic")
     pass_a = _canonical_pass_a(item)
-    pass_b = _canonical_pass_b(item)
+    pass_b = _canonical_pass_b(item, require_excerpt=False)
     return {
         "topic": topic,
         "blueprint_category": _category(item, topic),
@@ -474,6 +665,8 @@ def canonical_problem(value: object) -> dict[str, object]:
         "correct": _correct_key(item),
         "source_ref": _normalized_text(item.get("source_ref"), name="source_ref"),
         **pass_b,
+        "provenance": _canonical_object_field(item, "provenance"),
+        "computational": _canonical_object_field(item, "computational"),
     }
 
 
@@ -527,7 +720,11 @@ def _metadata(item: dict[str, object]) -> dict[str, object]:
                 raise ValueError(f"metadata field {name!r} conflicts with source item")
             metadata[name] = deepcopy(value)
     _validate_json(metadata, "$.metadata")
-    return metadata
+    _validate_private_markers(metadata, "$.metadata")
+    return cast(
+        dict[str, object],
+        _canonicalize_json(metadata, collapse_text=False),
+    )
 
 
 def _provided_assignment(
@@ -552,23 +749,30 @@ class RulerItem:
     correct: str
     figure: str
     source_ref: str
-    source_excerpt: str
+    source_excerpt: str | None
     solution_decomposition: tuple[object, ...]
+    provenance: Mapping[str, object] | None
+    computational: Mapping[str, object] | None
     review_id: str | None = None
     stratum: str | None = None
     split: str | None = None
     repeat_of: str | None = None
-    metadata: dict[str, object] = field(default_factory=dict, repr=False)
+    metadata: Mapping[str, object] = field(
+        default_factory=lambda: MappingProxyType({}),
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         if type(self.choices) is not tuple:
             raise ValueError("choices must be a tuple on RulerItem")
         if type(self.solution_decomposition) is not tuple:
             raise ValueError("solution_decomposition must be a tuple on RulerItem")
-        if type(self.metadata) is not dict:
+        if not isinstance(self.metadata, Mapping):
             raise ValueError("metadata must be a JSON object")
-        _validate_json(self.metadata, "$.metadata")
-        if reserved := set(self.metadata) & _SERIALIZATION_FIELDS:
+        metadata = cast(dict[str, object], _thaw_json(self.metadata))
+        _validate_json(metadata, "$.metadata")
+        _validate_private_markers(metadata, "$.metadata")
+        if reserved := set(metadata) & _SERIALIZATION_FIELDS:
             names = ", ".join(sorted(reserved))
             raise ValueError(f"metadata contains reserved field(s): {names}")
         canonical = canonical_problem(self._source_dict())
@@ -597,18 +801,42 @@ class RulerItem:
         object.__setattr__(
             self,
             "source_excerpt",
-            cast(str, canonical["source_excerpt"]),
+            cast(str | None, canonical["source_excerpt"]),
         )
         object.__setattr__(
             self,
             "solution_decomposition",
-            tuple(
-                deepcopy(
-                    cast(list[object], canonical["solution_decomposition"]),
-                )
+            cast(
+                tuple[object, ...],
+                _freeze_json(canonical["solution_decomposition"]),
             ),
         )
-        object.__setattr__(self, "metadata", deepcopy(self.metadata))
+        object.__setattr__(
+            self,
+            "provenance",
+            cast(
+                Mapping[str, object] | None,
+                _freeze_json(canonical["provenance"]),
+            ),
+        )
+        object.__setattr__(
+            self,
+            "computational",
+            cast(
+                Mapping[str, object] | None,
+                _freeze_json(canonical["computational"]),
+            ),
+        )
+        object.__setattr__(
+            self,
+            "metadata",
+            cast(
+                Mapping[str, object],
+                _freeze_json(
+                    _canonicalize_json(metadata, collapse_text=False),
+                ),
+            ),
+        )
         self._validate_assignment()
 
     def _validate_assignment(self) -> None:
@@ -649,11 +877,18 @@ class RulerItem:
             correct=cast(str, canonical["correct"]),
             figure=cast(str, canonical["figure"]),
             source_ref=cast(str, canonical["source_ref"]),
-            source_excerpt=cast(str, canonical["source_excerpt"]),
-            solution_decomposition=tuple(
-                deepcopy(
-                    cast(list[object], canonical["solution_decomposition"]),
-                )
+            source_excerpt=cast(str | None, canonical["source_excerpt"]),
+            solution_decomposition=cast(
+                tuple[object, ...],
+                _freeze_json(canonical["solution_decomposition"]),
+            ),
+            provenance=cast(
+                Mapping[str, object] | None,
+                _freeze_json(canonical["provenance"]),
+            ),
+            computational=cast(
+                Mapping[str, object] | None,
+                _freeze_json(canonical["computational"]),
             ),
             review_id=cast(
                 str | None,
@@ -671,7 +906,10 @@ class RulerItem:
                 str | None,
                 _provided_assignment(repeat_of, item, "repeat_of"),
             ),
-            metadata=_metadata(item),
+            metadata=cast(
+                Mapping[str, object],
+                _freeze_json(_metadata(item)),
+            ),
         )
         ruler_item._verify_serialized_hashes(item)
         return ruler_item
@@ -720,16 +958,18 @@ class RulerItem:
             "figure": self.figure,
             "source_ref": self.source_ref,
             "source_excerpt": self.source_excerpt,
-            "solution_decomposition": deepcopy(
-                list(self.solution_decomposition),
-            ),
+            "solution_decomposition": _thaw_json(self.solution_decomposition),
+            "provenance": _thaw_json(self.provenance),
+            "computational": _thaw_json(self.computational),
         }
 
     def _verify_serialized_hashes(self, value: dict[str, object]) -> None:
         expected = {
             "content_hash": self.content_hash,
             "pass_a_hash": self.pass_a_hash,
-            "pass_b_hash": self.pass_b_hash,
+            "pass_b_hash": (
+                self.pass_b_hash if self.source_excerpt is not None else None
+            ),
         }
         for name, actual in expected.items():
             if name in value and value[name] != actual:
@@ -763,8 +1003,10 @@ class RulerItem:
             "stratum": self.stratum,
             "split": self.split,
             "repeat_of": self.repeat_of,
-            "metadata": deepcopy(self.metadata),
+            "metadata": _thaw_json(self.metadata),
             "content_hash": self.content_hash,
             "pass_a_hash": self.pass_a_hash,
-            "pass_b_hash": self.pass_b_hash,
+            "pass_b_hash": (
+                self.pass_b_hash if self.source_excerpt is not None else None
+            ),
         }

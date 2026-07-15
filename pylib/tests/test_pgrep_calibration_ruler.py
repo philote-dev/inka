@@ -7,12 +7,16 @@ import hashlib
 import json
 import math
 from copy import deepcopy
+from pathlib import Path
 from typing import cast
 
 import pytest
 
 from anki.pgrep.ai import calibration_ruler
 
+_BUNDLE_PATH = (
+    Path(calibration_ruler.__file__).resolve().parents[1] / "content_bundle.json"
+)
 _SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">'
     '<defs><marker id="arrow"><path d="M0 0 L2 1"/></marker></defs>'
@@ -91,6 +95,41 @@ def test_content_hash_is_canonical_utf8_json() -> None:
     assert calibration_ruler.content_hash(item) == _canonical_hash(
         calibration_ruler.canonical_problem(item)
     )
+
+
+def test_canonical_text_and_decomposition_use_nfc_and_stable_whitespace() -> None:
+    decomposed = _problem(
+        stem="  Cafe\u0301   wheel  ",
+        choices=[" e\u0301 ", "2", "3", "4", "5"],
+        source_excerpt=" Cafe\u0301   source ",
+        solution_decomposition=[
+            {
+                "subgoal": "  Cafe\u0301\n  reasoning ",
+                "rubric": "  Keep   spacing stable. ",
+            }
+        ],
+    )
+    composed = _problem(
+        stem="Café wheel",
+        choices=["é", "2", "3", "4", "5"],
+        source_excerpt="Café source",
+        solution_decomposition=[
+            {
+                "subgoal": "Café reasoning",
+                "rubric": "Keep spacing stable.",
+            }
+        ],
+    )
+
+    canonical = calibration_ruler.canonical_problem(decomposed)
+
+    assert canonical == calibration_ruler.canonical_problem(composed)
+    assert calibration_ruler.content_hash(decomposed) == calibration_ruler.content_hash(
+        composed
+    )
+    decomposition = cast(list[dict[str, str]], canonical["solution_decomposition"])
+    assert decomposition[0]["subgoal"] == "Café reasoning"
+    assert decomposition[0]["rubric"] == "Keep spacing stable."
 
 
 def test_pass_a_hash_covers_exactly_visible_immutable_content() -> None:
@@ -193,19 +232,65 @@ def test_pass_b_hash_is_recomputable_from_visible_content_only() -> None:
     assert calibration_ruler.pass_b_hash(visible) == _canonical_hash(visible)
 
 
-def test_bundle_source_ref_is_the_excerpt_fallback() -> None:
+def test_missing_excerpt_is_explicit_and_pass_a_remains_available() -> None:
     item = _problem()
     del item["source_excerpt"]
 
     canonical = calibration_ruler.canonical_problem(item)
+    ruler_item = calibration_ruler.RulerItem.from_source_item(item)
 
-    assert canonical["source_excerpt"] == "OpenStax, p. 1"
-    assert calibration_ruler.pass_b_hash(item) == calibration_ruler.pass_b_hash(
-        {
-            "source_excerpt": "OpenStax, p. 1",
-            "solution_decomposition": item["solution_decomposition"],
+    assert canonical["source_excerpt"] is None
+    assert calibration_ruler.pass_a_hash(item) == ruler_item.pass_a_hash
+    assert ruler_item.pass_a_content()["stem"] == "A wheel rotates."
+    assert ruler_item.to_dict()["source_excerpt"] is None
+    assert ruler_item.to_dict()["pass_b_hash"] is None
+    assert (
+        calibration_ruler.RulerItem.from_dict(
+            json.loads(json.dumps(ruler_item.to_dict()))
+        )
+        == ruler_item
+    )
+    with pytest.raises(ValueError, match="Pass B source excerpt is unavailable"):
+        calibration_ruler.pass_b_hash(item)
+    with pytest.raises(ValueError, match="Pass B source excerpt is unavailable"):
+        ruler_item.pass_b_content()
+    with pytest.raises(ValueError, match="Pass B source excerpt is unavailable"):
+        _ = ruler_item.pass_b_hash
+
+
+def test_full_hash_distinguishes_missing_excerpt_from_real_excerpt() -> None:
+    missing = _problem()
+    del missing["source_excerpt"]
+    real = _problem(source_excerpt="OpenStax, p. 1")
+
+    assert calibration_ruler.content_hash(missing) != calibration_ruler.content_hash(
+        real
+    )
+
+
+def test_provenance_quote_anchor_is_a_real_pass_b_excerpt() -> None:
+    item = _problem(
+        provenance={
+            "source_ref": "OpenStax, p. 1",
+            "chunk_id": "chunk-1",
+            "source_title": "University Physics",
+            "quote_anchor": " Angular   momentum is conserved. ",
+            "support_score": 0.9,
         }
     )
+    del item["source_excerpt"]
+
+    canonical = calibration_ruler.canonical_problem(item)
+
+    assert canonical["source_excerpt"] == "Angular momentum is conserved."
+    assert calibration_ruler.pass_b_hash(item)
+    assert canonical["provenance"] == {
+        "source_ref": "OpenStax, p. 1",
+        "chunk_id": "chunk-1",
+        "source_title": "University Physics",
+        "quote_anchor": "Angular momentum is conserved.",
+        "support_score": 0.9,
+    }
 
 
 def test_embedded_bundle_figure_is_extracted_without_rewriting_svg() -> None:
@@ -267,6 +352,40 @@ def test_unsafe_figure_markup_is_rejected_not_silently_modified(figure: str) -> 
         calibration_ruler.canonical_problem(item)
 
     assert item == original
+
+
+@pytest.mark.parametrize(
+    "style",
+    [
+        "@import url(#local); fill: currentColor",
+        "width: expression(alert(1))",
+        "fill: url(https://example.com/fill.svg#x)",
+        "fill: url(//example.com/fill.svg#x)",
+        "fill: url(data:image/svg+xml;base64,PHN2Zz4=)",
+    ],
+)
+def test_unsafe_svg_style_attributes_are_rejected(style: str) -> None:
+    figure = (
+        '<svg xmlns="http://www.w3.org/2000/svg">'
+        f'<path style="{style}" d="M0 0 L1 1"/>'
+        "</svg>"
+    )
+
+    with pytest.raises(ValueError, match="figure"):
+        calibration_ruler.validate_source_item(_problem(figure=figure))
+
+
+def test_safe_svg_style_fragment_reference_is_preserved() -> None:
+    figure = (
+        '<svg xmlns="http://www.w3.org/2000/svg">'
+        '<defs><linearGradient id="fade"><stop offset="0"/></linearGradient></defs>'
+        '<path style="fill:url(#fade);stroke:currentColor" d="M0 0 L1 1"/>'
+        "</svg>"
+    )
+
+    assert (
+        calibration_ruler.canonical_problem(_problem(figure=figure))["figure"] == figure
+    )
 
 
 @pytest.mark.parametrize(
@@ -387,6 +506,31 @@ def test_shadow_problem_kind_shape_is_normalized() -> None:
     assert calibration_ruler.canonical_problem(item)["kind"] == "computational"
 
 
+def test_generic_problem_kind_without_evidence_is_unspecified() -> None:
+    item = _problem(kind="problem")
+
+    assert calibration_ruler.canonical_problem(item)["kind"] == "unspecified"
+
+
+def test_generic_problem_kind_uses_real_computational_evidence() -> None:
+    item = _problem(
+        kind="problem",
+        computational={
+            "expression": "2 + 2",
+            "expected": 4.0,
+            "tolerance": 1e-6,
+        },
+    )
+
+    assert calibration_ruler.canonical_problem(item)["kind"] == "computational"
+
+
+def test_generic_problem_kind_does_not_infer_from_weak_evidence() -> None:
+    item = _problem(kind="problem", computational={"expression": "2 + 2"})
+
+    assert calibration_ruler.canonical_problem(item)["kind"] == "unspecified"
+
+
 def test_missing_kind_can_use_shadow_problem_kind() -> None:
     item = _problem(problem_kind="computational")
     del item["kind"]
@@ -405,7 +549,6 @@ def test_explicit_invalid_kind_is_not_hidden_by_problem_kind_alias() -> None:
     "item",
     [
         _problem(kind="Conceptual"),
-        _problem(kind="problem"),
         _problem(kind="card"),
         _problem(kind=None),
         _problem(kind="conceptual", problem_kind="computational"),
@@ -471,13 +614,13 @@ def test_cyclic_json_values_are_rejected() -> None:
 
 
 @pytest.mark.parametrize(
-    "marker",
+    "path",
     [
-        "gold",
         "content/gold/problems/item.json",
         r"content\GOLD\problems\item.json",
         "gold-set/item",
         "gold.items/item",
+        "gold.json",
         "heldout/item",
         "held-out/item",
         "held_out/item",
@@ -494,13 +637,44 @@ def test_cyclic_json_values_are_rejected() -> None:
         "gr1777.item",
     ],
 )
-def test_private_markers_and_path_variants_are_rejected_recursively(
-    marker: str,
+def test_private_dataset_paths_are_rejected_recursively(
+    path: str,
 ) -> None:
     with pytest.raises(ValueError, match="private marker"):
         calibration_ruler.validate_source_item(
-            _problem(verifier={"nested": [{"path": marker}]})
+            _problem(verifier={"nested": [{"path": path}]})
         )
+
+
+@pytest.mark.parametrize(
+    "item_id",
+    [
+        "gold-17",
+        "heldout_17",
+        "held-out-17",
+        "tier3-17",
+        "tier_3_17",
+        "ets-17",
+        "gr9677-17",
+    ],
+)
+def test_private_dataset_markers_are_rejected_in_ids(item_id: str) -> None:
+    with pytest.raises(ValueError, match="private marker"):
+        calibration_ruler.validate_source_item(_problem(id=item_id))
+
+
+@pytest.mark.parametrize(
+    "source_ref",
+    [
+        "content/gold/problems/item.json",
+        r"content\held-out\item.json",
+        "tier3-private/items/item.json",
+        "ets-private/form.json",
+    ],
+)
+def test_private_source_paths_are_rejected(source_ref: str) -> None:
+    with pytest.raises(ValueError, match="private marker"):
+        calibration_ruler.validate_source_item(_problem(source_ref=source_ref))
 
 
 def test_private_markers_are_rejected_in_nested_keys() -> None:
@@ -508,6 +682,22 @@ def test_private_markers_are_rejected_in_nested_keys() -> None:
         calibration_ruler.validate_source_item(
             _problem(verifier={"gold_path": "hidden"})
         )
+
+
+def test_legitimate_gold_physics_prose_is_allowed() -> None:
+    item = _problem(
+        stem="Alpha particles scatter from a thin gold foil.",
+        source_ref="OpenStax discussion of the gold foil experiment",
+        source_excerpt="A gold nucleus concentrates the atom's positive charge.",
+        solution_decomposition=[
+            {
+                "subgoal": "Model scattering from the gold nucleus.",
+                "rubric": "Use the measured gold foil deflection.",
+            }
+        ],
+    )
+
+    calibration_ruler.validate_source_item(item)
 
 
 def test_benign_marigold_text_does_not_trip_private_marker_firewall() -> None:
@@ -557,6 +747,77 @@ def test_ruler_item_round_trip_and_visible_projections() -> None:
     assert item.stratum == "shadow"
 
 
+def test_ruler_item_deep_freezes_content_provenance_and_metadata() -> None:
+    source = _problem(
+        provenance={
+            "chunk_id": "chunk-1",
+            "source_ref": "OpenStax, p. 1",
+            "quote_anchor": "Angular momentum is conserved.",
+            "support_score": 0.9,
+            "details": {"pages": [1, 2]},
+        },
+        verifier={"decision": "accept", "checks": [{"name": "key"}]},
+    )
+    item = calibration_ruler.RulerItem.from_source_item(source)
+    before = item.to_dict()
+    full_hash = item.content_hash
+
+    cast(dict[str, object], source["provenance"])["chunk_id"] = "changed"
+    cast(dict[str, object], source["verifier"])["decision"] = "changed"
+    cast(list[dict[str, str]], source["solution_decomposition"])[0]["subgoal"] = (
+        "changed"
+    )
+
+    with pytest.raises(TypeError):
+        cast(dict[str, object], item.metadata)["verifier"] = {}
+    with pytest.raises(TypeError):
+        cast(dict[str, object], item.metadata["verifier"])["decision"] = "reject"
+    with pytest.raises(TypeError):
+        cast(dict[str, object], item.provenance)["chunk_id"] = "changed"
+    with pytest.raises(TypeError):
+        cast(dict[str, object], item.solution_decomposition[0])["subgoal"] = "changed"
+
+    detached = item.to_dict()
+    cast(dict[str, object], detached["provenance"])["chunk_id"] = "detached"
+    cast(dict[str, object], detached["metadata"])["verifier"] = {}
+    cast(list[dict[str, str]], detached["solution_decomposition"])[0]["subgoal"] = (
+        "detached"
+    )
+
+    assert item.to_dict() == before
+    assert item.content_hash == full_hash
+
+
+def test_full_hash_and_round_trip_preserve_grounding_provenance() -> None:
+    first = _problem(
+        provenance={
+            "chunk_id": "chunk-1",
+            "source_ref": "OpenStax, p. 1",
+            "quote_anchor": "Angular momentum is conserved.",
+            "support_score": 0.9,
+        },
+        model_family="sol",
+        verifier={"decision": "accept"},
+        stratum="shadow",
+    )
+    second = deepcopy(first)
+    cast(dict[str, object], second["provenance"])["chunk_id"] = "chunk-2"
+    second["model_family"] = "grok"
+    second["verifier"] = {"decision": "reject"}
+    second["stratum"] = "trusted"
+
+    assert calibration_ruler.content_hash(first) != calibration_ruler.content_hash(
+        second
+    )
+
+    item = calibration_ruler.RulerItem.from_source_item(first)
+    restored = calibration_ruler.RulerItem.from_dict(
+        json.loads(json.dumps(item.to_dict()))
+    )
+    assert restored == item
+    assert restored.to_dict()["provenance"] == first["provenance"]
+
+
 @pytest.mark.parametrize("hash_field", ["content_hash", "pass_a_hash", "pass_b_hash"])
 def test_ruler_item_round_trip_rejects_tampered_hash(hash_field: str) -> None:
     payload = calibration_ruler.RulerItem.from_source_item(_problem()).to_dict()
@@ -564,3 +825,17 @@ def test_ruler_item_round_trip_rejects_tampered_hash(hash_field: str) -> None:
 
     with pytest.raises(ValueError, match=hash_field):
         calibration_ruler.RulerItem.from_dict(payload)
+
+
+def test_every_shipped_bundle_problem_converts_without_structural_violations() -> None:
+    bundle = json.loads(_BUNDLE_PATH.read_text(encoding="utf-8"))
+    errors: list[str] = []
+
+    for problem in bundle["problems"]:
+        try:
+            item = calibration_ruler.RulerItem.from_source_item(problem)
+            json.dumps(item.to_dict(), ensure_ascii=False, allow_nan=False)
+        except (TypeError, ValueError) as error:
+            errors.append(f"{problem.get('id')}: {error}")
+
+    assert errors == []
