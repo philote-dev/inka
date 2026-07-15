@@ -96,8 +96,11 @@ class PropertyReport:
 
     def to_dict(self) -> dict:
         return {
-            "name": self.name, "n": self.n, "raw_agreement": self.raw_agreement,
-            "balanced_accuracy": self.balanced_accuracy, "precision": self.precision,
+            "name": self.name,
+            "n": self.n,
+            "raw_agreement": self.raw_agreement,
+            "balanced_accuracy": self.balanced_accuracy,
+            "precision": self.precision,
             "recall": self.recall,
         }
 
@@ -105,13 +108,17 @@ class PropertyReport:
 def property_report(name: str, pred: list[bool], human: list[bool]) -> PropertyReport:
     prec, rec = precision_recall(pred, human)
     return PropertyReport(
-        name, len(pred), raw_agreement(pred, human),
-        balanced_accuracy(pred, human), prec, rec,
+        name,
+        len(pred),
+        raw_agreement(pred, human),
+        balanced_accuracy(pred, human),
+        prec,
+        rec,
     )
 
 
 def build_card(
-    reports: list[PropertyReport], consistency: float, thresholds: dict
+    reports: list[PropertyReport], consistency: float | None, thresholds: dict
 ) -> dict:
     return {
         "properties": [r.to_dict() for r in reports],

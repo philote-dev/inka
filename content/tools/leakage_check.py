@@ -3,7 +3,7 @@
 The firewall is structural first: the index build reads ``content/corpus/`` only,
 so gold, held-out, and Tier-3 text cannot reach the index or a prompt by
 construction. This guard is the automated backstop that fails loudly if that
-ever breaks. It implements the five checks written down in
+ever breaks. It implements the six checks written down in
 ``docs_pgrep/ai/heldout-and-leakage.md`` section 4 and ``docs_pgrep/ai/ai-layer.md``
 section 10.
 
@@ -17,10 +17,12 @@ Checks:
      phrasing, not leakage, so the signal is a long contiguous span, not a
      single n-gram.
   3. No held-out or gold copy-in in saved prompt logs (if any exist).
-  4. The AI path never references a private root. Shipped pgrep modules under
+  4. Foundry preference JSONL has valid schema and IDs, no private-root path
+     markers, and no long verbatim spans copied from available private items.
+  5. The AI path never references a private root. Shipped pgrep modules under
      ``pylib/anki/pgrep/`` may only reference ``tier3-private`` via the
      ``constants/`` subpath (the readiness reader), never the items.
-  5. Readiness reader is constants-only. Restated by check 4 for the shipped
+  6. Readiness reader is constants-only. Restated by check 5 for the shipped
      code; the items under ``tier3-private/`` are never opened by the AI path.
 
 This is a process guard, not a model. It reads text only, never writes.
@@ -43,6 +45,12 @@ import sqlite3
 import sys
 from dataclasses import dataclass, field
 
+import _ai_path
+
+_ai_path.add_ai_core()
+
+from pgrep.ai import preference  # type: ignore[import-not-found]  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONTENT = os.path.dirname(HERE)
 REPO = os.path.dirname(CONTENT)
@@ -59,8 +67,14 @@ PROMPT_LOG_DIRS = [
     os.path.join(CONTENT, "index", "prompt_logs"),
     os.path.join(CONTENT, "run", "prompt_logs"),
 ]
+FOUNDRY_RUN_DIR = os.path.join(CONTENT, "run", "foundry")
 # Shipped AI/runtime code that must never reach a private root except constants.
 SHIPPED_AI_DIR = os.path.join(REPO, "pylib", "anki", "pgrep")
+_FORBIDDEN_FOUNDRY_PATH_MARKERS = (
+    "content/gold",
+    "content/heldout",
+    "tier3-private",
+)
 
 # The unit n-gram used to locate contiguous overlap. Small enough to place a
 # span precisely, large enough that one match is not pure noise.
@@ -88,7 +102,7 @@ def normalize_words(text: str) -> list[str]:
 def _ngrams(words: list[str], n: int) -> list[str]:
     if len(words) < n:
         return [" ".join(words)] if words else []
-    return [" ".join(words[i:i + n]) for i in range(len(words) - n + 1)]
+    return [" ".join(words[i : i + n]) for i in range(len(words) - n + 1)]
 
 
 def _hash(text: str) -> bytes:
@@ -103,7 +117,9 @@ def hashes_from_texts(texts: list[str], n: int = SHINGLE_N) -> set[bytes]:
     return hashes
 
 
-def longest_match_span(words: list[str], index_hashes: set[bytes], n: int = SHINGLE_N) -> tuple[int, str]:
+def longest_match_span(
+    words: list[str], index_hashes: set[bytes], n: int = SHINGLE_N
+) -> tuple[int, str]:
     """Longest run of consecutive n-grams present in the index, as a word span.
 
     A run of ``r`` consecutive matching n-grams covers ``r + n - 1`` contiguous
@@ -115,7 +131,10 @@ def longest_match_span(words: list[str], index_hashes: set[bytes], n: int = SHIN
         if gram and _hash(gram) in index_hashes:
             return len(words), gram
         return 0, ""
-    matched = [(_hash(" ".join(words[i:i + n])) in index_hashes) for i in range(len(words) - n + 1)]
+    matched = [
+        (_hash(" ".join(words[i : i + n])) in index_hashes)
+        for i in range(len(words) - n + 1)
+    ]
     best_len = 0
     best_start = 0
     run = 0
@@ -133,7 +152,7 @@ def longest_match_span(words: list[str], index_hashes: set[bytes], n: int = SHIN
     if best_len == 0:
         return 0, ""
     span_words = best_len + n - 1
-    return span_words, " ".join(words[best_start:best_start + span_words])
+    return span_words, " ".join(words[best_start : best_start + span_words])
 
 
 # --- item loading ----------------------------------------------------------
@@ -142,7 +161,9 @@ def longest_match_span(words: list[str], index_hashes: set[bytes], n: int = SHIN
 def _heldout_item_texts() -> list[tuple[str, str]]:
     """(label, text) for every parsed held-out ETS item (stem + choices)."""
     out: list[tuple[str, str]] = []
-    for path in sorted(glob.glob(os.path.join(CONTENT, "tier3-private", "items", "*.json"))):
+    for path in sorted(
+        glob.glob(os.path.join(CONTENT, "tier3-private", "items", "*.json"))
+    ):
         try:
             data = json.load(open(path, encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
@@ -198,7 +219,10 @@ def check_index_paths(db_path: str) -> CheckResult:
     finally:
         db.close()
     hits: list[str] = []
-    corpus_files = {os.path.basename(p) for p in glob.glob(os.path.join(CORPUS_DIR, "**", "*"), recursive=True)}
+    corpus_files = {
+        os.path.basename(p)
+        for p in glob.glob(os.path.join(CORPUS_DIR, "**", "*"), recursive=True)
+    }
     private_files: dict[str, str] = {}
     for label, root in PRIVATE_ROOTS.items():
         for p in glob.glob(os.path.join(root, "**", "*"), recursive=True):
@@ -206,17 +230,27 @@ def check_index_paths(db_path: str) -> CheckResult:
     for (source_file,) in rows:
         base = os.path.basename(source_file)
         if base in private_files:
-            hits.append(f"{source_file} resolves under private root {private_files[base]}")
+            hits.append(
+                f"{source_file} resolves under private root {private_files[base]}"
+            )
         elif base not in corpus_files:
             hits.append(f"{source_file} is not present under content/corpus/")
     ok = not hits
-    detail = (f"{len(rows)} distinct sources indexed, all under content/corpus/"
-              if ok else f"{len(hits)} indexed source(s) not corpus-only")
+    detail = (
+        f"{len(rows)} distinct sources indexed, all under content/corpus/"
+        if ok
+        else f"{len(hits)} indexed source(s) not corpus-only"
+    )
     return CheckResult("index-paths", ok, detail, hits)
 
 
-def _copyin_check(name: str, target_hashes: set[bytes], items: list[tuple[str, str]],
-                  threshold: int, where: str) -> CheckResult:
+def _copyin_check(
+    name: str,
+    target_hashes: set[bytes],
+    items: list[tuple[str, str]],
+    threshold: int,
+    where: str,
+) -> CheckResult:
     """Flag any item whose longest contiguous span in the target reaches threshold."""
     hits: list[str] = []
     worst = 0
@@ -226,28 +260,36 @@ def _copyin_check(name: str, target_hashes: set[bytes], items: list[tuple[str, s
         if span > worst:
             worst, worst_label = span, label
         if span >= threshold:
-            hits.append(f"{label}: {span}-word span {where}: \"{covered[:120]}\"")
+            hits.append(f'{label}: {span}-word span {where}: "{covered[:120]}"')
     ok = not hits
     if ok:
-        detail = (f"{len(items)} items, longest overlap {worst} words "
-                  f"({worst_label or 'n/a'}), under the {threshold}-word copy-in bar")
+        detail = (
+            f"{len(items)} items, longest overlap {worst} words "
+            f"({worst_label or 'n/a'}), under the {threshold}-word copy-in bar"
+        )
     else:
         detail = f"{len(hits)} item(s) with a copy-in span >= {threshold} words"
     return CheckResult(name, ok, detail, hits[:20])
 
 
-def check_shingles(db_path: str, items: list[tuple[str, str]], threshold: int) -> CheckResult:
+def check_shingles(
+    db_path: str, items: list[tuple[str, str]], threshold: int
+) -> CheckResult:
     """No held-out or gold item shares a long contiguous span with the index."""
     if not os.path.exists(db_path):
         return CheckResult("copy-in-index", False, f"no index at {db_path}")
     if not items:
-        return CheckResult("copy-in-index", True, "no held-out or gold items present to check yet")
+        return CheckResult(
+            "copy-in-index", True, "no held-out or gold items present to check yet"
+        )
     db = sqlite3.connect(db_path)
     try:
         texts = [t for (t,) in db.execute("SELECT text FROM chunks")]
     finally:
         db.close()
-    return _copyin_check("copy-in-index", hashes_from_texts(texts), items, threshold, "in index")
+    return _copyin_check(
+        "copy-in-index", hashes_from_texts(texts), items, threshold, "in index"
+    )
 
 
 def check_prompt_logs(items: list[tuple[str, str]], threshold: int) -> CheckResult:
@@ -260,17 +302,175 @@ def check_prompt_logs(items: list[tuple[str, str]], threshold: int) -> CheckResu
     if not log_files:
         return CheckResult("copy-in-prompts", True, "no prompt logs on disk to scan")
     if not items:
-        return CheckResult("copy-in-prompts", True, f"{len(log_files)} logs, no gold/held-out items to match")
+        return CheckResult(
+            "copy-in-prompts",
+            True,
+            f"{len(log_files)} logs, no gold/held-out items to match",
+        )
     texts = []
     for path in log_files:
         try:
             texts.append(open(path, encoding="utf-8", errors="ignore").read())
         except OSError:
             continue
-    res = _copyin_check("copy-in-prompts", hashes_from_texts(texts), items, threshold,
-                        "in prompt logs")
+    res = _copyin_check(
+        "copy-in-prompts", hashes_from_texts(texts), items, threshold, "in prompt logs"
+    )
     res.detail = f"{len(log_files)} prompt log(s): " + res.detail
     return res
+
+
+def _nested_path(path: str, key: object) -> str:
+    return f"{path}.{key}" if isinstance(key, str) else f"{path}[{key!r}]"
+
+
+def _private_root_errors(value: object, path: str = "$") -> list[str]:
+    errors: list[str] = []
+    if isinstance(value, str):
+        normalized = value.lower().replace("\\\\", "/").replace("\\", "/")
+        for marker in _FORBIDDEN_FOUNDRY_PATH_MARKERS:
+            if marker in normalized:
+                errors.append(f"{path}: forbidden private-root marker: {marker}")
+    elif isinstance(value, dict):
+        for key, nested in value.items():
+            child = _nested_path(path, key)
+            if isinstance(key, str):
+                errors.extend(_private_root_errors(key, f"{child} (key)"))
+            errors.extend(_private_root_errors(nested, child))
+    elif isinstance(value, list):
+        for index, nested in enumerate(value):
+            errors.extend(_private_root_errors(nested, f"{path}[{index}]"))
+    return errors
+
+
+def foundry_jsonl_is_clean(path: str) -> list[str]:
+    """Validate one preference JSONL file and reject private-root path markers."""
+    errors = preference.scan_jsonl(path)
+    try:
+        with open(path, encoding="utf-8") as file:
+            for lineno, line in enumerate(file, start=1):
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                errors.extend(
+                    f"line {lineno}: {error}" for error in _private_root_errors(record)
+                )
+    except OSError:
+        pass
+    return errors
+
+
+def _indexed_source_refs(db_path: str) -> tuple[set[str] | None, str | None]:
+    if not os.path.exists(db_path):
+        return None, f"source verification unavailable: no corpus index at {db_path}"
+    database = sqlite3.connect(db_path)
+    try:
+        rows = database.execute("SELECT DISTINCT source_ref FROM chunks").fetchall()
+    except sqlite3.Error as error:
+        return None, f"source verification unavailable for {db_path}: {error}"
+    finally:
+        database.close()
+    return {str(row[0]) for row in rows}, None
+
+
+def _preference_records(path: str) -> list[tuple[int, dict]]:
+    records: list[tuple[int, dict]] = []
+    try:
+        with open(path, encoding="utf-8") as file:
+            for lineno, line in enumerate(file, start=1):
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(record, dict) and not preference.validate_pair(record):
+                    records.append((lineno, record))
+    except OSError:
+        pass
+    return records
+
+
+def check_foundry_preferences(
+    items: list[tuple[str, str]],
+    threshold: int,
+    foundry_dir: str = FOUNDRY_RUN_DIR,
+    db_path: str = INDEX_DB,
+) -> CheckResult:
+    """Validate all foundry JSONL and compare it with available private items."""
+    files = [
+        str(run_dir / "preferences.jsonl")
+        for run_dir in preference.finalized_run_directories(foundry_dir)
+        if (run_dir / "preferences.jsonl").is_file()
+    ]
+    if not files:
+        return CheckResult(
+            "foundry-preferences",
+            True,
+            "no foundry preference JSONL files on disk to scan",
+        )
+
+    audit = preference.audit_preferences(foundry_dir)
+    hits: list[str] = list(audit["errors"])
+    hits.extend(
+        "duplicate chosen/rejected pair "
+        f"{duplicate['chosen_id']!r}/{duplicate['rejected_id']!r}: "
+        f"{duplicate['first']} and {duplicate['duplicate']}"
+        for duplicate in audit["duplicates"]
+    )
+    texts: list[str] = []
+    for path in files:
+        rel = os.path.relpath(path, REPO)
+        try:
+            texts.append(open(path, encoding="utf-8").read())
+        except OSError:
+            continue
+        for lineno, record in _preference_records(path):
+            hits.extend(
+                f"{rel}:line {lineno}: {error}"
+                for error in _private_root_errors(record)
+            )
+
+    source_refs, source_error = _indexed_source_refs(db_path)
+    if source_error:
+        hits.append(source_error)
+    elif source_refs is not None:
+        for path in files:
+            rel = os.path.relpath(path, REPO)
+            for lineno, record in _preference_records(path):
+                if record["synthetic"]:
+                    continue
+                for side in ("chosen", "rejected"):
+                    source_ref = record[side]["source_ref"]
+                    if source_ref not in source_refs:
+                        hits.append(
+                            f"{rel}:line {lineno}: {side}.source_ref "
+                            f"is not present in the corpus index: {source_ref!r}"
+                        )
+
+    if items and texts:
+        copyin = _copyin_check(
+            "foundry-preferences",
+            hashes_from_texts(texts),
+            items,
+            threshold,
+            "in foundry preference JSONL",
+        )
+        hits.extend(copyin.hits)
+
+    ok = not hits
+    if ok:
+        private_detail = (
+            f"; no copy-in from {len(items)} private item(s)"
+            if items
+            else "; no private items present for copy-in matching"
+        )
+        detail = (
+            f"{len(files)} foundry preference file(s), schema and paths clean"
+            f"; source references verified{private_detail}"
+        )
+    else:
+        detail = f"{len(hits)} foundry preference leakage error(s)"
+    return CheckResult("foundry-preferences", ok, detail, hits[:20])
 
 
 def check_ai_path_references() -> CheckResult:
@@ -287,24 +487,39 @@ def check_ai_path_references() -> CheckResult:
                         allowed = token == "tier3-private" and "constants" in line
                         if not allowed:
                             rel = os.path.relpath(path, REPO)
-                            hits.append(f"{rel}:{lineno} references {token}: {line.strip()[:80]}")
+                            hits.append(
+                                f"{rel}:{lineno} references {token}: {line.strip()[:80]}"
+                            )
         except OSError:
             continue
     ok = not hits
-    detail = (f"{len(py_files)} shipped pgrep file(s), no forbidden private-root access"
-              if ok else f"{len(hits)} forbidden reference(s) in the AI path")
+    detail = (
+        f"{len(py_files)} shipped pgrep file(s), no forbidden private-root access"
+        if ok
+        else f"{len(hits)} forbidden reference(s) in the AI path"
+    )
     return CheckResult("ai-path-refs", ok, detail, hits[:20])
 
 
 # --- driver ----------------------------------------------------------------
 
 
-def run_checks(db_path: str = INDEX_DB, span_threshold: int = DEFAULT_SPAN_THRESHOLD) -> list[CheckResult]:
+def run_checks(
+    db_path: str = INDEX_DB,
+    span_threshold: int = DEFAULT_SPAN_THRESHOLD,
+    foundry_dir: str = FOUNDRY_RUN_DIR,
+) -> list[CheckResult]:
     items = _heldout_item_texts() + _gold_item_texts()
     return [
         check_index_paths(db_path),
         check_shingles(db_path, items, span_threshold),
         check_prompt_logs(items, span_threshold),
+        check_foundry_preferences(
+            items,
+            span_threshold,
+            foundry_dir,
+            db_path,
+        ),
         check_ai_path_references(),
     ]
 
@@ -320,15 +535,23 @@ def report(results: list[CheckResult], verbose: bool = False) -> bool:
             for h in r.hits:
                 print(f"         - {h}")
     print("-" * 60)
-    print("OK: firewall intact" if all_ok else "FAILED: leakage detected, do not report results")
+    print(
+        "OK: firewall intact"
+        if all_ok
+        else "FAILED: leakage detected, do not report results"
+    )
     return all_ok
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="pgrep leakage guard (firewall backstop).")
     ap.add_argument("--db", default=INDEX_DB)
-    ap.add_argument("--span-threshold", type=int, default=DEFAULT_SPAN_THRESHOLD,
-                    help="contiguous verbatim word span treated as copy-in")
+    ap.add_argument(
+        "--span-threshold",
+        type=int,
+        default=DEFAULT_SPAN_THRESHOLD,
+        help="contiguous verbatim word span treated as copy-in",
+    )
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
     results = run_checks(args.db, args.span_threshold)

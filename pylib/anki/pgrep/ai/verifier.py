@@ -82,12 +82,14 @@ class Verifier:
         solve_clients: Sequence[consensus_mod._Client] | None = None,
         backward_client: consensus_mod._Client | None = None,
         key_consensus: Callable[..., consensus_mod.KeyConsensus] | None = None,
+        weak_clients: Sequence[consensus_mod._Client] | None = None,
         thresholds: Thresholds | None = None,
     ) -> None:
         self.judge = judge
         self.solve_clients: Sequence[consensus_mod._Client] = solve_clients or []
         self.backward_client = backward_client
         self._key_consensus = key_consensus or consensus_mod.key_consensus
+        self.weak_clients: Sequence[consensus_mod._Client] = weak_clients or []
         self.thresholds = thresholds or Thresholds()
 
     def check(self, problem: dict) -> PanelVerdict:
@@ -97,6 +99,8 @@ class Verifier:
             checks.append(self._figure_check(problem, svg))
         checks.append(self._giveaway_check(problem))
         checks.append(self._distractor_check(problem))
+        if self.weak_clients:
+            checks.append(self._temptation_check(problem))
         return PanelVerdict(self._decide(checks), checks)
 
     def _decide(self, checks: list[CheckVerdict]) -> str:
@@ -145,3 +149,11 @@ class Verifier:
         return CheckVerdict(
             "distractor", _SOFT, passed, 0.7, ",".join(v.implausible_labels)
         )
+
+    def _temptation_check(self, problem: dict) -> CheckVerdict:
+        from . import temptation as temptation_mod
+
+        report = temptation_mod.score_distractors(problem, self.weak_clients)
+        passed = not report.free_elimination_labels
+        ev = ",".join(report.free_elimination_labels)
+        return CheckVerdict("temptation", _SOFT, passed, 0.7, ev)

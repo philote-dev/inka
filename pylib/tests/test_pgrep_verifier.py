@@ -1,8 +1,13 @@
 # Copyright: Ankitects Pty Ltd and contributors
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
+import json
+from collections.abc import Sequence
+
 from anki.pgrep.ai import verifier
 from anki.pgrep.ai.consensus import KeyConsensus
+
+_LETTERS = "ABCDE"
 
 
 class StubJudge:
@@ -54,6 +59,28 @@ def _kc(accepted, conf):
     )
 
 
+def _kc_for(letter, accepted, conf):
+    votes = [letter, letter, letter]
+    return KeyConsensus(accepted, letter, letter, 3, 3, True, None, None, conf, votes)
+
+
+class _FakeWeakClient:
+    """Picks the display letter for a fixed original option after shuffle."""
+
+    def __init__(self, letter: str, *, choices: Sequence[str]):
+        self.letter = letter
+        self.choices = choices
+
+    def complete_text(self, system, user, *, json_object=False):
+        payload = json.loads(user)
+        display_choices = list(payload.get("choices") or [])
+        orig_i = _LETTERS.index(self.letter)
+        orig_text = self.choices[orig_i]
+        disp_i = display_choices.index(orig_text)
+        display_letter = _LETTERS[disp_i]
+        return f'{{"answer": "{display_letter}", "reasoning": "x", "confidence": 0.5}}'
+
+
 def test_accepts_when_all_hard_checks_certain_pass():
     v = verifier.Verifier(
         judge=StubJudge(), key_consensus=StubConsensus(_kc(True, 0.95))
@@ -75,6 +102,31 @@ def test_escalates_on_uncertain_key():
         judge=StubJudge(), key_consensus=StubConsensus(_kc(True, 0.66))
     )
     assert v.check(_problem()).decision == "escalate"
+
+
+def test_free_elimination_annotates_soft_temptation_check():
+    problem = {
+        "id": "p",
+        "stem": "x",
+        "kind": "conceptual",
+        "choices": ["a", "b", "c", "d", "e"],
+        "correct": "A",
+    }
+    weak = [
+        _FakeWeakClient("B", choices=problem["choices"]),
+        _FakeWeakClient("B", choices=problem["choices"]),
+    ]
+    v = verifier.Verifier(
+        judge=StubJudge(),
+        key_consensus=StubConsensus(_kc_for("A", True, 0.9)),
+        weak_clients=weak,
+    )
+    panel = v.check(problem)
+    tempt = next(c for c in panel.checks if c.name == "temptation")
+    assert tempt.severity == "soft"
+    assert not tempt.passed
+    assert "D" in tempt.evidence or "E" in tempt.evidence
+    assert panel.decision == "accept"
 
 
 def test_soft_distractor_flag_annotates_but_does_not_reject():

@@ -72,6 +72,7 @@ source_ref}`. `kind` is `"computational"` or `"conceptual"`. The stem may embed 
 ## Task 1: Consensus solver and majority
 
 **Files:**
+
 - Create: `pylib/anki/pgrep/ai/consensus.py`
 - Test: `pylib/tests/test_pgrep_consensus.py`
 
@@ -249,6 +250,7 @@ git commit -m "feat(pgrep): consensus solver with option-shuffle mapping"
 ## Task 2: Key consensus decision (SymPy + backward + stability)
 
 **Files:**
+
 - Modify: `pylib/anki/pgrep/ai/consensus.py`
 - Modify: `pylib/anki/pgrep/ai/verify.py` is unchanged; reuse `cas_check_value`.
 - Test: `pylib/tests/test_pgrep_consensus.py`
@@ -451,6 +453,7 @@ git commit -m "feat(pgrep): key consensus with SymPy and FOBAR backward checks"
 ## Task 3: The verifier panel
 
 **Files:**
+
 - Create: `pylib/anki/pgrep/ai/verifier.py`
 - Test: `pylib/tests/test_pgrep_verifier.py`
 
@@ -671,6 +674,7 @@ git commit -m "feat(pgrep): verifier panel with accept/reject/escalate decision"
 ## Task 4: Calibration statistics
 
 **Files:**
+
 - Create: `pylib/anki/pgrep/ai/agreement.py`
 - Test: `pylib/tests/test_pgrep_agreement.py`
 
@@ -836,6 +840,7 @@ git commit -m "feat(pgrep): stdlib calibration statistics for the verifier"
 ## Task 5: Calibration CLI
 
 **Files:**
+
 - Create: `content/tools/calibrate_verifier.py`
 - Modify: `justfile`
 
@@ -932,6 +937,7 @@ git commit -m "feat(pgrep): calibrate-verifier CLI and recipe"
 ## Task 6: Documentation and full-suite gate
 
 **Files:**
+
 - Modify: `docs_pgrep/reference/content-pipeline.md`
 
 - [ ] **Step 1: Document the panel and calibration card**
@@ -964,6 +970,7 @@ git commit -m "docs(pgrep): document the verifier panel and calibration card"
 ## Self-review
 
 **1. Spec coverage (Phase 1 slice):**
+
 - WS1 verifier panel skeleton -> Task 3 (`verifier.py`, decision rule, thresholds). Covered.
 - WS2 consensus key verification (multi-model + SymPy + backward + stability) ->
   Tasks 1-2 (`consensus.py`). Covered.
