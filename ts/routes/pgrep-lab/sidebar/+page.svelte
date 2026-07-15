@@ -529,7 +529,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     /* Proposed: the single edge pill. A generous hit strip gives an easy target,
        though the visible pill is thin. It rides the rail's edge when open and the
        screen edge when collapsed, sliding with the rail. */
-    .toggle {
+    /* Parent-scoped so it out-specifies the app-wide `button` / `button:hover`
+       border in buttons.scss (Svelte's :where scoping is specificity-free). A
+       transparent border in every state keeps the hit area from ever drawing a
+       line down the panel edge, with no layout shift. */
+    .stage .toggle {
         position: absolute;
         top: 0;
         bottom: 0;
@@ -539,14 +543,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         display: flex;
         align-items: center;
         justify-content: center;
+        margin: 0;
         padding: 0;
-        border: 0;
+        border: 1px solid transparent;
         background: none;
         cursor: pointer;
         transition: left var(--duration-calm) var(--ease-spring);
     }
 
-    .is-collapsed .toggle {
+    .stage.is-collapsed .toggle {
         left: 0;
         justify-content: flex-start;
     }
@@ -563,21 +568,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             opacity var(--duration-calm) var(--ease-spring);
     }
 
-    .toggle:hover .pill,
-    .toggle:focus-visible .pill {
+    .stage .toggle:hover .pill,
+    .stage .toggle:focus-visible .pill {
         width: 6px;
         opacity: 1;
         background: var(--muted);
     }
 
-    .toggle:focus-visible {
-        outline: 2px solid var(--focus-ring);
-        outline-offset: 2px;
-        border-radius: var(--radius-pill);
+    /* The visible focus ring rides the small pill, not the full-height button. */
+    .stage .toggle:focus-visible .pill {
+        box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--focus-ring);
     }
 
-    /* Current: the faint reopen handle (unchanged from today's app). */
-    .edge {
+    /* Current: the faint reopen handle (unchanged from today's app). Same
+       transparent-border guard so the full-height hit area never draws a line. */
+    .stage .edge {
         position: absolute;
         left: 0;
         top: 0;
@@ -587,8 +592,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         display: flex;
         align-items: center;
         justify-content: flex-start;
+        margin: 0;
         padding: 0;
-        border: 0;
+        border: 1px solid transparent;
         background: none;
         cursor: pointer;
     }
@@ -605,8 +611,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             opacity var(--duration-calm) var(--ease-spring);
     }
 
-    .edge:hover .handle,
-    .edge:focus-visible .handle {
+    .stage .edge:hover .handle,
+    .stage .edge:focus-visible .handle {
         width: 6px;
         opacity: 1;
         background: var(--muted);
