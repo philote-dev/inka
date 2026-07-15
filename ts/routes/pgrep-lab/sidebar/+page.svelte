@@ -43,14 +43,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     // below drive these; the tab reads them as CSS custom properties, so tuning
     // is live with no rebuild. Defaults resemble the reference, just shorter.
     let tab = {
-        h: 72, // vertical length (px)
-        wRest: 16, // how far it protrudes at rest (px)
-        wHover: 22, // how far it protrudes on hover (px)
-        radius: 16, // outer (right) corner radius (px)
-        chev: 12, // chevron size (px); 0 hides it
-        opacity: 1, // rest opacity
+        h: 70, // vertical length (px)
+        wRest: 5, // how far it protrudes at rest (px)
+        wHover: 10, // how far it protrudes on hover (px)
+        radius: 20, // outer (right) corner radius (px)
+        chev: 0, // chevron size (px); 0 hides it
+        opacity: 0.5, // rest opacity
     };
-    let accent = true; // accent (lilac) fill vs monochrome
+    let accent = false; // accent (lilac) fill vs monochrome (default: original monochrome)
 
     const KNOBS: {
         key: keyof typeof tab;
@@ -700,10 +700,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         top: 0;
         bottom: 0;
         left: 0;
-        width: 12px;
+        width: 7px;
         background: linear-gradient(
             to right,
-            color-mix(in srgb, var(--text) 9%, transparent),
+            color-mix(in srgb, var(--text) 5%, transparent),
             transparent
         );
         opacity: 0;
