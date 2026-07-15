@@ -979,6 +979,22 @@ def test_pass_a_label_is_frozen_and_json_safe(
     )
 
 
+def test_missing_no_figure_rubric_raises_actionable_schema_error() -> None:
+    item = _manifest_item(review_id="cal-0001")
+    cursor = calibration_sheet._LineCursor(lines=[], document_number=3)
+
+    with pytest.raises(
+        calibration_sheet.RendererSchemaError,
+        match=r"document 3.*truncated.*cal-0001.*figure or rubric",
+    ):
+        calibration_sheet._parse_figure_reference(
+            cursor,
+            item,
+            "cal-0001",
+            {},
+        )
+
+
 def test_notes_are_bounded_and_cannot_create_structured_metadata(
     strict_case: tuple[
         calibration_ruler.RulerManifest,
@@ -1019,6 +1035,52 @@ def test_notes_are_bounded_and_cannot_create_structured_metadata(
             manifest=manifest,
             assets=assets,
         )
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        "first line\nsecond line",
+        "contains\ta tab",
+        "contains a control \x00 character",
+        "contains a zero-width\u200bspace",
+        "contains a line\u2028separator",
+        "contains a paragraph\u2029separator",
+    ],
+    ids=[
+        "newline",
+        "tab",
+        "control",
+        "zero-width-space",
+        "line-separator",
+        "paragraph-separator",
+    ],
+)
+def test_notes_reject_nonordinary_or_multiline_unicode(
+    note: str,
+    parsed_labels: dict[str, calibration_sheet.PassALabel],
+) -> None:
+    label = next(iter(parsed_labels.values()))
+
+    with pytest.raises(
+        calibration_sheet.ReviewerEditError,
+        match="notes must be one line of ordinary Unicode",
+    ):
+        replace(label, notes=note)
+
+
+def test_notes_accept_ordinary_unicode(
+    parsed_labels: dict[str, calibration_sheet.PassALabel],
+) -> None:
+    label = next(iter(parsed_labels.values()))
+    note = "Café ΔE = 2 μJ; 中文说明; 🙂"
+
+    updated = replace(label, notes=note)
+
+    assert updated.notes == note
+    assert (
+        json.loads(json.dumps(updated.to_dict(), ensure_ascii=False))["notes"] == note
+    )
 
 
 def test_validate_pass_a_complete_rejects_missing_label(

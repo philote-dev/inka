@@ -175,6 +175,7 @@ def _schema_error(message: str) -> RendererSchemaError:
 
 
 def _validate_note(note: str) -> None:
+    """Allow bounded ordinary Unicode without structural or invisible controls."""
     if type(note) is not str:
         raise _reviewer_error("notes must be text")
     if len(note) > MAX_NOTES_LENGTH:
@@ -186,7 +187,12 @@ def _validate_note(note: str) -> None:
         or unicodedata.category(character).startswith("C")
         for character in note
     ):
-        raise _reviewer_error("notes must be one line without control characters")
+        raise _reviewer_error(
+            "notes must be one line of ordinary Unicode; controls, format "
+            "characters (including zero-width spaces), surrogates, private-use "
+            "or unassigned characters, and line or paragraph separators are "
+            "not allowed"
+        )
     try:
         json.dumps(note, ensure_ascii=False, allow_nan=False).encode("utf-8")
     except (UnicodeEncodeError, ValueError) as error:
@@ -208,7 +214,11 @@ def _validate_label_value(field: str, value: str) -> None:
 
 @dataclass(frozen=True, slots=True)
 class PassALabel:
-    """One immutable, fixed-shape, JSON-safe Pass A judgment."""
+    """One immutable, fixed-shape, JSON-safe Pass A judgment.
+
+    Notes are bounded to one line of ordinary Unicode. Unicode category C
+    characters and line or paragraph separators are rejected.
+    """
 
     your_answer: str
     stem_clear: str
@@ -610,12 +620,15 @@ class _LineCursor:
     document_number: int
     index: int = 0
 
-    def take(self, *, context: str) -> str:
+    def peek(self, *, context: str) -> str:
         if self.index >= len(self.lines):
             raise _schema_error(
                 f"document {self.document_number} is truncated while reading {context}"
             )
-        line = self.lines[self.index]
+        return self.lines[self.index]
+
+    def take(self, *, context: str) -> str:
+        line = self.peek(context=context)
         self.index += 1
         return line
 
@@ -688,7 +701,8 @@ def _parse_figure_reference(
     figure_text: Mapping[str, str],
 ) -> str:
     if not item.figure:
-        if cursor.lines[cursor.index].startswith("![Figure]("):
+        next_line = cursor.peek(context=f"{review_id} figure or rubric")
+        if next_line.startswith("![Figure]("):
             raise _schema_error(f"changed figure reference for {review_id}")
         return ""
     expected = _render_figure(review_id, item.figure)
