@@ -107,6 +107,40 @@ def private_marker_errors(value: object, path: str = "$") -> list[str]:
     ]
 
 
+def _validate_panel_check(path: str, check: object) -> list[str]:
+    if not isinstance(check, dict):
+        return [f"{path} must be an object"]
+    errors: list[str] = []
+    if not _non_empty_string(check.get("name")):
+        errors.append(f"{path}.name must be a non-empty string")
+    if type(check.get("passed")) is not bool:
+        errors.append(f"{path}.passed must be a boolean")
+    if not _non_empty_string(check.get("severity")):
+        errors.append(f"{path}.severity must be a non-empty string")
+    if (
+        check.get("severity") == "hard"
+        and check.get("passed") is False
+        and not _non_empty_string(check.get("evidence"))
+    ):
+        errors.append(f"{path}.evidence must be non-empty for a failed hard check")
+    return errors
+
+
+def _validate_panel(side: str, panel: object, decision: str) -> list[str]:
+    if not isinstance(panel, dict):
+        return [f"{side}.panel must be an object"]
+    errors: list[str] = []
+    if panel.get("decision") != decision:
+        errors.append(f"{side}.panel.decision must be {decision!r}")
+    checks = panel.get("checks")
+    if not isinstance(checks, list):
+        errors.append(f"{side}.panel.checks must be an array")
+        return errors
+    for index, check in enumerate(checks):
+        errors.extend(_validate_panel_check(f"{side}.panel.checks[{index}]", check))
+    return errors
+
+
 def _validate_item(side: str, node: object, decision: str) -> list[str]:
     if not isinstance(node, dict):
         return [f"{side} must be an object"]
@@ -128,35 +162,7 @@ def _validate_item(side: str, node: object, decision: str) -> list[str]:
     if not isinstance(correct, str) or correct not in _CORRECT_CHOICES:
         errors.append(f"{side}.correct must be exactly one of A, B, C, D, or E")
 
-    panel = node.get("panel")
-    if not isinstance(panel, dict):
-        errors.append(f"{side}.panel must be an object")
-    elif panel.get("decision") != decision:
-        errors.append(f"{side}.panel.decision must be {decision!r}")
-    else:
-        checks = panel.get("checks")
-        if not isinstance(checks, list):
-            errors.append(f"{side}.panel.checks must be an array")
-        else:
-            for index, check in enumerate(checks):
-                path = f"{side}.panel.checks[{index}]"
-                if not isinstance(check, dict):
-                    errors.append(f"{path} must be an object")
-                    continue
-                if not _non_empty_string(check.get("name")):
-                    errors.append(f"{path}.name must be a non-empty string")
-                if type(check.get("passed")) is not bool:
-                    errors.append(f"{path}.passed must be a boolean")
-                if not _non_empty_string(check.get("severity")):
-                    errors.append(f"{path}.severity must be a non-empty string")
-                if (
-                    check.get("severity") == "hard"
-                    and check.get("passed") is False
-                    and not _non_empty_string(check.get("evidence"))
-                ):
-                    errors.append(
-                        f"{path}.evidence must be non-empty for a failed hard check"
-                    )
+    errors.extend(_validate_panel(side, node.get("panel"), decision))
     return errors
 
 
