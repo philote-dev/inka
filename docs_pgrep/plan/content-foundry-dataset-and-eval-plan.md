@@ -33,22 +33,29 @@ constraints:
 
 - A pair requires a non-empty run ID, slot topic and blueprint category,
   distinct item IDs, five non-empty choices, an `A` through `E` key, source
-  references, accept and reject panel decisions, rejected failing gates, and
-  finite values throughout.
+  references, an explicit synthetic flag, accept and reject panel decisions,
+  rejected reason and evidence, JSON-compatible values, and finite numbers
+  throughout. The category must be one of the nine locked slugs.
 - Only validated accepted by rejected combinations within one slot become
   pairs. Escalations, invalid candidates, and one-sided slots do not.
 - Every nested key and value passes the private-marker firewall. JSONL errors
   include line numbers and nested paths. Run publication is atomic and refuses
-  an existing run directory.
+  an existing run directory. An exclusive sibling lock closes the final race.
+- Cross-run audit rejects duplicate identities. Non-synthetic source references
+  must exist in the corpus index; synthetic pairs never count toward Tier 3.
 - Standing-eval labels contain explicit `calibration.properties` and
-  `heldout.properties` objects. Thresholds fit calibration predicted positives
-  only and remain fixed on held-out labels.
-- Standing gates use held-out agreement, balanced accuracy, accepted precision,
-  and measured consistency. A per-slot foundry summary with at least two
-  non-empty slots and escalation at most 0.15 is also required for green.
-- Foundry confidence intervals bootstrap slot-level rates. Legacy aggregates
-  have point rates only. A valid red report is printed and exits 1; invalid
-  input exits 2; the passing offline self-check exits 0.
+  `heldout.properties` objects with aligned opaque IDs and no cross-split
+  overlap. Thresholds fit calibration predicted positives only and remain fixed
+  on held-out labels.
+- Standing gates use post-threshold held-out agreement, balanced accuracy,
+  accepted precision with interval bounds, and measured consistency. Explicit
+  item, class, retained-accept, and consistency support minima apply.
+- Foundry confidence intervals bootstrap non-empty slot rates. Headline rates
+  use that same unweighted slot estimand; pooled candidate rates are
+  diagnostics. Six non-empty slots and six valid categories are required for
+  green. Legacy aggregates have point rates only.
+- A valid red report is printed and exits 1; invalid input exits 2; the passing
+  offline self-check exits 0.
 
 The detailed code sketches below record the original TDD sequence. The hardened
 contracts above and
@@ -370,8 +377,11 @@ EOF
   data; prints a green JSON report and exits 0.
 - `--labels PATH`: load explicit calibration and held-out property arrays. No
   model client or network is involved.
-- `--foundry-summary PATH`: load per-slot counts for cluster-aware yield and
-  escalation intervals. It is required for green.
+- `--foundry-summary PATH`: load one JSON file or recursively aggregate
+  `<run>/summary.json` files under a foundry root. Multi-slot support is required
+  for green.
+- `--preferences-root PATH`: audit every nested `preferences.jsonl` for
+  non-synthetic Tier 3 counts, categories, errors, and cross-run duplicates.
 - `--out PATH`: write exactly the report printed to standard output.
 - Use the unchanged `eval_metrics.bootstrap_ci` implementation with slot as the
   foundry cluster unit.

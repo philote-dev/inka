@@ -282,8 +282,16 @@ WS9}.
   the specific failing gate and its evidence. Escalations, invalid candidates,
   and one-sided slots do not become preference pairs.
 - Schema v1 preserves the slot topic and blueprint category, requires source
-  references on both sides, and validates panel decisions and finite values.
-  Writes overwrite atomically within a new run and reject duplicate ID pairs.
+  references on both sides, and validates panel decisions, reject evidence,
+  reject reasons, JSON-compatible values, and finite numbers. The category is
+  one of the nine exact slugs locked in `../ai/blueprint.md`; variants are
+  invalid.
+- Each pair declares whether it is synthetic. Dry-run pairs are synthetic and
+  excluded from training counts. Non-synthetic source references must exist in
+  the corpus index. Cross-run audits detect duplicate chosen and rejected
+  identities and expose eligible pair and category counts.
+- Writes overwrite atomically within a new run and reject duplicate ID pairs.
+  An exclusive sibling lock closes the publication race.
 - Respect the firewall: default output under `content/run/foundry/` is
   git-ignored, grounds only on the corpus, and never contains gold, held-out, or
   ETS material. Operators are responsible for keeping custom output paths
@@ -296,15 +304,27 @@ WS9}.
 - Add a `just eval-verifier` recipe that requires explicit calibration and
   held-out property-label splits. Threshold selection reads calibration only;
   held-out labels and confidences cannot influence the cutoff. Held-out records
-  contain labels and numbers only and remain evaluation-only.
+  contain opaque aligned item IDs, labels, and numbers only and remain
+  evaluation-only. Duplicate property IDs and any cross-split overlap are
+  invalid.
 - Print split-specific reports, threshold diagnostics, and a standing gate card.
-  Green requires key and figure, per-property held-out agreement at least 0.90,
-  balanced accuracy at least 0.85, measured consistency at least 0.90,
-  held-out accepted precision at least 0.95 for key and figure, and foundry
-  escalation no greater than 0.15.
+  Headline held-out agreement, balanced accuracy, precision, and recall are
+  computed after applying the calibration cutoff; pre-threshold metrics remain
+  diagnostics.
+- Green requires key and figure; 30 examples with five human positives and five
+  human negatives per required property in each split; post-threshold agreement
+  at least 0.90; balanced accuracy at least 0.85; consistency at least 0.90 over
+  30 items; and at least 20 retained key and figure accepts. Key and figure
+  accepted precision point and bootstrap lower bound must both be at least 0.95.
 - Foundry uncertainty bootstraps slot-level yield and escalation rates through
-  `eval_metrics.bootstrap_ci`. At least two non-empty slots are required for
-  intervals and a green gate. Legacy aggregate summaries report points only.
+  `eval_metrics.bootstrap_ci`. Headline rates are the unweighted means of the
+  same non-empty slot rates; candidate-weighted values are pooled diagnostics.
+  Six non-empty slots across six valid categories are required for green.
+  Escalation point and interval upper bound must both be at most 0.15. Legacy
+  aggregate summaries report points only.
+- `--foundry-summary` accepts one JSON file or a foundry root whose run
+  summaries are aggregated recursively. `--preferences-root` exposes the
+  cross-run Tier 3 audit in the report.
 - Acceptance: the recipe always prints or writes a structurally valid report.
   Red exits nonzero. The offline self-check supplies passing synthetic
   calibration, held-out, and per-slot foundry data and exits 0.
@@ -326,11 +346,12 @@ counts have not been reached, and no Tier 2 or Tier 3 training has begun.
   from the strong generator (per 2402.12366, SFT-first often beats a DPO/RLAIF
   pipeline). Add DPO on the chosen/rejected pairs only if SFT plateaus. Use GSA
   aggregation for the canonical worked solutions. Trigger: preference JSONL with
-  at least `1000` validated pairs across at least `6` blueprint categories,
-  leakage check clean, and the Phase 3 standing eval green on the latest
-  calibration card. Foundry summaries expose the current validated pair and
-  distinct-category counts for this audit. The current design does not claim
-  either count has been reached.
+  at least `1000` validated non-synthetic pairs across at least `6` locked
+  blueprint categories, no cross-run duplicate or audit error, leakage check
+  clean, and the Phase 3 standing eval green on the latest calibration card.
+  Foundry summaries expose the current eligible pair and distinct-category
+  counts for this audit. The current design does not claim either count has
+  been reached.
 
 ## Testing strategy
 
@@ -367,7 +388,9 @@ responsibility.
 - **Verifier trust:** on held-out labels after calibration-only threshold
   fitting, every reported property has raw agreement at or above `0.90`,
   balanced accuracy at or above `0.85`, and measured consistency at or above
-  `0.90`. Key and figure accepted precision is at least `0.95`. Missing evidence
+  `0.90`. Support minima are 30 examples, five examples per human class, and 30
+  consistency items. Key and figure retain 20 accepts and have accepted
+  precision point and lower confidence bound at least `0.95`. Missing evidence
   is red. These bars replace the single misleading kappa.
 - **Content quality of the accepted set:** key correctness at or above the
   existing `0.95` cutoff, distractor quality per problem at or above `0.70`, zero
