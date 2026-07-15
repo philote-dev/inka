@@ -1190,45 +1190,58 @@ def _select_stratum(
     return _fill(pool, chosen, chosen_ids, budget, rng)
 
 
-def _rotated(order: Sequence[str], seed: int) -> list[str]:
-    offset = seed % len(order)
-    return list(order[offset:]) + list(order[:offset])
+def _shadow_family_targets(seed: int) -> dict[str, int]:
+    """Return the exact 14/13/13 family allocation for a seed."""
+    families = sorted(SHADOW_MODEL_FAMILIES)
+    base, remainder = divmod(PRIMARY_PER_STRATUM, len(families))
+    targets = {family: base for family in families}
+    for offset in range(remainder):
+        targets[families[(seed + offset) % len(families)]] += 1
+    return targets
 
 
-def _balanced_targets(
-    available: Mapping[str, int],
-    total: int,
-    order: Sequence[str],
+def _shadow_family_counts(
+    items: Sequence[RulerItem],
+    *,
+    context: str,
 ) -> dict[str, int]:
-    """Water-fill `total` slots across families as evenly as capacity allows."""
-    targets = {family: 0 for family in order}
-    for _ in range(total):
-        candidates = [family for family in order if targets[family] < available[family]]
-        if not candidates:
+    counts = {family: 0 for family in sorted(SHADOW_MODEL_FAMILIES)}
+    for item in items:
+        family = item.metadata.get(_MODEL_FAMILY_KEY)
+        if not isinstance(family, str) or family not in SHADOW_MODEL_FAMILIES:
             raise ValueError(
-                "shadow inputs cannot fill 40 balanced family slots; "
-                f"available per family: {dict(available)}"
+                f"{context} item {item.id!r} declares unknown model family "
+                f"{family!r}; expected one of: "
+                + ", ".join(sorted(SHADOW_MODEL_FAMILIES))
             )
-        best = min(
-            candidates,
-            key=lambda family: (targets[family], order.index(family)),
-        )
-        targets[best] += 1
+        counts[family] += 1
+    return counts
+
+
+def _require_shadow_capacity(
+    items: Sequence[RulerItem],
+    seed: int,
+) -> dict[str, int]:
+    targets = _shadow_family_targets(seed)
+    available = _shadow_family_counts(items, context="shadow input")
+    for family, required in targets.items():
+        if available[family] < required:
+            raise ValueError(
+                f"shadow model family {family!r}: required {required}, "
+                f"available {available[family]} for seed {seed}"
+            )
     return targets
 
 
 def _select_shadow(
     items: Sequence[RulerItem],
-    budget: int,
-    seed: int,
+    targets: Mapping[str, int],
     rng: random.Random,
 ) -> list[RulerItem]:
     families = sorted(SHADOW_MODEL_FAMILIES)
     by_family: dict[str, list[RulerItem]] = {family: [] for family in families}
     for item in items:
         by_family[cast(str, item.metadata.get(_MODEL_FAMILY_KEY))].append(item)
-    available = {family: len(members) for family, members in by_family.items()}
-    targets = _balanced_targets(available, budget, _rotated(families, seed))
     selected: list[RulerItem] = []
     for family in families:
         pool = _by_hash(by_family[family])
@@ -1313,6 +1326,7 @@ def _select_repeats(
     rng: random.Random,
 ) -> list[RulerItem]:
     pool = _by_hash(primary)
+    rng.shuffle(pool)
     chosen, chosen_ids = _reserve(pool, (_dim_stratum, _dim_category), count)
     return _fill(pool, chosen, chosen_ids, count, rng)
 
@@ -1349,7 +1363,10 @@ def _shuffled_display(
         rng.shuffle(order)
         if _display_is_clean(order):
             return order
-    return _separate_adjacent(order)
+    order = _separate_adjacent(order)
+    if not _display_is_clean(order):
+        raise ValueError("unable to separate every hidden repeat from its original")
+    return order
 
 
 def _assemble(
@@ -1435,24 +1452,6 @@ def _require_category_support(items: Sequence[RulerItem]) -> None:
         )
 
 
-def _require_shadow_families(items: Sequence[RulerItem]) -> None:
-    present: set[str] = set()
-    for item in items:
-        family = item.metadata.get(_MODEL_FAMILY_KEY)
-        if not isinstance(family, str) or family not in SHADOW_MODEL_FAMILIES:
-            raise ValueError(
-                f"shadow item {item.id!r} declares unknown model family "
-                f"{family!r}; expected one of: "
-                + ", ".join(sorted(SHADOW_MODEL_FAMILIES))
-            )
-        present.add(family)
-    missing = SHADOW_MODEL_FAMILIES - present
-    if missing:
-        raise ValueError(
-            "shadow inputs are missing model families: " + ", ".join(sorted(missing))
-        )
-
-
 def _require_label_balance(
     primary: Sequence[RulerItem],
     split_of: Mapping[int, str],
@@ -1488,6 +1487,7 @@ def build_ruler(
     items, split 80 calibration and 40 locked validation. All nine blueprint
     categories appear; problem kind, figure presence, intended difficulty, known
     error mode, and shadow model family are stratified as far as support permits.
+    Shadow families receive an exact seed-rotated 14/13/13 allocation.
     Coverage is reserved deterministically after sorting by content hash, then a
     seed-local shuffle fills the remaining slots, so identical inputs and seed are
     byte-stable while a different seed reorders without changing quotas.
@@ -1501,13 +1501,13 @@ def build_ruler(
     _require_stratum_support(failure_items, "failure")
     _require_stratum_support(shadow_items, "shadow")
     _require_category_support([*trusted_items, *failure_items, *shadow_items])
-    _require_shadow_families(shadow_items)
+    shadow_targets = _require_shadow_capacity(shadow_items, seed)
 
     rng = random.Random(seed)
     primary = [
         *_select_stratum(trusted_items, PRIMARY_PER_STRATUM, rng),
         *_select_stratum(failure_items, PRIMARY_PER_STRATUM, rng),
-        *_select_shadow(shadow_items, PRIMARY_PER_STRATUM, seed, rng),
+        *_select_shadow(shadow_items, shadow_targets, rng),
     ]
     split_of = _assign_splits(primary, rng)
     _require_label_balance(primary, split_of)
@@ -1591,14 +1591,40 @@ def _validate_manifest_identity(items: Sequence[RulerItem]) -> None:
         _validate_private_markers(item.to_dict(), f"$.{item.review_id}")
 
 
+def _validate_manifest_splits(primary: Sequence[RulerItem]) -> None:
+    hashes: dict[str, list[str]] = {"calibration": [], "validation": []}
+    for item in primary:
+        hashes[item.split].append(item.content_hash)
+    overlap = set(hashes["calibration"]) & set(hashes["validation"])
+    if overlap:
+        raise ValueError(
+            "calibration/validation split content-hash overlap: "
+            + ", ".join(sorted(overlap))
+        )
+    all_hashes = [item.content_hash for item in primary]
+    if len(set(all_hashes)) != len(all_hashes):
+        raise ValueError("primary manifest items must have unique content hashes")
+
+
+def _validate_manifest_shadow_families(
+    primary: Sequence[RulerItem],
+    seed: int,
+) -> None:
+    shadow = [item for item in primary if item.stratum == "shadow"]
+    actual = _shadow_family_counts(shadow, context="manifest shadow")
+    expected = _shadow_family_targets(seed)
+    if actual != expected:
+        raise ValueError(
+            f"shadow family counts do not match seed {seed}: "
+            f"expected {expected}, actual {actual}"
+        )
+
+
 def _validate_manifest_repeats(
     primary: Sequence[RulerItem],
     repeats: Sequence[RulerItem],
 ) -> None:
     by_review_id = {item.review_id: item for item in primary}
-    primary_hashes = {item.content_hash for item in primary}
-    if len(primary_hashes) != len(primary):
-        raise ValueError("primary manifest items must have unique content hashes")
     for repeat in repeats:
         if repeat.split is not None:
             raise ValueError(
@@ -1613,6 +1639,20 @@ def _validate_manifest_repeats(
         if repeat.content_hash != origin.content_hash:
             raise ValueError(
                 f"repeat {repeat.review_id!r} content does not match its original"
+            )
+
+
+def _validate_manifest_display(items: Sequence[RulerItem]) -> None:
+    for left, right in zip(items, items[1:]):
+        if left.repeat_of == right.review_id:
+            raise ValueError(
+                f"hidden repeat {left.review_id!r} and original "
+                f"{right.review_id!r} are adjacent in display order"
+            )
+        if right.repeat_of == left.review_id:
+            raise ValueError(
+                f"hidden repeat {right.review_id!r} and original "
+                f"{left.review_id!r} are adjacent in display order"
             )
 
 
@@ -1642,9 +1682,9 @@ def validate_manifest(manifest: RulerManifest) -> None:
     """Recompute every ruler invariant, raising on the first violation.
 
     Checks locked counts, 40/40/40 strata, the 80/40 split, unique opaque review
-    IDs, immutable-hash round trips, split disjointness, repeat references, split
-    category coverage where feasible, and the absence of private markers. It never
-    requires human labels.
+    IDs, immutable-hash round trips, split hash disjointness, exact shadow-family
+    counts, repeat references and non-adjacency, split category coverage where
+    feasible, and the absence of private markers. It never requires human labels.
     """
     if not isinstance(manifest, RulerManifest):
         raise ValueError("validate_manifest requires a RulerManifest")
@@ -1652,5 +1692,8 @@ def validate_manifest(manifest: RulerManifest) -> None:
     repeats = [item for item in manifest.items if item.repeat_of is not None]
     _validate_manifest_counts(primary, repeats)
     _validate_manifest_identity(manifest.items)
+    _validate_manifest_splits(primary)
+    _validate_manifest_shadow_families(primary, manifest.seed)
     _validate_manifest_repeats(primary, repeats)
+    _validate_manifest_display(manifest.items)
     _validate_manifest_coverage(primary)

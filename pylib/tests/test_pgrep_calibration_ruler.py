@@ -6,8 +6,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import random
 from collections import Counter
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -1016,6 +1018,20 @@ def _fixture_items(
     ]
 
 
+def _shadow_items_with_family_counts(
+    counts: dict[str, int],
+) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    index = 0
+    for family in sorted(counts):
+        for _ in range(counts[family]):
+            item = _fixture_item("shadow", index)
+            item["model_family"] = family
+            items.append(item)
+            index += 1
+    return items
+
+
 def _inputs(
     count: int = 60,
 ) -> tuple[
@@ -1073,6 +1089,18 @@ def test_same_seed_is_byte_stable() -> None:
     assert first == second
 
 
+def test_input_order_does_not_change_manifest() -> None:
+    trusted, failures, shadow = _inputs()
+    first = calibration_ruler.build_ruler(trusted, failures, shadow, seed=7)
+    second = calibration_ruler.build_ruler(
+        list(reversed(trusted)),
+        list(reversed(failures)),
+        list(reversed(shadow)),
+        seed=7,
+    )
+    assert first.to_dict() == second.to_dict()
+
+
 def test_different_seed_changes_order_but_not_quotas() -> None:
     first = calibration_ruler.build_ruler(*_inputs(), seed=7)
     second = calibration_ruler.build_ruler(*_inputs(), seed=11)
@@ -1100,6 +1128,15 @@ def test_shadow_families_are_balanced() -> None:
     assert max(families.values()) - min(families.values()) <= 1
 
 
+@pytest.mark.parametrize("seed", range(6))
+def test_shadow_extra_family_rotates_exactly_with_seed(seed: int) -> None:
+    manifest = calibration_ruler.build_ruler(*_inputs(), seed=seed)
+    shadow = [item for item in _primary(manifest) if item.stratum == "shadow"]
+    expected = {family: 13 for family in sorted(_FAMILIES)}
+    expected[sorted(_FAMILIES)[seed % len(_FAMILIES)]] = 14
+    assert Counter(item.metadata["model_family"] for item in shadow) == expected
+
+
 def test_repeats_reference_originals_and_leave_support_untouched() -> None:
     manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
     primary = _primary(manifest)
@@ -1121,6 +1158,43 @@ def test_repeats_reference_originals_and_leave_support_untouched() -> None:
     )
 
 
+def test_repeat_selection_is_seeded_across_feasible_candidates() -> None:
+    primary = _primary(calibration_ruler.build_ruler(*_inputs(), seed=7))
+    first = calibration_ruler._select_repeats(
+        primary,
+        calibration_ruler.REPEAT_COUNT,
+        random.Random(19),
+    )
+    same = calibration_ruler._select_repeats(
+        primary,
+        calibration_ruler.REPEAT_COUNT,
+        random.Random(19),
+    )
+    different = calibration_ruler._select_repeats(
+        primary,
+        calibration_ruler.REPEAT_COUNT,
+        random.Random(23),
+    )
+
+    assert [item.content_hash for item in first] == [item.content_hash for item in same]
+    assert {item.content_hash for item in first} != {
+        item.content_hash for item in different
+    }
+    coverage_slots = len(calibration_ruler.BLUEPRINT_CATEGORIES)
+    assert [item.content_hash for item in first[:coverage_slots]] != [
+        item.content_hash for item in different[:coverage_slots]
+    ]
+    for selected in (first, different):
+        assert {item.stratum for item in selected} == {
+            "trusted",
+            "failure",
+            "shadow",
+        }
+        assert {item.blueprint_category for item in selected} == set(
+            calibration_ruler.BLUEPRINT_CATEGORIES
+        )
+
+
 def test_review_ids_are_opaque_and_sequential() -> None:
     manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
     primary_ids = sorted(item.review_id for item in _primary(manifest))
@@ -1135,6 +1209,18 @@ def test_no_repeat_is_adjacent_to_its_original() -> None:
         hashes = [item.content_hash for item in manifest.items]
         for left, right in zip(hashes, hashes[1:]):
             assert left != right
+
+
+def test_display_shuffle_fails_when_separation_is_impossible() -> None:
+    item = calibration_ruler.RulerItem.from_source_item(
+        _fixture_item("trusted", 0),
+        stratum="trusted",
+    )
+    with pytest.raises(ValueError, match="unable to separate"):
+        calibration_ruler._shuffled_display(
+            [("primary", item), ("repeat", item)],
+            random.Random(7),
+        )
 
 
 def test_hidden_fields_never_enter_pass_a_projection() -> None:
@@ -1216,6 +1302,30 @@ def test_absent_shadow_family_fails_before_sampling() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("family", "required"),
+    [("grok", 14), ("opus", 13), ("sol", 13)],
+)
+def test_insufficient_shadow_family_capacity_is_rejected(
+    family: str,
+    required: int,
+) -> None:
+    counts = {candidate: 20 for candidate in _FAMILIES}
+    counts[family] = required - 1
+    shadow = _shadow_items_with_family_counts(counts)
+
+    with pytest.raises(
+        ValueError,
+        match=rf"family {family!r}.*required {required}.*available {required - 1}",
+    ):
+        calibration_ruler.build_ruler(
+            _fixture_items("trusted", 60),
+            _fixture_items("failure", 60),
+            shadow,
+            seed=0,
+        )
+
+
 def test_unlabeled_inputs_do_not_require_human_labels() -> None:
     manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
     assert len(_primary(manifest)) == 120
@@ -1269,4 +1379,73 @@ def test_validate_manifest_detects_count_tampering() -> None:
     cast(list[object], payload["items"]).pop()
     tampered = calibration_ruler.RulerManifest.from_dict(payload)
     with pytest.raises(ValueError):
+        calibration_ruler.validate_manifest(tampered)
+
+
+def test_validate_manifest_rejects_adjacent_repeat_and_original() -> None:
+    manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
+    items = list(manifest.items)
+    repeat = next(item for item in items if item.repeat_of is not None)
+    items.remove(repeat)
+    origin_index = next(
+        index for index, item in enumerate(items) if item.review_id == repeat.repeat_of
+    )
+    items.insert(origin_index + 1, repeat)
+    tampered = calibration_ruler.RulerManifest(tuple(items), manifest.seed)
+
+    with pytest.raises(ValueError, match="adjacent"):
+        calibration_ruler.validate_manifest(tampered)
+
+
+def test_validate_manifest_rejects_calibration_validation_hash_overlap() -> None:
+    manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
+    items = list(manifest.items)
+    calibration_index, calibration_item = next(
+        (index, item)
+        for index, item in enumerate(items)
+        if item.repeat_of is None
+        and item.stratum == "trusted"
+        and item.split == "calibration"
+    )
+    validation_item = next(
+        item
+        for item in items
+        if item.repeat_of is None
+        and item.stratum == "trusted"
+        and item.split == "validation"
+    )
+    items[calibration_index] = replace(
+        validation_item,
+        review_id=calibration_item.review_id,
+        split="calibration",
+    )
+    tampered = calibration_ruler.RulerManifest(tuple(items), manifest.seed)
+
+    with pytest.raises(ValueError, match="split.*overlap"):
+        calibration_ruler.validate_manifest(tampered)
+
+
+def test_validate_manifest_rejects_shadow_family_count_tampering() -> None:
+    manifest = calibration_ruler.build_ruler(*_inputs(), seed=7)
+    items = list(manifest.items)
+    expected = {family: 13 for family in sorted(_FAMILIES)}
+    extra = sorted(_FAMILIES)[manifest.seed % len(_FAMILIES)]
+    expected[extra] = 14
+    replacement_family = next(
+        family for family, count in expected.items() if count == 13
+    )
+    index, item = next(
+        (index, item)
+        for index, item in enumerate(items)
+        if item.repeat_of is None
+        and item.stratum == "shadow"
+        and item.metadata["model_family"] == extra
+    )
+    items[index] = replace(
+        item,
+        metadata={**item.metadata, "model_family": replacement_family},
+    )
+    tampered = calibration_ruler.RulerManifest(tuple(items), manifest.seed)
+
+    with pytest.raises(ValueError, match="shadow family counts"):
         calibration_ruler.validate_manifest(tampered)
