@@ -46,3 +46,18 @@ def test_push_inset_is_a_noop_without_a_webview() -> None:
     mw = types.SimpleNamespace(pgrep_web=None)
     # No pgrep webview means nothing to eval into; must not raise.
     pgrep_titlebar.push_inset(mw)
+
+
+def test_install_is_idempotent_when_already_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A window can be shown more than once (headless dev-window re-show), so a
+    # second install must not build a second strip; it refreshes the existing one.
+    relaid = {"count": 0}
+    existing = types.SimpleNamespace(relayout=lambda: relaid.__setitem__("count", 1))
+    mw = types.SimpleNamespace(pgrep_web=None, _pgrep_titlebar_drag=existing)
+    monkeypatch.setattr(pgrep_titlebar, "_current_mode", lambda _mw: "exclusive")
+    monkeypatch.setattr(pgrep_titlebar, "_running_on_mac", lambda: True)
+    pgrep_titlebar.install(mw)
+    assert mw._pgrep_titlebar_drag is existing
+    assert relaid["count"] == 1

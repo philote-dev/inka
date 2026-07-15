@@ -1037,6 +1037,12 @@ def dev_show_window() -> Response:
         mw.show()
         mw.activateWindow()
         mw.raise_()
+        # The headless boot skips loadProfile's show branch, so install the
+        # macOS title-bar drag strip here too (idempotent). Without this the
+        # dev-window/review window has no draggable top edge.
+        from aqt import pgrep_titlebar
+
+        pgrep_titlebar.install(mw)
 
     aqt.mw.taskman.run_on_main(show)
     return _text_response(HTTPStatus.OK, "ok")

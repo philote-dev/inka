@@ -144,9 +144,17 @@ def push_inset(mw: aqt.main.AnkiQt) -> None:
 def install(mw: aqt.main.AnkiQt) -> None:
     """Create the drag strip and start tracking the safe-area inset.
 
-    Call once, after the main window is shown. Inert unless mac plus exclusive.
+    Call after the main window is shown, on every show path (the normal run and
+    the headless dev-window/review re-show). Idempotent: a second call refreshes
+    the existing strip rather than building another. Inert unless mac plus
+    exclusive.
     """
     if not native_titlebar_enabled(_current_mode(mw), _running_on_mac()):
+        return
+    existing = getattr(mw, "_pgrep_titlebar_drag", None)
+    if existing is not None:
+        existing.relayout()
+        push_inset(mw)
         return
     strip = PgrepTitleBarDrag(mw)
     strip.show()
