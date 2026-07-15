@@ -520,6 +520,13 @@ def _duplicate_identity(
     return None
 
 
+def _read_audit_lines(path: Path, label: str) -> tuple[list[str], list[str]]:
+    try:
+        return path.read_text(encoding="utf-8").splitlines(), []
+    except OSError as error:
+        return [], [f"{label}: could not read file: {error}"]
+
+
 def audit_preferences(root: str | Path) -> dict[str, Any]:
     """Validate and summarize every preferences.jsonl below ``root``."""
     root_path = Path(root)
@@ -538,11 +545,8 @@ def audit_preferences(root: str | Path) -> dict[str, Any]:
     synthetic_excluded = 0
     for path in files:
         label = _audit_file_label(root_path, path)
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError as error:
-            errors.append(f"{label}: could not read file: {error}")
-            continue
+        lines, read_errors = _read_audit_lines(path, label)
+        errors.extend(read_errors)
         for lineno, line in enumerate(lines, start=1):
             location = f"{label}:line {lineno}"
             record, is_synthetic, row_errors = _audit_preference_line(
