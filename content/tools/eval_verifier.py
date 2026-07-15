@@ -184,6 +184,21 @@ def _interval(values: list[float], seed: int) -> dict[str, float]:
     return eval_metrics.bootstrap_ci(values, seed=seed).as_dict()
 
 
+def wilson_lower_bound(successes: int, total: int) -> float | None:
+    """Deterministic two-sided 95% Wilson lower bound for a binomial rate."""
+    if total <= 0 or successes < 0 or successes > total:
+        return None
+    z = 1.959963984540054
+    proportion = successes / total
+    z_squared = z * z
+    denominator = 1.0 + z_squared / total
+    center = proportion + z_squared / (2.0 * total)
+    margin = z * math.sqrt(
+        proportion * (1.0 - proportion) / total + z_squared / (4.0 * total * total)
+    )
+    return (center - margin) / denominator
+
+
 def _json_number(value: float) -> float | None:
     return value if math.isfinite(value) else None
 
@@ -352,6 +367,7 @@ def _heldout_report(
                 "accepted_precision_ci": None,
             }
             accepted = 0
+            accepted_correct = 0
         else:
             report = _prediction_report(
                 name,
@@ -360,6 +376,10 @@ def _heldout_report(
                 seed=seed,
             )
             accepted = sum(post_predictions)
+            accepted_correct = sum(
+                predicted and human
+                for predicted, human in zip(post_predictions, item.human)
+            )
         report.update(
             {
                 "item_count": len(item.item_ids),
@@ -383,6 +403,10 @@ def _heldout_report(
                 "eligible": eligible,
                 "accepted": accepted,
                 "accepted_precision": report["precision"],
+                "accepted_precision_wilson_lower": wilson_lower_bound(
+                    accepted_correct,
+                    accepted,
+                ),
             }
         )
         properties.append(report)
@@ -451,6 +475,14 @@ def evaluate_foundry_summary(payload: object, *, seed: int = BOOTSTRAP_SEED) -> 
     raw_slots = payload["slots"]
     if not isinstance(raw_slots, list):
         raise ValueError("foundry summary.slots must be an array")
+    excluded_synthetic_run_count = (
+        _count(
+            payload["excluded_synthetic_run_count"],
+            "foundry summary.excluded_synthetic_run_count",
+        )
+        if "excluded_synthetic_run_count" in payload
+        else 0
+    )
     slots: list[dict] = []
     categories: set[str] = set()
     non_empty_categories: set[str] = set()
@@ -522,6 +554,7 @@ def evaluate_foundry_summary(payload: object, *, seed: int = BOOTSTRAP_SEED) -> 
         "ci_slot_count": len(yield_values),
         "category_count": len(non_empty_categories),
         "reported_category_count": len(categories),
+        "excluded_synthetic_run_count": excluded_synthetic_run_count,
         "slots": slots,
     }
 
@@ -707,6 +740,11 @@ def _standing_gates(
             heldout_property.get("accepted_precision_ci") if heldout_property else None
         )
         retained = heldout_property.get("accepted") if heldout_property else 0
+        wilson_low = (
+            heldout_property.get("accepted_precision_wilson_lower")
+            if heldout_property
+            else None
+        )
         checks.append(
             _check(
                 f"heldout.{name}.retained_accepts",
@@ -725,13 +763,26 @@ def _standing_gates(
         checks.append(
             _check(
                 f"heldout.{name}.accepted_precision",
-                {"point": accepted_precision, "ci_low": ci_low},
-                {"point": TARGET_PRECISION, "ci_low": TARGET_PRECISION},
+                {
+                    "point": accepted_precision,
+                    "ci_low": ci_low,
+                    "wilson_low": wilson_low,
+                },
+                {
+                    "point": TARGET_PRECISION,
+                    "ci_low": TARGET_PRECISION,
+                    "wilson_low": TARGET_PRECISION,
+                },
                 _at_least(accepted_precision, TARGET_PRECISION)
                 and _at_least(ci_low, TARGET_PRECISION)
+                and _at_least(wilson_low, TARGET_PRECISION)
                 and isinstance(retained, int)
                 and retained >= MIN_RETAINED_ACCEPTS,
-                {"retained": retained, "interval": accepted_ci},
+                {
+                    "retained": retained,
+                    "interval": accepted_ci,
+                    "wilson_lower": wilson_low,
+                },
                 (
                     f"heldout.properties.{name}.accepted_precision"
                     if accepted_precision is not None
@@ -867,14 +918,26 @@ def load_foundry_summary(path: str | Path) -> object:
     if not source.is_dir():
         return _load_json(str(source), "foundry summary")
 
-    files = sorted(source.rglob("summary.json"))
-    if not files:
-        raise ValueError(f"foundry root {source} has no summary.json files")
+    run_dirs = preference.finalized_run_directories(source)
+    if not run_dirs:
+        raise ValueError(f"foundry root {source} has no finalized runs")
     slots: list[dict] = []
-    for summary_path in files:
+    excluded_synthetic = 0
+    for run_dir in run_dirs:
+        summary_path = run_dir / "summary.json"
+        if not summary_path.is_file():
+            raise ValueError(f"finalized foundry run {run_dir} has no summary.json")
         payload = _load_json(str(summary_path), "foundry summary")
         if not isinstance(payload, dict):
             raise ValueError(f"foundry summary {summary_path} must be an object")
+        synthetic = payload.get("synthetic")
+        if type(synthetic) is not bool:
+            raise ValueError(
+                f"foundry summary {summary_path}.synthetic must be a boolean"
+            )
+        if synthetic:
+            excluded_synthetic += 1
+            continue
         category = payload.get("blueprint_category")
         if (
             not isinstance(category, str)
@@ -886,17 +949,21 @@ def load_foundry_summary(path: str | Path) -> object:
             )
         counts = _partition_counts(payload, f"foundry summary {summary_path}")
         slots.append({"blueprint_category": category, **counts})
-    return {"slots": slots}
+    return {
+        "slots": slots,
+        "included_run_count": len(slots),
+        "excluded_synthetic_run_count": excluded_synthetic,
+    }
 
 
 def _self_check() -> dict:
     def passing_property(prefix: str) -> dict:
-        predicted = [True] * 24 + [False] * 6
+        predicted = [True] * 110 + [False] * 10
         return {
-            "item_ids": [f"{prefix}-{index}" for index in range(30)],
+            "item_ids": [f"{prefix}-{index}" for index in range(120)],
             "predicted": predicted,
             "human": list(predicted),
-            "confidence": [0.95] * 24 + [0.2] * 6,
+            "confidence": [0.95] * 110 + [0.2] * 10,
             "runs": [
                 list(predicted),
                 list(predicted),

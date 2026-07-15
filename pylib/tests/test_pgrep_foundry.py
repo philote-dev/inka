@@ -64,8 +64,9 @@ def test_run_slot_rejects_refusal_without_calling_panel():
         {
             "refused": True,
             "refusal_reason": "missing source",
-            "panel": {"decision": "reject", "checks": []},
+            "panel": {"decision": "reject", "checks": [], "refusal": True},
             "reason": "missing source",
+            "preference_exclusion_reason": "panel refusal: missing source",
         }
     ]
     assert result.yield_rate == 0.0

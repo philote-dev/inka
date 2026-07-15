@@ -71,6 +71,10 @@ def _write_pair(path: Path, pair: dict) -> None:
     path.write_text(json.dumps(pair) + "\n", encoding="utf-8")
 
 
+def _finalize(path: Path) -> None:
+    (path.parent / "_SUCCESS").write_text("ok\n", encoding="utf-8")
+
+
 def _write_index(path: Path, source_refs: list[str]) -> None:
     database = sqlite3.connect(path)
     try:
@@ -117,13 +121,20 @@ def test_foundry_cli_writes_preferences_in_run_directory(tmp_path: Path) -> None
     assert rows[0]["rejected"]["id"] == "dry-2"
     assert rows[0]["chosen"]["source_ref"].startswith("synthetic://foundry/")
     assert rows[0]["synthetic"] is True
+    assert (tmp_path / "run-42" / "_SUCCESS").is_file()
     summary = json.loads((tmp_path / "run-42" / "summary.json").read_text())
     assert summary["blueprint_category"] == "optics_waves"
-    assert summary["preferences"] == {
-        "validated_pair_count": 1,
-        "pair_count": 0,
-        "category_count": 0,
-        "categories": [],
+    assert summary["synthetic"] is True
+    assert summary["preference_summary"] == {
+        "emitted": 1,
+        "excluded": 0,
+        "exclusion_reasons": {},
+        "pair_counts": {
+            "validated_pair_count": 1,
+            "pair_count": 0,
+            "category_count": 0,
+            "categories": [],
+        },
     }
 
 
@@ -150,6 +161,40 @@ def test_foundry_cli_defaults_category_to_mechanics(tmp_path: Path) -> None:
         .splitlines()[0]
     )
     assert pair["slot"]["blueprint_category"] == "mechanics"
+
+
+def test_publication_excludes_refusal_and_reports_reason(tmp_path: Path) -> None:
+    accepted = foundry._dry_run("dynamics", 1, category="mechanics").accepted[0]
+    refusal = {
+        "refused": True,
+        "refusal_reason": "generation incomplete",
+        "panel": {
+            "decision": "reject",
+            "checks": [],
+            "refusal": True,
+        },
+        "reason": "generation incomplete",
+        "preference_exclusion_reason": "panel refusal",
+    }
+    result = foundry.foundry_loop.SlotResult(
+        accepted=[accepted],
+        rejected=[refusal],
+    )
+
+    run_dir = foundry._write_result(
+        str(tmp_path),
+        "refusal-run",
+        result,
+        {"topic": "dynamics", "blueprint_category": "mechanics"},
+        synthetic=True,
+    )
+
+    assert (run_dir / "_SUCCESS").is_file()
+    assert (run_dir / "preferences.jsonl").read_text() == ""
+    summary = json.loads((run_dir / "summary.json").read_text())
+    assert summary["preference_summary"]["emitted"] == 0
+    assert summary["preference_summary"]["excluded"] == 1
+    assert summary["preference_summary"]["exclusion_reasons"] == {"panel_refusal": 1}
 
 
 @pytest.mark.parametrize(
@@ -264,7 +309,7 @@ def test_foundry_cli_surfaces_pair_validation_error(tmp_path: Path, capsys) -> N
         patch.object(sys, "argv", argv),
         patch.object(
             foundry.preference,
-            "pairs_from_slot",
+            "build_pairs_from_slot",
             side_effect=ValueError("invalid preference pair: chosen.source_ref"),
         ),
         pytest.raises(SystemExit) as exc,
@@ -317,6 +362,7 @@ def test_foundry_preference_check_scans_nested_jsonl(tmp_path: Path):
     }
     path = tmp_path / "nested" / "run-1" / "preferences.jsonl"
     _write_pair(path, pair)
+    _finalize(path)
 
     result = leakage_check.check_foundry_preferences(
         [], leakage_check.DEFAULT_SPAN_THRESHOLD, foundry_dir=str(tmp_path)
@@ -332,6 +378,7 @@ def test_foundry_preference_check_flags_private_copy_in(tmp_path: Path):
     pair["chosen"]["stem"] = private_text
     path = tmp_path / "run-1" / "preferences.jsonl"
     _write_pair(path, pair)
+    _finalize(path)
 
     result = leakage_check.check_foundry_preferences(
         [("gold:synthetic", private_text)], 25, foundry_dir=str(tmp_path)
@@ -345,6 +392,7 @@ def test_foundry_preference_check_verifies_corpus_source_refs(tmp_path: Path):
     pair = _valid_pair()
     path = tmp_path / "foundry" / "run-1" / "preferences.jsonl"
     _write_pair(path, pair)
+    _finalize(path)
     db_path = tmp_path / "corpus.db"
     _write_index(
         db_path,
@@ -366,6 +414,7 @@ def test_foundry_preference_check_rejects_unknown_source_ref(tmp_path: Path):
     pair = _valid_pair()
     path = tmp_path / "foundry" / "run-1" / "preferences.jsonl"
     _write_pair(path, pair)
+    _finalize(path)
     db_path = tmp_path / "corpus.db"
     _write_index(db_path, [pair["chosen"]["source_ref"]])
 
@@ -383,6 +432,7 @@ def test_foundry_preference_check_rejects_unknown_source_ref(tmp_path: Path):
 def test_foundry_preference_check_requires_index_when_files_exist(tmp_path: Path):
     path = tmp_path / "foundry" / "run-1" / "preferences.jsonl"
     _write_pair(path, _valid_pair())
+    _finalize(path)
 
     result = leakage_check.check_foundry_preferences(
         [],
@@ -401,6 +451,8 @@ def test_foundry_preference_check_rejects_cross_run_duplicates(tmp_path: Path):
     duplicate["run_id"] = "run-2"
     _write_pair(tmp_path / "run-1" / "preferences.jsonl", first)
     _write_pair(tmp_path / "run-2" / "preferences.jsonl", duplicate)
+    _finalize(tmp_path / "run-1" / "preferences.jsonl")
+    _finalize(tmp_path / "run-2" / "preferences.jsonl")
     db_path = tmp_path / "corpus.db"
     _write_index(
         db_path,
@@ -416,6 +468,38 @@ def test_foundry_preference_check_rejects_cross_run_duplicates(tmp_path: Path):
 
     assert not result.ok
     assert any("duplicate chosen/rejected pair" in hit for hit in result.hits)
+
+
+def test_leakage_discovery_only_reads_finalized_runs(tmp_path: Path):
+    valid = _valid_pair()
+    finalized = tmp_path / "run-final" / "preferences.jsonl"
+    active = tmp_path / ".run-active.tmp" / "preferences.jsonl"
+    orphan = tmp_path / "run-orphan" / "preferences.jsonl"
+    bare = tmp_path / "preferences.jsonl"
+    _write_pair(finalized, valid)
+    _finalize(finalized)
+
+    invalid = json.loads(json.dumps(valid))
+    invalid["chosen"]["source_ref"] = "content/gold/private.json"
+    for path in (active, orphan, bare):
+        _write_pair(path, invalid)
+    _finalize(active)
+
+    db_path = tmp_path / "corpus.db"
+    _write_index(
+        db_path,
+        [valid["chosen"]["source_ref"], valid["rejected"]["source_ref"]],
+    )
+
+    result = leakage_check.check_foundry_preferences(
+        [],
+        leakage_check.DEFAULT_SPAN_THRESHOLD,
+        foundry_dir=str(tmp_path),
+        db_path=str(db_path),
+    )
+
+    assert result.ok
+    assert "1 foundry preference file" in result.detail
 
 
 def test_run_checks_includes_foundry_preference_check(tmp_path: Path):
