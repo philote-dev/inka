@@ -30,6 +30,17 @@ def test_inset_script_sets_the_custom_property() -> None:
     assert "'34px'" in pgrep_titlebar.titlebar_inset_script(34.7)  # type: ignore[arg-type]
 
 
+def test_clamp_inset_never_below_the_floor() -> None:
+    floor = pgrep_titlebar._DEFAULT_INSET
+    # Zero or too-small reported margins are lifted to the floor, so content can
+    # never under-inset and collide with the traffic lights.
+    assert pgrep_titlebar.clamp_inset(0) == floor
+    assert pgrep_titlebar.clamp_inset(-5) == floor
+    assert pgrep_titlebar.clamp_inset(floor - 1) == floor
+    # A larger real safe area is honored as-is.
+    assert pgrep_titlebar.clamp_inset(floor + 24) == floor + 24
+
+
 def test_install_is_a_noop_when_not_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

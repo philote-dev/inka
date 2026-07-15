@@ -60,6 +60,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     // window.
     let pageEl: HTMLElement | undefined;
 
+    // A scroll-edge shadow under the transparent title bar fades in only once the
+    // content panel has scrolled, matching native titlebarSeparatorStyle instead
+    // of a permanent line.
+    let scrolled = false;
+    function onPageScroll(): void {
+        scrolled = (pageEl?.scrollTop ?? 0) > 2;
+    }
+
     // The opening splash plays once per app load. This layout mounts once per
     // webview load, not on client navigation, so it does not replay as the
     // learner moves between surfaces. It is skippable inside the component.
@@ -207,7 +215,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             </button>
         {/if}
 
-        <main class="page" bind:this={pageEl}>
+        <main class="page" bind:this={pageEl} on:scroll={onPageScroll}>
+            <div class="scroll-edge" class:scrolled aria-hidden="true"></div>
             {#if showLanding}
                 <Landing onLater={() => (landingDismissed = true)} />
             {:else}
@@ -238,9 +247,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     /* macOS product: the window uses an expanded client area under a transparent
        title bar (pgrep_host.apply_native_titlebar), so the surface fills to the
-       very top. Inset it by the title-bar height so the rail and its collapsed
-       controls clear the floating traffic lights. */
-    :global(body.pgrep-native-titlebar) .shell {
+       very top. Structure (the shell and the rail divider) runs full height to
+       the top edge; only the content columns are inset by the title-bar safe
+       area, so the divider reaches the top and nothing collides with the
+       floating traffic lights. */
+    :global(body.pgrep-native-titlebar) .page {
         padding-top: var(--pgrep-titlebar-inset, 28px);
     }
 
@@ -257,6 +268,39 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         min-width: 0;
         overflow-y: auto;
         overscroll-behavior: contain;
+    }
+
+    /* Scroll-edge shadow: a hairline under the title-bar band that fades in only
+       once the content panel has scrolled, so the top does not need a permanent
+       divider. Scoped to the native title bar; the browser dev surface is
+       unchanged. Pinned to the band bottom via the safe-area inset. */
+    .scroll-edge {
+        position: sticky;
+        top: 0;
+        height: 0;
+        z-index: 5;
+        pointer-events: none;
+    }
+
+    .scroll-edge::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: var(--border);
+        box-shadow: 0 6px 12px -6px rgba(0, 0, 0, 0.25);
+        opacity: 0;
+        transition: opacity var(--duration-calm) var(--ease-spring);
+    }
+
+    :global(body.pgrep-native-titlebar) .scroll-edge {
+        top: var(--pgrep-titlebar-inset, 28px);
+    }
+
+    :global(body.pgrep-native-titlebar) .scroll-edge.scrolled::after {
+        opacity: 1;
     }
 
     /* Restore affordances, shown only while the rail is collapsed. */
@@ -359,6 +403,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
         .rail-scrim {
             animation: none;
+        }
+
+        .scroll-edge::after {
+            transition: none;
         }
     }
 </style>

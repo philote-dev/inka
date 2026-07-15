@@ -60,11 +60,21 @@ def _current_mode(mw: aqt.main.AnkiQt) -> str:
     return pgrep_host.surface_mode(mw)
 
 
+def clamp_inset(reported: int) -> int:
+    """Clamp Qt's reported top margin to a safe floor.
+
+    The floor guarantees content is never inset below the platform minimum, even
+    if Qt momentarily reports a zero or too-small margin before the real safe
+    area is known. This is what makes the traffic-light clearance collision-free.
+    """
+    return max(reported, _DEFAULT_INSET)
+
+
 def _safe_area_top(mw: aqt.main.AnkiQt) -> int:
-    """The true traffic-light inset in px, or the fallback before Qt reports it."""
+    """The true traffic-light inset in px, clamped to the safe-area floor."""
     handle = mw.windowHandle()
-    top = handle.safeAreaMargins().top() if handle is not None else 0
-    return top if top > 0 else _DEFAULT_INSET
+    reported = handle.safeAreaMargins().top() if handle is not None else 0
+    return clamp_inset(reported)
 
 
 class PgrepTitleBarDrag(QWidget):

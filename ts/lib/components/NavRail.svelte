@@ -158,6 +158,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         flex: 0 0 auto;
         width: var(--rail-width);
         border-right: var(--hairline);
+        position: relative;
         display: flex;
         flex-direction: column;
         padding: 28px 16px 24px;
@@ -182,6 +183,37 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             width var(--duration-calm) var(--ease-spring),
             padding var(--duration-calm) var(--ease-spring),
             visibility 0s linear var(--duration-calm);
+    }
+
+    /* macOS product: the rail runs full height under the transparent title bar.
+       Its content is inset to clear the floating traffic lights, and the divider
+       is drawn as a masked pseudo-element that fades out over the top band rather
+       than running into the lights or hard-terminating below them. Non-mac keeps
+       the plain full-height hairline border. */
+    :global(body.pgrep-native-titlebar) .rail {
+        padding-top: calc(var(--pgrep-titlebar-inset, 28px) + 12px);
+        border-right-color: transparent;
+    }
+
+    :global(body.pgrep-native-titlebar) .rail::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 1px;
+        background: var(--border);
+        -webkit-mask-image: linear-gradient(
+            to bottom,
+            transparent 0,
+            #000 var(--pgrep-titlebar-inset, 28px)
+        );
+        mask-image: linear-gradient(
+            to bottom,
+            transparent 0,
+            #000 var(--pgrep-titlebar-inset, 28px)
+        );
+        pointer-events: none;
     }
 
     @media (prefers-reduced-motion: reduce) {

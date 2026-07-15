@@ -93,6 +93,39 @@ the whole-window rubber-band, because the document itself no longer scrolls.
   (`+page.svelte` Home, `library/+page.svelte`) switch to `100%` or `100dvh` so
   they fill the panel instead of forcing a second scrollbar inside it.
 
+## Part 4: full-height structure, inset content, faded divider (refinement)
+
+The first pass inset the whole shell (`padding-top` on `.shell`), which pushed
+the rail and its `border-right` down so the divider stopped short of the top and
+read as incomplete. The governing principle from the macOS full-height sidebar
+pattern (WWDC20) is to separate structure from content: the columns and the
+divider fill to the window's top edge, and only the content is inset by the
+title-bar safe area.
+
+- Move the inset off `.shell` and onto the two content columns:
+  - `.page` gets `padding-top: var(--pgrep-titlebar-inset, 28px)` (native only).
+  - `.rail` gets a native top padding so the brand and nav clear the lights.
+  - `.shell` no longer pads, so the rail runs full height.
+- Divider: the rail's right divider fades out over the top band rather than
+  running into the floating traffic lights or hard-terminating below them. A
+  masked pseudo-element (a `linear-gradient` mask over the top inset) gives the
+  intentional fade; non-mac keeps the plain full-height hairline.
+- Scroll-edge shadow: a subtle separator under the band that fades in only once
+  the content panel has scrolled, matching native `titlebarSeparatorStyle`
+  behavior, instead of a permanent line.
+
+### The collision guarantee
+
+Content cannot collide with the traffic lights by construction:
+`QWindow.safeAreaMargins().top()` is the platform's own definition of the region
+where content would be obscured, so insetting content by it removes overlap by
+definition. The inset is applied on the shared shell columns, so every surface
+inherits it, and `_safe_area_top` clamps to a floor (`max(reported, 28px)`) so it
+can never under-inset. Two residual caveats, both designed around: a sub-second
+first-paint frame uses the CSS fallback before the pushed value lands, and any
+future `position: fixed` element placed in the top-left must use the
+`--pgrep-titlebar-inset` variable itself.
+
 ## Non-goals
 
 - No change to `hosted`, `off`, non-mac, or the dev lab (`/pgrep-lab`).
