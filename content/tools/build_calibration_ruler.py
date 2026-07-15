@@ -46,7 +46,11 @@ import shadow_foundry  # noqa: E402
 from pgrep.ai import (  # type: ignore[import-not-found]  # noqa: E402
     calibration_ruler,
     calibration_sheet,
+    shadow_portfolio,
 )
+
+_BUILDER_SOURCE_PATH = Path(__file__).resolve()
+_LOADED_BUILDER_SHA256 = hashlib.sha256(_BUILDER_SOURCE_PATH.read_bytes()).hexdigest()
 
 REPO_ROOT = _AI_ROOT.parents[1]
 CONTENT_RUN_ROOT = REPO_ROOT / "content" / "run"
@@ -67,11 +71,14 @@ _SHADOW_FAMILIES = ("sol", "opus", "grok")
 # Broad dataset tokens forbidden in an input file path or anywhere inside a
 # trusted/failure item. Ruler inputs must never be drawn from gold, held-out,
 # ETS, or tier-3 sources.
-_PRIVATE_MARKER = re.compile(
+_PRIVATE_DATASET_MARKER = re.compile(
     r"(?i)(?<![a-z0-9])(?:"
-    r"gold|ets|gr9677|gr1777"
+    r"ets|gr9677|gr1777"
     r"|held[\s_./\\-]*out"
     r"|tier[\s_./\\-]*3"
+    r"|content[/\\]+gold(?=$|[/\\._:-])"
+    r"|gold[\s_.-]+(?:set|items?|dataset|corpus|\d+)(?![a-z0-9])"
+    r"|gold(?=[/\\])"
     r")(?![a-z0-9])"
 )
 
@@ -87,7 +94,8 @@ _RELATIVE_PATH = re.compile(
     r"(?i)(?:^|[\s\"'=(:])(?:\.\.?[/\\]|~[/\\]|"
     r"(?:content|pylib|qt|rslib|tools|docs_pgrep|\.git)[/\\])"
     r"|(?<![A-Za-z0-9])(?:[A-Za-z0-9_.-]+[/\\])+"
-    r"[A-Za-z0-9_.-]+\.(?:jsonl?|db|sqlite|pdf|py|toml|ya?ml|env|md|txt)\b"
+    r"[A-Za-z0-9_.-]+\.(?:jsonl?|db|sqlite|pdf|py|toml|ya?ml|env|md|txt"
+    r"|svg|png|jpe?g|tex)\b"
 )
 _FORBIDDEN_ASSET_TERMS = frozenset(
     {
@@ -98,10 +106,13 @@ _FORBIDDEN_ASSET_TERMS = frozenset(
         "model",
         "model_id",
         "model_family",
+        "model_output",
         "origin",
         "provenance",
         "trace",
         "verifier",
+        "verifier_decision",
+        "verifier_verdict",
         "stratum",
         "split",
         "repeat_of",
@@ -117,7 +128,26 @@ _FORBIDDEN_ASSET_TERMS = frozenset(
         "file_path",
         "original_path",
         "input_file",
+        "answer_key",
+        "correct_answer",
+        "correct_key",
+        "correct_value",
+        "your_answer",
+        "recommendation",
+        "confidence",
+        "stored_key",
+        "stored-key",
     }
+)
+_STRUCTURED_ASSET_METADATA = re.compile(
+    r"(?i)(?<![\w])(?:"
+    r"answer[\s_-]*key"
+    r"|correct[\s_-]*(?:answer|key|value)"
+    r"|stored[\s_-]*key"
+    r"|your[\s_-]*answer"
+    r"|model[\s_-]*output"
+    r"|verifier(?:[\s_-]+[a-z0-9]+)?"
+    r")(?![\w])"
 )
 
 
@@ -131,12 +161,44 @@ class PublicationCleanupError(RuntimeError):
 
 LockIdentity = tuple[int, int]
 RepoStateFn = Callable[[], tuple[str, str]]
+HeadBlobFn = Callable[[str, Path], bytes]
+AttestationFn = Callable[[], "ExecutionAttestation"]
+
+
+@dataclass(frozen=True)
+class ExecutionAttestation:
+    head_sha: str
+    tree_status: str
+    loaded_builder_sha256: str
+    current_builder_sha256: str
+    head_builder_sha256: str
+    core_source_sha256: dict[str, str]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "head_sha": self.head_sha,
+            "tree_status": self.tree_status,
+            "builder_source": {
+                "loaded_sha256": self.loaded_builder_sha256,
+                "current_sha256": self.current_builder_sha256,
+                "head_blob_sha256": self.head_builder_sha256,
+            },
+            "core_sources": dict(self.core_source_sha256),
+        }
+
+
+@dataclass(frozen=True)
+class _FileFingerprint:
+    name: str
+    path: Path
+    sha256: str
 
 
 @dataclass(frozen=True)
 class _LoadedProblemSet:
     items: tuple[dict[str, object], ...]
     sha256: str
+    fingerprint: _FileFingerprint
 
 
 @dataclass(frozen=True)
@@ -145,6 +207,7 @@ class _LoadedShadowRun:
     run_id: str
     manifest_sha256: str
     model_ids: tuple[str, ...]
+    fingerprints: tuple[_FileFingerprint, ...]
 
 
 # --- Filesystem seam -------------------------------------------------------
@@ -371,7 +434,7 @@ def _validate_run_id(run_id: str) -> None:
         or "/" in run_id
     ):
         raise RulerBuildError("run ID must be a non-empty directory name")
-    if _PRIVATE_MARKER.search(run_id):
+    if _PRIVATE_DATASET_MARKER.search(run_id):
         raise RulerBuildError("run ID must not contain a private dataset marker")
 
 
@@ -398,7 +461,7 @@ def _ensure_directory_chain(root: Path) -> None:
 
 
 def _reject_private_input_path(path: Path, *, name: str) -> None:
-    if _PRIVATE_MARKER.search(str(path)):
+    if _PRIVATE_DATASET_MARKER.search(str(path)):
         raise RulerBuildError(
             f"{name} path must not reference gold, held-out, ETS, or tier-3 data"
         )
@@ -503,22 +566,44 @@ def _reject_path_fields_and_values(value: object, *, name: str) -> None:
         raise RulerBuildError(f"{name} item contains a filesystem-looking value")
 
 
-def _reject_recursive_markers(value: object, *, name: str) -> None:
+def _is_identifier_key(key: str) -> bool:
+    normalized = _normalized_key(key)
+    return (
+        normalized in {"id", "ids", "dataset", "dataset_id", "source_id"}
+        or normalized.endswith("_id")
+        or normalized.endswith("_ids")
+    )
+
+
+def _reject_recursive_markers(
+    value: object,
+    *,
+    name: str,
+    identifier: bool = False,
+) -> None:
     if isinstance(value, str):
-        if _PRIVATE_MARKER.search(value):
+        marker = _PRIVATE_DATASET_MARKER.search(value)
+        if marker is None and identifier:
+            marker = re.search(r"(?i)(?<![a-z0-9])gold[-_.]?\d+(?![a-z0-9])", value)
+        if marker is not None:
             raise RulerBuildError(
                 f"{name} item contains a forbidden dataset marker: {value!r}"
             )
     elif isinstance(value, Mapping):
         for key, nested in cast("Mapping[str, object]", value).items():
-            if isinstance(key, str) and _PRIVATE_MARKER.search(key):
+            if isinstance(key, str) and _PRIVATE_DATASET_MARKER.search(key):
                 raise RulerBuildError(
                     f"{name} item key contains a forbidden dataset marker: {key!r}"
                 )
-            _reject_recursive_markers(nested, name=name)
+            _reject_recursive_markers(
+                nested,
+                name=name,
+                identifier=identifier
+                or (isinstance(key, str) and _is_identifier_key(key)),
+            )
     elif isinstance(value, list):
         for nested in cast("list[object]", value):
-            _reject_recursive_markers(nested, name=name)
+            _reject_recursive_markers(nested, name=name, identifier=identifier)
 
 
 def _load_problem_set(
@@ -544,7 +629,12 @@ def _load_problem_set(
         if not isinstance(item, Mapping):
             raise RulerBuildError(f"{name} item {index} must be a JSON object")
     copied = tuple(dict(cast("Mapping[str, object]", item)) for item in items)
-    return _LoadedProblemSet(copied, hashlib.sha256(raw).hexdigest())
+    digest = hashlib.sha256(raw).hexdigest()
+    return _LoadedProblemSet(
+        copied,
+        digest,
+        _FileFingerprint(f"{name} input", resolved, digest),
+    )
 
 
 def load_problem_set(
@@ -602,13 +692,19 @@ def _normalize_shadow_run_path(
     )
 
 
-def _require_finalized_marker(run_dir: Path) -> None:
+def _require_finalized_marker(run_dir: Path) -> _FileFingerprint:
     failed = run_dir / FAILED_MARKER
     success = run_dir / SUCCESS_MARKER
     if failed.exists() or failed.is_symlink():
         raise RulerBuildError("shadow run is a diagnostic _FAILED run")
     if not success.is_file() or success.is_symlink():
         raise RulerBuildError("shadow run has no finalized _SUCCESS marker")
+    raw = _read_file_once(success, name="shadow success marker")
+    return _FileFingerprint(
+        "shadow success marker",
+        success,
+        hashlib.sha256(raw).hexdigest(),
+    )
 
 
 def _load_shadow_artifact(
@@ -645,6 +741,95 @@ def _assert_trusted_shadow_manifest(
         raise RulerBuildError("shadow run does not verify exactly three families")
 
 
+def _local_canonical_hash(value: object) -> str:
+    rendered = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    return "sha256:" + hashlib.sha256(rendered.encode()).hexdigest()
+
+
+def _independently_verify_raw_responses(
+    manifest: Mapping[str, object],
+    candidates: Sequence[object],
+    raw_responses: Sequence[object],
+    *,
+    raw_response_bytes: bytes,
+) -> None:
+    digests = manifest.get("artifact_digests")
+    if not isinstance(digests, Mapping):
+        raise RulerBuildError("independent raw response manifest digest is missing")
+    raw_digest = "sha256:" + hashlib.sha256(raw_response_bytes).hexdigest()
+    if digests.get("raw_responses_json") != raw_digest:
+        raise RulerBuildError("independent raw response artifact digest mismatch")
+    by_request: dict[str, Mapping[str, object]] = {}
+    for raw in raw_responses:
+        if not isinstance(raw, Mapping):
+            raise RulerBuildError("independent raw response record is invalid")
+        request_id = raw.get("request_id")
+        response_text = raw.get("response_text")
+        if type(request_id) is not str or type(response_text) is not str:
+            raise RulerBuildError("independent raw response identity is invalid")
+        if request_id in by_request:
+            raise RulerBuildError("independent raw response request is duplicated")
+        if (
+            raw.get("response_hash")
+            != hashlib.sha256(response_text.encode()).hexdigest()
+        ):
+            raise RulerBuildError("independent raw response hash mismatch")
+        by_request[request_id] = raw
+    for candidate in candidates:
+        if not isinstance(candidate, Mapping):
+            raise RulerBuildError("independent raw response candidate is invalid")
+        payload = candidate.get("candidate")
+        generator = candidate.get("generator")
+        if not isinstance(payload, Mapping) or not isinstance(generator, Mapping):
+            raise RulerBuildError("independent raw response evidence is incomplete")
+        traces = generator.get("traces")
+        if not isinstance(traces, list):
+            raise RulerBuildError("independent raw response trace list is invalid")
+        final = [
+            trace
+            for trace in traces
+            if isinstance(trace, Mapping) and trace.get("parser_outcome") == "parsed"
+        ]
+        if len(final) != 1:
+            raise RulerBuildError(
+                "independent raw response requires one final generator trace"
+            )
+        trace = cast("Mapping[str, object]", final[0])
+        request_id = trace.get("request_id")
+        if type(request_id) is not str or request_id not in by_request:
+            raise RulerBuildError("independent raw response is missing")
+        raw = by_request[request_id]
+        response_text = cast(str, raw["response_text"])
+        if raw.get("response_hash") != trace.get("response_hash"):
+            raise RulerBuildError("independent raw response trace hash mismatch")
+        try:
+            parsed = shadow_portfolio.parse_candidate(response_text)
+        except (TypeError, ValueError) as error:
+            raise RulerBuildError(
+                "independent raw response strict parse failed"
+            ) from error
+        authored = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"source_ref", "provenance"}
+        }
+        if parsed != authored:
+            raise RulerBuildError(
+                "independent raw response does not match candidate payload"
+            )
+        parsed_hash = _local_canonical_hash(parsed)
+        if (
+            trace.get("parsed_candidate_sha256") != parsed_hash
+            or raw.get("parsed_candidate_sha256") != parsed_hash
+        ):
+            raise RulerBuildError("independent raw response candidate hash mismatch")
+
+
 def _load_shadow_run(
     path: Path | str,
     *,
@@ -660,15 +845,25 @@ def _load_shadow_run(
         path,
         allow_test_paths=allow_test_paths,
     )
-    _require_finalized_marker(run_dir)
+    success_fingerprint = _require_finalized_marker(run_dir)
     manifest, manifest_bytes = _load_shadow_artifact(run_dir, MANIFEST_NAME)
     candidates, candidate_bytes = _load_shadow_artifact(run_dir, "candidates.json")
     failures, failure_bytes = _load_shadow_artifact(run_dir, "failures.json")
     probe, probe_bytes = _load_shadow_artifact(run_dir, "probe.json")
+    raw_responses, raw_response_bytes = _load_shadow_artifact(
+        run_dir,
+        "raw-responses.json",
+    )
     if not isinstance(manifest, Mapping):
         raise RulerBuildError("shadow manifest must be a JSON object")
-    if not isinstance(candidates, list) or not isinstance(failures, list):
-        raise RulerBuildError("shadow candidates and failures must be JSON arrays")
+    if (
+        not isinstance(candidates, list)
+        or not isinstance(failures, list)
+        or not isinstance(raw_responses, list)
+    ):
+        raise RulerBuildError(
+            "shadow candidates, failures, and raw responses must be JSON arrays"
+        )
     if probe != manifest.get("probe"):
         raise RulerBuildError("shadow probe artifact does not match manifest")
     try:
@@ -676,10 +871,12 @@ def _load_shadow_run(
             manifest,
             candidates=candidates,
             failures=failures,
+            raw_responses=raw_responses,
             artifact_bytes={
                 "candidates.json": candidate_bytes,
                 "failures.json": failure_bytes,
                 "probe.json": probe_bytes,
+                "raw-responses.json": raw_response_bytes,
             },
             publication_run_id=run_dir.name,
         )
@@ -687,6 +884,22 @@ def _load_shadow_run(
         raise RulerBuildError(
             f"shadow run does not satisfy the finalized manifest contract: {error}"
         ) from error
+    try:
+        shadow_foundry.validate_raw_response_binding(
+            cast("list[Mapping[str, object]]", candidates),
+            raw_responses,
+            require_complete=True,
+        )
+    except (TypeError, ValueError) as error:
+        raise RulerBuildError(
+            f"shadow raw response binding is invalid: {error}"
+        ) from error
+    _independently_verify_raw_responses(
+        cast("Mapping[str, object]", manifest),
+        candidates,
+        raw_responses,
+        raw_response_bytes=raw_response_bytes,
+    )
     _assert_trusted_shadow_manifest(cast("Mapping[str, object]", manifest))
     items = [
         _shadow_candidate_to_item(
@@ -701,11 +914,40 @@ def _load_shadow_run(
         str(cast("Mapping[str, object]", roles[family])["model_id"])
         for family in _SHADOW_FAMILIES
     )
+    artifact_fingerprints = (
+        _FileFingerprint(
+            "shadow manifest",
+            run_dir / MANIFEST_NAME,
+            hashlib.sha256(manifest_bytes).hexdigest(),
+        ),
+        _FileFingerprint(
+            "shadow candidates",
+            run_dir / "candidates.json",
+            hashlib.sha256(candidate_bytes).hexdigest(),
+        ),
+        _FileFingerprint(
+            "shadow failures",
+            run_dir / "failures.json",
+            hashlib.sha256(failure_bytes).hexdigest(),
+        ),
+        _FileFingerprint(
+            "shadow probe",
+            run_dir / "probe.json",
+            hashlib.sha256(probe_bytes).hexdigest(),
+        ),
+        _FileFingerprint(
+            "shadow raw responses",
+            run_dir / "raw-responses.json",
+            hashlib.sha256(raw_response_bytes).hexdigest(),
+        ),
+        success_fingerprint,
+    )
     return _LoadedShadowRun(
         tuple(items),
         str(manifest["run_id"]),
         hashlib.sha256(manifest_bytes).hexdigest(),
         model_ids,
+        artifact_fingerprints,
     )
 
 
@@ -754,6 +996,36 @@ def _shadow_candidate_to_item(
 # --- Manifest and content --------------------------------------------------
 
 
+def _read_head_blob(head_sha: str, path: Path) -> bytes:
+    try:
+        relative = path.resolve().relative_to(REPO_ROOT.resolve())
+    except ValueError as error:
+        raise RulerBuildError("attested source is outside the repository") from error
+    try:
+        completed = subprocess.run(
+            ["git", "show", f"{head_sha}:{relative.as_posix()}"],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RulerBuildError("could not read builder source from HEAD") from error
+    return completed.stdout
+
+
+def _source_hash(path: Path) -> str:
+    return hashlib.sha256(path.resolve().read_bytes()).hexdigest()
+
+
+def _core_source_hashes() -> dict[str, str]:
+    return {
+        "calibration_ruler": _source_hash(Path(calibration_ruler.__file__)),
+        "calibration_sheet": _source_hash(Path(calibration_sheet.__file__)),
+        "shadow_foundry": _source_hash(Path(shadow_foundry.__file__)),
+    }
+
+
 def _require_clean_repo_state(repo_state_fn: RepoStateFn) -> tuple[str, str]:
     code_sha, tree_status = repo_state_fn()
     if not re.fullmatch(r"[0-9a-f]{40,64}", code_sha):
@@ -763,14 +1035,80 @@ def _require_clean_repo_state(repo_state_fn: RepoStateFn) -> tuple[str, str]:
     return code_sha, tree_status
 
 
+def _capture_execution_attestation(
+    *,
+    repo_state_fn: RepoStateFn = shadow_foundry.collect_repo_state,
+    head_blob_fn: HeadBlobFn = _read_head_blob,
+) -> ExecutionAttestation:
+    head_sha, tree_status = _require_clean_repo_state(repo_state_fn)
+    current_sha = _source_hash(_BUILDER_SOURCE_PATH)
+    head_sha256 = hashlib.sha256(
+        head_blob_fn(head_sha, _BUILDER_SOURCE_PATH)
+    ).hexdigest()
+    if _LOADED_BUILDER_SHA256 != current_sha:
+        raise RulerBuildError(
+            "loaded builder source differs from the current builder file"
+        )
+    if current_sha != head_sha256:
+        raise RulerBuildError("current builder source differs from the HEAD blob")
+    return ExecutionAttestation(
+        head_sha=head_sha,
+        tree_status=tree_status,
+        loaded_builder_sha256=_LOADED_BUILDER_SHA256,
+        current_builder_sha256=current_sha,
+        head_builder_sha256=head_sha256,
+        core_source_sha256=_core_source_hashes(),
+    )
+
+
+def _test_execution_attestation(repo_state_fn: RepoStateFn) -> ExecutionAttestation:
+    head_sha, tree_status = _require_clean_repo_state(repo_state_fn)
+    digest = hashlib.sha256(head_sha.encode()).hexdigest()
+    return ExecutionAttestation(
+        head_sha=head_sha,
+        tree_status=tree_status,
+        loaded_builder_sha256=digest,
+        current_builder_sha256=digest,
+        head_builder_sha256=digest,
+        core_source_sha256={
+            "calibration_ruler": digest,
+            "calibration_sheet": digest,
+            "shadow_foundry": digest,
+        },
+    )
+
+
+def _verify_input_fingerprints(
+    fingerprints: Sequence[_FileFingerprint],
+) -> None:
+    for fingerprint in fingerprints:
+        _reject_symlink_components(fingerprint.path, name=fingerprint.name)
+        raw = _read_file_once(fingerprint.path, name=fingerprint.name)
+        if hashlib.sha256(raw).hexdigest() != fingerprint.sha256:
+            raise RulerBuildError(
+                f"input fingerprint changed during build: {fingerprint.name}"
+            )
+
+
+def _reattest_before_success(
+    *,
+    entry: ExecutionAttestation,
+    attestation_fn: AttestationFn,
+    fingerprints: Sequence[_FileFingerprint],
+) -> None:
+    final = attestation_fn()
+    if final != entry:
+        raise RulerBuildError("execution attestation changed during build")
+    _verify_input_fingerprints(fingerprints)
+
+
 def _build_manifest(
     ruler: calibration_ruler.RulerManifest,
     *,
     run_id: str,
     seed: int,
     inputs: Mapping[str, object],
-    code_sha: str,
-    tree_status: str,
+    attestation: ExecutionAttestation,
 ) -> dict[str, object]:
     primary = [item for item in ruler.items if item.repeat_of is None]
     repeats = [item for item in ruler.items if item.repeat_of is not None]
@@ -790,8 +1128,8 @@ def _build_manifest(
         "run_id": run_id,
         "seed": seed,
         "build": {
-            "code_sha": code_sha,
-            "tree_status": tree_status,
+            "code_sha": attestation.head_sha,
+            **attestation.to_dict(),
             "tool": "build_calibration_ruler.py",
         },
         "inputs": dict(inputs),
@@ -896,6 +1234,9 @@ def _assert_blind_figure_assets(
     model_ids: Sequence[str],
 ) -> None:
     sentinels = _figure_sentinels(ruler, model_ids=model_ids)
+    items_by_review_id = {
+        item.review_id: item for item in ruler.items if item.review_id is not None
+    }
     for path, raw in assets.items():
         try:
             decoded = raw.decode("utf-8", errors="strict")
@@ -911,6 +1252,26 @@ def _assert_blind_figure_assets(
                 raise RulerBuildError(
                     f"figure asset {path} contains forbidden metadata term"
                 )
+        if _STRUCTURED_ASSET_METADATA.search(visible):
+            raise RulerBuildError(
+                f"figure asset {path} contains forbidden answer metadata"
+            )
+        review_id = Path(path).stem
+        item = items_by_review_id.get(review_id)
+        if item is None:
+            raise RulerBuildError(f"figure asset {path} has no manifest item")
+        stored_key = re.escape(item.correct)
+        answer_disclosure = re.compile(
+            rf"(?ix)(?<![\w])(?:"
+            rf"answer[\s_-]*key"
+            rf"|correct(?:[\s_-]*(?:answer|key|value))?"
+            rf"|key"
+            rf")\s*[:=]\s*(?:choice\s*)?{stored_key}(?![\w])"
+        )
+        if answer_disclosure.search(visible):
+            raise RulerBuildError(
+                f"figure asset {path} contains structured answer disclosure"
+            )
         for sentinel in sentinels:
             if _contains_token(visible, sentinel):
                 raise RulerBuildError(
@@ -1065,6 +1426,7 @@ def _publish(
     index_md: str,
     blocks: Sequence[str],
     assets: Mapping[str, bytes],
+    reattest: Callable[[], None],
 ) -> Path:
     lock_path = root / f".{run_id}.lock"
     run_dir = root / run_id
@@ -1134,6 +1496,7 @@ def _publish(
         io.remove_lock(lock_path, lock_identity)
         lock_owned = False
         io.fsync_dir(root)
+        reattest()
         _reject_symlink_components(run_dir)
         io.write_marker(run_dir / SUCCESS_MARKER, "ok\n")
         io.fsync_dir(run_dir)
@@ -1213,6 +1576,7 @@ def build(
     io: PublicationIO | None = None,
     allow_test_paths: bool = False,
     _repo_state_fn: RepoStateFn = shadow_foundry.collect_repo_state,
+    _attestation_fn: AttestationFn | None = None,
 ) -> Path:
     """Build the frozen ruler and atomically publish its Pass A workspace."""
     _validate_run_id(run_id)
@@ -1220,6 +1584,14 @@ def build(
         out_root,
         allow_test_paths=allow_test_paths,
     )
+    attestation_fn = _attestation_fn
+    if attestation_fn is None:
+        attestation_fn = (
+            (lambda: _test_execution_attestation(_repo_state_fn))
+            if allow_test_paths
+            else _capture_execution_attestation
+        )
+    entry_attestation = attestation_fn()
     publisher = io or PublicationIO()
 
     trusted = _load_problem_set(
@@ -1259,20 +1631,23 @@ def build(
             "candidate_count": len(shadow.items),
         },
     }
-    code_sha, tree_status = _require_clean_repo_state(_repo_state_fn)
     manifest = _build_manifest(
         ruler,
         run_id=run_id,
         seed=seed,
         inputs=inputs,
-        code_sha=code_sha,
-        tree_status=tree_status,
+        attestation=entry_attestation,
     )
     manifest_json = (
         json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n"
     )
 
     _ensure_directory_chain(root)
+    fingerprints = (
+        trusted.fingerprint,
+        failures.fingerprint,
+        *shadow.fingerprints,
+    )
     return _publish(
         publisher,
         root=root,
@@ -1282,6 +1657,11 @@ def build(
         index_md=index_md,
         blocks=blocks,
         assets=assets,
+        reattest=lambda: _reattest_before_success(
+            entry=entry_attestation,
+            attestation_fn=attestation_fn,
+            fingerprints=fingerprints,
+        ),
     )
 
 
@@ -1342,11 +1722,44 @@ def offline_shadow_run(
     n: int = 45,
     seed: int = shadow_foundry.DEFAULT_SEED,
 ) -> Path:
-    """Publish a real-contract-shaped fake run for internal offline tests."""
+    """Publish an explicitly synthetic, test-fake shadow run."""
+    return _fixture_shadow_run(
+        root,
+        run_id=run_id,
+        n=n,
+        seed=seed,
+        environment=_fixture_environment(synthetic=True),
+    )
+
+
+def _production_shaped_test_shadow_run(
+    root: Path | str,
+    *,
+    run_id: str = "test-shadow",
+    n: int = 45,
+    seed: int = shadow_foundry.DEFAULT_SEED,
+) -> Path:
+    """Publish a production-contract-shaped fixture under an OS-temp test root."""
+    return _fixture_shadow_run(
+        root,
+        run_id=run_id,
+        n=n,
+        seed=seed,
+        environment=_fixture_environment(synthetic=False),
+    )
+
+
+def _fixture_shadow_run(
+    root: Path | str,
+    *,
+    run_id: str,
+    n: int,
+    seed: int,
+    environment: "shadow_foundry.RunEnvironment",
+) -> Path:
     from pgrep.ai import shadow_portfolio  # type: ignore[import-not-found]
 
     roles = shadow_foundry._default_roles()  # noqa: SLF001
-    environment = _clean_offline_environment()
     allocation = shadow_portfolio.allocate_families(n, seed=seed)
     recorder = shadow_foundry._RecordingBackend(  # noqa: SLF001
         _DistinctBackend(), secrets=()
@@ -1355,6 +1768,7 @@ def offline_shadow_run(
         shadow_foundry._offline_search(shadow_foundry.DEFAULT_TOPIC)  # noqa: SLF001
     )
     candidates: list[dict[str, object]] = []
+    raw_responses: list[dict[str, object]] = []
     for slot, origin in enumerate(allocation):
         recorder.slot = slot
         recorder.bind_retrieval(chunks, origin=origin)
@@ -1372,11 +1786,13 @@ def offline_shadow_run(
             seed=seed + slot,
             retrieved=chunks,
         )
-        candidates.append(
-            shadow_foundry._sanitize_candidate_record(  # noqa: SLF001
-                record, slot=slot, secrets=()
-            )
+        candidate, candidate_raw = shadow_foundry._sanitize_candidate_evidence(  # noqa: SLF001
+            record,
+            slot=slot,
+            secrets=(),
         )
+        candidates.append(candidate)
+        raw_responses.extend(candidate_raw)
     manifest = shadow_foundry.build_run_manifest(
         run_id=run_id,
         status="success",
@@ -1388,18 +1804,23 @@ def offline_shadow_run(
         allocation=allocation,
         candidates=candidates,
         failures=[],
+        raw_responses=raw_responses,
     )
     return shadow_foundry.publish_run(
         root,
         run_id,
         candidates=candidates,
         failures=[],
+        raw_responses=raw_responses,
         manifest=manifest,
         allow_test_output=True,
     )
 
 
-def _clean_offline_environment() -> "shadow_foundry.RunEnvironment":
+def _fixture_environment(
+    *,
+    synthetic: bool,
+) -> "shadow_foundry.RunEnvironment":
     sha, _tree_status = shadow_foundry.collect_repo_state()
     probe = shadow_foundry.make_probe_metadata(
         [
@@ -1418,12 +1839,14 @@ def _clean_offline_environment() -> "shadow_foundry.RunEnvironment":
     return shadow_foundry.RunEnvironment(
         code_sha=sha,
         tree_status="clean",
-        worker_image=image_digest,
+        worker_image=(
+            "pgrep-shadow-worker:synthetic-test" if synthetic else image_digest
+        ),
         worker_image_digest=image_digest,
         corpus_index_fingerprint="sha256:" + hashlib.sha256(fixture).hexdigest(),
         probe=probe,
-        synthetic=False,
-        execution_mode="real",
+        synthetic=synthetic,
+        execution_mode="test-fake" if synthetic else "real",
         corpus_index_mtime_ns=0,
         corpus_index_size=len(fixture),
     )
@@ -1471,19 +1894,12 @@ def _self_check() -> int:
             encoding="utf-8",
         )
         shadow_dir = offline_shadow_run(base / "shadow-runs")
-        run_dir = build(
-            trusted_path=trusted,
-            failures_path=failures,
-            shadow_path=shadow_dir,
-            out_root=base / "calibration",
-            run_id="self-check",
-            seed=7,
-            allow_test_paths=True,
-            _repo_state_fn=lambda: ("a" * 40, "clean"),
-        )
-        assert (run_dir / SUCCESS_MARKER).is_file()
-        assert len(list((run_dir / PASS_A_DIRNAME).glob("block-*.md"))) == 7
-        assert not (run_dir / PASS_B_DIRNAME).exists()
+        try:
+            load_shadow_run(shadow_dir, allow_test_paths=True)
+        except RulerBuildError as error:
+            assert "synthetic" in str(error)
+        else:
+            raise AssertionError("synthetic self-check run was accepted")
     print("[ok] calibration ruler self-check passed")
     return 0
 

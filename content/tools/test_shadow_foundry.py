@@ -195,15 +195,204 @@ def test_shadow_run_is_atomic_and_has_no_training_artifacts(tmp_path: Path) -> N
     )
 
 
+def test_shadow_run_publishes_independently_bound_raw_responses(
+    tmp_path: Path,
+) -> None:
+    run_dir = shadow_foundry.run_shadow(
+        roles=_roles(),
+        backend=FakeBackend(),
+        environment=_environment(),
+        output_root=tmp_path,
+        allow_test_output=True,
+        search_fn=_fake_search,
+        n=3,
+        seed=7,
+        topic="mechanics/circular-motion",
+        run_id="raw-binding",
+    )
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    candidates = json.loads((run_dir / "candidates.json").read_text())
+    raw = json.loads((run_dir / "raw-responses.json").read_text())
+
+    assert manifest["artifact_digests"]["raw_responses_json"] == (
+        "sha256:"
+        + hashlib.sha256((run_dir / "raw-responses.json").read_bytes()).hexdigest()
+    )
+    assert len(raw) == 9
+    by_request = {response["request_id"]: response for response in raw}
+    for candidate in candidates:
+        traces = candidate["generator"]["traces"]
+        final = next(trace for trace in traces if trace["parser_outcome"] == "parsed")
+        response = by_request[final["request_id"]]
+        assert response["response_hash"] == final["response_hash"]
+        assert response["parsed_candidate_sha256"] == final["parsed_candidate_sha256"]
+        assert response["parsed_candidate_sha256"].startswith("sha256:")
+
+
+def test_raw_response_artifact_retains_generator_correction_chain(
+    tmp_path: Path,
+) -> None:
+    valid = json.dumps(_candidate())
+    run_dir = shadow_foundry.run_shadow(
+        roles=_roles(),
+        backend=FakeBackend([f"```json\n{valid}\n```", valid]),
+        environment=_environment(),
+        output_root=tmp_path,
+        allow_test_output=True,
+        search_fn=_fake_search,
+        n=3,
+        seed=7,
+        topic="mechanics/circular-motion",
+        run_id="raw-corrections",
+    )
+    raw = json.loads((run_dir / "raw-responses.json").read_text())
+    first_slot_generator = [
+        response
+        for response in raw
+        if response["slot"] == 0 and response["role"] == "generator"
+    ]
+    assert [response["phase"] for response in first_slot_generator] == [
+        "generation",
+        "schema_correction",
+    ]
+    assert [response["attempt"] for response in first_slot_generator] == [0, 1]
+    assert first_slot_generator[0]["parser_outcome"] == "parse_error"
+    assert first_slot_generator[0]["parsed_candidate_sha256"] is None
+    assert first_slot_generator[1]["parser_outcome"] == "parsed"
+    assert first_slot_generator[1]["parsed_candidate_sha256"].startswith("sha256:")
+
+
+def test_failed_generator_retains_safe_raw_correction_evidence(
+    tmp_path: Path,
+) -> None:
+    invalid = "```json\n{}\n```"
+    with pytest.raises(shadow_foundry.ShadowRunFailed) as raised:
+        shadow_foundry.run_shadow(
+            roles=_roles(),
+            backend=FakeBackend([invalid, invalid, invalid]),
+            environment=_environment(),
+            output_root=tmp_path,
+            allow_test_output=True,
+            search_fn=_fake_search,
+            n=3,
+            seed=7,
+            topic="mechanics/circular-motion",
+            run_id="failed-raw-corrections",
+        )
+    raw = json.loads((raised.value.run_dir / "raw-responses.json").read_text())
+    generator = [
+        record
+        for record in raw
+        if record["role"] == "generator" and record["slot"] == 0
+    ]
+    assert [record["attempt"] for record in generator] == [0, 1, 2]
+    assert all(record["parser_outcome"] == "parse_error" for record in generator)
+    assert all(record["parsed_candidate_sha256"] is None for record in generator)
+
+
+def test_raw_responses_are_secret_redacted_before_persistence(
+    tmp_path: Path,
+) -> None:
+    secret = "cursor_secret_DO_NOT_PERSIST"
+    candidate = _candidate()
+    candidate["stem"] = f"{candidate['stem']} {secret}"
+    run_dir = shadow_foundry.run_shadow(
+        roles=_roles(),
+        backend=FakeBackend([json.dumps(candidate)]),
+        environment=_environment(),
+        output_root=tmp_path,
+        allow_test_output=True,
+        search_fn=_fake_search,
+        n=3,
+        seed=7,
+        topic="mechanics/circular-motion",
+        run_id="raw-redaction",
+        secrets=[secret],
+    )
+    raw_text = (run_dir / "raw-responses.json").read_text()
+    assert secret not in raw_text
+    assert "[REDACTED]" in raw_text
+
+
+@pytest.mark.parametrize(
+    "unsafe",
+    [
+        "content/gold/items.json",
+        "../private/response.json",
+    ],
+)
+def test_raw_response_is_private_marker_and_path_scanned(unsafe: str) -> None:
+    record = shadow_portfolio.run_candidate(
+        topic="mechanics/circular-motion",
+        retrieved=_retrieved(),
+        origin="sol",
+        roles=_roles(),
+        backend=FakeBackend(),
+        seed=7,
+    )
+    trace = record["generator"]["traces"][0]
+    trace["result"]["text"] = unsafe
+    with pytest.raises(shadow_foundry.ShadowLeakageError):
+        shadow_foundry._raw_response_record(
+            trace,
+            slot=0,
+            choice_order=None,
+            binding=shadow_foundry._trace_binding(
+                slot=0,
+                origin="sol",
+                role="generator",
+                model_family="sol",
+            ),
+            secrets=(),
+            parsed_candidate_sha256=None,
+        )
+
+
+def test_offline_environment_is_explicitly_synthetic_test_fake() -> None:
+    environment = shadow_foundry._offline_environment()
+    assert environment.synthetic is True
+    assert environment.execution_mode == "test-fake"
+
+
+def test_synthetic_run_cannot_publish_in_production_shadow_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    production_root = tmp_path / "shadow-foundry"
+    monkeypatch.setattr(shadow_foundry, "QUARANTINE_ROOT", production_root)
+    monkeypatch.setattr(
+        shadow_foundry,
+        "_git_ignored_quarantine_root",
+        lambda: None,
+    )
+    candidates, manifest = shadow_foundry.offline_fixture(
+        run_id="synthetic-production",
+        environment=_environment(),
+    )
+    with pytest.raises(ValueError, match="synthetic.*production"):
+        shadow_foundry.publish_run(
+            production_root,
+            "synthetic-production",
+            candidates=candidates,
+            failures=[],
+            manifest=manifest,
+        )
+    assert not production_root.exists()
+
+
 def _published_artifact_bytes(
     manifest: dict[str, object],
     candidates: Sequence[object],
     failures: Sequence[object],
+    raw_responses: Sequence[object] | None = None,
 ) -> dict[str, bytes]:
+    if raw_responses is None:
+        raw_responses = getattr(candidates, "raw_responses", ())
     return {
         "candidates.json": shadow_foundry._strict_json(candidates).encode(),
         "failures.json": shadow_foundry._strict_json(failures).encode(),
         "probe.json": shadow_foundry._strict_json(manifest["probe"]).encode(),
+        "raw-responses.json": shadow_foundry._strict_json(raw_responses).encode(),
     }
 
 
@@ -244,6 +433,7 @@ def test_manifest_binds_candidate_payloads_and_artifact_bytes(
             "candidates_json": "candidates.json",
             "failures_json": "failures.json",
             "probe_json": "probe.json",
+            "raw_responses_json": "raw-responses.json",
         }.items()
     }
 
@@ -262,6 +452,7 @@ def test_validate_manifest_rejects_changed_candidate_payload() -> None:
             manifest,
             candidates=changed,
             failures=[],
+            raw_responses=getattr(candidates, "raw_responses", ()),
             artifact_bytes=_published_artifact_bytes(manifest, changed, []),
         )
 
@@ -278,6 +469,7 @@ def test_validate_manifest_rejects_changed_candidate_artifact_bytes() -> None:
             manifest,
             candidates=candidates,
             failures=[],
+            raw_responses=getattr(candidates, "raw_responses", ()),
             artifact_bytes=artifacts,
         )
 

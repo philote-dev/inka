@@ -223,14 +223,20 @@ Every call records:
 
 Each finalized run manifest also records an explicit `synthetic` boolean,
 canonical SHA-256 hashes for every parsed candidate payload, and byte-level
-SHA-256 digests for `candidates.json`, `failures.json`, and `probe.json`.
-Consumers must verify those raw artifact bytes, payload hashes, and canonical
-trace bindings before using a candidate. The blind ruler accepts only
-`synthetic: false`, real-execution, clean, replayable `_SUCCESS` runs.
+SHA-256 digests for `candidates.json`, `failures.json`, `probe.json`, and the
+private `raw-responses.json`. The raw-response artifact retains each
+secret-redacted generator correction and verifier response with its request,
+response, parser, attempt, and candidate-payload hashes. Consumers re-hash it,
+strictly re-parse the final generator response, and prove the authored payload
+matches `candidates.json` before using a candidate. The blind ruler repeats that
+proof and accepts only `synthetic: false`, real-execution, clean, replayable
+`_SUCCESS` runs.
 
-Raw transcripts and candidates live under git-ignored
+Raw responses and candidates live under git-ignored
 `content/run/shadow-foundry/<run>/`. API keys and authorization headers are
-never written.
+never written. Synthetic and self-check runs always use `synthetic: true`,
+`execution_mode: test-fake`, and an OS-temp output root; they cannot publish in
+the production shadow root.
 
 ## Strict output handling
 

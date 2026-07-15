@@ -526,17 +526,25 @@ def test_build_failure_leaves_no_final_directory(tmp_path):
 Accepted formats are lists or objects with `items`/`candidates`. Finalized
 shadow input requires a sibling `_SUCCESS`, a complete three-model manifest,
 real execution, `synthetic: false`, canonical candidate payload hashes, and
-matching byte digests for every bound artifact. Reject gold/held-out markers,
-path-shaped fields and values, symlink components, and wrapper-level leakage
-recursively. Production CLI paths stay under the exact git-ignored
-`content/run` roots; OS-temp paths require the internal test-only flag.
+matching byte digests for every bound artifact, including private raw model
+responses. Re-hash those responses, strictly re-parse the final generator
+response, and prove it matches each candidate independently. Reject structured
+gold/held-out dataset markers, path-shaped fields and values, symlink
+components, and wrapper-level leakage recursively while allowing ordinary
+physics prose such as gold foil scattering. Production CLI paths stay under
+the exact git-ignored `content/run` roots; OS-temp paths require the internal
+test-only flag.
 
 - [ ] **Step 3: Implement atomic publication**
 
 Reuse the owned exclusive lock and temporary sibling pattern from
 `content/tools/shadow_foundry.py`. Reserve the final directory exclusively,
 hard-link verified payloads into it, remove and verify the owned lock, and
-write `_SUCCESS` last. Never rename over an existing directory.
+write `_SUCCESS` last. Never rename over an existing directory. At module load,
+freeze the builder source hash. At build entry require loaded source, current
+source, and the HEAD blob to match in a clean checkout. Immediately before
+success, re-attest HEAD/status, builder/core source hashes, and every input
+fingerprint; any drift removes the final run.
 
 - [ ] **Step 4: Add recipe**
 

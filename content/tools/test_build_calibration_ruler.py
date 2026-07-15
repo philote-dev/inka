@@ -29,6 +29,22 @@ def _clean_repo_state() -> tuple[str, str]:
     return ("a" * 40, "clean")
 
 
+def _stable_attestation() -> builder.ExecutionAttestation:
+    digest = "b" * 64
+    return builder.ExecutionAttestation(
+        head_sha="a" * 40,
+        tree_status="clean",
+        loaded_builder_sha256=digest,
+        current_builder_sha256=digest,
+        head_builder_sha256=digest,
+        core_source_sha256={
+            "calibration_ruler": "c" * 64,
+            "calibration_sheet": "d" * 64,
+            "shadow_foundry": "e" * 64,
+        },
+    )
+
+
 def _write_items(path: Path, stratum: str, count: int) -> Path:
     items = [builder.offline_problem_item(stratum, index) for index in range(count)]
     path.write_text(json.dumps(items), encoding="utf-8")
@@ -38,7 +54,11 @@ def _write_items(path: Path, stratum: str, count: int) -> Path:
 @pytest.fixture(scope="session")
 def shadow_run(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp("shadow-runs")
-    return builder.offline_shadow_run(root, run_id="offline-shadow", n=45)
+    return builder._production_shaped_test_shadow_run(
+        root,
+        run_id="test-shadow",
+        n=45,
+    )
 
 
 @pytest.fixture()
@@ -86,6 +106,15 @@ def test_manifest_is_private_and_records_provenance(
     assert manifest["private"] is True
     assert manifest["seed"] == 7
     assert manifest["build"]["code_sha"]
+    assert manifest["build"]["tree_status"] == "clean"
+    assert manifest["build"]["builder_source"]["loaded_sha256"]
+    assert manifest["build"]["builder_source"]["current_sha256"]
+    assert manifest["build"]["builder_source"]["head_blob_sha256"]
+    assert set(manifest["build"]["core_sources"]) == {
+        "calibration_ruler",
+        "calibration_sheet",
+        "shadow_foundry",
+    }
     assert manifest["inputs"]["trusted"]["sha256"]
     assert manifest["inputs"]["failure"]["sha256"]
     assert manifest["inputs"]["shadow"]["manifest_sha256"]
@@ -122,6 +151,22 @@ def test_build_requires_resolved_clean_repo_state_before_publication(
             _repo_state_fn=lambda: repo_state,
         )
     assert not (tmp_path / "calibration" / "dirty-build").exists()
+
+
+def test_dirty_loaded_then_reverted_builder_source_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current = Path(builder.__file__).resolve().read_bytes()
+    monkeypatch.setattr(
+        builder,
+        "_LOADED_BUILDER_SHA256",
+        hashlib.sha256(b"dirty loaded source").hexdigest(),
+    )
+    with pytest.raises(ValueError, match="loaded builder source"):
+        builder._capture_execution_attestation(
+            repo_state_fn=_clean_repo_state,
+            head_blob_fn=lambda _head, _path: current,
+        )
 
 
 def test_human_sheets_hide_keys_split_and_origin(
@@ -287,6 +332,16 @@ def test_rejects_generic_path_and_file_key_variants(
         "/Users/reviewer/input.json",
         r"C:\private\input.json",
         "content/run/private.json",
+        "figures/diagram.svg",
+        "images/plot.png",
+        "images/photo.jpg",
+        "images/photo.jpeg",
+        "tex/equation.tex",
+        "notes/review.md",
+        "notes/review.txt",
+        "data/items.json",
+        "data/items.yaml",
+        "papers/source.pdf",
     ],
 )
 def test_rejects_filesystem_looking_values(tmp_path: Path, value: str) -> None:
@@ -295,6 +350,65 @@ def test_rejects_filesystem_looking_values(tmp_path: Path, value: str) -> None:
     path = tmp_path / "filesystem-value.json"
     path.write_text(json.dumps([item]), encoding="utf-8")
     with pytest.raises(ValueError, match="filesystem"):
+        builder.load_problem_set(path, name="trusted", allow_test_paths=True)
+
+
+def test_named_source_citation_is_not_treated_as_filesystem_path(
+    tmp_path: Path,
+) -> None:
+    item = builder.offline_problem_item("trusted", 0)
+    item["source_ref"] = "OpenStax University Physics, Volume 1, section 7.4"
+    path = tmp_path / "citation.json"
+    path.write_text(json.dumps([item]), encoding="utf-8")
+    loaded = builder.load_problem_set(
+        path,
+        name="trusted",
+        allow_test_paths=True,
+    )
+    assert loaded[0]["source_ref"] == item["source_ref"]
+
+
+def test_gold_foil_prose_is_allowed_in_problem_content(tmp_path: Path) -> None:
+    item = builder.offline_problem_item("trusted", 0)
+    item["stem"] = "Rutherford scatters alpha particles from a gold foil nucleus."
+    item["choices"] = [
+        "The gold nucleus is compact.",
+        "The foil is electrically neutral overall.",
+        "The atom is mostly empty space.",
+        "The alpha particle is positively charged.",
+        "The gold foil is thin.",
+    ]
+    path = tmp_path / "gold-foil-prose.json"
+    path.write_text(json.dumps([item]), encoding="utf-8")
+    loaded = builder.load_problem_set(
+        path,
+        name="trusted",
+        allow_test_paths=True,
+    )
+    stem = loaded[0]["stem"]
+    assert isinstance(stem, str)
+    assert "gold foil nucleus" in stem
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("note", "content/gold/items.json"),
+        ("dataset_id", "gold-set"),
+        ("source_id", "gold-17"),
+        ("source_path", "gold-17"),
+    ],
+)
+def test_structured_private_dataset_markers_are_rejected(
+    tmp_path: Path,
+    key: str,
+    value: str,
+) -> None:
+    item = builder.offline_problem_item("trusted", 0)
+    item[key] = value
+    path = tmp_path / "structured-marker.json"
+    path.write_text(json.dumps([item]), encoding="utf-8")
+    with pytest.raises(ValueError, match="dataset marker|path field|filesystem"):
         builder.load_problem_set(path, name="trusted", allow_test_paths=True)
 
 
@@ -326,7 +440,7 @@ def test_rejects_dot_dot_input_escape(tmp_path: Path) -> None:
         )
 
 
-def test_reads_each_problem_input_once(
+def test_reads_inputs_once_then_reattests_each_fingerprint(
     tmp_path: Path,
     inputs: dict[str, Path],
     monkeypatch: pytest.MonkeyPatch,
@@ -341,15 +455,17 @@ def test_reads_each_problem_input_once(
 
     monkeypatch.setattr(builder, "_read_file_once", counted)
     _build(inputs, tmp_path / "calibration", run_id="single-read")
-    assert counts[inputs["trusted"].resolve()] == 1
-    assert counts[inputs["failures"].resolve()] == 1
+    assert counts[inputs["trusted"].resolve()] == 2
+    assert counts[inputs["failures"].resolve()] == 2
     for filename in (
         "manifest.json",
         "candidates.json",
         "failures.json",
         "probe.json",
+        "raw-responses.json",
     ):
-        assert counts[(inputs["shadow"] / filename).resolve()] == 1
+        assert counts[(inputs["shadow"] / filename).resolve()] == 2
+    assert counts[(inputs["shadow"] / "_SUCCESS").resolve()] == 2
 
 
 # --- Output-root safety ----------------------------------------------------
@@ -402,6 +518,19 @@ def test_rejects_symlink_output_component(
 # --- Shadow contract -------------------------------------------------------
 
 
+def test_offline_shadow_run_is_synthetic_and_rejected(tmp_path: Path) -> None:
+    run_dir = builder.offline_shadow_run(
+        tmp_path / "shadow-runs",
+        run_id="offline-shadow",
+        n=45,
+    )
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["synthetic"] is True
+    assert manifest["execution_mode"] == "test-fake"
+    with pytest.raises(ValueError, match="synthetic|real execution"):
+        builder.load_shadow_run(run_dir, allow_test_paths=True)
+
+
 def test_rejects_failed_shadow_run(tmp_path: Path) -> None:
     run = tmp_path / "failed-run"
     run.mkdir()
@@ -418,7 +547,7 @@ def test_rejects_unfinalized_shadow_run(tmp_path: Path) -> None:
 
 
 def test_rejects_tampered_shadow_manifest(tmp_path: Path, shadow_run: Path) -> None:
-    tampered = tmp_path / "offline-shadow"
+    tampered = tmp_path / "test-shadow"
     shutil.copytree(shadow_run, tampered)
     manifest = json.loads((tampered / "manifest.json").read_text(encoding="utf-8"))
     manifest["training_eligible"] = True
@@ -431,7 +560,7 @@ def test_rejects_tampered_shadow_candidate_bytes(
     tmp_path: Path,
     shadow_run: Path,
 ) -> None:
-    tampered = tmp_path / "offline-shadow"
+    tampered = tmp_path / "test-shadow"
     shutil.copytree(shadow_run, tampered)
     candidates = tampered / "candidates.json"
     candidates.write_bytes(candidates.read_bytes() + b" ")
@@ -443,7 +572,7 @@ def test_rejects_tampered_parsed_candidate_payload(
     tmp_path: Path,
     shadow_run: Path,
 ) -> None:
-    tampered = tmp_path / "offline-shadow"
+    tampered = tmp_path / "test-shadow"
     shutil.copytree(shadow_run, tampered)
     candidates_path = tampered / "candidates.json"
     manifest_path = tampered / "manifest.json"
@@ -465,6 +594,99 @@ def test_rejects_tampered_parsed_candidate_payload(
         builder.load_shadow_run(tampered, allow_test_paths=True)
 
 
+def test_rejects_candidate_and_manifest_rehash_without_matching_raw_response(
+    tmp_path: Path,
+    shadow_run: Path,
+) -> None:
+    tampered = tmp_path / "test-shadow"
+    shutil.copytree(shadow_run, tampered)
+    candidates_path = tampered / "candidates.json"
+    manifest_path = tampered / "manifest.json"
+    candidates = json.loads(candidates_path.read_text(encoding="utf-8"))
+    candidate = candidates[0]
+    candidate["candidate"]["stem"] = "Coordinated candidate and manifest tamper."
+    authored_hash = builder.shadow_foundry._parsed_candidate_hash(
+        candidate["candidate"]
+    )
+    final_trace = next(
+        trace
+        for trace in candidate["generator"]["traces"]
+        if trace["parser_outcome"] == "parsed"
+    )
+    final_trace["parsed_candidate_sha256"] = authored_hash
+    candidate_bytes = (
+        json.dumps(candidates, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    ).encode()
+    candidates_path.write_bytes(candidate_bytes)
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["candidate_payload_hashes"] = (
+        builder.shadow_foundry._candidate_payload_hashes(candidates)
+    )
+    manifest["request_traces"] = (
+        builder.shadow_foundry.canonical_candidate_trace_summaries(candidates)
+    )
+    manifest["artifact_digests"]["candidates_json"] = (
+        "sha256:" + hashlib.sha256(candidate_bytes).hexdigest()
+    )
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="raw response|raw parsed|final raw"):
+        builder.load_shadow_run(tampered, allow_test_paths=True)
+
+
+def test_ruler_independently_reparses_raw_generator_response(
+    tmp_path: Path,
+    shadow_run: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tampered = tmp_path / "test-shadow"
+    shutil.copytree(shadow_run, tampered)
+    candidates_path = tampered / "candidates.json"
+    manifest_path = tampered / "manifest.json"
+    candidates = json.loads(candidates_path.read_text(encoding="utf-8"))
+    candidates[0]["candidate"]["stem"] = "Tampered candidate with re-signed metadata."
+    authored_hash = builder.shadow_foundry._parsed_candidate_hash(
+        candidates[0]["candidate"]
+    )
+    final_trace = next(
+        trace
+        for trace in candidates[0]["generator"]["traces"]
+        if trace["parser_outcome"] == "parsed"
+    )
+    final_trace["parsed_candidate_sha256"] = authored_hash
+    candidate_bytes = (
+        json.dumps(candidates, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    ).encode()
+    candidates_path.write_bytes(candidate_bytes)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["candidate_payload_hashes"] = (
+        builder.shadow_foundry._candidate_payload_hashes(candidates)
+    )
+    manifest["request_traces"] = (
+        builder.shadow_foundry.canonical_candidate_trace_summaries(candidates)
+    )
+    manifest["artifact_digests"]["candidates_json"] = (
+        "sha256:" + hashlib.sha256(candidate_bytes).hexdigest()
+    )
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        builder.shadow_foundry, "validate_manifest", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        builder.shadow_foundry,
+        "validate_raw_response_binding",
+        lambda *a, **k: None,
+    )
+    with pytest.raises(ValueError, match="independent raw response"):
+        builder.load_shadow_run(tampered, allow_test_paths=True)
+
+
 @pytest.mark.parametrize(
     ("execution_mode", "synthetic"),
     [
@@ -479,7 +701,7 @@ def test_rejects_synthetic_or_non_real_shadow_run(
     execution_mode: str,
     synthetic: bool,
 ) -> None:
-    tampered = tmp_path / "offline-shadow"
+    tampered = tmp_path / "test-shadow"
     shutil.copytree(shadow_run, tampered)
     path = tampered / "manifest.json"
     manifest = json.loads(path.read_text(encoding="utf-8"))
@@ -507,7 +729,7 @@ def test_accepts_valid_shadow_run(shadow_run: Path) -> None:
         shadow_run, allow_test_paths=True
     )
     assert len(items) == 45
-    assert run_id == "offline-shadow"
+    assert run_id == "test-shadow"
     assert len(manifest_sha) == 64
     families = {item["model_family"] for item in items}
     assert families == {"sol", "opus", "grok"}
@@ -627,6 +849,18 @@ class _RecordingOrder(builder.PublicationIO):
         super().write_marker(path, content)
 
 
+class _MutateInputOnLink(builder.PublicationIO):
+    def __init__(self, input_path: Path) -> None:
+        self.input_path = input_path
+        self.mutated = False
+
+    def link_payload(self, source: Path, destination: Path) -> None:
+        if not self.mutated:
+            self.input_path.write_bytes(self.input_path.read_bytes() + b" ")
+            self.mutated = True
+        super().link_payload(source, destination)
+
+
 def _assert_no_final(out_root: Path, run_id: str) -> None:
     assert not (out_root / run_id).exists()
 
@@ -716,6 +950,60 @@ def test_concurrent_empty_destination_is_never_replaced(
     assert destination.is_dir()
     assert not any(destination.iterdir())
     assert not (destination / "_SUCCESS").exists()
+
+
+def test_during_build_input_drift_removes_final_output(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    out_root = tmp_path / "calibration"
+    with pytest.raises(ValueError, match="input fingerprint changed"):
+        builder.build(
+            trusted_path=inputs["trusted"],
+            failures_path=inputs["failures"],
+            shadow_path=inputs["shadow"],
+            out_root=out_root,
+            run_id="input-drift",
+            seed=7,
+            io=_MutateInputOnLink(inputs["trusted"]),
+            allow_test_paths=True,
+            _attestation_fn=_stable_attestation,
+        )
+    assert not (out_root / "input-drift").exists()
+    assert not (out_root / "input-drift" / "_SUCCESS").exists()
+
+
+def test_during_build_source_or_head_drift_removes_final_output(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    entry = _stable_attestation()
+    changed = builder.ExecutionAttestation(
+        head_sha="f" * 40,
+        tree_status="clean",
+        loaded_builder_sha256=entry.loaded_builder_sha256,
+        current_builder_sha256=entry.current_builder_sha256,
+        head_builder_sha256=entry.head_builder_sha256,
+        core_source_sha256={
+            **entry.core_source_sha256,
+            "shadow_foundry": "0" * 64,
+        },
+    )
+    attestations = iter((entry, changed))
+    out_root = tmp_path / "calibration"
+    with pytest.raises(ValueError, match="execution attestation changed"):
+        builder.build(
+            trusted_path=inputs["trusted"],
+            failures_path=inputs["failures"],
+            shadow_path=inputs["shadow"],
+            out_root=out_root,
+            run_id="source-drift",
+            seed=7,
+            allow_test_paths=True,
+            _attestation_fn=lambda: next(attestations),
+        )
+    assert not (out_root / "source-drift").exists()
+    assert not (out_root / "source-drift" / "_SUCCESS").exists()
 
 
 def test_publication_lock_collision_fails_closed(
@@ -856,6 +1144,110 @@ def test_svg_forbidden_metadata_term_fails_before_publication(
             shadow_path=inputs["shadow"],
             out_root=tmp_path / "calibration",
             run_id="svg-metadata",
+            seed=7,
+            allow_test_paths=True,
+            _repo_state_fn=_clean_repo_state,
+        )
+
+
+@pytest.mark.parametrize(
+    ("channel", "disclosure"),
+    [
+        ("title", "key: C"),
+        ("desc", "correct answer: C"),
+        ("text", "answer_key: C"),
+        (
+            "style",
+            "/* your_answer: C; recommendation: KEEP; confidence: 0.99; */",
+        ),
+    ],
+)
+def test_svg_structured_answer_disclosure_channels_fail(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+    channel: str,
+    disclosure: str,
+) -> None:
+    body = (
+        f"<style>{disclosure}</style>"
+        if channel == "style"
+        else f"<{channel}>{disclosure}</{channel}>"
+    )
+    figure = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">{body}</svg>'
+    items = [builder.offline_problem_item("trusted", index) for index in range(50)]
+    for index, item in enumerate(items):
+        item["correct"] = "C"
+        item["stem"] = (
+            f'Gold foil configuration {index}.<div class="pg-figure">{figure}</div>'
+        )
+    trusted = tmp_path / f"answer-disclosure-{channel}.json"
+    trusted.write_text(json.dumps(items), encoding="utf-8")
+    with pytest.raises(ValueError, match="figure asset.*answer|metadata"):
+        builder.build(
+            trusted_path=trusted,
+            failures_path=inputs["failures"],
+            shadow_path=inputs["shadow"],
+            out_root=tmp_path / "calibration",
+            run_id=f"answer-{channel}",
+            seed=7,
+            allow_test_paths=True,
+            _repo_state_fn=_clean_repo_state,
+        )
+
+
+def test_svg_bare_choice_letters_and_gold_foil_prose_are_allowed(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    figure = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+        "<text>A B C D E, gold foil nucleus</text></svg>"
+    )
+    items = [builder.offline_problem_item("trusted", index) for index in range(50)]
+    for index, item in enumerate(items):
+        item["stem"] = (
+            f'Gold foil configuration {index}.<div class="pg-figure">{figure}</div>'
+        )
+    trusted = tmp_path / "allowed-gold-foil-svg.json"
+    trusted.write_text(json.dumps(items), encoding="utf-8")
+    run_dir = builder.build(
+        trusted_path=trusted,
+        failures_path=inputs["failures"],
+        shadow_path=inputs["shadow"],
+        out_root=tmp_path / "calibration",
+        run_id="allowed-gold-foil",
+        seed=7,
+        allow_test_paths=True,
+        _repo_state_fn=_clean_repo_state,
+    )
+    assert (run_dir / "_SUCCESS").is_file()
+
+
+def test_svg_additional_answer_and_verifier_metadata_fails(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    disclosure = (
+        "correct_key: C; correct_value: choice C; model_output: C; "
+        "stored-key: C; verifier_decision: accept"
+    )
+    figure = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+        f"<text>{disclosure}</text></svg>"
+    )
+    items = [builder.offline_problem_item("trusted", index) for index in range(50)]
+    for index, item in enumerate(items):
+        item["correct"] = "C"
+        item["stem"] = f'Configuration {index}.<div class="pg-figure">{figure}</div>'
+    trusted = tmp_path / "additional-answer-metadata.json"
+    trusted.write_text(json.dumps(items), encoding="utf-8")
+    with pytest.raises(ValueError, match="figure asset.*answer|metadata"):
+        builder.build(
+            trusted_path=trusted,
+            failures_path=inputs["failures"],
+            shadow_path=inputs["shadow"],
+            out_root=tmp_path / "calibration",
+            run_id="answer-metadata",
             seed=7,
             allow_test_paths=True,
             _repo_state_fn=_clean_repo_state,
