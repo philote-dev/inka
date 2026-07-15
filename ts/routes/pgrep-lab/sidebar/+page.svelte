@@ -22,9 +22,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <script lang="ts">
     import { onDestroy } from "svelte";
 
+    // Note: the "fadein" id (not "fade") deliberately avoids Bootstrap's global
+    // `.fade { opacity: 0 }`, which Anki bundles app-wide and which Svelte's
+    // specificity-free :where scoping cannot override.
     const VARIANTS = [
         { id: "travel", label: "Travel" },
-        { id: "fade", label: "Fade" },
+        { id: "fadein", label: "Fade" },
         { id: "current", label: "Current" },
     ] as const;
     type Variant = (typeof VARIANTS)[number]["id"];
@@ -52,11 +55,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     onDestroy(() => clearTimeout(settleTimer));
 
-    $: shown = focus === "compare" ? (["travel", "fade"] as Variant[]) : [focus];
+    $: shown = focus === "compare" ? (["travel", "fadein"] as Variant[]) : [focus];
 
     const NOTE: Record<Variant, string> = {
         travel: "The pill stays pinned to the rail edge and slides with it as the rail opens and closes.",
-        fade: "The rail opens first; the pill then fades in at the edge once it settles. Nothing slides across.",
+        fadein: "The rail opens first; the pill then fades in at the edge once it settles. Nothing slides across.",
         current: "Today's app: an in-rail arrow hides it, a faint handle plus a top-left button show it. Contents squish as the rail narrows.",
     };
 </script>
@@ -148,7 +151,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                 {#if variant === "current"}
                                     <button
                                         type="button"
-                                        class="collapse"
+                                        class="rail-close"
                                         aria-label="Collapse sidebar"
                                         title="Collapse sidebar"
                                         on:click={() => setCollapsed(true)}
@@ -486,7 +489,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         background: var(--readiness);
     }
 
-    .collapse {
+    .rail-close {
         flex: 0 0 auto;
         display: inline-flex;
         align-items: center;
@@ -613,18 +616,18 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         opacity: 0.55;
     }
 
-    .fade .pill {
+    .fadein .pill {
         opacity: 0;
     }
 
-    .fade.is-settled .pill {
+    .fadein.is-settled .pill {
         opacity: 0.55;
     }
 
     .travel .toggle:hover .pill,
     .travel .toggle:focus-visible .pill,
-    .fade.is-settled .toggle:hover .pill,
-    .fade.is-settled .toggle:focus-visible .pill {
+    .fadein.is-settled .toggle:hover .pill,
+    .fadein.is-settled .toggle:focus-visible .pill {
         width: 6px;
         opacity: 1;
         background: var(--muted);
