@@ -56,6 +56,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             wide: true,
         },
         {
+            href: "/pgrep-lab/sidebar",
+            label: "Sidebar",
+            group: "design",
+            blurb: "The collapsing nav rail and its reopen handle, current beside proposed: watch the contents squish vs stay rigid, and the edge handle grow into a chevron pill.",
+            wide: true,
+        },
+        {
             href: "/pgrep-lab/demo",
             label: "Profile",
             group: "demo",
