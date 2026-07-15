@@ -190,6 +190,8 @@ class FakeRunner:
                     stdout="container-id\n",
                     stderr=f"Error: No such object: {command[-1]}",
                 )
+            if cleanup_inspect == "exception":
+                raise OSError("inspect failed")
             return cursor_sandbox.CommandResult(
                 1,
                 stderr="Cannot connect to the container endpoint",
@@ -1039,7 +1041,7 @@ def test_cleanup_requires_proof_container_is_absent(
         _sandbox(runner).complete(_request(), parent=tmp_path)
 
 
-def test_rm_failure_is_accepted_only_when_inspect_proves_absence(
+def test_rm_failure_is_security_error_even_when_inspect_proves_absence(
     tmp_path: Path,
 ) -> None:
     runner = FakeRunner(
@@ -1047,8 +1049,44 @@ def test_rm_failure_is_accepted_only_when_inspect_proves_absence(
         cleanup_rm_returncode=1,
         cleanup_inspect="absent",
     )
-    result = _sandbox(runner).complete(_request(), parent=tmp_path)
-    assert result.status == "finished"
+    with pytest.raises(cursor_sandbox.SecurityCleanupError):
+        _sandbox(runner).complete(_request(), parent=tmp_path)
+
+
+def test_debug_retain_timeout_removes_request_path(tmp_path: Path) -> None:
+    runner = FakeRunner(raise_timeout=True)
+    with pytest.raises(cursor_sandbox.SandboxTimeout):
+        _sandbox(runner, debug_retain=True).complete(_request(), parent=tmp_path)
+    assert not list(tmp_path.glob("shadow-*"))
+
+
+def test_debug_retain_rm_failure_removes_request_path(tmp_path: Path) -> None:
+    runner = FakeRunner(
+        result_body=_finished_body(),
+        cleanup_rm_returncode=1,
+        cleanup_inspect="absent",
+    )
+    with pytest.raises(cursor_sandbox.SecurityCleanupError):
+        _sandbox(runner, debug_retain=True).complete(_request(), parent=tmp_path)
+    assert not list(tmp_path.glob("shadow-*"))
+
+
+def test_debug_retain_inspect_exception_removes_request_path(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner(cleanup_inspect="exception")
+    with pytest.raises(cursor_sandbox.SecurityCleanupError):
+        _sandbox(runner, debug_retain=True).complete(_request(), parent=tmp_path)
+    assert not list(tmp_path.glob("shadow-*"))
+
+
+def test_debug_retain_present_container_removes_request_path(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner(cleanup_inspect="present")
+    with pytest.raises(cursor_sandbox.SecurityCleanupError):
+        _sandbox(runner, debug_retain=True).complete(_request(), parent=tmp_path)
+    assert not list(tmp_path.glob("shadow-*"))
 
 
 def test_cleanup_failure_overrides_primary_timeout(tmp_path: Path) -> None:

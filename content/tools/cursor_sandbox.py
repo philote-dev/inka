@@ -212,6 +212,27 @@ class LocalRuntime:
     socket_identity: str
 
 
+@dataclass
+class _LifecycleState:
+    """Tracks whether every started container is proven absent."""
+
+    absence_proven: bool = True
+    retention_forbidden: bool = False
+
+    def container_starting(self) -> None:
+        self.absence_proven = False
+
+    def prove_absence(self) -> None:
+        self.absence_proven = True
+
+    def forbid_retention(self) -> None:
+        self.retention_forbidden = True
+
+    @property
+    def can_retain(self) -> bool:
+        return self.absence_proven and not self.retention_forbidden
+
+
 class CommandRunner(Protocol):
     """Runs an explicit argument list and returns its captured result."""
 
@@ -1044,6 +1065,7 @@ class CursorSandbox:
                 "debug retention requires the exact repo content/run or OS temp root"
             )
         request_dir = Path(tempfile.mkdtemp(prefix="shadow-", dir=parent_dir))
+        lifecycle = _LifecycleState()
         try:
             _ensure_isolated_request_dir(request_dir, parent_dir)
             request_dir = request_dir.resolve(strict=True)
@@ -1051,7 +1073,11 @@ class CursorSandbox:
             _ensure_isolated_request_dir(request_dir, parent_dir)
             _reject_private_markers(json.dumps(payload, sort_keys=True))
             endpoint = self._local_runtime()
-            image_digest = self._ensure_mount_probe(endpoint, request_dir)
+            image_digest = self._ensure_mount_probe(
+                endpoint,
+                request_dir,
+                lifecycle,
+            )
             container_name = _validate_cli_value(
                 _container_name(request_dir),
                 name="container name",
@@ -1061,14 +1087,23 @@ class CursorSandbox:
                 request_dir=request_dir,
                 container_name=container_name,
                 image_digest=image_digest,
+                lifecycle=lifecycle,
             )
             _ensure_isolated_request_dir(request_dir, parent_dir)
             return self._load_result(request_dir, completed)
         finally:
-            if self._config.debug_retain:
+            if self._config.debug_retain and lifecycle.can_retain:
                 _verify_retained_request_path(request_dir, parent_dir)
             else:
                 _remove_request_path(request_dir)
+                if (
+                    self._config.debug_retain
+                    and not lifecycle.can_retain
+                    and sys.exc_info()[0] is None
+                ):
+                    raise SecurityCleanupError(
+                        "debug retention requires proven container absence"
+                    )
 
     def _local_runtime(self) -> LocalRuntime:
         resolver = self._endpoint_resolver or discover_local_runtime
@@ -1116,12 +1151,14 @@ class CursorSandbox:
         self,
         endpoint: LocalRuntime,
         request_dir: Path,
+        lifecycle: _LifecycleState,
     ) -> str:
         image_digest = self._inspect_image_digest(endpoint)
         self._perform_mount_probe(
             endpoint=endpoint,
             request_dir=request_dir,
             image_digest=image_digest,
+            lifecycle=lifecycle,
         )
         return image_digest
 
@@ -1131,6 +1168,7 @@ class CursorSandbox:
         endpoint: LocalRuntime,
         request_dir: Path,
         image_digest: str,
+        lifecycle: _LifecycleState,
     ) -> None:
         nonce = secrets.token_hex(32).encode("ascii")
         _write_named_file_nofollow(
@@ -1161,6 +1199,7 @@ class CursorSandbox:
                     command=command,
                     container_name=container_name,
                     timeout=self._config.timeout,
+                    lifecycle=lifecycle,
                 )
             except SecurityCleanupError:
                 raise
@@ -1234,6 +1273,7 @@ class CursorSandbox:
         request_dir: Path,
         container_name: str,
         image_digest: str,
+        lifecycle: _LifecycleState,
     ) -> CommandResult:
         command = self._run_command(
             endpoint,
@@ -1249,6 +1289,7 @@ class CursorSandbox:
                 container_name=container_name,
                 timeout=self._config.timeout,
                 environment=environment,
+                lifecycle=lifecycle,
             )
         except SecurityCleanupError:
             raise
@@ -1270,10 +1311,12 @@ class CursorSandbox:
         command: Sequence[str],
         container_name: str,
         timeout: float,
+        lifecycle: _LifecycleState,
         environment: Mapping[str, str] | None = None,
     ) -> CommandResult:
         if environment is None:
             environment = self._endpoint_subprocess_env(endpoint)
+        lifecycle.container_starting()
         try:
             completed = self._runner.run(
                 command,
@@ -1281,23 +1324,36 @@ class CursorSandbox:
                 timeout=timeout,
             )
         except BaseException as primary:
+            lifecycle.forbid_retention()
             try:
-                self._remove_and_verify_container(endpoint, container_name)
+                self._remove_and_verify_container(
+                    endpoint,
+                    container_name,
+                    lifecycle,
+                )
             except SecurityCleanupError as cleanup:
                 raise cleanup from primary
             raise
-        self._remove_and_verify_container(endpoint, container_name)
+        if completed.returncode < 0:
+            lifecycle.forbid_retention()
+        self._remove_and_verify_container(
+            endpoint,
+            container_name,
+            lifecycle,
+        )
         return completed
 
     def _remove_and_verify_container(
         self,
         endpoint: LocalRuntime,
         container_name: str,
+        lifecycle: _LifecycleState,
     ) -> None:
         name = _validate_cli_value(container_name, name="container name")
         try:
             environment = self._endpoint_subprocess_env(endpoint)
         except Exception as err:
+            lifecycle.forbid_retention()
             raise SecurityCleanupError(
                 f"could not reach local endpoint to remove container: {name}"
             ) from err
@@ -1309,14 +1365,16 @@ class CursorSandbox:
             name,
         ]
         remove_error: BaseException | None = None
+        remove_result: CommandResult | None = None
         try:
-            self._runner.run(
+            remove_result = self._runner.run(
                 remove_command,
                 env=environment,
                 timeout=DEFAULT_CLEANUP_TIMEOUT_SECONDS,
             )
         except BaseException as err:
             remove_error = err
+            lifecycle.forbid_retention()
 
         inspect_command = [
             str(endpoint.binary),
@@ -1334,6 +1392,7 @@ class CursorSandbox:
                 timeout=DEFAULT_CLEANUP_TIMEOUT_SECONDS,
             )
         except BaseException as err:
+            lifecycle.forbid_retention()
             raise SecurityCleanupError(
                 f"could not verify container absence: {name}"
             ) from (remove_error or err)
@@ -1344,11 +1403,20 @@ class CursorSandbox:
             and any(marker in rendered_error for marker in _ABSENT_CONTAINER_MARKERS)
         )
         if not absent:
+            lifecycle.forbid_retention()
             raise SecurityCleanupError(
                 f"container could not be proven absent: {name}"
             ) from remove_error
-        if remove_error is not None and not isinstance(remove_error, Exception):
-            raise remove_error
+        lifecycle.prove_absence()
+        if (
+            remove_error is not None
+            or remove_result is None
+            or remove_result.returncode != 0
+        ):
+            lifecycle.forbid_retention()
+            raise SecurityCleanupError(
+                f"container removal command failed: {name}"
+            ) from remove_error
 
     def _run_command(
         self,
