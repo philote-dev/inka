@@ -380,10 +380,7 @@ foundry-dry *args:
     {{ ninja }} pyenv
     out/pyenv/bin/python content/tools/foundry.py --self-check {{ args }}
 
-# Best-of-N content foundry (needs AI runtime + key when online generation is enabled).
-# Sources content/.env for OPENAI_API_KEY. Until online generation lands, pass
-# --dry-run for an offline partition test. Example: `just foundry --dry-run --topic
-# classical_mechanics --n 8`. macOS/Linux.
+# Best-of-N content foundry. Example: `just foundry --dry-run --topic classical_mechanics --n 8`
 [group('content')]
 [unix]
 foundry *args:
