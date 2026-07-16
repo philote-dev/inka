@@ -14,10 +14,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         OperationChoice,
         OperationSnapshot,
     } from "../../routes/pgrep/lib/operation";
-    import OperationStateMark, {
-        type ActivityVariant,
-        type MarkPhase,
-    } from "./OperationStateMark.svelte";
 
     export let operation: OperationSnapshot;
     export let onResolve: (
@@ -27,8 +23,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     export let onCancel: (operationId: number) => Promise<unknown> = async () => {};
     export let onDismiss: (operationId: number) => Promise<unknown> = async () => {};
     export let embedded = false;
-    // Provisional default for review; swap after picking on /pgrep-lab/operation-ui.
-    export let activityVariant: ActivityVariant = "orbit";
 
     let cancelButton: HTMLButtonElement | undefined;
     let decisionCard: HTMLDivElement | undefined;
@@ -54,15 +48,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         return decision?.choices.find((choice) => choice.id === "cancel");
     }
 
-    function markPhase(): MarkPhase {
-        if (
-            operation.phase === "success" ||
-            operation.phase === "error" ||
-            operation.phase === "cancelled"
-        ) {
-            return operation.phase;
+    function stateSymbol(): string {
+        if (operation.phase === "success") {
+            return "✓";
         }
-        return "active";
+        if (operation.phase === "error") {
+            return "!";
+        }
+        if (operation.phase === "cancelled") {
+            return "–";
+        }
+        return "";
     }
 
     async function choose(choice: string): Promise<void> {
@@ -150,7 +146,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         aria-live={operation.phase === "error" ? "assertive" : "polite"}
         aria-atomic="true"
     >
-        <OperationStateMark phase={markPhase()} variant={activityVariant} />
+        <div
+            class="state-mark"
+            class:working={operation.phase === "active"}
+            aria-hidden="true"
+        >
+            {stateSymbol()}
+        </div>
         <div class="operation-copy">
             <div class="operation-message">{operation.message}</div>
             {#if operation.detail}
@@ -287,6 +289,37 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         bottom: auto;
         width: 100%;
         box-sizing: border-box;
+    }
+
+    .state-mark {
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border: var(--hairline);
+        border-radius: var(--radius-pill);
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 700;
+    }
+
+    .state-mark.working::before {
+        content: "";
+        width: 10px;
+        height: 10px;
+        border: 1.5px solid var(--border);
+        border-top-color: var(--text);
+        border-radius: var(--radius-pill);
+        animation: operation-spin 800ms linear infinite;
+    }
+
+    .error .state-mark {
+        border-color: var(--error);
+        color: var(--error);
+    }
+
+    .success .state-mark {
+        border-color: var(--success);
     }
 
     .operation-copy {
@@ -460,6 +493,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         outline-offset: 2px;
     }
 
+    @keyframes operation-spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
     @keyframes operation-progress {
         from {
             transform: translateX(-110%);
@@ -499,6 +538,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     @media (prefers-reduced-motion: reduce) {
+        .state-mark.working::before,
         .progress-track.indeterminate span {
             animation: none;
         }

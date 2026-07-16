@@ -45,7 +45,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             href: "/pgrep-lab/operation-ui",
             label: "Operation UI",
             group: "design",
-            blurb: "Sync/export chrome plus activity-mark picker (orbit / cascade / soft).",
+            blurb: "Sync and export progress, decisions, and failures without native dialogs.",
             wide: true,
         },
         {
