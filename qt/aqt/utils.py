@@ -107,6 +107,11 @@ HelpPageArgument = Union["HelpPage.V", str]
 
 
 def openHelp(section: HelpPageArgument) -> None:
+    # Product modes must not open docs.ankiweb.net. The stock hatch (off) keeps
+    # upstream help links for Anki admin screens. Silent in product modes: a
+    # toast that only says help is missing is noise over the SPA.
+    if os.environ.get("PGREP_SURFACE_MODE", "exclusive") != "off":
+        return
     assert tr.backend is not None
     backend = tr.backend()
     assert backend is not None
@@ -1062,6 +1067,17 @@ def tooltip(
     y_offset: int = 100,
 ) -> None:
     global _tooltipTimer, _tooltipLabel
+
+    # Product surface: Anki's yellow ToolTip panel reads as a random rectangle
+    # over the SPA. Route the same message into the in-app status line instead.
+    # Hosted hatch keeps the Qt toast when Anki screens are visible.
+    mw = aqt.mw
+    if mw is not None:
+        from aqt import pgrep_host
+
+        if pgrep_host.surface_is_leading(mw):
+            pgrep_host.notify_status(mw, msg, period_ms=period)
+            return
 
     class CustomLabel(QLabel):
         silentlyClose = True

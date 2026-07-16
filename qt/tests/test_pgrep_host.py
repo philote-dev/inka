@@ -12,7 +12,10 @@ import types
 
 import pytest
 
-from aqt import pgrep_host
+import aqt.main
+import aqt.mediasync
+from aqt import pgrep_host, pgrep_operation
+from aqt.pgrep_operation import OperationController, ProductSyncUi
 
 
 def _fake_mw(meta: dict | None = None) -> tuple[types.SimpleNamespace, dict]:
@@ -135,3 +138,167 @@ def test_headless_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert pgrep_host.headless() is True
     monkeypatch.setenv("PGREP_HEADLESS", "0")
     assert pgrep_host.headless() is False
+
+
+def test_main_sync_uses_product_ui_when_pgrep_leads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = OperationController()
+    monkeypatch.setattr(pgrep_operation, "operation_controller", controller)
+    monkeypatch.setattr(pgrep_host, "leads_with_pgrep", lambda _mw: True)
+    monkeypatch.setattr(aqt.main.gui_hooks, "sync_will_start", lambda: None)
+    captured: dict = {}
+    monkeypatch.setattr(
+        aqt.main,
+        "sync_collection",
+        lambda mw, on_done, *, ui=None: captured.update(ui=ui),
+    )
+    mw = types.SimpleNamespace(
+        col=types.SimpleNamespace(abort_sync=lambda: None),
+        taskman=types.SimpleNamespace(run_on_main=lambda fn: fn()),
+    )
+
+    aqt.main.AnkiQt._sync_collection_and_media(mw, lambda: None)
+
+    assert isinstance(captured["ui"], ProductSyncUi)
+
+
+def test_product_sync_shortcut_routes_to_in_app_login(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pgrep_host, "leads_with_pgrep", lambda _mw: True)
+    native_login: list[bool] = []
+    monkeypatch.setattr(
+        aqt.main, "sync_login", lambda *_args, **_kwargs: native_login.append(True)
+    )
+    routes: list[str] = []
+    mw = types.SimpleNamespace(
+        media_syncer=types.SimpleNamespace(
+            is_syncing=lambda: False,
+            show_sync_log=lambda: routes.append("native-log"),
+        ),
+        pm=types.SimpleNamespace(sync_auth=lambda: None),
+        pgrep_navigate=routes.append,
+    )
+
+    aqt.main.AnkiQt.on_sync_button_clicked(mw)
+
+    assert routes == ["pgrep/login"]
+    assert native_login == []
+
+
+def test_product_media_failure_is_in_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = OperationController()
+    monkeypatch.setattr(pgrep_operation, "operation_controller", controller)
+    operation_id = controller.begin("sync", "Syncing")
+    monkeypatch.setattr(pgrep_host, "leads_with_pgrep", lambda _mw: True)
+    native_info: list[str] = []
+    monkeypatch.setattr(
+        aqt.mediasync,
+        "show_info",
+        lambda message, **_kwargs: native_info.append(message),
+    )
+    syncer = aqt.mediasync.MediaSyncer.__new__(aqt.mediasync.MediaSyncer)
+    syncer.mw = types.SimpleNamespace(
+        taskman=types.SimpleNamespace(run_on_main=lambda fn: fn()),
+        pgrep_web=None,
+    )
+    syncer.last_progress = ""
+    syncer._operation_id = operation_id
+
+    syncer._handle_sync_error(Exception("network down"))
+
+    assert controller.snapshot()["operation_id"] == operation_id
+    assert controller.snapshot()["phase"] == "error"
+    assert native_info == []
+
+
+def test_product_media_failure_without_active_sync_stays_in_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = OperationController()
+    monkeypatch.setattr(pgrep_operation, "operation_controller", controller)
+    monkeypatch.setattr(pgrep_host, "leads_with_pgrep", lambda _mw: True)
+    native_info: list[str] = []
+    monkeypatch.setattr(
+        aqt.mediasync,
+        "show_info",
+        lambda message, **_kwargs: native_info.append(message),
+    )
+    syncer = aqt.mediasync.MediaSyncer.__new__(aqt.mediasync.MediaSyncer)
+    syncer.mw = types.SimpleNamespace(
+        taskman=types.SimpleNamespace(run_on_main=lambda fn: fn()),
+        pgrep_web=None,
+    )
+    syncer.last_progress = ""
+    syncer._operation_id = None
+
+    syncer._handle_sync_error(Exception("network down"))
+
+    assert controller.snapshot()["phase"] == "error"
+    assert controller.snapshot()["message"] == "Sync failed"
+    assert native_info == []
+
+
+def test_media_monitor_does_not_bind_to_a_newer_operation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = OperationController()
+    monkeypatch.setattr(pgrep_operation, "operation_controller", controller)
+    monkeypatch.setattr(pgrep_host, "leads_with_pgrep", lambda _mw: True)
+    first = controller.begin("sync", "First")
+    syncer = aqt.mediasync.MediaSyncer.__new__(aqt.mediasync.MediaSyncer)
+    syncer.mw = types.SimpleNamespace()
+    syncer._operation_id = first
+    second = controller.begin("sync", "Second")
+
+    assert syncer._product_operation() is None
+    assert controller.snapshot()["operation_id"] == second
+
+
+def test_product_sync_keeps_window_enabled_for_decisions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pgrep_host, "leads_with_pgrep", lambda _mw: True)
+    assert pgrep_host.disable_window_during_sync(object()) is False
+    monkeypatch.setattr(pgrep_host, "leads_with_pgrep", lambda _mw: False)
+    assert pgrep_host.disable_window_during_sync(object()) is True
+
+
+def test_successful_product_sync_records_last_synced_at() -> None:
+    saved: list[bool] = []
+    meta: dict = {}
+    syncer = aqt.mediasync.MediaSyncer.__new__(aqt.mediasync.MediaSyncer)
+    syncer.mw = types.SimpleNamespace(
+        pm=types.SimpleNamespace(meta=meta, save=lambda: saved.append(True))
+    )
+
+    syncer._record_last_synced()
+
+    assert isinstance(meta["pgrep_last_synced_at"], int)
+    assert meta["pgrep_last_synced_at"] > 0
+    assert saved == [True]
+
+
+def test_product_shutdown_wait_does_not_open_media_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pgrep_host, "leads_with_pgrep", lambda _mw: True)
+    opened: list[str] = []
+    fake_dialog = types.SimpleNamespace(show=lambda: None)
+    monkeypatch.setattr(
+        aqt.dialogs,
+        "open",
+        lambda name, *_args, **_kwargs: (opened.append(name), fake_dialog)[1],
+    )
+    syncer = aqt.mediasync.MediaSyncer.__new__(aqt.mediasync.MediaSyncer)
+    syncer.mw = types.SimpleNamespace(
+        progress=types.SimpleNamespace(timer=lambda *_args, **_kwargs: object())
+    )
+    syncer._syncing = True
+
+    syncer.show_diag_until_finished(lambda: None)
+
+    assert opened == []

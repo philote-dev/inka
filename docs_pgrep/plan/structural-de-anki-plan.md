@@ -381,7 +381,8 @@ def test_card_sets_never_expose_stock_defaults(pgrep_col):
 (Use the existing pgrep test fixture; check `pylib/tests` for the collection fixture name.)
 
 - [ ] **Step 2: Record deferred items** in `docs_pgrep/plan/deferred-todos.md` (WI3 login gate,
-      pgrep's own note type, WI5 build fallback) and update `build-plan.md` L6 to note the structural
+      pgrep's own note type, WI5 build fallback; WI3's page artifacts were since built for the beta,
+      see `login-gate-beta-handoff.md`) and update `build-plan.md` L6 to note the structural
       de-Anki sweep is in progress here.
 - [ ] **Step 3: Run `just check`** in the worktree; fix any lint/type/test failures. Expected: green
       except the known pre-existing `test_installer` worktree flake.

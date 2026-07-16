@@ -14,6 +14,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import { onDestroy, onMount } from "svelte";
     import { manifoldView, type ManifoldView } from "$lib/pgrep/prefs";
     import { pgrepCall } from "../lib/bridge";
+    import { operation } from "../lib/operation";
 
     type Theme = "Light" | "Dark" | "System";
 
@@ -39,6 +40,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         sync_url: string;
         retention_min: number;
         retention_max: number;
+        last_synced_at: number | null;
     }
 
     const THEMES: Theme[] = ["Light", "Dark", "System"];
@@ -56,12 +58,56 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     // 8090, not 8080: `just run` uses 8080 for the Qt remote-debug/hot-reload
     // server, so the sync stack gets its own port to avoid the collision.
-    let serverURL = "http://127.0.0.1:8090/";
+    let accountURL = "http://127.0.0.1:8090/";
     let syncing = false;
     let syncMsg = "";
+    let lastSyncedAt: number | null = null;
+    // After the first successful sync on this device, keep a short teaching line
+    // so "Up to date" still explains what just connected.
+    let teachDevicesLinked = false;
 
     let exporting = false;
     let exportMsg = "";
+    $: operationBusy = $operation.phase === "active" || $operation.phase === "decision";
+
+    // The shared shell operation state is the source of truth after kickoff.
+    // IDs/revisions, not message text, decide which Settings row updates.
+    $: if ($operation.kind === "sync") {
+        if ($operation.phase === "active" || $operation.phase === "decision") {
+            syncing = true;
+            syncMsg = [$operation.message, $operation.detail]
+                .filter(Boolean)
+                .join(". ");
+        } else if ($operation.phase === "success") {
+            syncing = false;
+            syncMsg = "";
+            if (lastSyncedAt == null) {
+                teachDevicesLinked = true;
+            }
+            lastSyncedAt = Math.floor(Date.now() / 1000);
+        } else if ($operation.phase === "error" || $operation.phase === "cancelled") {
+            syncing = false;
+            syncMsg = [$operation.message, $operation.detail]
+                .filter(Boolean)
+                .join(". ");
+        } else if ($operation.phase === "idle") {
+            syncing = false;
+            syncMsg = "";
+        }
+    }
+    $: if ($operation.kind === "export" && $operation.phase !== "idle") {
+        exporting = $operation.phase === "active";
+        exportMsg = [$operation.message, $operation.detail].filter(Boolean).join(". ");
+    }
+
+    $: syncIdleSub = formatLastSynced(lastSyncedAt, teachDevicesLinked);
+    $: syncRowSub =
+        syncMsg &&
+        (syncing ||
+            ($operation.kind === "sync" &&
+                ($operation.phase === "error" || $operation.phase === "cancelled")))
+            ? syncMsg
+            : syncIdleSub;
 
     // Reset is destructive, so it takes two clicks: the first arms the button
     // (it reads "Confirm reset?"), a second within a few seconds confirms. A
@@ -80,6 +126,29 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         }
     }
 
+    function formatLastSynced(epochSec: number | null, teachLinked: boolean): string {
+        if (epochSec == null || epochSec <= 0) {
+            return "Keeps this computer and your phone on the same collection.";
+        }
+        if (teachLinked) {
+            return "Up to date. This computer and your phone share one collection.";
+        }
+        const seconds = Math.max(0, Math.floor(Date.now() / 1000) - epochSec);
+        if (seconds < 60) {
+            return "Last synced just now.";
+        }
+        if (seconds < 3600) {
+            const mins = Math.floor(seconds / 60);
+            return `Last synced ${mins} min${mins === 1 ? "" : "s"} ago.`;
+        }
+        if (seconds < 86400) {
+            const hours = Math.floor(seconds / 3600);
+            return `Last synced ${hours} hour${hours === 1 ? "" : "s"} ago.`;
+        }
+        const days = Math.floor(seconds / 86400);
+        return `Last synced ${days} day${days === 1 ? "" : "s"} ago.`;
+    }
+
     async function loadSettings(): Promise<void> {
         try {
             const s = await pgrepCall<Settings>("pgrepSettingsGet", {});
@@ -87,8 +156,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             retentionMin = s.retention_min;
             retentionMax = s.retention_max;
             testDate = s.test_date ?? "";
+            lastSyncedAt = s.last_synced_at ?? null;
             if (s.sync_url) {
-                serverURL = s.sync_url;
+                accountURL = s.sync_url;
             }
             // A stored theme wins; otherwise the app keeps reflecting whatever it
             // already shows, so a fresh profile never claims a choice unmade.
@@ -125,9 +195,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     async function saveSyncUrl(): Promise<void> {
         try {
             const s = await pgrepCall<Settings>("pgrepSettingsSet", {
-                sync_url: serverURL,
+                sync_url: accountURL,
             });
-            serverURL = s.sync_url;
+            accountURL = s.sync_url;
         } catch {
             // Keep the typed value; the next load reconciles it.
         }
@@ -160,33 +230,48 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     async function syncNow(): Promise<void> {
+        if (syncing || operationBusy) {
+            return;
+        }
         syncing = true;
         syncMsg = "Syncing\u2026";
         try {
-            await pgrepCall("pgrepSync", { url: serverURL.trim() });
-            syncMsg = "Sync running. Watch the desktop for progress and completion.";
+            const res = await pgrepCall<{ status: string; operation_id: number }>(
+                "pgrepSync",
+                {
+                    url: accountURL.trim(),
+                },
+            );
+            if (res.status === "busy") {
+                syncing = false;
+                syncMsg = "Another sync or export is already running.";
+            }
         } catch (e) {
             syncMsg = `Sync failed. ${e}`;
-        } finally {
             syncing = false;
         }
     }
 
     async function exportData(): Promise<void> {
-        if (exporting) {
+        if (exporting || operationBusy) {
             return;
         }
         exporting = true;
         exportMsg = "Exporting\u2026";
         try {
-            const res = await pgrepCall<{ status: string; path: string }>(
-                "pgrepExport",
-                {},
-            );
-            exportMsg = `Export running. Saving to ${res.path}`;
+            const res = await pgrepCall<{
+                status: string;
+                path?: string;
+                operation_id: number;
+            }>("pgrepExport", {});
+            if (res.status === "busy") {
+                exporting = false;
+                exportMsg = "Another sync or export is already running.";
+                return;
+            }
+            exportMsg = `Exporting to ${res.path}\u2026`;
         } catch (e) {
             exportMsg = `Export failed. ${e}`;
-        } finally {
             exporting = false;
         }
     }
@@ -369,39 +454,41 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         </section>
 
         <section class="group">
-            <div class="group-label">Sync</div>
+            <div class="group-label">Devices</div>
             <div class="card">
                 <div class="row">
                     <div class="row-text">
-                        <div class="row-title">Server</div>
-                        <div class="row-sub">Self-hosted sync server URL</div>
-                    </div>
-                    <input
-                        class="url-input mono"
-                        type="text"
-                        bind:value={serverURL}
-                        on:change={saveSyncUrl}
-                        on:blur={saveSyncUrl}
-                        spellcheck="false"
-                        autocomplete="off"
-                        aria-label="Sync server URL"
-                    />
-                </div>
-                <div class="row">
-                    <div class="row-text">
-                        <div class="row-title">Sync</div>
+                        <div class="row-title">This computer</div>
                         <div class="row-sub">
-                            {syncMsg || "Two-way sync with the phone"}
+                            {syncRowSub}
                         </div>
                     </div>
                     <button
                         class="pill-btn strong"
                         type="button"
                         on:click={syncNow}
-                        disabled={syncing}
+                        disabled={operationBusy || syncing}
                     >
                         {syncing ? "Syncing…" : "Sync now"}
                     </button>
+                </div>
+                <div class="row">
+                    <div class="row-text">
+                        <div class="row-title">Account URL</div>
+                        <div class="row-sub">
+                            Advanced — where your study account lives
+                        </div>
+                    </div>
+                    <input
+                        class="url-input mono"
+                        type="text"
+                        bind:value={accountURL}
+                        on:change={saveSyncUrl}
+                        on:blur={saveSyncUrl}
+                        spellcheck="false"
+                        autocomplete="off"
+                        aria-label="Account URL"
+                    />
                 </div>
             </div>
         </section>
@@ -463,7 +550,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         class="pill-btn strong"
                         type="button"
                         on:click={exportData}
-                        disabled={exporting}
+                        disabled={operationBusy || exporting}
                     >
                         {exporting ? "Exporting…" : "Export"}
                     </button>

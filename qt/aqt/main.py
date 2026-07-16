@@ -750,7 +750,10 @@ class AnkiQt(QMainWindow):
             self.media_syncer.show_diag_until_finished(after_media_sync)
 
         def before_sync() -> None:
-            self.setEnabled(False)
+            from aqt import pgrep_host
+
+            if pgrep_host.disable_window_during_sync(self):
+                self.setEnabled(False)
             self.maybe_auto_sync_on_open_close(after_sync)
 
         self.closeAllWindows(before_sync)
@@ -1170,6 +1173,20 @@ title="{}" {}>{}</button>""".format(
     ##########################################################################
 
     def on_sync_button_clicked(self) -> None:
+        from aqt import pgrep_host
+
+        if pgrep_host.leads_with_pgrep(self):
+            if self.media_syncer.is_syncing():
+                # The product operation center owns media progress. Bring its
+                # Settings context forward instead of opening Anki's sync log.
+                self.pgrep_navigate("pgrep/settings")
+                return
+            if not self.pm.sync_auth():
+                self.pgrep_navigate("pgrep/login")
+                return
+            self._sync_collection_and_media(self._refresh_after_sync)
+            return
+
         if self.media_syncer.is_syncing():
             self.media_syncer.show_sync_log()
         else:
@@ -1188,6 +1205,16 @@ title="{}" {}>{}</button>""".format(
 
     def _sync_collection_and_media(self, after_sync: Callable[[], None]) -> None:
         "Caller should ensure auth available."
+        from aqt import pgrep_host
+
+        ui = None
+        if pgrep_host.leads_with_pgrep(self):
+            from aqt.pgrep_operation import ProductSyncUi
+
+            ui = ProductSyncUi(self)
+            if not ui.started:
+                after_sync()
+                return
 
         def on_collection_sync_finished() -> None:
             self.col.models._clear_cache()
@@ -1197,7 +1224,7 @@ title="{}" {}>{}</button>""".format(
             after_sync()
 
         gui_hooks.sync_will_start()
-        sync_collection(self, on_done=on_collection_sync_finished)
+        sync_collection(self, on_done=on_collection_sync_finished, ui=ui)
 
     def maybe_auto_sync_on_open_close(self, after_sync: Callable[[bool], None]) -> None:
         "If disabled, after_sync() is called immediately."

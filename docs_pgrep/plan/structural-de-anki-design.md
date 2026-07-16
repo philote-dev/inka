@@ -22,8 +22,10 @@ In scope this pass:
 
 Deferred (each its own later cycle):
 
-- **WI3** The first-run login gate. Better once the hosting decision is made; the local server
-  path already works today.
+- **WI3** The first-run login gate. The page artifacts are now built for the beta (see
+  `login-gate-beta-handoff.md`, the single source of truth for the page); the office-beta hookup
+  wires the startup routing. Only the production credential source (self-serve signup) waits on
+  the hosting decision.
 - **pgrep's own card template.** Today pgrep reuses Anki's stock `Basic` note type. Migrating
   off it touches the seeder, card sets, and generation, so it is its own project.
 
@@ -171,14 +173,15 @@ A new `docs_pgrep/plan/hosting-roadmap.md`:
 
 ## Deferred and future items (to record in `deferred-todos.md`)
 
-- WI3 the first-run login gate.
+- WI3 the first-run login gate: page artifacts built for the beta (`login-gate-beta-handoff.md`);
+  the remaining office-beta hookup is the startup routing and the gate-dismissed flag.
 - pgrep's own card template, to migrate off Anki's stock `Basic`.
 - WI5 build note: if overriding the wheel proves messy, a pgrep-owned separate dylib target is the
   fallback.
 
 ## Decisions log (this session)
 
-- Scope is WI1, WI2, WI4, WI5. WI3 login gate deferred.
+- Scope is WI1, WI2, WI4, WI5. WI3 login gate deferred from this pass (its page was later built for the beta; see `login-gate-beta-handoff.md`).
 - Menu removal uses Approach C (build pgrep's own menus, do not build Anki's), chosen over hiding.
 - Collection defaults are left untouched; a future item captures pgrep's own note type.
 - The window title bar becomes the unified, transparent macOS look (Option 2), folded into this

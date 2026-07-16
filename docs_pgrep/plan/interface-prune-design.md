@@ -1,6 +1,11 @@
 # Interface prune, design (remove Anki's UI, keep the engine)
 
-Date: 2026-07-07. Status: draft for review. Author: pair session.
+Date: 2026-07-07. Status: superseded. Author: pair session.
+
+> Superseded by `structural-de-anki-design.md` (the executed structural pass) and its
+> implementation plan `structural-de-anki-plan.md`. For the first-run login gate specifically,
+> the source of truth is `login-gate-beta-handoff.md` (page artifacts built for the beta). This
+> draft is kept for history; do not plan new work from it.
 
 ## Context
 

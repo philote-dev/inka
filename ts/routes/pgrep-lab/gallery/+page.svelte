@@ -15,6 +15,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import CoverageBar from "$lib/components/CoverageBar.svelte";
     import GradeBar from "$lib/components/GradeBar.svelte";
     import HintRung from "$lib/components/HintRung.svelte";
+    import LoginGate from "$lib/components/LoginGate.svelte";
     import Manifold from "$lib/components/Manifold.svelte";
     import NavRail from "$lib/components/NavRail.svelte";
     import ReliabilityDiagram from "$lib/components/ReliabilityDiagram.svelte";
@@ -80,6 +81,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         { id: "manifold", label: "Manifold" },
         { id: "card-face", label: "Card face" },
         { id: "math", label: "Math" },
+        { id: "login-gate", label: "Login gate" },
     ];
 
     // ScoreCard: full honesty anatomy for each of the three reserved hues.
@@ -1199,6 +1201,53 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     {/each}
                 </div>
             </section>
+
+            <!-- Login gate -->
+            <section id="login-gate" class="section">
+                <div class="section-head">
+                    <h2>Login gate</h2>
+                    <p>
+                        The two-step first-run screen a beta tester meets before Home.
+                        It hands off from the opening splash, so neither step repeats
+                        the logo. Welcome carries the wordmark, a filled Beta pill, and
+                        the two choices; Sign in takes the username and password we sent
+                        the tester, with the baked server URL tucked under Advanced.
+                        Continue offline lands on the full product, since study and
+                        AI-off scoring never need an account. Chrome stays monochrome by
+                        the token rule, so the Beta pill is the action color, not a
+                        score hue. The Welcome step is shown here in both themes; the
+                        Sign-in step and its states are on the live route (linked
+                        below).
+                    </p>
+                </div>
+                <div class="split">
+                    {#each THEMES as t (t.id)}
+                        <div class="pane pgrep {t.cls}">
+                            <span class="pane-label">{t.label}</span>
+                            <div class="stage stack">
+                                <span class="state-label">
+                                    Welcome, first step after the splash
+                                </span>
+                                <div class="gate-frame">
+                                    <LoginGate
+                                        initialStep="welcome"
+                                        onSignIn={async () => ({ ok: true })}
+                                        onContinueOffline={noop}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    {/each}
+                </div>
+                <p class="gate-note">
+                    The Welcome step is shown in both themes above (cropped to its
+                    chrome). The Sign-in step, the Advanced server field, the error, and
+                    the mid sign-in spinner are on the live route:
+                    <a href="/pgrep/login">open the login gate</a>
+                    . It is a full, interactive surface, so it lives at its route rather than
+                    expanded inline (the gallery has a browser paint ceiling).
+                </p>
+            </section>
         </main>
     </div>
 </div>
@@ -1494,6 +1543,30 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         overflow: hidden;
         border: var(--hairline);
         border-radius: var(--radius-card);
+    }
+
+    /* The login gate is a full surface, not a primitive. It renders inside a
+       fixed, cropped viewport (like the study-frame previews) so the two full
+       screens do not balloon the page past the browser's paint ceiling. The
+       gate centers its content, so a bounded frame shows it faithfully. */
+    .gate-frame {
+        height: 300px;
+        overflow: hidden;
+        border: var(--hairline);
+        border-radius: var(--radius-card);
+    }
+
+    .gate-note {
+        margin: var(--space-2) 0 0;
+        font-size: var(--text-small);
+        line-height: 1.55;
+        color: var(--muted);
+
+        a {
+            color: var(--text);
+            text-decoration: underline;
+            text-underline-offset: 3px;
+        }
     }
 
     .rail-preview {

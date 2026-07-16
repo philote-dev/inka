@@ -3,8 +3,9 @@
 //
 // App-level state for the pgrep companion: it owns the one shared Engine (so
 // Home, Study, and Settings all drive a single open collection), runs the
-// open-on-launch lifecycle, and holds the sync settings (custom server URL and
-// username in UserDefaults, the sync key in the Keychain).
+// open-on-launch lifecycle, and holds the sync settings (account URL and
+// username in UserDefaults, the sync key in the Keychain, last-synced time
+// per-device).
 
 import Foundation
 import Security
@@ -33,6 +34,10 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(username, forKey: Keys.username) }
     }
 
+    /// When this phone last finished a successful sync. Per-device UserDefaults;
+    /// not written into the synced collection blob.
+    @Published private(set) var lastSyncedAt: Date?
+
     @Published private(set) var syncKey: String?
 
     var isLoggedIn: Bool { syncKey?.isEmpty == false }
@@ -57,6 +62,7 @@ final class AppModel: ObservableObject {
     private enum Keys {
         static let serverURL = "pgrep.sync.serverURL"
         static let username = "pgrep.sync.username"
+        static let lastSyncedAt = "pgrep.sync.lastSyncedAt"
         static let keychainAccount = "syncKey"
     }
 
@@ -64,9 +70,11 @@ final class AppModel: ObservableObject {
         let defaults = UserDefaults.standard
         // 8090, not 8080: `just run` uses 8080 for the desktop Qt remote-debug
         // server, so the sync stack uses its own port. The Simulator shares the
-        // Mac network, so 127.0.0.1 reaches the desktop's `just sync-server`.
+        // Mac network, so 127.0.0.1 reaches the desktop's `just serve-sync`.
         serverURL = defaults.string(forKey: Keys.serverURL) ?? "http://127.0.0.1:8090/"
         username = defaults.string(forKey: Keys.username) ?? "pgrep"
+        let epoch = defaults.double(forKey: Keys.lastSyncedAt)
+        lastSyncedAt = epoch > 0 ? Date(timeIntervalSince1970: epoch) : nil
         syncKey = Keychain.get(account: Keys.keychainAccount)
     }
 
@@ -102,6 +110,9 @@ final class AppModel: ObservableObject {
     }
 
     func markSynced() {
+        let now = Date()
+        lastSyncedAt = now
+        UserDefaults.standard.set(now.timeIntervalSince1970, forKey: Keys.lastSyncedAt)
         dataVersion &+= 1
     }
 

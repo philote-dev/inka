@@ -100,5 +100,13 @@ back to a one-way full sync (upload or download), which is safe by construction.
 
 The host that these tests and the apps sync against is the self-hosted
 `anki-sync-server` described in `docs_pgrep/reference/dev-harness.md` (the
-`just sync-server` recipe). Point clients at it with a custom sync URL; auth is
-`SYNC_USER1=user:pass`. No AnkiWeb dependency.
+`just serve-sync` recipe). Point clients at it with a custom account URL; auth
+is `SYNC_USER1=user:pass`. No AnkiWeb dependency.
+
+## Product UI (not a merge-rule change)
+
+Everyday multi-device study merges without asking. Only empty-side setup and true
+history divergence open a full-sync choice. Desktop presents that in-app via
+`OperationCenter` (`PGREP_SURFACE_MODE=off` keeps native Qt). Settings on both
+desktop and iOS frame the endpoint as an **account** (Devices / This computer or
+This phone / Account URL / last synced), not as a raw server admin panel.

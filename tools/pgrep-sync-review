@@ -10,10 +10,15 @@
 # Usage: pgrep-sync-review [branch ...]   (default: all local feat/* branches)
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# Always operate from the primary checkout, even when this script (or
+# `just review-sync`) is invoked from a feature worktree. Otherwise
+# REVIEW_WT resolves under the worktree and `git worktree add review` fails
+# with "already used by worktree at …/.worktrees/review".
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+ROOT_DIR="$(git -C "$ROOT_DIR" worktree list --porcelain | awk '/^worktree /{print $2; exit}')"
 cd "$ROOT_DIR"
 
-REVIEW_WT=".worktrees/review"
+REVIEW_WT="$ROOT_DIR/.worktrees/review"
 BASE="${PGREP_REVIEW_BASE:-main}"
 
 branches=()
@@ -53,15 +58,35 @@ echo "  merged  (${#merged[@]}): ${merged[*]:-none}"
 echo "  skipped (${#skipped[@]}, conflicts): ${skipped[*]:-none}"
 echo
 
+# Merging feat branches can leave uv.lock inconsistent with pyproject (git merge
+# keeps one side). Refresh the lock so `./run` / Start on the dashboard can boot.
+if [ -x "$REVIEW_WT/out/extracted/uv/uv" ]; then
+  echo "Refreshing uv.lock in ${REVIEW_WT}..."
+  if (cd "$REVIEW_WT" && ./out/extracted/uv/uv lock) >/dev/null 2>&1; then
+    echo "  uv.lock refreshed."
+  else
+    echo "  uv lock failed (Start may fail until you run it by hand in ${REVIEW_WT})."
+  fi
+fi
+
 # Rebuild the web bundle in the review worktree so a running headless instance
 # (and its live-reload token) picks up UI changes without a process restart.
+# Serialize with the same lock web-watch uses so we never race concurrent ninja.
 # Python/backend changes still need a Stop/Start on the review dashboard.
 if [ -x "$REVIEW_WT/ninja" ] || [ -x "$REVIEW_WT/./ninja" ]; then
   echo "Rebuilding web in ${REVIEW_WT}..."
-  if (cd "$REVIEW_WT" && ./ninja qt) >/dev/null 2>&1; then
-    echo "  web rebuilt (browser tabs polling the reload token will refresh)."
+  LOCK_ROOT="${TMPDIR:-/tmp}/pgrep-web-watch-locks"
+  mkdir -p "$LOCK_ROOT"
+  LOCK_DIR="$LOCK_ROOT/$(cd "$REVIEW_WT" && pwd | shasum -a 256 | awk '{print $1}').d"
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    if (cd "$REVIEW_WT" && ./ninja qt) >/dev/null 2>&1; then
+      echo "  web rebuilt (browser tabs polling the reload token will refresh)."
+    else
+      echo "  web rebuild skipped/failed (run \`./ninja qt\` in ${REVIEW_WT} if needed)."
+    fi
+    rmdir "$LOCK_DIR" 2>/dev/null || true
   else
-    echo "  web rebuild skipped/failed (run \`./ninja qt\` in ${REVIEW_WT} if needed)."
+    echo "  web rebuild deferred (watcher already rebuilding; tab will refresh when it finishes)."
   fi
 fi
 

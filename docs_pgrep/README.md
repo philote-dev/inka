@@ -41,6 +41,9 @@
 - [`plan/shadow-foundry-calibration-design.md`](plan/shadow-foundry-calibration-design.md) — quarantined Sol/Opus/Grok generation and blind human calibration design.
 - [`plan/multi-model-shadow-runner-plan.md`](plan/multi-model-shadow-runner-plan.md) — implementation plan for the sandboxed shadow portfolio.
 - [`plan/blind-calibration-ruler-plan.md`](plan/blind-calibration-ruler-plan.md) — implementation plan through the Pass A Markdown handoff.
+- [`plan/in-app-sync-and-export-ui.md`](plan/in-app-sync-and-export-ui.md) — in-app sync/export operation UI + Devices framing (desktop + iOS).
+- [`plan/login-gate-beta-handoff.md`](plan/login-gate-beta-handoff.md) — first-run sign-in gate (desktop hooked up; iOS gate later).
+- [`plan/deferred-todos.md`](plan/deferred-todos.md) — finish-the-app / ship checkboxes.
 
 ### Specs (durable, the code depends on)
 

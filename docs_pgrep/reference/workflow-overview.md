@@ -55,13 +55,17 @@ this lifecycle.
 
 - Branding sweep (strings, About, sync copy) is done in the `feat/l6-de-anki` worktree
   (`docs_pgrep/plan/production-de-anki-design.md`).
-- Structural work, specced but not built:
-  - `docs_pgrep/plan/interface-prune-design.md`: remove Anki's menus, deck
-    browser, add-ons, and the profile chooser; collapse to one implicit account; the
-    model-B login gate.
+- Structural work:
+  - `docs_pgrep/plan/structural-de-anki-design.md` (+ `structural-de-anki-plan.md`): the
+    executed pass. Rebuild the exclusive menu bar, make Anki's profile chooser unreachable
+    (one implicit account), and add the macOS unified title bar. (`interface-prune-design.md`
+    is the superseded earlier draft.)
+  - `docs_pgrep/plan/login-gate-beta-handoff.md`: the model-B first-run login gate. Page
+    artifacts are built (`LoginGate.svelte`, the `/pgrep/login` route, a gallery fixture);
+    the office-beta hookup wires the startup routing.
   - `docs_pgrep/plan/engine-prune-design.md`: the large, gated "own the engine"
     effort. Do it last; upstream-mergeability is the decision gate.
-  - `docs_pgrep/plan/shell-profiles-login-handoff.md`: the detailed handoff.
+  - `docs_pgrep/plan/shell-profiles-login-handoff.md`: the original detailed handoff.
 - Login model: a single implicit local account plus a sync sign-in (model B). Production
   path: self-hosted sync server (`anki-sync-server-enhanced`) on Hetzner or Fly.io,
   Cloudflare R2 backups, Firebase Auth for signup. About $10/month to launch.
@@ -87,15 +91,14 @@ this lifecycle.
 - Verify the app UI from the phone via `just serve-tail` (Tailscale, once built); agent
   monitoring is the separate iOS-app path.
 
-## Skills (.cursor/skills/, project-scoped)
+## Skills (project-scoped)
 
-- `pgrep-lab-demo`: add a reviewable feature or component demo to the dev lab.
-- `p-demo`: light up the three scores with a demo stage, then clear it.
-- Project-scoped on purpose: they hardcode pgrep paths, so they must not be used in other
-  repos. A general discovery-based skill trades away the precision that makes them useful.
+- `p-demo`: light up the three scores with a demo stage, then clear it. Lives under
+  `.claude/skills/` (local to this clone).
+- Lab UI demos use the global `dev-gallery` skill: find `/pgrep-lab`, match an existing
+  page, register in `LabNav` / `LAB_PAGES`. No project-specific lab-demo skill.
 - Remaining to build: `pgrep-bridge-endpoint`, `pgrep-string`, `pgrep-surface`,
   `pgrep-screenshot`.
-- Open: whether to adopt a `p-` prefix for all (for example `p-lab-demo`).
 
 ## State
 
@@ -109,7 +112,7 @@ this lifecycle.
 
 1. Commit and push the pending batch so the worktrees can pick it up.
 2. Updater direction (A / B / C) and channel count (beta + stable, or add nightly).
-3. Skill naming convention (`p-` prefix) and build the remaining skills.
+3. Build the remaining skills (`pgrep-bridge-endpoint`, etc.).
 4. Test a cloud agent plus Cursor iOS monitoring.
 5. Execute the interface prune (in `feat/l6-structural-de-anki`); engine prune later,
    gated on the upstream decision.
