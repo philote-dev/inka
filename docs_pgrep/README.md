@@ -38,6 +38,9 @@
 - [`plan/content-foundry-and-verifier-design.md`](plan/content-foundry-and-verifier-design.md) — verification-guided content foundry design (calibrated panel, best-of-N loop).
 - [`plan/content-foundry-loop-plan.md`](plan/content-foundry-loop-plan.md) — Phase 2 implementation plan (temptation, difficulty, foundry loop).
 - [`plan/content-foundry-dataset-and-eval-plan.md`](plan/content-foundry-dataset-and-eval-plan.md) — Phase 3 implementation plan (preference dataset, standing eval).
+- [`plan/in-app-sync-and-export-ui.md`](plan/in-app-sync-and-export-ui.md) — in-app sync/export operation UI + Devices framing (desktop + iOS).
+- [`plan/login-gate-beta-handoff.md`](plan/login-gate-beta-handoff.md) — first-run sign-in gate (desktop hooked up; iOS gate later).
+- [`plan/deferred-todos.md`](plan/deferred-todos.md) — finish-the-app / ship checkboxes.
 
 ### Specs (durable, the code depends on)
 

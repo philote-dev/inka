@@ -10,7 +10,8 @@
 //   desktop), and the diagnostic re-run (an on-device flow that reopens
 //   DiagnosticView).
 // - Assistant: AI is off; the app scores and studies fully without it.
-// - Sync: the self-hosted server + two-way sync (login, sync, sign out).
+// - Devices: account URL + two-way sync (login, sync, sign out), framed like
+//   desktop Settings (This phone / last synced / Account URL).
 // - Appearance: a Light/Dark/System theme, applied app-wide.
 // - Data: Export (a .colpkg written to a temp file, then handed to the iOS share
 //   sheet to save or send) and a scoped, two-step Reset, both wired through the
@@ -50,6 +51,10 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var resetting = false
     @Published private(set) var resetMessage: String?
     private var disarmTask: Task<Void, Never>?
+
+    /// After the first successful sync this session, keep a short teaching line
+    /// so "Up to date" still explains what just connected (matches desktop).
+    @Published private(set) var teachDevicesLinked = false
 
     static let settingsKey = "pgrepSettings"
 
@@ -212,11 +217,16 @@ final class SettingsModel: ObservableObject {
         status = .working("Syncing\u{2026}")
         do {
             switch try await app.engine.sync(hkey: hkey, endpoint: app.normalizedEndpoint) {
-            case let .completed(message):
+            case .completed(message: _):
+                // Product copy: ignore the engine's optional status string; Settings
+                // owns the learner-facing "Up to date" / last-synced framing.
+                if app.lastSyncedAt == nil {
+                    teachDevicesLinked = true
+                }
                 app.markSynced()
                 // A completion may have synced down from desktop; refresh the gate.
                 await app.reloadDiagnosticStatus()
-                status = .ok(message ?? "Sync complete.")
+                status = .ok("Up to date")
             case .conflictNeedsChoice:
                 status = .needsChoice
             }
@@ -230,12 +240,39 @@ final class SettingsModel: ObservableObject {
         status = .working(upload ? "Uploading\u{2026}" : "Downloading\u{2026}")
         do {
             try await app.engine.resolveConflict(hkey: hkey, endpoint: app.normalizedEndpoint, upload: upload)
+            if app.lastSyncedAt == nil {
+                teachDevicesLinked = true
+            }
             app.markSynced()
             await app.reloadDiagnosticStatus()
-            status = .ok(upload ? "Uploaded to the server." : "Downloaded from the server.")
+            status = .ok("Up to date")
         } catch {
             handle(error: error, app: app)
         }
+    }
+
+    /// Idle subtitle under "This phone" — mirrors desktop Settings framing.
+    func syncIdleSubtitle(lastSyncedAt: Date?) -> String {
+        guard let lastSyncedAt else {
+            return "Keeps this phone and your computer on the same collection."
+        }
+        if teachDevicesLinked {
+            return "Up to date. This phone and your computer share one collection."
+        }
+        let seconds = max(0, Int(Date().timeIntervalSince(lastSyncedAt)))
+        if seconds < 60 {
+            return "Last synced just now."
+        }
+        if seconds < 3600 {
+            let mins = seconds / 60
+            return "Last synced \(mins) min\(mins == 1 ? "" : "s") ago."
+        }
+        if seconds < 86_400 {
+            let hours = seconds / 3600
+            return "Last synced \(hours) hour\(hours == 1 ? "" : "s") ago."
+        }
+        let days = seconds / 86_400
+        return "Last synced \(days) day\(days == 1 ? "" : "s") ago."
     }
 
     func signOut(app: AppModel) {
@@ -359,14 +396,38 @@ struct SettingsView: View {
     }
 
     private var syncSection: some View {
-        Section("Sync") {
-            LabeledContent("Server") {
-                TextField("http://host:8090/", text: $app.serverURL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-                    .multilineTextAlignment(.trailing)
+        Section("Devices") {
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("This phone")
+                        Text(model.syncIdleSubtitle(lastSyncedAt: app.lastSyncedAt))
+                            .font(Theme.Typography.caption)
+                            .foregroundStyle(Theme.muted)
+                    }
+                    Spacer()
+                    if app.isLoggedIn {
+                        Button("Sync now") { Task { await model.sync(app: app) } }
+                            .buttonStyle(.bordered)
+                            .tint(Theme.text)
+                            .disabled(model.isWorking)
+                    }
+                }
             }
+
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                LabeledContent("Account URL") {
+                    TextField("http://host:8090/", text: $app.serverURL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .multilineTextAlignment(.trailing)
+                }
+                Text("Advanced — where your study account lives")
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.muted)
+            }
+
             LabeledContent("Username") {
                 TextField("username", text: $app.username)
                     .textInputAutocapitalization(.never)
@@ -374,8 +435,6 @@ struct SettingsView: View {
                     .multilineTextAlignment(.trailing)
             }
             if app.isLoggedIn {
-                Button("Sync now") { Task { await model.sync(app: app) } }
-                    .disabled(model.isWorking)
                 Button("Sign out", role: .destructive) { model.signOut(app: app) }
             } else {
                 SecureField("password", text: $model.password)
@@ -457,12 +516,12 @@ struct SettingsView: View {
                     .foregroundStyle(Theme.error)
             }
         case .needsChoice:
-            Section("Choose a direction") {
-                Text("The phone and the server have both changed. Pick which one wins.")
+            Section("Which copy should we keep?") {
+                Text("Upload keeps this phone. Download keeps your account.")
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.muted)
-                Button("Upload this device to the server") { Task { await model.resolve(app: app, upload: true) } }
-                Button("Download the server to this device", role: .destructive) {
+                Button("Upload") { Task { await model.resolve(app: app, upload: true) } }
+                Button("Download", role: .destructive) {
                     Task { await model.resolve(app: app, upload: false) }
                 }
             }

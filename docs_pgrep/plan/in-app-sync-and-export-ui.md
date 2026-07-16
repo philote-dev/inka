@@ -418,26 +418,19 @@ Manual product check:
 `content_invariants.py::check_bundle` complexipy gate vs `main`; that is
 unrelated to this sync UI work.
 
-### Status: presentation plumbing complete
+### Status: complete on this branch
 
 In-app progress, decisions, errors, cancel, busy rejection, media binding,
-shutdown window enablement, copy tightening, and lab fixtures are landed on
-`feat/login-gate-beta`. Engine behavior is unchanged: normal multi-device study
-merges without asking; only empty-side setup and true history divergence ask.
+shutdown window enablement, copy tightening, and lab fixtures are in the
+shipped desktop shell (`ts/routes/pgrep/+layout.svelte` mounts
+`OperationCenter`; Settings / sign-in / auto-sync / export use it). Native Qt
+remains only for `PGREP_SURFACE_MODE=off`.
 
-### Next (UI pass — mental model)
-
-**Slice 1 (landed in `b224b7cd2`):** Settings group “Devices”; Sync row
-explains same collection + last-synced; URL demoted to “Account URL”; success
-reads “Up to date”; full-sync copy uses account/device language; login gate
-matches.
-
-**Slice 2 (landed in `97c5e184d`):** Sync row labeled “This computer”; first
-successful sync teaches that computer and phone share one collection;
-remaining user-facing “server” copy → “account”.
-
-Still open: iOS “This phone” label when the companion Settings lands; any
-chrome that still says “server” outside the product surfaces.
+Mental-model framing (Devices, This computer / This phone, Account URL, last
+synced, “Up to date”, account-language full-sync copy) is on desktop Settings
+and the iOS companion Settings (`mobile/ios/PgrepStudy/SettingsView.swift`).
+Engine merge behavior is unchanged: normal multi-device study merges without
+asking; only empty-side setup and true history divergence ask.
 
 See also [`reference/sync-conflict-rule.md`](../reference/sync-conflict-rule.md).
 

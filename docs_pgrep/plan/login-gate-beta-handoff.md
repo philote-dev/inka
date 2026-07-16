@@ -1,10 +1,11 @@
 # Handoff: first-run sign-in gate (beta) for another agent
 
-Date: 2026-07-14. Status: page artifacts built; host hookup planned, not yet built.
-This is the single source of truth for the sign-in page and its host hookup. The
-Svelte artifacts are in the repo (see "Page design and artifacts"); the hookup is
-specced in "Real app migration plan" and lands alongside the office beta, with the
-first-run Anki chrome fixes.
+Date: 2026-07-14. Status: desktop host hookup landed on `feat/login-gate-beta`;
+iOS first-run gate still later (Phase 6).
+This is the source of truth for the sign-in page and its host hookup. Desktop
+Phases 1–2 are implemented (`pgrepAuthStatus` / `pgrepSignIn` / `pgrepGateSkip`,
+shell overlay in `ts/routes/pgrep/+layout.svelte`). Keep this doc for acceptance
+checks, office-beta URL prefill, and the iOS follow-up.
 
 ## Goal
 
@@ -129,16 +130,14 @@ so neither step repeats the mark.
 Chrome is monochrome per the token rule (amber/blue/lilac stay reserved for the scores),
 with one calm load motion.
 
-Known seam for the hookup: `pgrepSync` is fire-and-forget today (it returns "started" and
-Anki's own progress/error dialog handles the rest), so the route resolves success
-optimistically. The migration adds a sign-in call that returns the real login result and
-persists the skip flag (see the plan below).
+Sign-in uses `pgrepSignIn` (real result). Sync progress and full-sync decisions
+use the in-app `OperationCenter` via `ProductSyncUi`, not native Qt dialogs.
 
 ## Real app migration plan (host hookup)
 
-Today the artifacts exist but nothing shows the gate on startup; `/pgrep/login` is only
-reachable directly. This migration makes the app present the gate on first run and when
-signed out, persists the choice, and returns a real sign-in result.
+**Desktop Phases 1–2: done** on this branch. The gate shows after splash when
+`pgrepAuthStatus` says not signed in and not skipped; `/pgrep/login` remains a
+thin preview wrapper. Remaining phases below are office-beta polish and iOS.
 
 Decisions (settled): the "continue offline" skip is stored in **profile meta**
 (per-device, not synced), and we **remember the skip** so a cold start does not nag.
@@ -189,7 +188,7 @@ first-run gate mirrors desktop in a follow-up.
 3. Sign-in with a real `SYNC_USER` against `just serve-sync` syncs; Progress /
    attempts survive a second device.  
 4. Continue offline studies with no server.  
-5. Settings → Sync still shows the same URL/user the gate saved.
+5. Settings → Devices still shows the same Account URL / user the gate saved.
 
 ## Out of scope for the page agent
 
