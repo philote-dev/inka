@@ -17,11 +17,20 @@ from aqt.mediasrv import (
     UnsafePathException,
     _editor_content_security_policy,
     _handle_local_file_request,
+    app,
     ensure_safe_path,
     is_dev_allowed_host,
     is_dev_allowed_origin,
     is_localhost_origin,
 )
+
+
+def test_root_redirects_to_pgrep() -> None:
+    with app.test_client() as client:
+        response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/pgrep"
 
 
 class TestEnsureSafePath:
