@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::path::Path;
 use std::sync::LazyLock;
 
 use camino::Utf8PathBuf;
@@ -122,6 +123,15 @@ pub struct Glob {
 
 static CACHED_FILES: LazyLock<Vec<Utf8PathBuf>> = LazyLock::new(cache_files);
 
+fn should_skip_path(path: &Path, depth: usize, is_symlink: bool) -> bool {
+    is_symlink
+        || path.file_name().is_some_and(|name| name == ".venv")
+        || (depth == 1
+            && path
+                .file_name()
+                .is_some_and(|name| name == "out" || name == ".git" || name == ".worktrees"))
+}
+
 /// Walking the source tree once instead of for each glob yields ~4x speed
 /// improvements.
 fn cache_files() -> Vec<Utf8PathBuf> {
@@ -130,14 +140,10 @@ fn cache_files() -> Vec<Utf8PathBuf> {
         .sort_by_file_name()
         .into_iter()
         .filter_entry(move |e| {
-            // don't walk into symlinks, or the top-level out/, .git, or .worktrees
-            // (.worktrees holds gitignored parallel worktrees whose transient build
-            // files must never become build inputs)
-            !(e.path_is_symlink()
-                || (e.depth() == 1
-                    && (e.file_name() == "out"
-                        || e.file_name() == ".git"
-                        || e.file_name() == ".worktrees")))
+            // Do not walk into symlinks, virtualenvs, or top-level generated trees.
+            // .worktrees holds gitignored parallel worktrees whose transient build
+            // files must never become build inputs.
+            !should_skip_path(e.path(), e.depth(), e.path_is_symlink())
         })
         .filter_map(move |e| {
             let path = e.as_ref().unwrap().path().strip_prefix("./").unwrap();
@@ -200,4 +206,20 @@ where
         WHITESPACE_RE.replace_all(input.trim(), "$$$0").to_string()
     });
     itertools::join(iter, " ")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    #[test]
+    fn nested_virtualenv_is_not_walked() {
+        assert!(should_skip_path(
+            Path::new("tools/shadow_worker/.venv"),
+            3,
+            false,
+        ));
+    }
 }

@@ -349,6 +349,19 @@ ai-deps:
     {{ ninja }} pyenv
     {{ uv }} pip install --python out/pyenv/bin/python fastembed openai sympy sqlite-vec numpy
 
+# Sync the isolated Cursor worker without creating a nested virtualenv.
+[group('content')]
+[unix]
+shadow-worker-sync:
+    UV_PROJECT_ENVIRONMENT="$PWD/out/shadow-worker-venv" {{ uv }} sync --project tools/shadow_worker --locked --no-config
+
+# Build the pinned Docker worker image and print its immutable digest.
+[group('content')]
+[unix]
+shadow-worker-build:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/shadow_foundry.py --build-worker
+
 # Batch-generate gated decomposition tutor data into the bundle (needs content/ + key)
 [group('content')]
 [unix]
@@ -390,6 +403,30 @@ foundry *args:
     {{ ninja }} pyenv
     if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
     out/pyenv/bin/python content/tools/foundry.py {{ args }}
+
+# List account-available Cursor models without generating content.
+[unix]
+shadow-models *args:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/shadow_foundry.py --probe-models {{ args }}
+
+# Offline fake-client smoke.
+[unix]
+shadow-smoke:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/shadow_foundry.py --self-check
+
+# Quarantined multi-model generation. Never lands content or preference pairs.
+[unix]
+shadow-foundry *args:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/shadow_foundry.py --shadow {{ args }}
+
+# Build the private blind human ruler and Pass A Markdown blocks.
+[unix]
+calibration-ruler *args:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/build_calibration_ruler.py {{ args }}
 
 # Standing verifier evaluation over precomputed labels, entirely offline
 [group('content')]

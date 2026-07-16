@@ -1,8 +1,8 @@
 # pgrep content foundry and calibrated verifier, design
 
-Date: 2026-07-07. Updated: 2026-07-14. Status: Phase 1 and Phase 2 are
-merged. Phase 3 is implemented on `feat/pgrep-foundry-dataset-eval`. The human
-calibration set and the numeric Tier trigger counts are not yet achieved.
+Date: 2026-07-07. Updated: 2026-07-15. Status: Phases 1 through 3 are
+merged. The shadow-generation and blind-calibration design is drafted for user
+review. The human ruler and numeric Tier trigger counts are not yet achieved.
 Author: pair session.
 
 This spec describes a verification-guided content foundry for pgrep: generate
@@ -21,7 +21,9 @@ Implementation plans (TDD, task-by-task):
   [`content-foundry-loop-plan.md`](content-foundry-loop-plan.md) (merged)
 - Phase 3 dataset and standing eval:
   [`content-foundry-dataset-and-eval-plan.md`](content-foundry-dataset-and-eval-plan.md)
-  (implemented on `feat/pgrep-foundry-dataset-eval`)
+  (merged)
+- Next shadow generation and blind calibration:
+  [`shadow-foundry-calibration-design.md`](shadow-foundry-calibration-design.md)
 
 ## Context
 
