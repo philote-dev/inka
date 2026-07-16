@@ -94,7 +94,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             // On success the caller navigates away, unmounting the gate, so the
             // button stays in its signing state until then rather than flashing.
         } catch (e) {
-            errorMsg = `Could not reach the server. ${e}`;
+            errorMsg = `Could not reach your account. ${e}`;
             submitting = false;
         }
     }
@@ -118,7 +118,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 <button type="button" class="btn ghost" on:click={onContinueOffline}>
                     Continue offline
                 </button>
-                <p class="offline-note">Everything works offline. Sign in to sync.</p>
+                <p class="offline-note">
+                    Everything works offline. Sign in to keep devices in sync.
+                </p>
             </div>
         </div>
     {:else}
@@ -185,7 +187,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
                 {#if showAdvanced}
                     <label class="field">
-                        <span class="field-label">Server</span>
+                        <span class="field-label">Account URL</span>
                         <input
                             class="mono"
                             type="text"

@@ -162,7 +162,7 @@ def test_get_settings_reports_full_honest_shape():
 
 def test_sync_url_round_trips_and_defaults_honestly():
     col = getEmptyCol()
-    # Unset: the local server default (matches ``just sync-server`` on 8080).
+    # Unset: the local server default (matches ``just serve-sync`` on 8090).
     assert settings.sync_url(col) == settings.DEFAULT_SYNC_URL
     # A learner's own endpoint persists through the blob.
     assert settings.set_sync_url(col, "https://sync.example.com/") == (

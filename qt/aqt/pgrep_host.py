@@ -188,6 +188,58 @@ def sync_central_surface(mw: aqt.main.AnkiQt, state: str) -> None:
     mw.bottomWeb.setVisible(not pgrep_active)
 
 
+def surface_is_leading(mw: aqt.main.AnkiQt) -> bool:
+    """True when the pgrep webview is the visible product surface.
+
+    Used to route host toasts (Anki's yellow ``tooltip()`` rectangle) into the
+    SPA status line instead of floating over the webview. Hosted hatch keeps
+    stock tooltips when Anki's own screens are showing (``pgrep_web`` hidden).
+    """
+    web = getattr(mw, "pgrep_web", None)
+    return web is not None and web.isVisible()
+
+
+def notify_status(mw: aqt.main.AnkiQt, msg: str, *, period_ms: int = 3000) -> None:
+    """Push a short status message into the pgrep SPA (in-app status line).
+
+    Dispatches a ``pgrep-status`` CustomEvent on the product webview. No-op when
+    the surface is not built (``off`` mode) or not yet created.
+    """
+    import json
+
+    web = getattr(mw, "pgrep_web", None)
+    if web is None:
+        return
+    payload = json.dumps({"message": msg, "periodMs": period_ms})
+    web.eval(
+        "(function(){"
+        f"var d={payload};"
+        "window.dispatchEvent(new CustomEvent('pgrep-status',{detail:d}));"
+        "})();"
+    )
+
+
+def notify_operation_changed(mw: aqt.main.AnkiQt) -> None:
+    """Wake the embedded shell so it can fetch the latest operation snapshot.
+
+    Browser-first development receives the same state from its normal polling
+    loop, so this event is only a latency optimization for the Qt webview.
+    """
+    web = getattr(mw, "pgrep_web", None)
+    if web is not None:
+        web.eval("window.dispatchEvent(new Event('pgrep-operation-changed'));")
+
+
+def disable_window_during_sync(mw: aqt.main.AnkiQt) -> bool:
+    """Whether unload/auto-sync should disable the Qt window.
+
+    Product surfaces keep the window enabled so in-app sync decisions stay
+    clickable. Native Anki (`off` / non-leading hosted) still disables the
+    window while dialogs own the flow.
+    """
+    return not leads_with_pgrep(mw)
+
+
 def profile_to_autoload(
     mode: str, profiles: list[str], last_loaded: str | None
 ) -> str | None:

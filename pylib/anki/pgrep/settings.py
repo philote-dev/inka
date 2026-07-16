@@ -47,9 +47,11 @@ MAX_RETENTION = 0.97
 THEMES: tuple[str, ...] = ("Light", "Dark", "System")
 
 # The self-hosted sync server URL, persisted in the blob so a learner's own
-# endpoint survives restarts. Defaults to the local server ``just sync-server``
-# binds (port 8080).
-DEFAULT_SYNC_URL = "http://127.0.0.1:8080/"
+# endpoint survives restarts. Defaults to the local server ``just serve-sync``
+# binds: port 8090, not 8080, because ``just run``/``just dev`` hold 8080 for the
+# Qt remote-debug/hot-reload server. Matches the Settings sync default and the
+# login gate's prefill so a local sign-in works without editing the URL.
+DEFAULT_SYNC_URL = "http://127.0.0.1:8090/"
 
 # A collection export is written next to a timestamped, non-clobbering name.
 EXPORT_PREFIX = "pgrep-export-"

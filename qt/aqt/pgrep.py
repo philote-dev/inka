@@ -381,13 +381,14 @@ def pgrep_tutor_load() -> bytes:
 
 
 # Desktop sync. Reuses Anki's own main-thread sync flow (aqt.sync) against the
-# self-hosted server, so progress and the full-sync direction dialog are handled
-# for us and nothing on the mediasrv thread touches the open collection unsafely.
+# self-hosted server, while the product SyncUi reports progress and full-sync
+# decisions inside the shell. Nothing on the mediasrv thread touches the open
+# collection unsafely.
 # Points the profile at the given custom URL, logs in if there is no stored key,
-# then runs the standard sync. Returns immediately; the visible completion is
-# Anki's own progress dialog and "sync complete" tooltip.
+# then runs the standard sync. Returns immediately with the operation ID.
 def pgrep_sync() -> bytes:
     import aqt.sync
+    from aqt.pgrep_operation import ProductSyncUi
 
     mw = aqt.mw
     a = _args()
@@ -396,6 +397,9 @@ def pgrep_sync() -> bytes:
     url = (a.get("url") or "http://127.0.0.1:8090/").strip()
     username = a.get("username") or "pgrep"
     password = a.get("password") or "pgrep"
+    ui = ProductSyncUi(mw)
+    if not ui.started:
+        return _json({"status": "busy", "operation_id": ui.operation_id})
 
     def start() -> None:
         mw.pm.set_custom_sync_url(url)
@@ -410,20 +414,198 @@ def pgrep_sync() -> bytes:
                 try:
                     auth = fut.result()
                 except Exception as err:  # noqa: BLE001
-                    aqt.sync.handle_sync_error(mw, err)
+                    ui.error(err)
                     return
                 mw.pm.set_sync_key(auth.hkey)
                 mw.pm.set_sync_username(username)
-                aqt.sync.sync_collection(mw, lambda: None)
+                aqt.sync.sync_collection(mw, lambda: None, ui=ui)
 
-            mw.taskman.with_progress(
-                do_login, logged_in, parent=mw, label="Logging in to sync server"
-            )
+            ui.run_task(do_login, logged_in, message="Signing in")
         else:
-            aqt.sync.sync_collection(mw, lambda: None)
+            aqt.sync.sync_collection(mw, lambda: None, ui=ui)
 
     mw.taskman.run_on_main(start)
-    return _json({"status": "started", "url": url})
+    return _json({"status": "started", "url": url, "operation_id": ui.operation_id})
+
+
+def _operation_controller():
+    # Import the module, rather than binding the singleton at import time, so
+    # tests and future profile reloads can replace it safely.
+    from aqt import pgrep_operation
+
+    return pgrep_operation.operation_controller
+
+
+def _wake_operation() -> None:
+    from aqt import pgrep_host
+
+    pgrep_host.notify_operation_changed(aqt.mw)
+
+
+def pgrep_operation_status() -> bytes:
+    return _json(_operation_controller().snapshot())
+
+
+def pgrep_operation_resolve() -> bytes:
+    controller = _operation_controller()
+    a = _args()
+    try:
+        operation_id = int(a.get("operation_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False})
+    choice = str(a.get("choice") or "")
+    snapshot = controller.snapshot()
+    decision = snapshot.get("decision")
+    valid = (
+        snapshot["operation_id"] == operation_id
+        and snapshot["phase"] == "decision"
+        and decision is not None
+        and choice in {candidate["id"] for candidate in decision["choices"]}
+    )
+    if not valid:
+        return _json({"ok": False})
+
+    def resolve() -> None:
+        controller.resolve(operation_id, choice)
+        _wake_operation()
+
+    aqt.mw.taskman.run_on_main(resolve)
+    return _json({"ok": True})
+
+
+def pgrep_operation_cancel() -> bytes:
+    controller = _operation_controller()
+    a = _args()
+    try:
+        operation_id = int(a.get("operation_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False})
+    snapshot = controller.snapshot()
+    valid = (
+        snapshot["operation_id"] == operation_id
+        and snapshot["phase"] == "active"
+        and snapshot["cancellable"]
+    )
+    if not valid:
+        return _json({"ok": False})
+
+    def cancel() -> None:
+        controller.cancel(operation_id)
+        _wake_operation()
+
+    aqt.mw.taskman.run_on_main(cancel)
+    return _json({"ok": True})
+
+
+def pgrep_operation_dismiss() -> bytes:
+    controller = _operation_controller()
+    a = _args()
+    try:
+        operation_id = int(a.get("operation_id"))
+    except (TypeError, ValueError):
+        return _json({"ok": False})
+    ok = controller.dismiss(operation_id)
+    if ok:
+        aqt.mw.taskman.run_on_main(_wake_operation)
+    return _json({"ok": ok})
+
+
+# --- pgrep first-run login gate (beta) --------------------------------------
+# The gate greets a new or signed-out user before Home (migration plan in
+# docs_pgrep/plan/login-gate-beta-handoff.md). It reuses the existing Anki sync
+# account model, inventing no new auth stack. "Continue offline" is remembered
+# per-device in the profile manager's global meta (never synced); signing in
+# resolves the gate everywhere via the stored sync key. Offline-first is
+# untouched: study and AI-off scoring never call any of these.
+
+# Set when the user chooses "Continue offline", so the gate does not nag on every
+# cold start. Lives in the global (per-device) meta, not the synced collection.
+_LOGIN_GATE_SKIPPED_META_KEY = "pgrep_login_gate_skipped"
+
+
+def pgrep_auth_status() -> bytes:
+    mw = aqt.mw
+    signed_in = mw.pm.sync_auth() is not None
+    skipped = bool(mw.pm.meta.get(_LOGIN_GATE_SKIPPED_META_KEY, False))
+    return _json(
+        {
+            "signed_in": signed_in,
+            "skipped": skipped,
+            "gate_dismissed": signed_in or skipped,
+        }
+    )
+
+
+def _sign_in_error_message(err: Exception) -> str:
+    """Map a sync-login failure to one calm, learner-facing line."""
+    from anki.errors import NetworkError, SyncError, SyncErrorKind
+
+    if isinstance(err, SyncError) and err.kind == SyncErrorKind.AUTH:
+        return "That username or password did not match. Try again."
+    if isinstance(err, NetworkError):
+        return "Could not reach the server. Check the URL and your connection."
+    return f"Sign-in failed. {err}"
+
+
+def pgrep_sign_in() -> bytes:
+    """Authenticate against the sync server and report the real result.
+
+    Runs the login on the mediasrv thread (as Anki itself runs ``sync_login`` off
+    the main thread) so the page gets a definitive ok/error rather than a
+    fire-and-forget kickoff. On success it stores the key and URL, clears any
+    prior offline-skip, and starts a normal sync on the main thread.
+    """
+    mw = aqt.mw
+    a = _args()
+    url = (a.get("url") or "http://127.0.0.1:8090/").strip()
+    username = (a.get("username") or "").strip()
+    password = a.get("password") or ""
+    if not username or not password:
+        return _json(
+            {"ok": False, "error": "Enter the username and password we sent you."}
+        )
+
+    try:
+        auth = mw.col.sync_login(username=username, password=password, endpoint=url)
+    except Exception as err:  # noqa: BLE001 - reported calmly to the page
+        return _json({"ok": False, "error": _sign_in_error_message(err)})
+
+    from aqt.pgrep_operation import ProductSyncUi
+
+    ui = ProductSyncUi(mw)
+    if not ui.started:
+        return _json(
+            {
+                "ok": False,
+                "error": "Another sync or export is already running.",
+                "operation_id": ui.operation_id,
+            }
+        )
+
+    def finish() -> None:
+        import aqt.sync
+
+        mw.pm.set_custom_sync_url(url)
+        mw.pm.set_sync_key(auth.hkey)
+        mw.pm.set_sync_username(username)
+        mw.pm.meta.pop(_LOGIN_GATE_SKIPPED_META_KEY, None)
+        mw.pm.save()
+        aqt.sync.sync_collection(mw, lambda: None, ui=ui)
+
+    mw.taskman.run_on_main(finish)
+    return _json({"ok": True, "operation_id": ui.operation_id})
+
+
+def pgrep_gate_skip() -> bytes:
+    """Remember the user's "Continue offline" choice (per-device, not synced)."""
+    mw = aqt.mw
+
+    def finish() -> None:
+        mw.pm.meta[_LOGIN_GATE_SKIPPED_META_KEY] = True
+        mw.pm.save()
+
+    mw.taskman.run_on_main(finish)
+    return _json({"ok": True, "skipped": True})
 
 
 # Dev-only (pgrep-lab, L5.9 P5). Injects or clears a clearly-marked hypothetical
@@ -460,7 +642,12 @@ def pgrep_demo_profile() -> bytes:
 def pgrep_settings_get() -> bytes:
     from anki.pgrep import settings
 
-    return _json(settings.get_settings(aqt.mw.col))
+    data = settings.get_settings(aqt.mw.col)
+    # Per-device: when this machine last finished a successful sync. Not stored
+    # in the collection blob, so one device does not overwrite another's clock.
+    last = aqt.mw.pm.meta.get("pgrep_last_synced_at")
+    data["last_synced_at"] = int(last) if isinstance(last, int) else None
+    return _json(data)
 
 
 def pgrep_settings_set() -> bytes:
@@ -478,19 +665,34 @@ def pgrep_export() -> bytes:
     from anki.pgrep import settings
     from aqt import gui_hooks
     from aqt.operations import QueryOp
-    from aqt.utils import showWarning, tooltip
 
     mw = aqt.mw
     out_path = settings.default_export_path()
+    controller = _operation_controller()
+    operation_id = controller.try_begin("export", "Exporting…")
+    if operation_id is None:
+        return _json(
+            {
+                "status": "busy",
+                "operation_id": controller.snapshot()["operation_id"],
+            }
+        )
+    mw.taskman.run_on_main(_wake_operation)
 
     def start() -> None:
         def on_success(_: None) -> None:
             mw.reopen()
-            tooltip(f"Exported to {out_path}", parent=mw)
+            controller.succeed(
+                operation_id,
+                "Export complete",
+                detail=f"Saved to {out_path}",
+            )
+            _wake_operation()
 
         def on_failure(exc: Exception) -> None:
             mw.reopen()
-            showWarning(str(exc), parent=mw)
+            controller.fail(operation_id, "Export failed", detail=str(exc))
+            _wake_operation()
 
         gui_hooks.collection_will_temporarily_close(mw.col)
         QueryOp(
@@ -499,12 +701,16 @@ def pgrep_export() -> bytes:
                 out_path, include_media=True, legacy=False
             ),
             success=on_success,
-        ).with_progress("Exporting your collection").failure(
-            on_failure
-        ).run_in_background()
+        ).failure(on_failure).run_in_background()
 
     mw.taskman.run_on_main(start)
-    return _json({"status": "started", "path": out_path})
+    return _json(
+        {
+            "status": "started",
+            "path": out_path,
+            "operation_id": operation_id,
+        }
+    )
 
 
 # Data / Reset. Conservative and scoped: deletes the pgrep attempt notes and
@@ -599,6 +805,13 @@ pgrep_post_handlers = [
     pgrep_tutor_list,
     pgrep_tutor_load,
     pgrep_sync,
+    pgrep_operation_status,
+    pgrep_operation_resolve,
+    pgrep_operation_cancel,
+    pgrep_operation_dismiss,
+    pgrep_auth_status,
+    pgrep_sign_in,
+    pgrep_gate_skip,
     pgrep_demo_profile,
     pgrep_settings_get,
     pgrep_settings_set,

@@ -36,6 +36,7 @@ macOS unified title bar. Parked, not merged. It defers:
 
 ## Done
 
+- [x] In-app sync/export operation UI: progress, full-sync decisions, errors, and cancel live in the shell (`OperationCenter`); native Qt only for `PGREP_SURFACE_MODE=off`. Copy tightened. Follow-on: sync mental-model framing (account language, last-synced) — see `in-app-sync-and-export-ui.md` § Next
 - [x] Standalone desktop chrome: window titled "pgrep", Anki admin menus hidden, exclusive surface is the default (the takeover flip); dev keeps the hatch via `PGREP_SURFACE_MODE=hosted`
 - [x] Native pgrep menus: Settings (Cmd+,) and a Go menu (Home/Study/Progress/Library, Cmd+1..4)
 - [x] Home (desktop + iOS): compact responsive score tiles, one-action Today band, play icon, removed the greeting and the "shown honestly" subtitle

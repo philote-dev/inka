@@ -13,7 +13,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import { onMount } from "svelte";
 
     import Landing from "$lib/components/Landing.svelte";
+    import LoginGate from "$lib/components/LoginGate.svelte";
     import NavRail from "$lib/components/NavRail.svelte";
+    import OperationCenter from "$lib/components/OperationCenter.svelte";
     import SplashScreen from "$lib/components/SplashScreen.svelte";
     import {
         closeRail,
@@ -25,6 +27,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     } from "$lib/pgrep/nav";
 
     import { pgrepCall } from "./lib/bridge";
+    import {
+        cancelOperation,
+        dismissOperation,
+        operation,
+        resolveOperation,
+        startOperationMonitor,
+    } from "./lib/operation";
 
     import "@fontsource-variable/inter/index.css";
     import "@fontsource-variable/jetbrains-mono/index.css";
@@ -69,6 +78,54 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     $: showLanding =
         !showSplash && isHome && diagnosticDone === false && !landingDismissed;
 
+    // First-run login gate (beta). Shown before the app when the user is neither
+    // signed in nor has chosen to continue offline. "unknown" until the check
+    // resolves, so the app is never rendered (and never flashes) behind the splash
+    // until we know; a failed read falls open to the app, since offline-first must
+    // never depend on the gate. See docs_pgrep/plan/login-gate-beta-handoff.md.
+    type GateState = "unknown" | "show" | "hide";
+    let gateState: GateState = "unknown";
+    let gateUrl = "http://127.0.0.1:8090/";
+
+    async function loadAuthStatus(): Promise<void> {
+        try {
+            const [status, settings] = await Promise.all([
+                pgrepCall<{ gate_dismissed: boolean }>("pgrepAuthStatus", {}),
+                pgrepCall<{ sync_url?: string }>("pgrepSettingsGet", {}),
+            ]);
+            if (settings?.sync_url) {
+                gateUrl = settings.sync_url;
+            }
+            gateState = status.gate_dismissed ? "hide" : "show";
+        } catch {
+            gateState = "hide";
+        }
+    }
+
+    async function gateSignIn(creds: {
+        url: string;
+        username: string;
+        password: string;
+    }): Promise<{ ok: boolean; error?: string }> {
+        try {
+            const res = await pgrepCall<{ ok: boolean; error?: string }>(
+                "pgrepSignIn",
+                creds,
+            );
+            if (res.ok) {
+                gateState = "hide";
+            }
+            return res;
+        } catch (e) {
+            return { ok: false, error: `Could not reach the server. ${e}` };
+        }
+    }
+
+    function gateContinueOffline(): void {
+        void pgrepCall("pgrepGateSkip", {});
+        gateState = "hide";
+    }
+
     async function loadDiagnosticStatus(): Promise<void> {
         try {
             const status = await pgrepCall<{ completed: boolean }>(
@@ -99,6 +156,17 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             void loadDiagnosticStatus();
         }
     });
+
+    // Resolve the login gate before showing the app, so a first-run or signed-out
+    // user meets the gate rather than Home.
+    onMount(() => {
+        void loadAuthStatus();
+    });
+
+    // One operation monitor owns sync/export state for every route. It polls the
+    // bridge so browser-first development and the embedded webview behave the
+    // same; the host event only wakes it sooner inside Qt.
+    onMount(() => startOperationMonitor());
 
     // Track phone width so the rail auto-collapses (and returns as a drawer) below
     // the 640px breakpoint, matching the responsive step-downs in _pgrep.scss.
@@ -148,68 +216,122 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             // Leave whatever the app already shows if the read fails.
         }
     });
+
+    // Short in-app status line for legacy transient actions such as undo. Sync
+    // and export use the structured OperationCenter above; host Qt redirects
+    // any remaining yellow ToolTip panel through pgrep-status.
+    let statusMsg = "";
+    let statusTimer: ReturnType<typeof setTimeout> | undefined;
+
+    onMount(() => {
+        const onStatus = (ev: Event): void => {
+            const detail = (ev as CustomEvent<{ message?: string; periodMs?: number }>)
+                .detail;
+            const message = detail?.message?.trim();
+            if (!message) {
+                return;
+            }
+            statusMsg = message;
+            clearTimeout(statusTimer);
+            statusTimer = setTimeout(() => {
+                statusMsg = "";
+            }, detail?.periodMs ?? 3000);
+        };
+        window.addEventListener("pgrep-status", onStatus);
+        return () => {
+            window.removeEventListener("pgrep-status", onStatus);
+            clearTimeout(statusTimer);
+        };
+    });
 </script>
 
 <div class="pgrep">
     {#if showSplash}
         <SplashScreen onDone={() => (showSplash = false)} />
     {/if}
-    <div class="shell" class:rail-collapsed={!$railOpen}>
-        <NavRail {active} collapsed={!$railOpen} />
 
-        {#if $narrow && $railOpen}
-            <!-- Phone-only scrim behind the drawer. A tap on the dimmed content
+    {#if gateState === "show"}
+        <!-- First-run gate covers the shell (rail included) until the user signs
+             in or continues offline. The splash (z-index above) still plays over
+             it on load. -->
+        <div class="login-overlay">
+            <LoginGate
+                initialUrl={gateUrl}
+                onSignIn={gateSignIn}
+                onContinueOffline={gateContinueOffline}
+            />
+        </div>
+    {:else if gateState === "hide"}
+        <div class="shell" class:rail-collapsed={!$railOpen}>
+            <NavRail {active} collapsed={!$railOpen} />
+
+            {#if $narrow && $railOpen}
+                <!-- Phone-only scrim behind the drawer. A tap on the dimmed content
                  closes the rail, the standard way out of a mobile drawer. -->
-            <button
-                class="rail-scrim"
-                type="button"
-                on:click={closeRail}
-                aria-label="Close sidebar"
-            ></button>
-        {/if}
+                <button
+                    class="rail-scrim"
+                    type="button"
+                    on:click={closeRail}
+                    aria-label="Close sidebar"
+                ></button>
+            {/if}
 
-        {#if !$railOpen}
-            <!-- Restore affordances, shown only while the rail is collapsed. The
+            {#if !$railOpen}
+                <!-- Restore affordances, shown only while the rail is collapsed. The
                  left-edge handle appears on hover; the top-left button is always
                  there. Both bring the rail back. -->
-            <button
-                class="rail-edge"
-                type="button"
-                on:click={openRail}
-                aria-label="Show sidebar"
-            >
-                <span class="handle" aria-hidden="true"></span>
-            </button>
-            <button
-                class="rail-burger"
-                type="button"
-                on:click={openRail}
-                aria-label="Show sidebar"
-            >
-                <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 20 20"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
+                <button
+                    class="rail-edge"
+                    type="button"
+                    on:click={openRail}
+                    aria-label="Show sidebar"
                 >
-                    <line x1="3" y1="6" x2="17" y2="6" />
-                    <line x1="3" y1="10" x2="17" y2="10" />
-                    <line x1="3" y1="14" x2="17" y2="14" />
-                </svg>
-            </button>
-        {/if}
-
-        <main class="page">
-            {#if showLanding}
-                <Landing onLater={() => (landingDismissed = true)} />
-            {:else}
-                <slot />
+                    <span class="handle" aria-hidden="true"></span>
+                </button>
+                <button
+                    class="rail-burger"
+                    type="button"
+                    on:click={openRail}
+                    aria-label="Show sidebar"
+                >
+                    <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                    >
+                        <line x1="3" y1="6" x2="17" y2="6" />
+                        <line x1="3" y1="10" x2="17" y2="10" />
+                        <line x1="3" y1="14" x2="17" y2="14" />
+                    </svg>
+                </button>
             {/if}
-        </main>
-    </div>
+
+            <main class="page">
+                {#if showLanding}
+                    <Landing onLater={() => (landingDismissed = true)} />
+                {:else}
+                    <slot />
+                {/if}
+            </main>
+
+            <OperationCenter
+                operation={$operation}
+                onResolve={resolveOperation}
+                onCancel={cancelOperation}
+                onDismiss={dismissOperation}
+            />
+
+            {#if statusMsg}
+                <div class="shell-status" role="status" aria-live="polite">
+                    {statusMsg}
+                </div>
+            {/if}
+        </div>
+    {/if}
 </div>
 
 <style lang="scss">
@@ -221,11 +343,43 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         min-height: 100vh;
     }
 
+    /* First-run gate overlay: covers the shell and rail. Below the splash
+       (z-index 60) so the intro still plays over it, above everything else. */
+    .login-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        overflow: auto;
+        background: var(--canvas);
+    }
+
     .shell {
         display: flex;
+        position: relative;
         min-height: 100vh;
         background: var(--canvas);
         color: var(--text);
+    }
+
+    /* Replaces Anki's floating yellow tooltip panel for product-path success
+       messages (sync complete, export, undo). Calm, in-flow chrome. */
+    .shell-status {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        z-index: 40;
+        transform: translateX(-50%);
+        max-width: min(420px, calc(100vw - 48px));
+        padding: 10px 16px;
+        border: var(--hairline);
+        border-radius: var(--radius-control);
+        background: var(--surface);
+        color: var(--text);
+        font-family: var(--font-ui);
+        font-size: var(--text-body);
+        line-height: 1.4;
+        box-shadow: var(--shadow-card);
+        pointer-events: none;
     }
 
     /* macOS product: the window uses an expanded client area under a transparent

@@ -42,6 +42,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             wide: true,
         },
         {
+            href: "/pgrep-lab/operation-ui",
+            label: "Operation UI",
+            group: "design",
+            blurb: "Sync and export progress, decisions, and failures without native dialogs.",
+            wide: true,
+        },
+        {
             href: "/pgrep-lab/card-sets",
             label: "Card sets",
             group: "design",
