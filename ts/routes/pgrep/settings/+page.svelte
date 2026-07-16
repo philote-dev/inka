@@ -58,10 +58,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     // 8090, not 8080: `just run` uses 8080 for the Qt remote-debug/hot-reload
     // server, so the sync stack gets its own port to avoid the collision.
-    let serverURL = "http://127.0.0.1:8090/";
+    let accountURL = "http://127.0.0.1:8090/";
     let syncing = false;
     let syncMsg = "";
     let lastSyncedAt: number | null = null;
+    // After the first successful sync on this device, keep a short teaching line
+    // so "Up to date" still explains what just connected.
+    let teachDevicesLinked = false;
 
     let exporting = false;
     let exportMsg = "";
@@ -78,6 +81,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         } else if ($operation.phase === "success") {
             syncing = false;
             syncMsg = "";
+            if (lastSyncedAt == null) {
+                teachDevicesLinked = true;
+            }
             lastSyncedAt = Math.floor(Date.now() / 1000);
         } else if ($operation.phase === "error" || $operation.phase === "cancelled") {
             syncing = false;
@@ -94,7 +100,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         exportMsg = [$operation.message, $operation.detail].filter(Boolean).join(". ");
     }
 
-    $: syncIdleSub = formatLastSynced(lastSyncedAt);
+    $: syncIdleSub = formatLastSynced(lastSyncedAt, teachDevicesLinked);
     $: syncRowSub =
         syncMsg &&
         (syncing ||
@@ -120,9 +126,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         }
     }
 
-    function formatLastSynced(epochSec: number | null): string {
+    function formatLastSynced(epochSec: number | null, teachLinked: boolean): string {
         if (epochSec == null || epochSec <= 0) {
             return "Keeps this computer and your phone on the same collection.";
+        }
+        if (teachLinked) {
+            return "Up to date. This computer and your phone share one collection.";
         }
         const seconds = Math.max(0, Math.floor(Date.now() / 1000) - epochSec);
         if (seconds < 60) {
@@ -149,7 +158,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             testDate = s.test_date ?? "";
             lastSyncedAt = s.last_synced_at ?? null;
             if (s.sync_url) {
-                serverURL = s.sync_url;
+                accountURL = s.sync_url;
             }
             // A stored theme wins; otherwise the app keeps reflecting whatever it
             // already shows, so a fresh profile never claims a choice unmade.
@@ -186,9 +195,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     async function saveSyncUrl(): Promise<void> {
         try {
             const s = await pgrepCall<Settings>("pgrepSettingsSet", {
-                sync_url: serverURL,
+                sync_url: accountURL,
             });
-            serverURL = s.sync_url;
+            accountURL = s.sync_url;
         } catch {
             // Keep the typed value; the next load reconciles it.
         }
@@ -230,7 +239,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             const res = await pgrepCall<{ status: string; operation_id: number }>(
                 "pgrepSync",
                 {
-                    url: serverURL.trim(),
+                    url: accountURL.trim(),
                 },
             );
             if (res.status === "busy") {
@@ -449,7 +458,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <div class="card">
                 <div class="row">
                     <div class="row-text">
-                        <div class="row-title">Sync</div>
+                        <div class="row-title">This computer</div>
                         <div class="row-sub">
                             {syncRowSub}
                         </div>
@@ -473,7 +482,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     <input
                         class="url-input mono"
                         type="text"
-                        bind:value={serverURL}
+                        bind:value={accountURL}
                         on:change={saveSyncUrl}
                         on:blur={saveSyncUrl}
                         spellcheck="false"

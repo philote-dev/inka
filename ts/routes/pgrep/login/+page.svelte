@@ -57,7 +57,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 password: creds.password,
             });
         } catch (e) {
-            return { ok: false, error: `Could not reach the server. ${String(e)}` };
+            return { ok: false, error: `Could not reach your account. ${String(e)}` };
         }
         await goto("/pgrep");
         return { ok: true };

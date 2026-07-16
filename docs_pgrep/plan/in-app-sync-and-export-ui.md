@@ -427,13 +427,17 @@ merges without asking; only empty-side setup and true history divergence ask.
 
 ### Next (UI pass — mental model)
 
-**Slice 1 (landed, awaiting commit for review-sync):** Settings group
-“Devices”; Sync row explains same collection + last-synced; URL demoted to
-“Account URL”; success reads “Up to date”; full-sync copy uses account/device
-language; login gate matches.
+**Slice 1 (landed in `b224b7cd2`):** Settings group “Devices”; Sync row
+explains same collection + last-synced; URL demoted to “Account URL”; success
+reads “Up to date”; full-sync copy uses account/device language; login gate
+matches.
 
-Still open for later slices: device labels (“Phone” / “Desktop”), stronger
-first-success teaching, any remaining “server” chrome.
+**Slice 2 (in progress):** Sync row labeled “This computer”; first successful
+sync teaches that computer and phone share one collection; remaining
+user-facing “server” copy → “account”.
+
+Still open: iOS “This phone” label when the companion Settings lands; any
+chrome that still says “server” outside the product surfaces.
 
 See also [`reference/sync-conflict-rule.md`](../reference/sync-conflict-rule.md).
 

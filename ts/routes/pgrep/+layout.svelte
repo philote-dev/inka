@@ -117,7 +117,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             }
             return res;
         } catch (e) {
-            return { ok: false, error: `Could not reach the server. ${e}` };
+            return { ok: false, error: `Could not reach your account. ${e}` };
         }
     }
 

@@ -11,7 +11,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     Offline-first is sacred: study and AI-off scoring never need an account, so
     Continue offline lands straight on Home with the full product. Sign-in is only
     for sync (moving your own progress between your devices), against a pre-created
-    account on the beta sync server; there is no self-serve signup here.
+    study account; there is no self-serve signup here.
 
     This is the presentational artifact. It owns the steps, fields, states, and
     styling and stays decoupled from the host: the caller passes initialUrl and two
