@@ -194,9 +194,13 @@ review-sync *branches:
     #!/usr/bin/env bash
     # PGREP_REVIEW_INTERVAL seconds between merges (default 600). Runs once now,
     # then loops; Ctrl-C to stop. Conflicting branches are skipped and reported.
+    # Always call the primary checkout's script so this works when `just` is run
+    # from a feature worktree (those would otherwise try to create a nested
+    # .worktrees/review and fail with "already used by worktree").
+    root="$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')"
     interval="${PGREP_REVIEW_INTERVAL:-600}"
     while true; do
-        ./tools/pgrep-sync-review {{ branches }} || true
+        "$root/tools/pgrep-sync-review" {{ branches }} || true
         echo "next sync in ${interval}s (Ctrl-C to stop)"
         sleep "$interval"
     done
