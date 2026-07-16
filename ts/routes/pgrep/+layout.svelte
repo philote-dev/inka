@@ -16,6 +16,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import LoginGate from "$lib/components/LoginGate.svelte";
     import NavRail from "$lib/components/NavRail.svelte";
     import OperationCenter from "$lib/components/OperationCenter.svelte";
+    import RailEdgePill from "$lib/components/RailEdgePill.svelte";
     import SplashScreen from "$lib/components/SplashScreen.svelte";
     import {
         closeRail,
@@ -289,18 +290,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 ></button>
             {/if}
 
-            {#if !$railOpen}
-                <!-- Restore affordances, shown only while the rail is collapsed. The
-                 left-edge handle appears on hover; the top-left button is always
-                 there. Both bring the rail back. -->
-                <button
-                    class="rail-edge"
-                    type="button"
-                    on:click={openRail}
-                    aria-label="Show sidebar"
-                >
-                    <span class="handle" aria-hidden="true"></span>
-                </button>
+            <!-- Desktop: one edge pill travels with the rail edge and toggles
+                 hide/show. Phone: a top-left burger reopens the drawer while
+                 collapsed (the edge pill is desktop-only). -->
+            <RailEdgePill />
+            {#if !$railOpen && $narrow}
                 <button
                     class="rail-burger"
                     type="button"
@@ -410,14 +404,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         padding-top: var(--pgrep-titlebar-inset, 28px);
     }
 
-    :global(body.pgrep-native-titlebar) .rail-burger {
-        top: calc(var(--pgrep-titlebar-inset, 28px) + 14px);
-    }
-
-    :global(body.pgrep-native-titlebar) .rail-edge {
-        top: var(--pgrep-titlebar-inset, 28px);
-    }
-
     .page {
         flex: 1 1 auto;
         min-width: 0;
@@ -483,44 +469,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         border-color: var(--muted);
     }
 
-    /* A thin left-edge zone that reveals a small centred handle on hover. */
-    .rail-edge {
-        position: fixed;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        z-index: 25;
-        width: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        padding: 0;
-        border: none;
-        background: none;
-        cursor: pointer;
-    }
-
-    /* Always faintly visible so the collapsed rail is discoverable, growing more
-       prominent on hover or keyboard focus. */
-    .rail-edge .handle {
-        width: 4px;
-        height: 48px;
-        border-radius: var(--radius-pill);
-        background: var(--border);
-        opacity: 0.5;
-        transition:
-            opacity var(--duration-calm) var(--ease-spring),
-            width var(--duration-calm) var(--ease-spring),
-            background var(--duration-calm) var(--ease-spring);
-    }
-
-    .rail-edge:hover .handle,
-    .rail-edge:focus-visible .handle {
-        opacity: 1;
-        width: 6px;
-        background: var(--muted);
-    }
-
     /* Phone drawer scrim: dims the content while the rail overlays it, and is
        itself the tap target that closes the drawer. */
     .rail-scrim {
@@ -543,19 +491,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         }
     }
 
-    /* Phone: the edge-hover handle has no meaning on touch, so the burger is the
-       single, obvious way back to the rail. */
-    @media (max-width: 640px) {
-        .rail-edge {
-            display: none;
-        }
-    }
-
     @media (prefers-reduced-motion: reduce) {
-        .rail-edge .handle {
-            transition: opacity 0s;
-        }
-
         .rail-scrim {
             animation: none;
         }

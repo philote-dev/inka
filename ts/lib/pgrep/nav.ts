@@ -4,8 +4,9 @@
 // pgrep nav shell state. The left rail collapses on its own in two cases: when a
 // surface enters a focused learning mode (a study session, a running exam, the
 // diagnostic), and when the viewport is at phone width, where a fixed 216px rail
-// would crowd the content off the screen. When collapsed a top-left button and a
-// left-edge handle bring it back; on phone it returns as an overlay drawer.
+// would crowd the content off the screen. When collapsed, desktop reopens via
+// the edge pill (RailEdgePill); phone uses a top-left burger and returns as an
+// overlay drawer.
 //
 // Surfaces own their own "am I learning" truth and call setLearning at the
 // transitions, rather than the shell guessing from the URL, because the study
@@ -52,12 +53,12 @@ export function setNarrow(value: boolean): void {
     narrow.set(value);
 }
 
-// Restore the rail (the top-left button and the edge handle).
+// Restore the rail (desktop edge pill, or the phone burger).
 export function openRail(): void {
     railOverride.set(true);
 }
 
-// Collapse the rail (the in-rail chevron).
+// Collapse the rail (desktop edge pill, phone scrim / destination tap).
 export function closeRail(): void {
     railOverride.set(false);
 }

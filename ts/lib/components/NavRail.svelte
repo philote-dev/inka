@@ -16,6 +16,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     The streak is only shown when a real value is passed. We never fabricate a
     streak, so the rail stays honest on every surface.
+
+    Collapse is a two-layer clip: the outer shell animates width to zero while
+    the inner rail stays at full --rail-width, so contents do not squish. The
+    desktop edge pill (RailEdgePill in +layout) toggles show/hide; on phone the
+    rail is an overlay drawer closed by the scrim or a destination tap.
 -->
 <script lang="ts">
     import { page } from "$app/state";
@@ -55,46 +60,69 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 </script>
 
-<nav class="rail" class:collapsed aria-hidden={collapsed}>
-    <div class="top">
-        <a class="brand" href="/pgrep" aria-label="pgrep home">
-            <PgrepMark size={30} />
-            <span>pgrep</span>
-        </a>
-        <button
-            class="collapse"
-            type="button"
-            on:click={closeRail}
-            aria-label="Collapse sidebar"
-            title="Collapse sidebar"
-        >
-            <svg
-                width="18"
-                height="18"
-                viewBox="0 0 20 20"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-            >
-                <polyline points="12,5 7,10 12,15" />
-            </svg>
-        </button>
-    </div>
+<div class="rail-clip" class:collapsed aria-hidden={collapsed}>
+    <nav class="rail">
+        <div class="top">
+            <a class="brand" href="/pgrep" aria-label="pgrep home">
+                <PgrepMark size={30} />
+                <span>pgrep</span>
+            </a>
+        </div>
 
-    <div class="nav">
-        {#each items as item (item.name)}
-            <a
-                href={item.href}
-                class="item"
-                class:active={item.name === active}
-                aria-current={item.name === active ? "page" : undefined}
-                on:click={(event) => onNavClick(event, item.href)}
-            >
+        <div class="nav">
+            {#each items as item (item.name)}
+                <a
+                    href={item.href}
+                    class="item"
+                    class:active={item.name === active}
+                    aria-current={item.name === active ? "page" : undefined}
+                    on:click={(event) => onNavClick(event, item.href)}
+                >
+                    <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        {#if item.name === "Home"}
+                            <path
+                                d="M3 9.5 L10 3.5 L17 9.5 V16 a1 1 0 0 1 -1 1 H4 a1 1 0 0 1 -1 -1 Z"
+                            />
+                        {:else if item.name === "Study"}
+                            <path
+                                d="M2.5 4.5 C4.5 3.3 7 3.3 9 4.5 V16 C7 14.8 4.5 14.8 2.5 16 Z"
+                            />
+                            <path
+                                d="M17.5 4.5 C15.5 3.3 13 3.3 11 4.5 V16 C13 14.8 15.5 14.8 17.5 16 Z"
+                            />
+                        {:else if item.name === "Progress"}
+                            <polyline points="2.5,14.5 7,10 10,13 17.5,5" />
+                            <polyline points="12.5,5 17.5,5 17.5,10" />
+                        {:else if item.name === "Library"}
+                            <path
+                                d="M10 5 C8 3.8 5.5 3.8 3 4.5 V15.5 C5.5 14.8 8 14.8 10 16 C12 14.8 14.5 14.8 17 15.5 V4.5 C14.5 3.8 12 3.8 10 5 Z"
+                            />
+                            <line x1="10" y1="5" x2="10" y2="16" />
+                        {:else}
+                            <line x1="3" y1="5.5" x2="17" y2="5.5" />
+                            <line x1="3" y1="10" x2="17" y2="10" />
+                            <line x1="3" y1="14.5" x2="17" y2="14.5" />
+                        {/if}
+                    </svg>
+                    {item.name}
+                </a>
+            {/each}
+        </div>
+
+        {#if streak != null}
+            <div class="streak">
                 <svg
-                    width="18"
-                    height="18"
+                    width="16"
+                    height="16"
                     viewBox="0 0 20 20"
                     fill="none"
                     stroke="currentColor"
@@ -102,60 +130,43 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     stroke-linecap="round"
                     stroke-linejoin="round"
                 >
-                    {#if item.name === "Home"}
-                        <path
-                            d="M3 9.5 L10 3.5 L17 9.5 V16 a1 1 0 0 1 -1 1 H4 a1 1 0 0 1 -1 -1 Z"
-                        />
-                    {:else if item.name === "Study"}
-                        <path
-                            d="M2.5 4.5 C4.5 3.3 7 3.3 9 4.5 V16 C7 14.8 4.5 14.8 2.5 16 Z"
-                        />
-                        <path
-                            d="M17.5 4.5 C15.5 3.3 13 3.3 11 4.5 V16 C13 14.8 15.5 14.8 17.5 16 Z"
-                        />
-                    {:else if item.name === "Progress"}
-                        <polyline points="2.5,14.5 7,10 10,13 17.5,5" />
-                        <polyline points="12.5,5 17.5,5 17.5,10" />
-                    {:else if item.name === "Library"}
-                        <path
-                            d="M10 5 C8 3.8 5.5 3.8 3 4.5 V15.5 C5.5 14.8 8 14.8 10 16 C12 14.8 14.5 14.8 17 15.5 V4.5 C14.5 3.8 12 3.8 10 5 Z"
-                        />
-                        <line x1="10" y1="5" x2="10" y2="16" />
-                    {:else}
-                        <line x1="3" y1="5.5" x2="17" y2="5.5" />
-                        <line x1="3" y1="10" x2="17" y2="10" />
-                        <line x1="3" y1="14.5" x2="17" y2="14.5" />
-                    {/if}
+                    <path
+                        d="M10 2.5 C10 6 6 7 6 11 a4 4 0 0 0 8 0 C14 8.5 11.5 7.5 11.5 5 C11 5.8 10 6.2 10 2.5 Z"
+                    />
                 </svg>
-                {item.name}
-            </a>
-        {/each}
-    </div>
-
-    {#if streak != null}
-        <div class="streak">
-            <svg
-                width="16"
-                height="16"
-                viewBox="0 0 20 20"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-            >
-                <path
-                    d="M10 2.5 C10 6 6 7 6 11 a4 4 0 0 0 8 0 C14 8.5 11.5 7.5 11.5 5 C11 5.8 10 6.2 10 2.5 Z"
-                />
-            </svg>
-            <span>{streak} day streak</span>
-        </div>
-    {/if}
-</nav>
+                <span>{streak} day streak</span>
+            </div>
+        {/if}
+    </nav>
+</div>
 
 <style lang="scss">
-    .rail {
+    /* Outer clip owns the width animation so the inner rail stays rigid (no
+       content squish while collapsing). */
+    .rail-clip {
         flex: 0 0 auto;
+        align-self: stretch;
+        display: flex;
+        flex-direction: column;
+        width: var(--rail-width);
+        overflow: hidden;
+        transition: width var(--duration-calm) var(--ease-spring);
+    }
+
+    /* Collapsed on entering a learning surface (ts/lib/pgrep/nav.ts). Animate to
+       zero width and drop out of the tab order once hidden, so the content takes
+       the full width. The desktop edge pill and the phone burger (in +layout)
+       bring it back. */
+    .rail-clip.collapsed {
+        width: 0;
+        visibility: hidden;
+        transition:
+            width var(--duration-calm) var(--ease-spring),
+            visibility 0s linear var(--duration-calm);
+    }
+
+    .rail {
+        flex: 1 1 auto;
         width: var(--rail-width);
         border-right: var(--hairline);
         position: relative;
@@ -163,26 +174,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         flex-direction: column;
         padding: 28px 16px 24px;
         font-family: var(--font-ui);
-        overflow: hidden;
-        transition:
-            width var(--duration-calm) var(--ease-spring),
-            padding var(--duration-calm) var(--ease-spring);
-    }
-
-    /* Collapsed on entering a learning surface (ts/lib/pgrep/nav.ts). Animate to
-       zero width and drop out of the tab order once hidden, so the content takes
-       the full width. The top-left button and left-edge handle (in +layout) bring
-       it back. */
-    .rail.collapsed {
-        width: 0;
-        padding-left: 0;
-        padding-right: 0;
-        border-right-color: transparent;
-        visibility: hidden;
-        transition:
-            width var(--duration-calm) var(--ease-spring),
-            padding var(--duration-calm) var(--ease-spring),
-            visibility 0s linear var(--duration-calm);
+        box-sizing: border-box;
     }
 
     /* macOS product: the rail runs full height under the transparent title bar.
@@ -217,7 +209,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     @media (prefers-reduced-motion: reduce) {
-        .rail {
+        .rail-clip {
             transition: none;
         }
     }
@@ -226,34 +218,39 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
        squeezes the content. It slides in from the left over the layout's scrim
        and slides out when collapsed, rather than the inline width animation. */
     @media (max-width: 640px) {
-        .rail {
+        .rail-clip {
             position: fixed;
             top: 0;
             bottom: 0;
             left: 0;
             z-index: 40;
             width: min(82vw, 292px);
+            overflow: visible;
             background: var(--canvas);
             box-shadow: var(--shadow-card);
             transform: translateX(0);
             transition: transform var(--duration-calm) var(--ease-spring);
         }
 
-        .rail.collapsed {
+        .rail-clip.collapsed {
             width: min(82vw, 292px);
-            padding: 28px 16px 24px;
-            border-right-color: var(--border);
             transform: translateX(-100%);
             visibility: hidden;
             transition:
                 transform var(--duration-calm) var(--ease-spring),
                 visibility 0s linear var(--duration-calm);
         }
+
+        .rail {
+            width: 100%;
+            height: 100%;
+            border-right: none;
+        }
     }
 
     @media (max-width: 640px) and (prefers-reduced-motion: reduce) {
-        .rail,
-        .rail.collapsed {
+        .rail-clip,
+        .rail-clip.collapsed {
             transition: none;
         }
     }
@@ -284,26 +281,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
         &:hover {
             opacity: 0.7;
-        }
-    }
-
-    .collapse {
-        flex: 0 0 auto;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 28px;
-        height: 28px;
-        border: none;
-        background: none;
-        color: var(--muted);
-        border-radius: var(--radius-control);
-        cursor: pointer;
-        transition: var(--transition-calm);
-
-        &:hover {
-            color: var(--text);
-            background: var(--hover-wash);
         }
     }
 
@@ -353,7 +330,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     .brand:focus-visible,
-    .collapse:focus-visible,
     .item:focus-visible {
         outline: 2px solid var(--focus-ring);
         outline-offset: 2px;
