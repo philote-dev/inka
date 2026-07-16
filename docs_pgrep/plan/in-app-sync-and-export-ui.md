@@ -432,9 +432,9 @@ explains same collection + last-synced; URL demoted to “Account URL”; succes
 reads “Up to date”; full-sync copy uses account/device language; login gate
 matches.
 
-**Slice 2 (in progress):** Sync row labeled “This computer”; first successful
-sync teaches that computer and phone share one collection; remaining
-user-facing “server” copy → “account”.
+**Slice 2 (landed in `97c5e184d`):** Sync row labeled “This computer”; first
+successful sync teaches that computer and phone share one collection;
+remaining user-facing “server” copy → “account”.
 
 Still open: iOS “This phone” label when the companion Settings lands; any
 chrome that still says “server” outside the product surfaces.
