@@ -65,7 +65,12 @@ def set_ai_model(col: Collection, model: str | None) -> None:
 
 
 def has_api_key() -> bool:
-    return bool(os.environ.get("OPENAI_API_KEY"))
+    """True when the TrueFoundry gateway (or OpenAI-compatible) key is loaded."""
+    if os.environ.get("OPENAI_API_KEY"):
+        return True
+    from anki.pgrep.ai import llm
+
+    return llm.has_api_key()
 
 
 def ai_status(col: Collection) -> dict:

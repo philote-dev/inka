@@ -111,18 +111,20 @@ Everything not living in the repo, grouped by when it is first needed.
 
 | Tool / service   | For                                                      | Cost / note                                                                      |
 | ---------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| LLM API (OpenAI) | generation, tutor grading, session synthesis, eval judge | key + account. Stored in `content/.env`, never synced, never committed.          |
+| LLM API (via TrueFoundry) | generation, tutor grading, session synthesis, eval judge | One gateway token in `~/.config/truefoundry/gateway.env` (outside the repo). OpenAI-compatible `OPENAI_BASE_URL`. No direct provider keys in `content/.env`. Local spend control is **WS10** in [`../plan/content-foundry-and-verifier-design.md`](../plan/content-foundry-and-verifier-design.md) (not built yet). |
 | Embeddings       | RAG over the corpus                                      | local (`sentence-transformers` / `bge`), free, offline, keeps the corpus private |
 | Vector store     | retrieval index                                          | local `sqlite-vec`, no service needed                                            |
 | CAS: SymPy       | verify computational cards and problems without an LLM   | free, deterministic, offline. Central to the gate.                               |
 | PDF extraction   | source PDFs into corpus text                             | `PyMuPDF` (text). Vision models for scanned equations where needed.              |
 
 Every model call goes through one pinned client, `pylib/anki/pgrep/ai/llm.py`
-`LLMClient` (an exact dated snapshot, shared retries, JSON responses), and
-`load_api_key(...)` is the single place that resolves the key from the
-environment or `content/.env`. The offline judges (figure fidelity, technique
-giveaway, and the audit checks) share one `Judge` over that client. See
-[`content-pipeline.md`](content-pipeline.md).
+`LLMClient` (TFY gateway id or dated snapshot, shared retries, JSON responses),
+and `load_api_key(...)` is the single place that resolves TrueFoundry gateway
+credentials (then optional local overrides). The offline judges (figure
+fidelity, technique giveaway, and the audit checks) share one `Judge` over that
+client. See [`content-pipeline.md`](content-pipeline.md). Spend tracking and
+hard caps are **WS10** in the foundry design; until that lands, treat every
+online batch as uncapped at the seam.
 
 ### 3.3 Mobile and ship (L3 / L6)
 
@@ -139,10 +141,11 @@ Lucide (icons, ISC), D3 7, MathJax 3, Svelte 5 motion. All AGPL-compatible.
 
 ### 3.5 Cost summary
 
-Realistic out-of-pocket is essentially $0 to build and demo everything (local
-sync server, local embeddings, simulator or sideload, SymPy). The only likely
-spend is Apple Developer ($99/yr) for TestFlight, and optionally a small VPS.
-LLM usage is covered.
+Realistic out-of-pocket for the non-LLM stack is essentially $0 to build and
+demo (local sync server, local embeddings, simulator or sideload, SymPy), plus
+Apple Developer ($99/yr) for TestFlight and optionally a small VPS. LLM spend
+goes through TrueFoundry and must be capped locally (WS10) before large batch
+runs.
 
 ---
 

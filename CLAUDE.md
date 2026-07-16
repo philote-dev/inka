@@ -162,7 +162,8 @@ and a baseline. The layer is imported lazily so an AI-off app never loads
 - **One LLM seam:** `pylib/anki/pgrep/ai/llm.py` `LLMClient` is the single seam
   for every model call — it pins an exact dated model snapshot (refuses a
   floating alias), and `load_api_key(...)` is the one place that resolves
-  `OPENAI_API_KEY` (env → `content/.env` → repo-root `.env`).
+  credentials (`~/.config/truefoundry/gateway.env` → optional `content/.env`
+  overrides). Direct provider keys do not live in the repo.
 - **One Judge:** `pylib/anki/pgrep/ai/judge.py` `Judge` is one independent judge
   over an injectable client (a fake in tests, so the module never touches the
   network). It grades with a snapshot distinct from the generator so a model

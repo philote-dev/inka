@@ -51,8 +51,21 @@ class LLMResult:
     raw: dict = field(default_factory=dict)
 
 
+# TrueFoundry gateway credentials (one token for every model). Lives outside
+# the repo so it is never committed or Dropbox-synced with content/.
+_TFY_GATEWAY_ENV = os.path.expanduser("~/.config/truefoundry/gateway.env")
+_TFY_GATEWAY_VARS = (
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_CUSTOM_HEADERS",
+    "TFY_API_KEY",
+)
+
+
 class LLMClient:
-    """A pinned OpenAI chat client that returns JSON objects."""
+    """A pinned OpenAI-compatible chat client that returns JSON objects."""
 
     def __init__(self, model: str, *, temperature: float = 0.0, seed: int | None = 7):
         from openai import OpenAI  # type: ignore[import-not-found]
@@ -64,7 +77,12 @@ class LLMClient:
         self.model = model
         self.temperature = temperature
         self.seed = seed
-        self._client = OpenAI()
+        # Route through TrueFoundry when OPENAI_BASE_URL is set (gateway.env).
+        kwargs: dict[str, str] = {}
+        base_url = os.environ.get("OPENAI_BASE_URL")
+        if base_url:
+            kwargs["base_url"] = base_url
+        self._client = OpenAI(**kwargs)
 
     def complete_text(
         self, system: str, user: str, *, json_object: bool = False
@@ -205,33 +223,60 @@ def judge_client(model: str, exclude: str = "") -> LLMClient:
     return LLMClient(model)
 
 
-def load_api_key(env_file: str | None = None) -> None:
-    """Ensure ``OPENAI_API_KEY`` is in the environment for the offline tools.
+def _apply_env_file(path: str, *, keys: tuple[str, ...] | None = None) -> bool:
+    """Load ``KEY=value`` lines from ``path`` into ``os.environ``.
 
-    If it is already set, do nothing. Otherwise read it from ``env_file`` (when
-    given), then ``content/.env``, then ``.env`` at the repo root, and set it on
-    ``os.environ`` so a plain ``OpenAI()`` (as ``LLMClient`` builds) picks it up.
-    This is the one place that loads the key, replacing the per-tool copies.
+    When ``keys`` is set, only those names are applied. Returns True if the file
+    existed and was read. Values overwrite existing env entries so the TrueFoundry
+    gateway file wins over stale direct provider keys left in a shell.
     """
-    if os.environ.get("OPENAI_API_KEY"):
-        return
+    if not path or not os.path.isfile(path):
+        return False
+    wanted = frozenset(keys) if keys is not None else None
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, val = stripped.split("=", 1)
+            key = key.strip()
+            if wanted is not None and key not in wanted:
+                continue
+            os.environ[key] = val.strip().strip('"').strip("'")
+    return True
+
+
+def load_api_key(env_file: str | None = None) -> None:
+    """Ensure gateway credentials are in the environment for offline tools.
+
+    Source of truth is ``~/.config/truefoundry/gateway.env`` (one TrueFoundry
+    token + ``OPENAI_BASE_URL``). An explicit ``env_file`` is applied next for
+    tests/overrides. ``content/.env`` / repo-root ``.env`` are last-resort
+    fallbacks for non-gateway setups and must not hold direct provider keys.
+
+    This is the one place that loads credentials, replacing per-tool copies.
+    """
+    if _apply_env_file(_TFY_GATEWAY_ENV, keys=_TFY_GATEWAY_VARS):
+        if os.environ.get("OPENAI_API_KEY"):
+            return
+    if env_file:
+        _apply_env_file(env_file)
+        if os.environ.get("OPENAI_API_KEY"):
+            return
     here = os.path.dirname(os.path.abspath(__file__))
     # llm.py -> ai -> pgrep -> anki -> pylib -> repo root
     repo = os.path.abspath(os.path.join(here, *([os.pardir] * 5)))
-    bases = [os.getcwd(), repo]
-    candidates: list[str] = [env_file] if env_file else []
-    for base in bases:
-        candidates.append(os.path.join(base, "content", ".env"))
-        candidates.append(os.path.join(base, ".env"))
-    for path in candidates:
-        if path and os.path.isfile(path):
-            with open(path, encoding="utf-8") as fh:
-                for line in fh:
-                    if line.strip().startswith("OPENAI_API_KEY="):
-                        val = line.split("=", 1)[1].strip().strip('"').strip("'")
-                        os.environ["OPENAI_API_KEY"] = val
-                        return
+    for base in (os.getcwd(), repo):
+        for rel in ("content/.env", ".env"):
+            path = os.path.join(base, *rel.split("/"))
+            if _apply_env_file(path, keys=("OPENAI_API_KEY", "OPENAI_BASE_URL")):
+                if os.environ.get("OPENAI_API_KEY"):
+                    return
 
 
 def has_api_key() -> bool:
+    """True when an OpenAI-compatible key is available (loads the gateway once)."""
+    if os.environ.get("OPENAI_API_KEY"):
+        return True
+    load_api_key()
     return bool(os.environ.get("OPENAI_API_KEY"))

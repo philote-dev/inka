@@ -8,7 +8,14 @@ Checkboxes are the source of truth. `[demo]` marks natural stop-and-review point
 
 Content and features:
 
-- [ ] Generate decomposition tutor data for every problem (only 40/137 today, so most misses do not open the tutor) `just gen-decompositions --apply` [demo]
+- [ ] Content quality program (foundry / verifier / shadow / human ruler): see the
+  status board in
+  [`content-foundry-and-verifier-design.md`](content-foundry-and-verifier-design.md)
+  — **next gate is WS10 (usage ledger + budgets)** before any paid shadow or
+  foundry online run
+- [ ] Generate / refresh decomposition tutor coverage where still missing (triple
+  pool already raised coverage substantially; confirm remaining gaps after the
+  calibrated gate) `just gen-decompositions --apply` [demo]
 - [ ] Port the iOS Problems flow from the old ladder to the decomposition tutor [demo]
 - [ ] Content quality: gold-set gate hardening (cut the refusal and malformed-MCQ rate, rerun the batch)
 - [ ] Optional Bragg diffraction figure for problem p4-prob-0136

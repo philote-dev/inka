@@ -38,9 +38,11 @@ temperature and a seed when the snapshot supports one, retries transient errors
 with a short backoff, and drops any option a snapshot rejects so the strongest
 model still works. Its two public methods are `complete_text(system, user, *,
 json_object=False)` for a raw completion and `complete_json(...)` for a parsed
-JSON object. `load_api_key(...)` is the one place that resolves `OPENAI_API_KEY`
-(the environment, then `content/.env`, then a repo-root `.env`), replacing the
-per-tool copies. `openai` is imported lazily, so an AI-off app never loads it.
+JSON object. `load_api_key(...)` is the one place that resolves credentials: the
+TrueFoundry gateway file `~/.config/truefoundry/gateway.env` (one token +
+`OPENAI_BASE_URL`), then an explicit `env_file`, then optional non-secret
+`content/.env` / repo-root `.env` fallbacks. Direct provider keys must not live
+in the repo. `openai` is imported lazily, so an AI-off app never loads it.
 
 The figure generator (`tools/pgrep_figure_gen.py`), the figure judge
 (`tools/pgrep_figure_verify.py`), and the technique-giveaway judge

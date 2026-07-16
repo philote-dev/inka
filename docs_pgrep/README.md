@@ -35,7 +35,7 @@
 
 - [`plan/build-plan.md`](plan/build-plan.md) — the unified build plan: current status, the remaining trajectory (L2.7, then L3 and L4, then L5, L6), the per-layer agent split, gates, and controller prompts.
 - [`plan/dataset-pipeline.md`](plan/dataset-pipeline.md) — the status board for every dataset the AI layer needs (corpus, gold, held-out, examples): role, source, status, owner.
-- [`plan/content-foundry-and-verifier-design.md`](plan/content-foundry-and-verifier-design.md) — verification-guided content foundry design (calibrated panel, best-of-N loop).
+- [`plan/content-foundry-and-verifier-design.md`](plan/content-foundry-and-verifier-design.md) — verification-guided content foundry design (calibrated panel, best-of-N loop); **status board** and **WS10 usage ledger / budgets**.
 - [`plan/content-foundry-loop-plan.md`](plan/content-foundry-loop-plan.md) — Phase 2 implementation plan (temptation, difficulty, foundry loop).
 - [`plan/content-foundry-dataset-and-eval-plan.md`](plan/content-foundry-dataset-and-eval-plan.md) — Phase 3 implementation plan (preference dataset, standing eval).
 - [`plan/shadow-foundry-calibration-design.md`](plan/shadow-foundry-calibration-design.md) — quarantined Sol/Opus/Grok generation and blind human calibration design.

@@ -45,12 +45,13 @@ dev *args:
     export PGREP_HEADLESS=1
     export PGREP_SURFACE_MODE="${PGREP_SURFACE_MODE:-exclusive}"
     if [ "$ai" = "on" ]; then
-        if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
+        if [ -f "$HOME/.config/truefoundry/gateway.env" ]; then set -a; . "$HOME/.config/truefoundry/gateway.env"; set +a; fi
+    if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
         if [ -n "${OPENAI_API_KEY:-}" ]; then
             export PGREP_AI_MODEL="${PGREP_AI_MODEL:-gpt-5.5-2026-04-23}"
             echo ">>> dev: headless serve on :40000, AI on (model ${PGREP_AI_MODEL})."
         else
-            echo ">>> dev: headless serve on :40000. AI off: no OPENAI_API_KEY (add it to content/.env, and run 'just ai-deps' once)."
+            echo ">>> dev: headless serve on :40000. AI off: no OPENAI_API_KEY (load ~/.config/truefoundry/gateway.env, and run 'just ai-deps' once)."
         fi
     else
         echo ">>> dev: headless serve on :40000, AI off (--ai off)."
@@ -369,9 +370,10 @@ gen-decompositions *args:
     #!/usr/bin/env bash
     set -euo pipefail
     {{ ninja }} pyenv
+    if [ -f "$HOME/.config/truefoundry/gateway.env" ]; then set -a; . "$HOME/.config/truefoundry/gateway.env"; set +a; fi
     if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
     if [ -z "${OPENAI_API_KEY:-}" ]; then
-        echo "Set OPENAI_API_KEY (export it or add it to content/.env) to generate." >&2
+        echo "Set OPENAI_API_KEY via ~/.config/truefoundry/gateway.env to generate." >&2
         exit 1
     fi
     out/pyenv/bin/python content/tools/generate_decompositions.py {{ args }}
@@ -383,6 +385,7 @@ audit-bundle-ai *args:
     #!/usr/bin/env bash
     set -euo pipefail
     {{ ninja }} pyenv
+    if [ -f "$HOME/.config/truefoundry/gateway.env" ]; then set -a; . "$HOME/.config/truefoundry/gateway.env"; set +a; fi
     if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
     out/pyenv/bin/python content/tools/audit_bundle_ai.py {{ args }}
 
@@ -401,6 +404,7 @@ foundry *args:
     #!/usr/bin/env bash
     set -euo pipefail
     {{ ninja }} pyenv
+    if [ -f "$HOME/.config/truefoundry/gateway.env" ]; then set -a; . "$HOME/.config/truefoundry/gateway.env"; set +a; fi
     if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
     out/pyenv/bin/python content/tools/foundry.py {{ args }}
 

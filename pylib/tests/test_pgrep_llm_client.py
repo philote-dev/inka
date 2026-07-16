@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import sys
 import types
 from pathlib import Path
@@ -46,8 +47,10 @@ _DATED = "gpt-test-2026-01-01"
 class _FakeOpenAI:
     """Stand-in for ``openai.OpenAI``; the real backend is swapped in per test."""
 
+    last_kwargs: dict = {}
+
     def __init__(self, *args, **kwargs):
-        pass
+        type(self).last_kwargs = dict(kwargs)
 
 
 class _Resp:
@@ -144,6 +147,52 @@ def _raises(exc):
 def test_llmclient_refuses_floating_alias():
     with _fake_openai(), _raises(ValueError):
         llm.LLMClient("gpt-5.5")
+
+
+def test_llmclient_passes_openai_base_url():
+    with _fake_openai():
+        old = os.environ.get("OPENAI_BASE_URL")
+        os.environ["OPENAI_BASE_URL"] = "https://example.test/llm"
+        try:
+            llm.LLMClient(_DATED)
+        finally:
+            if old is None:
+                os.environ.pop("OPENAI_BASE_URL", None)
+            else:
+                os.environ["OPENAI_BASE_URL"] = old
+    assert _FakeOpenAI.last_kwargs.get("base_url") == "https://example.test/llm"
+
+
+def test_load_api_key_prefers_truefoundry_gateway():
+    import tempfile
+
+    saved = {
+        key: os.environ.get(key)
+        for key in ("OPENAI_API_KEY", "OPENAI_BASE_URL", "TFY_API_KEY")
+    }
+    old_gateway = llm._TFY_GATEWAY_ENV
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            gateway = Path(tmp) / "gateway.env"
+            gateway.write_text(
+                "OPENAI_API_KEY=tfy_test_token\n"
+                "OPENAI_BASE_URL=https://tfy.example/api/llm\n"
+                "TFY_API_KEY=tfy_test_token\n"
+            )
+            llm._TFY_GATEWAY_ENV = str(gateway)
+            for key in saved:
+                os.environ.pop(key, None)
+            llm.load_api_key()
+            assert os.environ["OPENAI_API_KEY"] == "tfy_test_token"
+            assert os.environ["OPENAI_BASE_URL"] == "https://tfy.example/api/llm"
+            assert os.environ["TFY_API_KEY"] == "tfy_test_token"
+    finally:
+        llm._TFY_GATEWAY_ENV = old_gateway
+        for key, val in saved.items():
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
 
 
 def test_complete_text_drops_temperature_and_seed_on_bad_request():
