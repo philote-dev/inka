@@ -565,7 +565,7 @@ def test_render_blocks_accepts_ruler_manifest() -> None:
 
 def test_render_blocks_rejects_unknown_pass_name() -> None:
     with pytest.raises(ValueError, match="pass_name"):
-        calibration_sheet.render_blocks([_manifest_item()], pass_name="b")
+        calibration_sheet.render_blocks([_manifest_item()], pass_name="c")
 
 
 # --- Task 4: strict Pass A parsing and repeat consistency -------------------
@@ -1262,3 +1262,188 @@ def test_repeat_content_must_match_before_labels_are_compared(
         match="content does not match",
     ):
         calibration_sheet.repeat_consistency(parsed_labels, invalid_manifest)
+
+
+# --- Task 6: deferred Pass B rendering and strict parsing ------------------
+
+_PASS_B_VALUES = {
+    "source_supports_stem": "PASS",
+    "source_supports_answer": "UNSURE",
+    "decomposition_correct": "PASS",
+    "decomposition_leaks_answer": "FAIL",
+}
+
+
+def _filled_pass_b_documents(
+    manifest: calibration_ruler.RulerManifest,
+) -> list[str]:
+    documents = calibration_sheet.render_blocks(manifest, pass_name="b")
+    for index, document in enumerate(documents):
+        for field, value in _PASS_B_VALUES.items():
+            document = document.replace(
+                f"\n{field}:\n",
+                f"\n{field}: {value}\n",
+            )
+        documents[index] = document
+    return documents
+
+
+def test_pass_b_fields_and_value_sets_are_exact() -> None:
+    assert calibration_sheet.PASS_B_FIELDS == (
+        "source_supports_stem",
+        "source_supports_answer",
+        "decomposition_correct",
+        "decomposition_leaks_answer",
+        "notes",
+    )
+    assert calibration_sheet.PASS_B_PASS_FAIL == frozenset({"PASS", "FAIL", "UNSURE"})
+
+
+def test_pass_b_renders_excerpt_and_decomposition_in_twenty_item_blocks() -> None:
+    manifest = _strict_manifest()
+
+    blocks = calibration_sheet.render_blocks(manifest, pass_name="b")
+    rendered = "\n".join(blocks)
+    visible = calibration_sheet.unprotect_markdown_text(rendered)
+
+    assert len(blocks) == 7
+    assert all(block.count("\n### ") <= 20 for block in blocks)
+    assert manifest.items[0].source_excerpt in visible
+    assert "Reason about" in visible
+    for field in calibration_sheet.PASS_B_FIELDS:
+        assert rendered.count(f"\n{field}:") == len(manifest.items)
+        assert f"\n{field}: " not in rendered
+    for hidden in (
+        "model_family",
+        "verifier",
+        "recommendation",
+        "stratum",
+        "split",
+        "repeat_of",
+        manifest.items[0].content_hash,
+        manifest.items[0].pass_b_hash,
+    ):
+        assert hidden not in rendered
+
+
+def test_pass_b_preserves_the_approved_exact_ten_shared_instructions() -> None:
+    block = calibration_sheet.render_blocks([_manifest_item()], pass_name="b")[0]
+    header, _, _item = block.partition("\n### ")
+
+    for index, instruction in enumerate(_PASS_A_INSTRUCTIONS, start=1):
+        assert f"{index}. {instruction}" in header
+    assert header.count("\n1. ") == 1
+    assert "11." not in header
+
+
+def test_pass_b_round_trip_recomputes_immutable_hashes() -> None:
+    manifest = _strict_manifest()
+    documents = _filled_pass_b_documents(manifest)
+
+    labels = calibration_sheet.parse_pass_b(documents, manifest=manifest)
+
+    assert list(labels) == [item.review_id for item in manifest.items]
+    assert labels["item-0001"].to_dict() == {
+        **_PASS_B_VALUES,
+        "notes": "",
+    }
+    calibration_sheet.validate_pass_b_complete(labels, manifest=manifest)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message", "error_type"),
+    [
+        ("edited_excerpt", "immutable content.*source excerpt", "schema"),
+        ("edited_decomposition", "immutable content.*decomposition", "schema"),
+        ("duplicate_id", "duplicate review ID", "schema"),
+        ("missing_id", "missing review ID", "schema"),
+        ("unknown_label", "unknown value.*source_supports_stem", "reviewer"),
+        ("blank_label", "incomplete.*decomposition_correct", "reviewer"),
+        ("hidden_metadata", "hidden metadata.*model_family", "schema"),
+        ("extra_block", "document count", "schema"),
+    ],
+)
+def test_pass_b_rejects_nonrenderer_or_invalid_reviewer_edits(
+    mutation: str,
+    message: str,
+    error_type: str,
+) -> None:
+    manifest = _strict_manifest()
+    documents = _filled_pass_b_documents(manifest)
+    first = manifest.items[0].review_id
+    second = manifest.items[1].review_id
+    if mutation == "edited_excerpt":
+        excerpt = calibration_sheet.protect_markdown_text(
+            manifest.items[0].source_excerpt
+        )
+        changed = _replace_in_review(documents, first, excerpt, excerpt + " edited")
+    elif mutation == "edited_decomposition":
+        rendered = calibration_sheet.protect_markdown_text(
+            f"Reason about {manifest.items[0].blueprint_category}."
+        )
+        changed = _replace_in_review(
+            documents,
+            first,
+            rendered,
+            rendered + " edited",
+        )
+    elif mutation == "duplicate_id":
+        changed = _replace_in_review(
+            documents,
+            second,
+            f"### {second}",
+            f"### {first}",
+        )
+    elif mutation == "missing_id":
+        changed = list(documents)
+        start, end = _review_span(changed[-1], manifest.items[-1].review_id)
+        changed[-1] = changed[-1][:start] + changed[-1][end:]
+    elif mutation == "unknown_label":
+        changed = _replace_in_review(
+            documents,
+            first,
+            "source_supports_stem: PASS",
+            "source_supports_stem: pass",
+        )
+    elif mutation == "blank_label":
+        changed = _replace_in_review(
+            documents,
+            first,
+            "decomposition_correct: PASS",
+            "decomposition_correct:",
+        )
+    elif mutation == "hidden_metadata":
+        changed = _replace_in_review(
+            documents,
+            first,
+            "decomposition_correct: PASS",
+            "model_family: sol\ndecomposition_correct: PASS",
+        )
+    elif mutation == "extra_block":
+        changed = [*documents, documents[0]]
+    else:
+        raise AssertionError(f"unknown mutation: {mutation}")
+
+    expected_error = (
+        calibration_sheet.ReviewerEditError
+        if error_type == "reviewer"
+        else calibration_sheet.RendererSchemaError
+    )
+    with pytest.raises(expected_error, match=message):
+        calibration_sheet.parse_pass_b(changed, manifest=manifest)
+
+
+def test_pass_b_label_is_frozen_fixed_shape_and_json_safe() -> None:
+    manifest = _strict_manifest()
+    labels = calibration_sheet.parse_pass_b(
+        _filled_pass_b_documents(manifest),
+        manifest=manifest,
+    )
+    label = labels["item-0001"]
+
+    with pytest.raises(FrozenInstanceError):
+        setattr(label, "source_supports_stem", "FAIL")
+    assert set(label.to_dict()) == set(calibration_sheet.PASS_B_FIELDS)
+    assert (
+        json.loads(json.dumps(label.to_dict(), ensure_ascii=False)) == label.to_dict()
+    )

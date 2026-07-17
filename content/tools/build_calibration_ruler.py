@@ -25,7 +25,7 @@ import html
 import json
 import os
 import re
-import shutil
+import secrets
 import stat
 import subprocess
 import sys
@@ -41,6 +41,7 @@ from xml.etree import ElementTree
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import _ai_path  # noqa: E402
+import atomic_rename  # noqa: E402
 
 _AI_ROOT = Path(_ai_path.add_ai_core()).resolve()
 
@@ -52,6 +53,7 @@ from pgrep.ai import (  # type: ignore[import-not-found]  # noqa: E402
 )
 
 _SOURCE_PATHS = {
+    "atomic_rename": Path(atomic_rename.__file__).resolve(),
     "build_calibration_ruler": Path(__file__).resolve(),
     "calibration_ruler": Path(calibration_ruler.__file__).resolve(),
     "calibration_sheet": Path(calibration_sheet.__file__).resolve(),
@@ -76,6 +78,7 @@ PASS_A_DIRNAME = "pass-a"
 PASS_B_DIRNAME = "pass-b"
 FIGURES_DIRNAME = "figures"
 MANIFEST_VERSION = "pgrep-calibration-ruler/v1"
+BUILD_CAPABILITY_PROBE_ROOT = ".calibration-build-probes"
 
 _SHADOW_FAMILIES = ("sol", "opus", "grok")
 
@@ -213,11 +216,30 @@ class ExecutionAttestation:
         }
 
 
+@dataclass
+class _RetainedDirectory:
+    path: Path
+    fd: int
+    identity: LockIdentity
+    parent: _RetainedDirectory | None
+    name: str | None
+
+
 @dataclass(frozen=True)
 class _FileFingerprint:
     name: str
     path: Path
     sha256: str
+    parent: _RetainedDirectory
+    fd: int
+    identity: LockIdentity
+    content: bytes
+
+
+@dataclass(frozen=True)
+class _OwnedFile:
+    identity: LockIdentity
+    content: bytes
 
 
 @dataclass(frozen=True)
@@ -242,20 +264,54 @@ class _LoadedShadowRun:
 class PublicationIO:
     """Injectable filesystem seam so tests can inject partial failures."""
 
+    def _bindings(self) -> dict[Path, int]:
+        try:
+            return self._directory_bindings
+        except AttributeError:
+            self._directory_bindings: dict[Path, int] = {}
+            return self._directory_bindings
+
+    def _files(self) -> dict[Path, _OwnedFile]:
+        try:
+            return self._owned_files
+        except AttributeError:
+            self._owned_files: dict[Path, _OwnedFile] = {}
+            return self._owned_files
+
+    def bind_directory(self, path: Path, fd: int) -> None:
+        self._bindings()[path.absolute()] = fd
+
+    def unbind_directory(self, path: Path) -> None:
+        self._bindings().pop(path.absolute(), None)
+
+    def directory_fd(self, path: Path) -> int:
+        try:
+            return self._bindings()[path.absolute()]
+        except KeyError as error:
+            raise PublicationCleanupError(
+                f"retained directory descriptor is unavailable: {path}"
+            ) from error
+
+    def close_bindings(self) -> None:
+        bindings = self._bindings()
+        for fd in set(bindings.values()):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        bindings.clear()
+        self._files().clear()
+
+    def _parent_fd(self, path: Path) -> int:
+        return self.directory_fd(path.parent)
+
     def open_lock(self, path: Path) -> int:
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        identity = _descriptor_identity(fd)
         try:
             self.write_lock(fd, f"pid={os.getpid()}\n".encode())
             self.sync_lock(fd)
         except BaseException:
             os.close(fd)
-            if _path_matches_identity(path, identity):
-                path.unlink()
-            if path.exists() or path.is_symlink():
-                raise PublicationCleanupError(
-                    f"failed lock initialization left an owned lock: {path}"
-                )
             raise
         return fd
 
@@ -266,60 +322,236 @@ class PublicationIO:
         os.fsync(fd)
 
     def create_temp(self, root: Path, run_id: str) -> Path:
-        return Path(tempfile.mkdtemp(prefix=f".{run_id}.", suffix=".tmp", dir=root))
+        root_fd = self.directory_fd(root)
+        for _ in range(128):
+            name = f".{run_id}.{secrets.token_hex(12)}.tmp"
+            try:
+                os.mkdir(name, mode=0o700, dir_fd=root_fd)
+            except FileExistsError:
+                continue
+            path = root / name
+            preopen = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+            fd = os.open(name, _directory_flags(), dir_fd=root_fd)
+            opened = os.fstat(fd)
+            if (opened.st_dev, opened.st_ino) != (
+                preopen.st_dev,
+                preopen.st_ino,
+            ) or not stat.S_ISDIR(opened.st_mode):
+                os.close(fd)
+                raise PublicationCleanupError(
+                    "builder staging identity changed while opening"
+                )
+            self.bind_directory(path, fd)
+            return path
+        raise PublicationCleanupError("could not reserve builder staging directory")
 
     def make_dir(self, path: Path) -> None:
-        path.mkdir(mode=0o700, exist_ok=False)
+        parent_fd = self._parent_fd(path)
+        os.mkdir(path.name, mode=0o700, dir_fd=parent_fd)
+        preopen = os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+        fd = os.open(path.name, _directory_flags(), dir_fd=parent_fd)
+        opened = os.fstat(fd)
+        if (opened.st_dev, opened.st_ino) != (
+            preopen.st_dev,
+            preopen.st_ino,
+        ) or not stat.S_ISDIR(opened.st_mode):
+            os.close(fd)
+            raise PublicationCleanupError(
+                f"builder directory identity changed while opening: {path.name}"
+            )
+        self.bind_directory(path, fd)
 
     def reserve_final(self, path: Path) -> None:
-        path.mkdir(mode=0o700, exist_ok=False)
+        self.make_dir(path)
 
     def link_payload(self, source: Path, destination: Path) -> None:
-        os.link(source, destination, follow_symlinks=False)
+        content = _read_file_at(
+            self._parent_fd(source),
+            source.name,
+            label=f"publication payload {source.name}",
+        )
+        identity = _write_exclusive_at(
+            self._parent_fd(destination),
+            destination.name,
+            content,
+        )
+        self._files()[destination.absolute()] = _OwnedFile(identity, content)
 
     def write_text(self, path: Path, content: str) -> None:
-        _write_exclusive(path, content.encode("utf-8"))
+        encoded = content.encode("utf-8")
+        identity = _write_exclusive_at(self._parent_fd(path), path.name, encoded)
+        self._files()[path.absolute()] = _OwnedFile(identity, encoded)
 
     def write_bytes(self, path: Path, content: bytes) -> None:
-        _write_exclusive(path, content)
+        identity = _write_exclusive_at(self._parent_fd(path), path.name, content)
+        self._files()[path.absolute()] = _OwnedFile(identity, content)
 
     def read_text(self, path: Path) -> str:
-        return path.read_text(encoding="utf-8")
+        return _read_file_at(
+            self._parent_fd(path),
+            path.name,
+            label=f"published {path.name}",
+        ).decode("utf-8", errors="strict")
 
     def read_bytes(self, path: Path) -> bytes:
-        return path.read_bytes()
+        return _read_file_at(
+            self._parent_fd(path),
+            path.name,
+            label=f"published {path.name}",
+        )
 
     def write_marker(self, path: Path, content: str) -> None:
-        _write_exclusive(path, content.encode("utf-8"))
+        self.write_text(path, content)
 
-    def fsync_dir(self, path: Path) -> None:
-        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        fd = os.open(path, flags)
+    def attest_file(self, path: Path, expected: bytes) -> None:
         try:
-            os.fsync(fd)
+            owned = self._files()[path.absolute()]
+        except KeyError as error:
+            raise RulerBuildError(
+                f"published file ownership is unavailable: {path.name}"
+            ) from error
+        parent_fd = self._parent_fd(path)
+        try:
+            bound = os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+            fd = os.open(
+                path.name,
+                os.O_RDONLY
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=parent_fd,
+            )
+        except OSError as error:
+            raise RulerBuildError(
+                f"published file binding is unavailable: {path.name}"
+            ) from error
+        try:
+            opened = os.fstat(fd)
+            chunks: list[bytes] = []
+            while chunk := os.read(fd, 1024 * 1024):
+                chunks.append(chunk)
+            actual = b"".join(chunks)
+            bound_after = os.stat(
+                path.name,
+                dir_fd=parent_fd,
+                follow_symlinks=False,
+            )
         finally:
             os.close(fd)
+        if (
+            (bound.st_dev, bound.st_ino) != owned.identity
+            or (bound_after.st_dev, bound_after.st_ino) != owned.identity
+            or (opened.st_dev, opened.st_ino) != owned.identity
+            or not stat.S_ISREG(bound.st_mode)
+            or not stat.S_ISREG(bound_after.st_mode)
+            or not stat.S_ISREG(opened.st_mode)
+            or actual != expected
+            or actual != owned.content
+        ):
+            raise RulerBuildError(f"published file identity/bytes changed: {path.name}")
+
+    def fsync_dir(self, path: Path) -> None:
+        os.fsync(self.directory_fd(path))
 
     def cleanup_tree(self, path: Path) -> None:
-        _remove_tree_verified(path)
+        del path
 
     def remove_lock(self, path: Path, identity: LockIdentity) -> None:
-        if not _path_matches_identity(path, identity):
-            raise PublicationCleanupError(
-                "publication lock identity changed before removal"
-            )
-        path.unlink()
-        if path.exists() or path.is_symlink():
-            raise PublicationCleanupError(f"publication lock remains: {path}")
+        del path, identity
+
+    def after_input_open(self, name: str) -> None:
+        pass
+
+    def before_input_attestation(self, name: str) -> None:
+        pass
+
+    def before_output_root_open(self, path: Path) -> None:
+        pass
+
+    def before_final_payload(self, relative: str) -> None:
+        pass
+
+    def before_success_marker(self) -> None:
+        pass
+
+    def before_quarantine(self, relative: str) -> None:
+        pass
+
+    def before_quarantine_rename(self, relative: str, target_name: str) -> None:
+        pass
+
+    def preflight_rename_noreplace(self) -> None:
+        atomic_rename.preflight_rename_noreplace()
+
+    def rename_noreplace(
+        self,
+        source_dir_fd: int,
+        source_name: str,
+        destination_dir_fd: int,
+        destination_name: str,
+    ) -> None:
+        atomic_rename.rename_noreplace(
+            source_dir_fd,
+            source_name,
+            destination_dir_fd,
+            destination_name,
+        )
+
+    def after_capability_probe(self, relative: str) -> None:
+        pass
 
 
-def _write_exclusive(path: Path, content: bytes) -> None:
-    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+def _write_exclusive_at(
+    parent_fd: int,
+    name: str,
+    content: bytes,
+) -> LockIdentity:
+    fd = os.open(
+        name,
+        os.O_CREAT
+        | os.O_EXCL
+        | os.O_WRONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0),
+        0o600,
+        dir_fd=parent_fd,
+    )
     try:
-        os.write(fd, content)
+        identity = _descriptor_identity(fd)
+        written = 0
+        while written < len(content):
+            count = os.write(fd, content[written:])
+            if count <= 0:
+                raise OSError("short publication write")
+            written += count
         os.fsync(fd)
+    finally:
+        os.close(fd)
+    return identity
+
+
+def _directory_flags() -> int:
+    return (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+
+
+def _read_file_at(parent_fd: int, component: str, *, label: str) -> bytes:
+    fd = os.open(
+        component,
+        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
+        dir_fd=parent_fd,
+    )
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise RulerBuildError(f"{label} must be a regular file")
+        chunks: list[bytes] = []
+        while chunk := os.read(fd, 1024 * 1024):
+            chunks.append(chunk)
+        return b"".join(chunks)
     finally:
         os.close(fd)
 
@@ -329,21 +561,285 @@ def _descriptor_identity(fd: int) -> LockIdentity:
     return (info.st_dev, info.st_ino)
 
 
-def _path_matches_identity(path: Path, identity: LockIdentity) -> bool:
+def _reattest_directory(directory: _RetainedDirectory) -> None:
+    info = os.fstat(directory.fd)
+    if (info.st_dev, info.st_ino) != directory.identity or not stat.S_ISDIR(
+        info.st_mode
+    ):
+        raise RulerBuildError("retained directory identity changed")
+    if directory.parent is None:
+        return
     try:
-        info = path.lstat()
-    except FileNotFoundError:
-        return False
-    return not stat.S_ISLNK(info.st_mode) and (info.st_dev, info.st_ino) == identity
+        bound = os.stat(
+            cast(str, directory.name),
+            dir_fd=directory.parent.fd,
+            follow_symlinks=False,
+        )
+    except OSError as error:
+        raise RulerBuildError("retained directory binding changed") from error
+    if (
+        (bound.st_dev, bound.st_ino) != directory.identity
+        or not stat.S_ISDIR(bound.st_mode)
+        or stat.S_ISLNK(bound.st_mode)
+    ):
+        raise RulerBuildError("retained directory binding identity changed")
 
 
-def _remove_tree_verified(path: Path) -> None:
-    info = path.lstat()
-    if stat.S_ISLNK(info.st_mode):
-        raise PublicationCleanupError(f"refusing to remove symlink: {path}")
-    shutil.rmtree(path)
-    if path.exists() or path.is_symlink():
-        raise PublicationCleanupError(f"cleanup tree remains: {path}")
+def _reattest_directory_chain(directory: _RetainedDirectory) -> None:
+    chain: list[_RetainedDirectory] = []
+    current: _RetainedDirectory | None = directory
+    while current is not None:
+        chain.append(current)
+        current = current.parent
+    for retained in reversed(chain):
+        _reattest_directory(retained)
+
+
+def _close_directories(directories: Sequence[_RetainedDirectory]) -> None:
+    for directory in reversed(directories):
+        try:
+            os.close(directory.fd)
+        except OSError:
+            pass
+
+
+def _open_output_root(
+    root: Path,
+    io: PublicationIO,
+) -> tuple[_RetainedDirectory, tuple[_RetainedDirectory, ...]]:
+    directories: list[_RetainedDirectory] = []
+    try:
+        root_fd = os.open("/", _directory_flags())
+        filesystem_root = _RetainedDirectory(
+            path=Path("/"),
+            fd=root_fd,
+            identity=_descriptor_identity(root_fd),
+            parent=None,
+            name=None,
+        )
+        directories.append(filesystem_root)
+        io.bind_directory(filesystem_root.path, root_fd)
+        parent = filesystem_root
+        current = Path("/")
+        for component in root.parts[1:]:
+            current /= component
+            try:
+                preopen = os.stat(
+                    component,
+                    dir_fd=parent.fd,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                os.mkdir(component, mode=0o700, dir_fd=parent.fd)
+                preopen = os.stat(
+                    component,
+                    dir_fd=parent.fd,
+                    follow_symlinks=False,
+                )
+            if not stat.S_ISDIR(preopen.st_mode) or stat.S_ISLNK(preopen.st_mode):
+                raise RulerBuildError(
+                    f"output root component is not a directory: {current}"
+                )
+            io.before_output_root_open(current)
+            fd = os.open(component, _directory_flags(), dir_fd=parent.fd)
+            opened = os.fstat(fd)
+            if (opened.st_dev, opened.st_ino) != (
+                preopen.st_dev,
+                preopen.st_ino,
+            ) or not stat.S_ISDIR(opened.st_mode):
+                os.close(fd)
+                raise RulerBuildError(
+                    f"output root identity changed while opening: {current}"
+                )
+            child = _RetainedDirectory(
+                path=current,
+                fd=fd,
+                identity=(opened.st_dev, opened.st_ino),
+                parent=parent,
+                name=component,
+            )
+            directories.append(child)
+            io.bind_directory(current, fd)
+            parent = child
+        return parent, tuple(directories)
+    except BaseException:
+        _close_directories(directories)
+        for directory in directories:
+            io.unbind_directory(directory.path)
+        raise
+
+
+def _retained_child(io: PublicationIO, path: Path) -> _RetainedDirectory:
+    parent_path = path.parent
+    parent_fd = io.directory_fd(parent_path)
+    info = os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+    fd = io.directory_fd(path)
+    opened = os.fstat(fd)
+    if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino) or not stat.S_ISDIR(
+        opened.st_mode
+    ):
+        raise RulerBuildError(f"owned directory identity changed: {path.name}")
+    parent = _RetainedDirectory(
+        path=parent_path,
+        fd=parent_fd,
+        identity=_descriptor_identity(parent_fd),
+        parent=None,
+        name=None,
+    )
+    return _RetainedDirectory(
+        path=path,
+        fd=fd,
+        identity=(info.st_dev, info.st_ino),
+        parent=parent,
+        name=path.name,
+    )
+
+
+def _builder_rename_noreplace(
+    io: PublicationIO,
+    source_dir_fd: int,
+    source_name: str,
+    destination_dir_fd: int,
+    destination_name: str,
+) -> None:
+    try:
+        io.rename_noreplace(
+            source_dir_fd,
+            source_name,
+            destination_dir_fd,
+            destination_name,
+        )
+    except atomic_rename.AtomicRenameError as error:
+        raise PublicationCleanupError(str(error)) from error
+
+
+def _builder_quarantine(
+    io: PublicationIO,
+    root: _RetainedDirectory,
+) -> _RetainedDirectory:
+    name = ".calibration-build-quarantine"
+    try:
+        os.mkdir(name, mode=0o700, dir_fd=root.fd)
+    except FileExistsError:
+        pass
+    preopen = os.stat(name, dir_fd=root.fd, follow_symlinks=False)
+    if (
+        not stat.S_ISDIR(preopen.st_mode)
+        or stat.S_ISLNK(preopen.st_mode)
+        or stat.S_IMODE(preopen.st_mode) != 0o700
+        or preopen.st_dev != os.fstat(root.fd).st_dev
+    ):
+        raise PublicationCleanupError("builder quarantine root is not private")
+    fd = os.open(name, _directory_flags(), dir_fd=root.fd)
+    opened = os.fstat(fd)
+    if (
+        (opened.st_dev, opened.st_ino) != (preopen.st_dev, preopen.st_ino)
+        or not stat.S_ISDIR(opened.st_mode)
+        or stat.S_IMODE(opened.st_mode) != 0o700
+    ):
+        os.close(fd)
+        raise PublicationCleanupError(
+            "builder quarantine root identity changed while opening"
+        )
+    path = root.path / name
+    io.bind_directory(path, fd)
+    return _RetainedDirectory(
+        path=path,
+        fd=fd,
+        identity=(opened.st_dev, opened.st_ino),
+        parent=root,
+        name=name,
+    )
+
+
+def _names_with_identity(
+    parent_fd: int,
+    identity: LockIdentity,
+) -> list[str]:
+    matches: list[str] = []
+    for name in os.listdir(parent_fd):
+        if name == ".calibration-build-quarantine":
+            continue
+        try:
+            info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        if (info.st_dev, info.st_ino) == identity:
+            matches.append(name)
+    return matches
+
+
+def _move_to_builder_quarantine(
+    io: PublicationIO,
+    root: _RetainedDirectory,
+    quarantine: _RetainedDirectory,
+    source_name: str,
+    *,
+    relative: str,
+) -> os.stat_result | None:
+    for _ in range(128):
+        target = f"{source_name}.{secrets.token_hex(16)}"
+        io.before_quarantine_rename(relative, target)
+        try:
+            _builder_rename_noreplace(
+                io,
+                root.fd,
+                source_name,
+                quarantine.fd,
+                target,
+            )
+        except FileExistsError:
+            continue
+        except FileNotFoundError:
+            return None
+        moved = os.stat(target, dir_fd=quarantine.fd, follow_symlinks=False)
+        os.fsync(root.fd)
+        os.fsync(quarantine.fd)
+        return moved
+    raise PublicationCleanupError(
+        "builder quarantine destination remained occupied after 128 attempts"
+    )
+
+
+def _preserve_owned_binding(
+    io: PublicationIO,
+    root: _RetainedDirectory,
+    source_name: str,
+    identity: LockIdentity,
+    *,
+    relative: str,
+) -> None:
+    io.before_quarantine(relative)
+    quarantine = _builder_quarantine(io, root)
+    try:
+        moved = _move_to_builder_quarantine(
+            io,
+            root,
+            quarantine,
+            source_name,
+            relative=relative,
+        )
+        if moved is not None and (moved.st_dev, moved.st_ino) == identity:
+            return
+        matches = _names_with_identity(root.fd, identity)
+        if len(matches) != 1:
+            raise PublicationCleanupError(
+                f"could not uniquely locate owned builder identity for {relative}"
+            )
+        owned = _move_to_builder_quarantine(
+            io,
+            root,
+            quarantine,
+            matches[0],
+            relative=relative,
+        )
+        if owned is None or (owned.st_dev, owned.st_ino) != identity:
+            raise PublicationCleanupError(
+                f"owned builder identity changed while preserving {relative}"
+            )
+    finally:
+        os.close(quarantine.fd)
+        io.unbind_directory(quarantine.path)
 
 
 # --- Output-root safety ----------------------------------------------------
@@ -418,38 +914,6 @@ def validate_output_root(
     raise RulerBuildError("output root must be the exact repository calibration root")
 
 
-def _normalize_input_path(
-    path: Path | str,
-    *,
-    name: str,
-    allow_test_paths: bool,
-    required_root: Path,
-    require_file: bool,
-) -> Path:
-    raw = Path(path)
-    _reject_path_escape(raw, name=name)
-    absolute = raw.absolute()
-    _reject_symlink_components(absolute, name=name)
-    try:
-        resolved = absolute.resolve(strict=True)
-    except FileNotFoundError as error:
-        raise RulerBuildError(f"{name} does not exist: {absolute}") from error
-    info = resolved.lstat()
-    expected = stat.S_ISREG if require_file else stat.S_ISDIR
-    if stat.S_ISLNK(info.st_mode) or not expected(info.st_mode):
-        kind = "regular JSON file" if require_file else "directory"
-        raise RulerBuildError(f"{name} must be a {kind}: {resolved}")
-    if allow_test_paths and _is_test_path(resolved):
-        return resolved
-    canonical_root = required_root.resolve(strict=True)
-    if not _is_relative_to(resolved, canonical_root):
-        raise RulerBuildError(
-            f"{name} must be under the exact repository {required_root.name} root"
-        )
-    _git_ignored_path(resolved, name=name)
-    return resolved
-
-
 def _validate_run_id(run_id: str) -> None:
     if (
         not isinstance(run_id, str)
@@ -464,25 +928,6 @@ def _validate_run_id(run_id: str) -> None:
         raise RulerBuildError("run ID must not contain a private dataset marker")
 
 
-def _ensure_directory_chain(root: Path) -> None:
-    parts: list[Path] = []
-    current = root.absolute()
-    while not current.exists():
-        parts.append(current)
-        parent = current.parent
-        if parent == current:
-            break
-        current = parent
-    for path in reversed(parts):
-        try:
-            path.mkdir(mode=0o700)
-        except FileExistsError:
-            pass
-        info = path.lstat()
-        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
-            raise RulerBuildError(f"output root component is not a directory: {path}")
-
-
 # --- Input loading (trusted / failure) -------------------------------------
 
 
@@ -493,24 +938,178 @@ def _reject_private_input_path(path: Path, *, name: str) -> None:
         )
 
 
-def _read_file_once(path: Path, *, name: str) -> bytes:
-    flags = os.O_RDONLY
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
+def _validate_retained_input_location(
+    path: Path | str,
+    *,
+    name: str,
+    allow_test_paths: bool,
+    required_root: Path,
+) -> Path:
+    raw = Path(path)
+    _reject_path_escape(raw, name=name)
+    absolute = Path(os.path.abspath(raw))
+    _reject_private_input_path(absolute, name=name)
+    if allow_test_paths and _is_relative_to(
+        absolute,
+        Path(tempfile.gettempdir()).resolve(),
+    ):
+        return absolute
+    required = Path(os.path.abspath(required_root))
+    if not _is_relative_to(absolute, required):
+        raise RulerBuildError(
+            f"{name} must be under the exact repository {required_root.name} root"
+        )
+    _git_ignored_path(absolute, name=name)
+    return absolute
+
+
+def _open_retained_directory(
+    path: Path,
+    *,
+    name: str,
+) -> tuple[_RetainedDirectory, tuple[_RetainedDirectory, ...]]:
+    directories: list[_RetainedDirectory] = []
     try:
-        fd = os.open(path, flags)
+        root_fd = os.open("/", _directory_flags())
+        root_info = os.fstat(root_fd)
+        root = _RetainedDirectory(
+            path=Path("/"),
+            fd=root_fd,
+            identity=_descriptor_identity(root_fd),
+            parent=None,
+            name=None,
+        )
+        if not stat.S_ISDIR(root_info.st_mode):
+            raise RulerBuildError("filesystem root is not a directory")
+        directories.append(root)
+        parent = root
+        current = Path("/")
+        for component in path.parts[1:]:
+            current /= component
+            fd = os.open(component, _directory_flags(), dir_fd=parent.fd)
+            info = os.fstat(fd)
+            if not stat.S_ISDIR(info.st_mode):
+                os.close(fd)
+                raise RulerBuildError(f"{name} component is not a directory")
+            child = _RetainedDirectory(
+                path=current,
+                fd=fd,
+                identity=_descriptor_identity(fd),
+                parent=parent,
+                name=component,
+            )
+            directories.append(child)
+            parent = child
+        return parent, tuple(directories)
     except OSError as error:
-        raise RulerBuildError(f"could not open {name}: {error}") from error
+        for directory in reversed(directories):
+            os.close(directory.fd)
+        raise RulerBuildError(
+            f"could not open {name}; path component is missing, changed, "
+            f"or a symlink component: {error}"
+        ) from error
+    except BaseException:
+        for directory in reversed(directories):
+            os.close(directory.fd)
+        raise
+
+
+def _open_retained_file_at(
+    parent: _RetainedDirectory,
+    filename: str,
+    *,
+    name: str,
+    io: PublicationIO,
+) -> _FileFingerprint:
+    try:
+        fd = os.open(
+            filename,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=parent.fd,
+        )
+    except OSError as error:
+        raise RulerBuildError(
+            f"could not open {name}; file is missing, changed, or a symlink: {error}"
+        ) from error
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
             raise RulerBuildError(f"{name} must be a regular file")
+        io.after_input_open(name)
         chunks: list[bytes] = []
         while chunk := os.read(fd, 1024 * 1024):
             chunks.append(chunk)
-        return b"".join(chunks)
-    finally:
+        raw = b"".join(chunks)
+        return _FileFingerprint(
+            name=name,
+            path=parent.path / filename,
+            sha256=hashlib.sha256(raw).hexdigest(),
+            parent=parent,
+            fd=fd,
+            identity=_descriptor_identity(fd),
+            content=raw,
+        )
+    except BaseException:
         os.close(fd)
+        raise
+
+
+def _open_retained_file(
+    path: Path | str,
+    *,
+    name: str,
+    allow_test_paths: bool,
+    required_root: Path,
+    io: PublicationIO,
+) -> _FileFingerprint:
+    absolute = _validate_retained_input_location(
+        path,
+        name=name,
+        allow_test_paths=allow_test_paths,
+        required_root=required_root,
+    )
+    parent, directories = _open_retained_directory(absolute.parent, name=name)
+    try:
+        return _open_retained_file_at(
+            parent,
+            absolute.name,
+            name=name,
+            io=io,
+        )
+    except BaseException:
+        for directory in reversed(directories):
+            os.close(directory.fd)
+        raise
+
+
+def _fingerprint_directories(
+    fingerprint: _FileFingerprint,
+) -> tuple[_RetainedDirectory, ...]:
+    directories: list[_RetainedDirectory] = []
+    current: _RetainedDirectory | None = fingerprint.parent
+    while current is not None:
+        directories.append(current)
+        current = current.parent
+    return tuple(reversed(directories))
+
+
+def _close_fingerprints(fingerprints: Sequence[_FileFingerprint]) -> None:
+    file_fds = {fingerprint.fd for fingerprint in fingerprints}
+    directory_fds = {
+        directory.fd
+        for fingerprint in fingerprints
+        for directory in _fingerprint_directories(fingerprint)
+    }
+    for fd in file_fds:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+    for fd in directory_fds:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
 
 
 def _reject_json_constant(value: str) -> object:
@@ -541,11 +1140,6 @@ def _parse_json_bytes(raw: bytes, *, name: str) -> object:
         )
     except json.JSONDecodeError as error:
         raise RulerBuildError(f"{name} is not valid JSON: {error}") from error
-
-
-def _load_json_once(path: Path, *, name: str) -> tuple[object, bytes]:
-    raw = _read_file_once(path, name=name)
-    return _parse_json_bytes(raw, name=name), raw
 
 
 def _items_from_document(document: object, *, name: str) -> list[object]:
@@ -637,30 +1231,35 @@ def _load_problem_set(
     *,
     name: str,
     allow_test_paths: bool,
+    io: PublicationIO,
 ) -> _LoadedProblemSet:
-    resolved = _normalize_input_path(
+    fingerprint = _open_retained_file(
         path,
         name=f"{name} input",
         allow_test_paths=allow_test_paths,
         required_root=CONTENT_RUN_ROOT,
-        require_file=True,
+        io=io,
     )
-    _reject_private_input_path(resolved, name=name)
-    document, raw = _load_json_once(resolved, name=f"{name} input")
-    calibration_ruler._validate_json(document)  # noqa: SLF001
-    _reject_path_fields_and_values(document, name=name)
-    _reject_recursive_markers(document, name=name)
-    items = _items_from_document(document, name=name)
-    for index, item in enumerate(items):
-        if not isinstance(item, Mapping):
-            raise RulerBuildError(f"{name} item {index} must be a JSON object")
-    copied = tuple(dict(cast("Mapping[str, object]", item)) for item in items)
-    digest = hashlib.sha256(raw).hexdigest()
-    return _LoadedProblemSet(
-        copied,
-        digest,
-        _FileFingerprint(f"{name} input", resolved, digest),
-    )
+    try:
+        raw = fingerprint.content
+        document = _parse_json_bytes(raw, name=f"{name} input")
+        calibration_ruler._validate_json(document)  # noqa: SLF001
+        _reject_path_fields_and_values(document, name=name)
+        _reject_recursive_markers(document, name=name)
+        items = _items_from_document(document, name=name)
+        for index, item in enumerate(items):
+            if not isinstance(item, Mapping):
+                raise RulerBuildError(f"{name} item {index} must be a JSON object")
+        copied = tuple(dict(cast("Mapping[str, object]", item)) for item in items)
+        digest = hashlib.sha256(raw).hexdigest()
+        return _LoadedProblemSet(
+            copied,
+            digest,
+            fingerprint,
+        )
+    except BaseException:
+        _close_fingerprints((fingerprint,))
+        raise
 
 
 def load_problem_set(
@@ -670,13 +1269,16 @@ def load_problem_set(
     allow_test_paths: bool = False,
 ) -> list[dict[str, object]]:
     """Load a trusted or failure problem set from one explicit JSON file."""
-    return list(
-        _load_problem_set(
-            path,
-            name=name,
-            allow_test_paths=allow_test_paths,
-        ).items
+    loaded = _load_problem_set(
+        path,
+        name=name,
+        allow_test_paths=allow_test_paths,
+        io=PublicationIO(),
     )
+    try:
+        return list(loaded.items)
+    finally:
+        _close_fingerprints((loaded.fingerprint,))
 
 
 # --- Shadow run loading (finalized _SUCCESS) -------------------------------
@@ -689,59 +1291,62 @@ def _normalize_shadow_run_path(
 ) -> Path:
     raw = Path(path)
     if raw.name == "candidates.json":
-        candidates_path = _normalize_input_path(
-            raw,
-            name="shadow candidates input",
-            allow_test_paths=allow_test_paths,
-            required_root=SHADOW_ROOT,
-            require_file=True,
-        )
-        run_dir = candidates_path.parent
-        _normalize_input_path(
-            run_dir,
-            name="shadow run",
-            allow_test_paths=allow_test_paths,
-            required_root=SHADOW_ROOT,
-            require_file=False,
-        )
-        return run_dir
-    if raw.suffix:
+        raw = raw.parent
+    elif raw.suffix:
         raise RulerBuildError(
             "shadow input must be a finalized run directory or its candidates.json"
         )
-    return _normalize_input_path(
+    return _validate_retained_input_location(
         raw,
         name="shadow run",
         allow_test_paths=allow_test_paths,
         required_root=SHADOW_ROOT,
-        require_file=False,
     )
 
 
-def _require_finalized_marker(run_dir: Path) -> _FileFingerprint:
-    failed = run_dir / FAILED_MARKER
-    success = run_dir / SUCCESS_MARKER
-    if failed.exists() or failed.is_symlink():
+def _require_finalized_marker(
+    run_dir: _RetainedDirectory,
+    *,
+    io: PublicationIO,
+) -> _FileFingerprint:
+    try:
+        os.stat(FAILED_MARKER, dir_fd=run_dir.fd, follow_symlinks=False)
+    except FileNotFoundError:
+        pass
+    else:
         raise RulerBuildError("shadow run is a diagnostic _FAILED run")
-    if not success.is_file() or success.is_symlink():
-        raise RulerBuildError("shadow run has no finalized _SUCCESS marker")
-    raw = _read_file_once(success, name="shadow success marker")
-    return _FileFingerprint(
-        "shadow success marker",
-        success,
-        hashlib.sha256(raw).hexdigest(),
-    )
+    try:
+        return _open_retained_file_at(
+            run_dir,
+            SUCCESS_MARKER,
+            name="shadow success marker",
+            io=io,
+        )
+    except RulerBuildError as error:
+        raise RulerBuildError("shadow run has no finalized _SUCCESS marker") from error
 
 
 def _load_shadow_artifact(
-    run_dir: Path,
+    run_dir: _RetainedDirectory,
     filename: str,
-) -> tuple[object, bytes]:
-    path = run_dir / filename
-    _reject_symlink_components(path, name=f"shadow {filename}")
-    if path.is_symlink() or not path.is_file():
-        raise RulerBuildError(f"shadow run is missing {filename}")
-    return _load_json_once(path, name=f"shadow {filename}")
+    *,
+    io: PublicationIO,
+) -> tuple[object, bytes, _FileFingerprint]:
+    fingerprint = _open_retained_file_at(
+        run_dir,
+        filename,
+        name=f"shadow {filename}",
+        io=io,
+    )
+    try:
+        return (
+            _parse_json_bytes(fingerprint.content, name=f"shadow {filename}"),
+            fingerprint.content,
+            fingerprint,
+        )
+    except BaseException:
+        os.close(fingerprint.fd)
+        raise
 
 
 def _assert_trusted_shadow_manifest(
@@ -856,30 +1461,21 @@ def _independently_verify_raw_responses(
             raise RulerBuildError("independent raw response candidate hash mismatch")
 
 
-def _load_shadow_run(
-    path: Path | str,
+def _validate_loaded_shadow(
     *,
-    allow_test_paths: bool,
+    run_path: Path,
+    manifest: object,
+    manifest_bytes: bytes,
+    candidates: object,
+    candidate_bytes: bytes,
+    failures: object,
+    failure_bytes: bytes,
+    probe: object,
+    probe_bytes: bytes,
+    raw_responses: object,
+    raw_response_bytes: bytes,
+    fingerprints: tuple[_FileFingerprint, ...],
 ) -> _LoadedShadowRun:
-    """Load and verify a finalized shadow-foundry ``_SUCCESS`` run.
-
-    Returns the shadow-stratum problem items, the shadow run ID, and the hex
-    SHA-256 of the run manifest for provenance. Rejects a ``_FAILED``,
-    synthetic, partial, dirty, or stale run through the strict shadow contract.
-    """
-    run_dir = _normalize_shadow_run_path(
-        path,
-        allow_test_paths=allow_test_paths,
-    )
-    success_fingerprint = _require_finalized_marker(run_dir)
-    manifest, manifest_bytes = _load_shadow_artifact(run_dir, MANIFEST_NAME)
-    candidates, candidate_bytes = _load_shadow_artifact(run_dir, "candidates.json")
-    failures, failure_bytes = _load_shadow_artifact(run_dir, "failures.json")
-    probe, probe_bytes = _load_shadow_artifact(run_dir, "probe.json")
-    raw_responses, raw_response_bytes = _load_shadow_artifact(
-        run_dir,
-        "raw-responses.json",
-    )
     if not isinstance(manifest, Mapping):
         raise RulerBuildError("shadow manifest must be a JSON object")
     if (
@@ -904,7 +1500,7 @@ def _load_shadow_run(
                 "probe.json": probe_bytes,
                 "raw-responses.json": raw_response_bytes,
             },
-            publication_run_id=run_dir.name,
+            publication_run_id=run_path.name,
         )
     except (ValueError, RuntimeError) as error:
         raise RulerBuildError(
@@ -940,41 +1536,101 @@ def _load_shadow_run(
         str(cast("Mapping[str, object]", roles[family])["model_id"])
         for family in _SHADOW_FAMILIES
     )
-    artifact_fingerprints = (
-        _FileFingerprint(
-            "shadow manifest",
-            run_dir / MANIFEST_NAME,
-            hashlib.sha256(manifest_bytes).hexdigest(),
-        ),
-        _FileFingerprint(
-            "shadow candidates",
-            run_dir / "candidates.json",
-            hashlib.sha256(candidate_bytes).hexdigest(),
-        ),
-        _FileFingerprint(
-            "shadow failures",
-            run_dir / "failures.json",
-            hashlib.sha256(failure_bytes).hexdigest(),
-        ),
-        _FileFingerprint(
-            "shadow probe",
-            run_dir / "probe.json",
-            hashlib.sha256(probe_bytes).hexdigest(),
-        ),
-        _FileFingerprint(
-            "shadow raw responses",
-            run_dir / "raw-responses.json",
-            hashlib.sha256(raw_response_bytes).hexdigest(),
-        ),
-        success_fingerprint,
-    )
     return _LoadedShadowRun(
         tuple(items),
         str(manifest["run_id"]),
         hashlib.sha256(manifest_bytes).hexdigest(),
         model_ids,
-        artifact_fingerprints,
+        fingerprints,
     )
+
+
+def _load_shadow_run(
+    path: Path | str,
+    *,
+    allow_test_paths: bool,
+    io: PublicationIO,
+) -> _LoadedShadowRun:
+    """Load and verify a finalized shadow-foundry ``_SUCCESS`` run.
+
+    Returns the shadow-stratum problem items, the shadow run ID, and the hex
+    SHA-256 of the run manifest for provenance. Rejects a ``_FAILED``,
+    synthetic, partial, dirty, or stale run through the strict shadow contract.
+    """
+    run_path = _normalize_shadow_run_path(
+        path,
+        allow_test_paths=allow_test_paths,
+    )
+    run_dir, _directories = _open_retained_directory(
+        run_path,
+        name="shadow run",
+    )
+    opened: list[_FileFingerprint] = []
+    try:
+        success_fingerprint = _require_finalized_marker(run_dir, io=io)
+        opened.append(success_fingerprint)
+        manifest, manifest_bytes, manifest_fingerprint = _load_shadow_artifact(
+            run_dir,
+            MANIFEST_NAME,
+            io=io,
+        )
+        opened.append(manifest_fingerprint)
+        candidates, candidate_bytes, candidate_fingerprint = _load_shadow_artifact(
+            run_dir,
+            "candidates.json",
+            io=io,
+        )
+        opened.append(candidate_fingerprint)
+        failures, failure_bytes, failures_fingerprint = _load_shadow_artifact(
+            run_dir,
+            "failures.json",
+            io=io,
+        )
+        opened.append(failures_fingerprint)
+        probe, probe_bytes, probe_fingerprint = _load_shadow_artifact(
+            run_dir,
+            "probe.json",
+            io=io,
+        )
+        opened.append(probe_fingerprint)
+        (
+            raw_responses,
+            raw_response_bytes,
+            raw_response_fingerprint,
+        ) = _load_shadow_artifact(
+            run_dir,
+            "raw-responses.json",
+            io=io,
+        )
+        opened.append(raw_response_fingerprint)
+        artifact_fingerprints = (
+            manifest_fingerprint,
+            candidate_fingerprint,
+            failures_fingerprint,
+            probe_fingerprint,
+            raw_response_fingerprint,
+            success_fingerprint,
+        )
+        return _validate_loaded_shadow(
+            run_path=run_path,
+            manifest=manifest,
+            manifest_bytes=manifest_bytes,
+            candidates=candidates,
+            candidate_bytes=candidate_bytes,
+            failures=failures,
+            failure_bytes=failure_bytes,
+            probe=probe,
+            probe_bytes=probe_bytes,
+            raw_responses=raw_responses,
+            raw_response_bytes=raw_response_bytes,
+            fingerprints=artifact_fingerprints,
+        )
+    except BaseException:
+        if opened:
+            _close_fingerprints(opened)
+        else:
+            _close_directories(_directories)
+        raise
 
 
 def load_shadow_run(
@@ -982,8 +1638,15 @@ def load_shadow_run(
     *,
     allow_test_paths: bool = False,
 ) -> tuple[list[dict[str, object]], str, str]:
-    loaded = _load_shadow_run(path, allow_test_paths=allow_test_paths)
-    return list(loaded.items), loaded.run_id, loaded.manifest_sha256
+    loaded = _load_shadow_run(
+        path,
+        allow_test_paths=allow_test_paths,
+        io=PublicationIO(),
+    )
+    try:
+        return list(loaded.items), loaded.run_id, loaded.manifest_sha256
+    finally:
+        _close_fingerprints(loaded.fingerprints)
 
 
 def _shadow_candidate_to_item(
@@ -1010,6 +1673,16 @@ def _shadow_candidate_to_item(
         "source_ref": problem.get("source_ref"),
         "model_family": origin,
     }
+    provenance_value = problem.get("provenance")
+    if isinstance(provenance_value, Mapping):
+        provenance_payload = dict(cast("Mapping[str, object]", provenance_value))
+        quote_anchor = provenance_payload.get("quote_anchor")
+        if not isinstance(quote_anchor, str) or not quote_anchor.strip():
+            raise RulerBuildError(
+                "shadow candidate provenance has no non-empty quote anchor"
+            )
+        item["source_excerpt"] = quote_anchor
+        item["provenance"] = provenance_payload
     if isinstance(problem.get("problem_kind"), str):
         item["problem_kind"] = problem["problem_kind"]
     if problem.get("difficulty") is not None:
@@ -1099,11 +1772,67 @@ def _test_execution_attestation(repo_state_fn: RepoStateFn) -> ExecutionAttestat
 
 def _verify_input_fingerprints(
     fingerprints: Sequence[_FileFingerprint],
+    io: PublicationIO,
+    *,
+    notify_hooks: bool = True,
 ) -> None:
     for fingerprint in fingerprints:
-        _reject_symlink_components(fingerprint.path, name=fingerprint.name)
-        raw = _read_file_once(fingerprint.path, name=fingerprint.name)
-        if hashlib.sha256(raw).hexdigest() != fingerprint.sha256:
+        if notify_hooks:
+            io.before_input_attestation(fingerprint.name)
+        for directory in _fingerprint_directories(fingerprint):
+            info = os.fstat(directory.fd)
+            if _descriptor_identity(
+                directory.fd
+            ) != directory.identity or not stat.S_ISDIR(info.st_mode):
+                raise RulerBuildError(
+                    f"input directory identity changed: {fingerprint.name}"
+                )
+            if directory.parent is None:
+                continue
+            try:
+                bound = os.stat(
+                    cast(str, directory.name),
+                    dir_fd=directory.parent.fd,
+                    follow_symlinks=False,
+                )
+            except OSError as error:
+                raise RulerBuildError(
+                    f"input directory binding changed: {fingerprint.name}"
+                ) from error
+            if (
+                (bound.st_dev, bound.st_ino) != directory.identity
+                or not stat.S_ISDIR(bound.st_mode)
+                or stat.S_ISLNK(bound.st_mode)
+            ):
+                raise RulerBuildError(
+                    f"input directory binding identity changed: {fingerprint.name}"
+                )
+        info = os.fstat(fingerprint.fd)
+        try:
+            bound = os.stat(
+                fingerprint.path.name,
+                dir_fd=fingerprint.parent.fd,
+                follow_symlinks=False,
+            )
+        except OSError as error:
+            raise RulerBuildError(
+                f"input file binding changed: {fingerprint.name}"
+            ) from error
+        if (
+            _descriptor_identity(fingerprint.fd) != fingerprint.identity
+            or (bound.st_dev, bound.st_ino) != fingerprint.identity
+            or not stat.S_ISREG(info.st_mode)
+            or not stat.S_ISREG(bound.st_mode)
+        ):
+            raise RulerBuildError(f"input file identity changed: {fingerprint.name}")
+        os.lseek(fingerprint.fd, 0, os.SEEK_SET)
+        chunks: list[bytes] = []
+        while chunk := os.read(fingerprint.fd, 1024 * 1024):
+            chunks.append(chunk)
+        raw = b"".join(chunks)
+        if raw != fingerprint.content or hashlib.sha256(raw).hexdigest() != (
+            fingerprint.sha256
+        ):
             raise RulerBuildError(
                 f"input fingerprint changed during build: {fingerprint.name}"
             )
@@ -1114,11 +1843,17 @@ def _reattest_before_success(
     entry: ExecutionAttestation,
     attestation_fn: AttestationFn,
     fingerprints: Sequence[_FileFingerprint],
+    io: PublicationIO,
+    notify_hooks: bool = True,
 ) -> None:
     final = attestation_fn()
     if final != entry:
         raise RulerBuildError("execution attestation changed during build")
-    _verify_input_fingerprints(fingerprints)
+    _verify_input_fingerprints(
+        fingerprints,
+        io,
+        notify_hooks=notify_hooks,
+    )
 
 
 def _build_manifest(
@@ -1170,6 +1905,21 @@ def _rendered_workspace(
     blocks = calibration_sheet.render_blocks(ruler, pass_name="a")
     assets = calibration_sheet.figure_assets(ruler)
     return index, blocks, assets
+
+
+def _require_pass_b_content(
+    ruler: calibration_ruler.RulerManifest,
+) -> None:
+    missing = [
+        cast(str, item.review_id)
+        for item in ruler.items
+        if not isinstance(item.source_excerpt, str) or not item.source_excerpt.strip()
+    ]
+    if missing:
+        raise RulerBuildError(
+            "every selected ruler item requires a non-empty source excerpt; "
+            "missing review ID(s): " + ", ".join(missing)
+        )
 
 
 def _block_filename(number: int) -> str:
@@ -1406,8 +2156,7 @@ def _verify_manifest_roundtrip(
     manifest_json: str,
     ruler: calibration_ruler.RulerManifest,
 ) -> None:
-    if io.read_text(temporary / MANIFEST_NAME) != manifest_json:
-        raise RulerBuildError("published manifest does not match rendered manifest")
+    io.attest_file(temporary / MANIFEST_NAME, manifest_json.encode("utf-8"))
     payload = json.loads(manifest_json)
     restored = calibration_ruler.RulerManifest.from_dict(
         cast("dict[str, object]", payload["ruler"])
@@ -1422,15 +2171,15 @@ def _verify_blocks(
     temporary: Path,
     blocks: Sequence[str],
 ) -> None:
-    written = sorted((temporary / PASS_A_DIRNAME).glob("block-*.md"))
-    if len(written) != len(blocks):
+    expected = [_block_filename(number) for number in range(1, len(blocks) + 1)]
+    written = sorted(os.listdir(io.directory_fd(temporary / PASS_A_DIRNAME)))
+    if written != expected:
         raise RulerBuildError(
-            f"published {len(written)} Pass A blocks; expected {len(blocks)}"
+            "published Pass A entries do not exactly match rendered blocks"
         )
     for number, block in enumerate(blocks, start=1):
         path = temporary / PASS_A_DIRNAME / _block_filename(number)
-        if io.read_text(path) != block:
-            raise RulerBuildError(f"Pass A block {number} failed re-verification")
+        io.attest_file(path, block.encode("utf-8"))
 
 
 def _verify_assets(
@@ -1438,14 +2187,42 @@ def _verify_assets(
     temporary: Path,
     assets: Mapping[str, bytes],
 ) -> None:
-    written = sorted(p.name for p in (temporary / FIGURES_DIRNAME).iterdir())
+    written = sorted(os.listdir(io.directory_fd(temporary / FIGURES_DIRNAME)))
     expected = sorted(Path(relative).name for relative in assets)
     if written != expected:
         raise RulerBuildError("published figure assets do not match the ruler")
     for relative, data in assets.items():
-        actual = io.read_bytes(temporary / relative)
-        if hashlib.sha256(actual).hexdigest() != hashlib.sha256(data).hexdigest():
-            raise RulerBuildError(f"figure asset {relative} failed re-hash")
+        io.attest_file(temporary / relative, data)
+
+
+def _attest_workspace_directory_bindings(
+    io: PublicationIO,
+    workspace: Path,
+) -> None:
+    workspace_fd = io.directory_fd(workspace)
+    for child_name in (PASS_A_DIRNAME, FIGURES_DIRNAME):
+        child_path = workspace / child_name
+        child_fd = io.directory_fd(child_path)
+        opened = os.fstat(child_fd)
+        try:
+            bound = os.stat(
+                child_name,
+                dir_fd=workspace_fd,
+                follow_symlinks=False,
+            )
+        except OSError as error:
+            raise RulerBuildError(
+                f"published workspace directory binding changed: {child_name}"
+            ) from error
+        if (
+            (opened.st_dev, opened.st_ino) != (bound.st_dev, bound.st_ino)
+            or not stat.S_ISDIR(opened.st_mode)
+            or not stat.S_ISDIR(bound.st_mode)
+            or stat.S_ISLNK(bound.st_mode)
+        ):
+            raise RulerBuildError(
+                f"published workspace directory identity changed: {child_name}"
+            )
 
 
 def _verify_workspace(
@@ -1457,14 +2234,28 @@ def _verify_workspace(
     blocks: Sequence[str],
     assets: Mapping[str, bytes],
     ruler: calibration_ruler.RulerManifest,
+    include_success: bool = False,
 ) -> None:
+    _attest_workspace_directory_bindings(io, temporary)
+    expected_root = {
+        MANIFEST_NAME,
+        INDEX_NAME,
+        PASS_A_DIRNAME,
+        FIGURES_DIRNAME,
+    }
+    if include_success:
+        expected_root.add(SUCCESS_MARKER)
+    actual_root = set(os.listdir(io.directory_fd(temporary)))
+    if actual_root != expected_root:
+        raise RulerBuildError(
+            "published workspace entries do not exactly match the manifest"
+        )
     _verify_manifest_roundtrip(io, temporary, manifest_json=manifest_json, ruler=ruler)
-    if io.read_text(temporary / INDEX_NAME) != index_md:
-        raise RulerBuildError("published index does not match rendered index")
+    io.attest_file(temporary / INDEX_NAME, index_md.encode("utf-8"))
     _verify_blocks(io, temporary, blocks)
     _verify_assets(io, temporary, assets)
-    if (temporary / PASS_B_DIRNAME).exists():
-        raise RulerBuildError("Pass B directory must not be published")
+    if include_success:
+        io.attest_file(temporary / SUCCESS_MARKER, b"ok\n")
     _assert_no_blinding_leak(
         [index_md, *blocks],
         _hidden_sentinels(ruler),
@@ -1483,18 +2274,179 @@ def _link_workspace(
     io.make_dir(final / PASS_A_DIRNAME)
     io.make_dir(final / FIGURES_DIRNAME)
     for filename in (MANIFEST_NAME, INDEX_NAME):
+        io.before_final_payload(filename)
         io.link_payload(temporary / filename, final / filename)
     for number in range(1, len(blocks) + 1):
         filename = _block_filename(number)
+        io.before_final_payload(f"{PASS_A_DIRNAME}/{filename}")
         io.link_payload(
             temporary / PASS_A_DIRNAME / filename,
             final / PASS_A_DIRNAME / filename,
         )
     for relative in assets:
+        io.before_final_payload(relative)
         io.link_payload(temporary / relative, final / relative)
     io.fsync_dir(final / PASS_A_DIRNAME)
     io.fsync_dir(final / FIGURES_DIRNAME)
     io.fsync_dir(final)
+
+
+def _open_private_probe_directory(
+    parent_fd: int,
+    name: str,
+    *,
+    create: bool,
+) -> tuple[int, LockIdentity]:
+    if create:
+        try:
+            os.mkdir(name, mode=0o700, dir_fd=parent_fd)
+        except FileExistsError:
+            pass
+    preopen = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    if (
+        not stat.S_ISDIR(preopen.st_mode)
+        or stat.S_ISLNK(preopen.st_mode)
+        or stat.S_IMODE(preopen.st_mode) != 0o700
+        or preopen.st_dev != os.fstat(parent_fd).st_dev
+    ):
+        raise RulerBuildError("builder capability probe directory is not private")
+    fd = os.open(name, _directory_flags(), dir_fd=parent_fd)
+    opened = os.fstat(fd)
+    identity = (opened.st_dev, opened.st_ino)
+    if (
+        identity != (preopen.st_dev, preopen.st_ino)
+        or not stat.S_ISDIR(opened.st_mode)
+        or stat.S_IMODE(opened.st_mode) != 0o700
+    ):
+        os.close(fd)
+        raise RulerBuildError(
+            "builder capability probe directory identity changed while opening"
+        )
+    return fd, identity
+
+
+def _runtime_probe_rename_noreplace(
+    io: PublicationIO,
+    root: _RetainedDirectory,
+) -> None:
+    probe_root_fd: int | None = None
+    probe_fd: int | None = None
+    relative = ""
+    try:
+        probe_root_fd, _root_identity = _open_private_probe_directory(
+            root.fd,
+            BUILD_CAPABILITY_PROBE_ROOT,
+            create=True,
+        )
+        for _ in range(128):
+            probe_name = f"{os.getpid()}.{secrets.token_hex(16)}"
+            try:
+                os.mkdir(probe_name, mode=0o700, dir_fd=probe_root_fd)
+            except FileExistsError:
+                continue
+            probe_fd, _probe_identity = _open_private_probe_directory(
+                probe_root_fd,
+                probe_name,
+                create=False,
+            )
+            relative = f"{BUILD_CAPABILITY_PROBE_ROOT}/{probe_name}"
+            break
+        if probe_fd is None:
+            raise RulerBuildError("could not reserve builder capability probe")
+        moved_content = b"builder-rename-no-replace-move\n"
+        collision_content = b"builder-rename-no-replace-source\n"
+        occupied_content = b"builder-rename-no-replace-occupied\n"
+        moved_identity = _write_exclusive_at(
+            probe_fd,
+            "move-source",
+            moved_content,
+        )
+        collision_identity = _write_exclusive_at(
+            probe_fd,
+            "collision-source",
+            collision_content,
+        )
+        occupied_identity = _write_exclusive_at(
+            probe_fd,
+            "occupied",
+            occupied_content,
+        )
+        _builder_rename_noreplace(
+            io,
+            probe_fd,
+            "move-source",
+            probe_fd,
+            "moved",
+        )
+        moved = os.stat("moved", dir_fd=probe_fd, follow_symlinks=False)
+        if (moved.st_dev, moved.st_ino) != moved_identity or _read_file_at(
+            probe_fd, "moved", label="builder capability probe"
+        ) != moved_content:
+            raise RulerBuildError(
+                "builder rename-no-replace probe changed moved identity/bytes"
+            )
+        try:
+            os.stat("move-source", dir_fd=probe_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise RulerBuildError(
+                "builder rename-no-replace probe retained moved source"
+            )
+        collision_error = False
+        try:
+            _builder_rename_noreplace(
+                io,
+                probe_fd,
+                "collision-source",
+                probe_fd,
+                "occupied",
+            )
+        except FileExistsError:
+            collision_error = True
+        source = os.stat(
+            "collision-source",
+            dir_fd=probe_fd,
+            follow_symlinks=False,
+        )
+        occupied = os.stat(
+            "occupied",
+            dir_fd=probe_fd,
+            follow_symlinks=False,
+        )
+        if (
+            not collision_error
+            or (source.st_dev, source.st_ino) != collision_identity
+            or (occupied.st_dev, occupied.st_ino) != occupied_identity
+            or _read_file_at(
+                probe_fd,
+                "occupied",
+                label="builder occupied capability probe",
+            )
+            != occupied_content
+        ):
+            raise RulerBuildError(
+                "builder rename-no-replace collision semantics allowed overwrite"
+            )
+        os.fsync(probe_fd)
+        os.fsync(probe_root_fd)
+        os.fsync(root.fd)
+        io.after_capability_probe(relative)
+    except (atomic_rename.AtomicRenameError, OSError) as error:
+        raise RulerBuildError(
+            "builder runtime rename-no-replace capability probe failed"
+        ) from error
+    finally:
+        if probe_fd is not None:
+            try:
+                os.close(probe_fd)
+            except OSError:
+                pass
+        if probe_root_fd is not None:
+            try:
+                os.close(probe_root_fd)
+            except OSError:
+                pass
 
 
 def _publish(
@@ -1507,29 +2459,63 @@ def _publish(
     index_md: str,
     blocks: Sequence[str],
     assets: Mapping[str, bytes],
-    reattest: Callable[[], None],
+    reattest: Callable[[bool], None],
 ) -> Path:
     lock_path = root / f".{run_id}.lock"
     run_dir = root / run_id
-    if run_dir.exists() or run_dir.is_symlink():
-        raise RulerBuildError(f"calibration run directory already exists: {run_dir}")
-
     lock_fd: int | None = None
     lock_identity: LockIdentity | None = None
     lock_owned = False
     temporary: Path | None = None
+    temporary_identity: LockIdentity | None = None
     final: Path | None = None
+    final_identity: LockIdentity | None = None
+    root_directory: _RetainedDirectory | None = None
+    final_directory: _RetainedDirectory | None = None
     try:
         try:
-            lock_fd = io.open_lock(lock_path)
+            io.preflight_rename_noreplace()
+        except atomic_rename.AtomicRenameError as error:
+            raise RulerBuildError(
+                "builder rename-no-replace capability is unavailable"
+            ) from error
+        root_directory, _root_chain = _open_output_root(root, io)
+        _runtime_probe_rename_noreplace(io, root_directory)
+        try:
+            os.stat(run_id, dir_fd=root_directory.fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise RulerBuildError(
+                f"calibration run directory already exists: {run_dir}"
+            )
+        try:
+            lock_fd = os.open(
+                lock_path.name,
+                os.O_CREAT
+                | os.O_EXCL
+                | os.O_WRONLY
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_CLOEXEC", 0),
+                0o600,
+                dir_fd=root_directory.fd,
+            )
         except FileExistsError as error:
             raise RulerBuildError(
                 f"calibration publication lock already exists: {lock_path}"
             ) from error
         lock_identity = _descriptor_identity(lock_fd)
         lock_owned = True
+        io.write_lock(lock_fd, f"pid={os.getpid()}\n".encode())
+        io.sync_lock(lock_fd)
         io.fsync_dir(root)
         temporary = io.create_temp(root, run_id)
+        temporary_info = os.stat(
+            temporary.name,
+            dir_fd=root_directory.fd,
+            follow_symlinks=False,
+        )
+        temporary_identity = (temporary_info.st_dev, temporary_info.st_ino)
         io.fsync_dir(root)
         _write_workspace(
             io,
@@ -1550,6 +2536,13 @@ def _publish(
         )
         io.reserve_final(run_dir)
         final = run_dir
+        final_info = os.stat(
+            run_id,
+            dir_fd=root_directory.fd,
+            follow_symlinks=False,
+        )
+        final_identity = (final_info.st_dev, final_info.st_ino)
+        final_directory = _retained_child(io, run_dir)
         io.fsync_dir(root)
         _link_workspace(
             io,
@@ -1567,7 +2560,15 @@ def _publish(
             assets=assets,
             ruler=ruler,
         )
+        reattest(True)
         io.cleanup_tree(temporary)
+        _preserve_owned_binding(
+            io,
+            root_directory,
+            temporary.name,
+            cast(LockIdentity, temporary_identity),
+            relative=temporary.name,
+        )
         temporary = None
         io.fsync_dir(root)
         os.close(lock_fd)
@@ -1575,38 +2576,78 @@ def _publish(
         if lock_identity is None:
             raise PublicationCleanupError("owned lock has no identity")
         io.remove_lock(lock_path, lock_identity)
+        _preserve_owned_binding(
+            io,
+            root_directory,
+            lock_path.name,
+            lock_identity,
+            relative=lock_path.name,
+        )
         lock_owned = False
         io.fsync_dir(root)
-        reattest()
-        _reject_symlink_components(run_dir)
+        io.before_success_marker()
+        reattest(False)
+        _reattest_directory_chain(root_directory)
+        if final_directory is None:
+            raise PublicationCleanupError("final run descriptor is unavailable")
+        _reattest_directory(final_directory)
+        _verify_workspace(
+            io,
+            run_dir,
+            manifest_json=manifest_json,
+            index_md=index_md,
+            blocks=blocks,
+            assets=assets,
+            ruler=ruler,
+        )
         io.write_marker(run_dir / SUCCESS_MARKER, "ok\n")
         io.fsync_dir(run_dir)
         io.fsync_dir(root)
-        if not (run_dir / SUCCESS_MARKER).is_file():
-            raise RulerBuildError("final _SUCCESS marker could not be verified")
+        reattest(False)
+        _reattest_directory_chain(root_directory)
+        _reattest_directory(final_directory)
+        _verify_workspace(
+            io,
+            run_dir,
+            manifest_json=manifest_json,
+            index_md=index_md,
+            blocks=blocks,
+            assets=assets,
+            ruler=ruler,
+            include_success=True,
+        )
         final = None
         return run_dir
     except BaseException as error:
-        _cleanup(
-            io,
-            root=root,
-            temporary=temporary,
-            final=final,
-            lock_path=lock_path,
-            lock_fd=lock_fd,
-            lock_identity=lock_identity,
-            lock_owned=lock_owned,
-            primary=error,
-        )
+        if root_directory is not None:
+            _cleanup(
+                io,
+                root=root_directory,
+                temporary=temporary,
+                temporary_identity=temporary_identity,
+                final=final,
+                final_identity=final_identity,
+                lock_path=lock_path,
+                lock_fd=lock_fd,
+                lock_identity=lock_identity,
+                lock_owned=lock_owned,
+                primary=error,
+            )
+        elif lock_fd is not None:
+            os.close(lock_fd)
         raise
+    finally:
+        io.close_bindings()
 
 
 def _cleanup(
     io: PublicationIO,
     *,
-    root: Path,
+    root: _RetainedDirectory,
     temporary: Path | None,
+    temporary_identity: LockIdentity | None,
     final: Path | None,
+    final_identity: LockIdentity | None,
     lock_path: Path,
     lock_fd: int | None,
     lock_identity: LockIdentity | None,
@@ -1619,11 +2660,21 @@ def _cleanup(
             os.close(lock_fd)
         except OSError as err:
             errors.append(err)
-    for path in (temporary, final):
-        if path is None:
+    for path, identity in (
+        (temporary, temporary_identity),
+        (final, final_identity),
+    ):
+        if path is None or identity is None:
             continue
         try:
             io.cleanup_tree(path)
+            _preserve_owned_binding(
+                io,
+                root,
+                path.name,
+                identity,
+                relative=path.name,
+            )
         except BaseException as err:  # noqa: BLE001
             errors.append(err)
     if lock_owned:
@@ -1631,10 +2682,17 @@ def _cleanup(
             if lock_identity is None:
                 raise PublicationCleanupError("owned lock has no identity")
             io.remove_lock(lock_path, lock_identity)
+            _preserve_owned_binding(
+                io,
+                root,
+                lock_path.name,
+                lock_identity,
+                relative=lock_path.name,
+            )
         except BaseException as err:  # noqa: BLE001
             errors.append(err)
     try:
-        io.fsync_dir(root)
+        os.fsync(root.fd)
     except BaseException as err:  # noqa: BLE001
         errors.append(err)
     if errors:
@@ -1674,76 +2732,83 @@ def build(
         )
     entry_attestation = attestation_fn()
     publisher = io or PublicationIO()
+    retained: list[_FileFingerprint] = []
+    try:
+        trusted = _load_problem_set(
+            trusted_path,
+            name="trusted",
+            allow_test_paths=allow_test_paths,
+            io=publisher,
+        )
+        retained.append(trusted.fingerprint)
+        failures = _load_problem_set(
+            failures_path,
+            name="failure",
+            allow_test_paths=allow_test_paths,
+            io=publisher,
+        )
+        retained.append(failures.fingerprint)
+        shadow = _load_shadow_run(
+            shadow_path,
+            allow_test_paths=allow_test_paths,
+            io=publisher,
+        )
+        retained.extend(shadow.fingerprints)
 
-    trusted = _load_problem_set(
-        trusted_path,
-        name="trusted",
-        allow_test_paths=allow_test_paths,
-    )
-    failures = _load_problem_set(
-        failures_path,
-        name="failure",
-        allow_test_paths=allow_test_paths,
-    )
-    shadow = _load_shadow_run(
-        shadow_path,
-        allow_test_paths=allow_test_paths,
-    )
+        ruler = calibration_ruler.build_ruler(
+            trusted.items,
+            failures.items,
+            shadow.items,
+            seed=seed,
+        )
+        _require_pass_b_content(ruler)
+        index_md, blocks, assets = _rendered_workspace(ruler)
+        _assert_blind_figure_assets(
+            assets,
+            ruler=ruler,
+            model_ids=shadow.model_ids,
+        )
 
-    ruler = calibration_ruler.build_ruler(
-        trusted.items,
-        failures.items,
-        shadow.items,
-        seed=seed,
-    )
-    index_md, blocks, assets = _rendered_workspace(ruler)
-    _assert_blind_figure_assets(
-        assets,
-        ruler=ruler,
-        model_ids=shadow.model_ids,
-    )
+        inputs = {
+            "trusted": {"sha256": trusted.sha256, "count": len(trusted.items)},
+            "failure": {"sha256": failures.sha256, "count": len(failures.items)},
+            "shadow": {
+                "manifest_sha256": shadow.manifest_sha256,
+                "run_id": shadow.run_id,
+                "candidate_count": len(shadow.items),
+            },
+        }
+        manifest = _build_manifest(
+            ruler,
+            run_id=run_id,
+            seed=seed,
+            inputs=inputs,
+            attestation=entry_attestation,
+        )
+        manifest_json = (
+            json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n"
+        )
 
-    inputs = {
-        "trusted": {"sha256": trusted.sha256, "count": len(trusted.items)},
-        "failure": {"sha256": failures.sha256, "count": len(failures.items)},
-        "shadow": {
-            "manifest_sha256": shadow.manifest_sha256,
-            "run_id": shadow.run_id,
-            "candidate_count": len(shadow.items),
-        },
-    }
-    manifest = _build_manifest(
-        ruler,
-        run_id=run_id,
-        seed=seed,
-        inputs=inputs,
-        attestation=entry_attestation,
-    )
-    manifest_json = (
-        json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n"
-    )
-
-    _ensure_directory_chain(root)
-    fingerprints = (
-        trusted.fingerprint,
-        failures.fingerprint,
-        *shadow.fingerprints,
-    )
-    return _publish(
-        publisher,
-        root=root,
-        run_id=run_id,
-        ruler=ruler,
-        manifest_json=manifest_json,
-        index_md=index_md,
-        blocks=blocks,
-        assets=assets,
-        reattest=lambda: _reattest_before_success(
-            entry=entry_attestation,
-            attestation_fn=attestation_fn,
-            fingerprints=fingerprints,
-        ),
-    )
+        fingerprints = tuple(retained)
+        return _publish(
+            publisher,
+            root=root,
+            run_id=run_id,
+            ruler=ruler,
+            manifest_json=manifest_json,
+            index_md=index_md,
+            blocks=blocks,
+            assets=assets,
+            reattest=lambda notify_hooks: _reattest_before_success(
+                entry=entry_attestation,
+                attestation_fn=attestation_fn,
+                fingerprints=fingerprints,
+                io=publisher,
+                notify_hooks=notify_hooks,
+            ),
+        )
+    finally:
+        _close_fingerprints(retained)
 
 
 # --- Offline fixture and self-check ----------------------------------------
@@ -1933,6 +2998,9 @@ def offline_problem_item(stratum: str, index: int) -> dict[str, object]:
         "choices": ["1", "2", "3", "4", "5"],
         "correct": "ABCDE"[index % 5],
         "source_ref": f"OpenStax {stratum} chapter {index}",
+        "source_excerpt": (
+            f"OpenStax grounding excerpt {index} for {category} principles."
+        ),
     }
     return item
 
@@ -1968,8 +3036,37 @@ def _default_run_id() -> str:
     return "ruler-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
 
 
+def _cli_error_category(error: BaseException) -> str:
+    message = str(error).casefold()
+    if any(
+        token in message
+        for token in (
+            "path",
+            "symlink",
+            "directory",
+            "lock",
+            "identity",
+            "rename",
+            "capability",
+            "publication",
+        )
+    ):
+        return "filesystem_state"
+    if any(
+        token in message for token in ("input", "shadow", "manifest", "ruler", "source")
+    ):
+        return "input_invalid"
+    return "build_failed"
+
+
+class _SanitizedArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        del message
+        self.exit(2, "CALIBRATION_BUILD_ERROR:arguments\n")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
+    parser = _SanitizedArgumentParser(
         description="Build the private blind calibration ruler and Pass A workspace."
     )
     parser.add_argument("--trusted", help="path to the trusted problem set JSON")
@@ -2001,9 +3098,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_id=args.run or _default_run_id(),
             seed=args.seed,
         )
-    except (RulerBuildError, ValueError) as error:
-        parser.error(str(error))
-    print(f"wrote {run_dir}")
+    except Exception as error:
+        parser.exit(2, f"CALIBRATION_BUILD_ERROR:{_cli_error_category(error)}\n")
+    del run_dir
+    print("CALIBRATION_BUILD_COMPLETE")
     return 0
 
 

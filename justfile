@@ -436,6 +436,22 @@ calibration-ruler *args:
     {{ ninja }} pyenv
     out/pyenv/bin/python content/tools/build_calibration_ruler.py {{ args }}
 
+# Import a completed Pass A for one private calibration run.
+[unix]
+calibration-import-a run:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/import_calibration_pass.py --run "$1" --pass a
+
+# Import a completed Pass B for one private calibration run.
+[unix]
+calibration-import-b run:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/import_calibration_pass.py --run "$1" --pass b
+
 # Standing verifier evaluation over precomputed labels, entirely offline
 [group('content')]
 [unix]
@@ -577,6 +593,61 @@ _test-rust:
 [private]
 _test-py:
     {{ ninja }} check:pytest
+
+[private]
+[unix]
+_test-calibration-import:
+    {{ ninja }} pyenv
+    out/pyenv/bin/ruff format --check \
+        content/tools/atomic_rename.py \
+        content/tools/import_calibration_pass.py \
+        content/tools/test_import_calibration_pass.py
+    out/pyenv/bin/ruff check \
+        content/tools/atomic_rename.py \
+        content/tools/import_calibration_pass.py \
+        content/tools/test_import_calibration_pass.py
+    out/pyenv/bin/python -m pytest -q content/tools/test_import_calibration_pass.py
+
+[private]
+[unix]
+_test-calibration-builder:
+    {{ ninja }} pyenv pylib
+    out/pyenv/bin/ruff format --check \
+        content/tools/atomic_rename.py \
+        content/tools/build_calibration_ruler.py \
+        content/tools/test_build_calibration_ruler.py
+    out/pyenv/bin/ruff check \
+        content/tools/atomic_rename.py \
+        content/tools/build_calibration_ruler.py \
+        content/tools/test_build_calibration_ruler.py
+    PYTHONPATH="$PWD/out/pylib" ANKI_TEST_MODE=1 out/pyenv/bin/python -m pytest -q \
+        content/tools/test_build_calibration_ruler.py
+
+[private]
+[unix]
+_test-calibration:
+    {{ ninja }} pyenv pylib
+    out/pyenv/bin/ruff format --check \
+        pylib/anki/pgrep/ai/calibration_sheet.py \
+        pylib/tests/test_pgrep_calibration_sheet.py \
+        content/tools/atomic_rename.py \
+        content/tools/build_calibration_ruler.py \
+        content/tools/test_build_calibration_ruler.py \
+        content/tools/import_calibration_pass.py \
+        content/tools/test_import_calibration_pass.py
+    out/pyenv/bin/ruff check \
+        pylib/anki/pgrep/ai/calibration_sheet.py \
+        pylib/tests/test_pgrep_calibration_sheet.py \
+        content/tools/atomic_rename.py \
+        content/tools/build_calibration_ruler.py \
+        content/tools/test_build_calibration_ruler.py \
+        content/tools/import_calibration_pass.py \
+        content/tools/test_import_calibration_pass.py
+    PYTHONPATH="$PWD/out/pylib" ANKI_TEST_MODE=1 out/pyenv/bin/python -m pytest -q \
+        pylib/tests/test_pgrep_calibration_ruler.py \
+        pylib/tests/test_pgrep_calibration_sheet.py \
+        content/tools/test_build_calibration_ruler.py \
+        content/tools/test_import_calibration_pass.py
 
 [private]
 _test-ts:

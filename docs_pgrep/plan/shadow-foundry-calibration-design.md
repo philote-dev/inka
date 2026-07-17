@@ -24,6 +24,19 @@ Implementation plans:
 - [`multi-model-shadow-runner-plan.md`](multi-model-shadow-runner-plan.md)
 - [`blind-calibration-ruler-plan.md`](blind-calibration-ruler-plan.md)
 
+## Verified implementation status
+
+Tasks 1–6 of the shadow-runner and blind-calibration work are implemented in
+this branch's current code, including ruler construction, blind Pass A, and
+private Pass B import. This is not a claim about `main` or a green end-to-end
+milestone: no real three-family shadow pool has been finalized, no real Pass A
+handoff or human labels have been performed, and post-label evaluation,
+threshold fitting, and unlock control remain future work.
+
+The real paid shadow run also waits for WS10 to land from its separate
+uncommitted worktree and for an operator to select generous limits. Offline
+tests do not substitute for that operational prerequisite.
+
 ## Locked decisions
 
 - Use a **shadow foundry** before enabling online acceptance. Shadow candidates

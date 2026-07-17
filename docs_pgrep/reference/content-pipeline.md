@@ -690,6 +690,200 @@ is the per-commit-safe check; the account probe and any real run are on-demand.
   preflight failure (missing Docker, missing model, mount-probe failure) records
   the redacted reason without touching the corpus.
 
+### Blind calibration ruler: offline operator handoff
+
+The blind ruler is a private, offline human-label workflow for a _finalized
+real_ shadow run. It is not a way to make a synthetic ruler, run models, fit a
+threshold, unlock acceptance, emit preferences, or mutate the shipped bundle.
+Do not run a real shadow portfolio just to exercise this handoff.
+
+Real paid shadow generation is currently an external operational blocker: WS10
+is implemented only in a separate uncommitted worktree, not on this branch or
+main. Wait until WS10 lands, then have the operator select generous limits
+before building the finalized real shadow run. This document does not duplicate
+the WS10 design.
+
+Once that prerequisite is satisfied, the exact private workflow is:
+
+1. Probe the calling account and capture the exact listed model ID for each
+   family:
+
+   ```bash
+   just shadow-models
+   ```
+
+2. Use those exact account-listed IDs for the paid real shadow run:
+
+   ```bash
+   just shadow-foundry \
+     --sol-model <exact-sol-id> \
+     --opus-model <exact-opus-id> \
+     --grok-model <exact-grok-id> \
+     --n 40 \
+     --seed 8 \
+     --run <shadow-run-id>
+   ```
+
+   `--topic` is optional in the current CLI; when omitted as above it uses
+   `mechanics/circular-motion`. The run must finish as a finalized,
+   three-family `_SUCCESS` directory under
+   `content/run/shadow-foundry/<shadow-run-id>/`. A smoke, synthetic, partial,
+   dirty, `_FAILED`, non-replayable, or non-three-family run cannot build a
+   production ruler.
+3. Select existing private inputs that satisfy the builder's production path
+   and data-firewall contracts. Trusted, failure, and shadow material must
+   exclude gold, held-out, ETS, Tier-3, and all other private evaluation
+   material. Shadow generation uses only the allowed corpus; trusted/failure
+   inputs come only from allowed corpus-backed, audit, or rejected content.
+   The builder fails closed on forbidden dataset markers in trusted/failure
+   paths or recursive content, while the finalized shadow contract retains the
+   generation firewall.
+
+   The trusted and failure JSON files must both be regular files beneath the
+   git-ignored `content/run/` root. The shadow input must be either the finalized
+   run directory beneath `content/run/shadow-foundry/` or that directory's exact
+   `candidates.json` path. The directory form is shown here:
+
+   ```bash
+   just calibration-ruler \
+     --trusted content/run/<trusted-input>.json \
+     --failures content/run/<failure-input>.json \
+     --shadow content/run/shadow-foundry/<shadow-run-id> \
+     --run <calibration-run-id> \
+     --seed 7
+   ```
+
+   Angle-bracket names in these commands are metavariables, not files supplied
+   by the repository. Replace them with the exact probed IDs and existing
+   private paths/run IDs. Production output is fixed at the exact git-ignored
+   `content/run/calibration/<calibration-run-id>/` path; a custom output root is
+   rejected. The two seeds intentionally differ: shadow seed 8 gives the extra
+   40th generated candidate to Opus (`14 Opus / 13 Sol / 13 Grok`), matching
+   the ruler seed-7 requirement. Shadow seed 7 would give Sol 14 and leave the
+   seed-7 ruler without its required 14 Opus candidates.
+   Every trusted/failure item selected into the ruler must carry a non-empty
+   `source_excerpt`; every shadow candidate must carry bound provenance with a
+   non-empty `quote_anchor`. The private builder preserves selected excerpts in
+   the hidden manifest and refuses publication if any selected item lacks one.
+   Pass A never renders them; Pass B hashes and renders the exact protected
+   excerpts.
+   The builder CLI prints only `CALIBRATION_BUILD_COMPLETE` on success.
+   Failures use `CALIBRATION_BUILD_ERROR:<safe-category>` and do not print raw
+   exceptions, rejected values, private paths/content, or hashes.
+4. Inspect the generated private workspace
+   `content/run/calibration/<calibration-run-id>/`. Complete labels only in the exact
+   `pass-a/block-*.md` files. `index.md` and `figures/<review-id>.svg` are
+   review assets, not editable inputs: do not rename, replace, or edit them.
+5. Import Pass A:
+
+   ```bash
+   just calibration-import-a <calibration-run-id>
+   ```
+
+6. Only when the resulting Pass A report has status `PASS_A_COMPLETE`, complete
+   the generated exact `pass-b/block-*.md` files.
+7. Import Pass B:
+
+   ```bash
+   just calibration-import-b <calibration-run-id>
+   ```
+
+The import CLIs print only status, the private report path, label count, and
+Pass A repeat-consistency counts. They never print labels, notes, excerpts,
+manifest/report hashes, or hidden item metadata.
+CLI failures use only stable `CALIBRATION_IMPORT_ERROR:<safe-category>` codes
+such as `reviewer_field`, `workspace_schema`, or `filesystem_state`; raw
+exceptions, malformed lines, reviewer values, hashes, excerpts, decomposition
+text, and unsafe filesystem paths are never printed.
+
+The 120-item ruler has 12 hidden repeats. Pass A requires at least 11 of 12
+matching `your_answer` labels and raw agreement of at least 0.90 for every
+other categorical field. A miss returns `ADJUDICATION_REQUIRED`, writes the
+private `reports/pass-a-labels.json`, and does not generate Pass B. That state
+is immutable and terminal for the run: preserve the failed workspace and
+report, never delete or overwrite the evidence, and do not open or attempt Pass
+B. Adjudicate outside the immutable workspace, build a fresh ruler under a new
+calibration run ID, and repeat Pass A there. The importer refuses a second Pass
+A import once the report exists and does not waive or tune the predeclared
+floors.
+
+Pass A fields are:
+
+```text
+your_answer: A | B | C | D | E | UNSURE
+stem_clear: PASS | FAIL | UNSURE
+distractor_A: VALID | INVALID | CORRECT_ANSWER | UNSURE
+distractor_B: VALID | INVALID | CORRECT_ANSWER | UNSURE
+distractor_C: VALID | INVALID | CORRECT_ANSWER | UNSURE
+distractor_D: VALID | INVALID | CORRECT_ANSWER | UNSURE
+distractor_E: VALID | INVALID | CORRECT_ANSWER | UNSURE
+figure: MATCHES | CONTRADICTS | UNNECESSARY | MISSING | N_A | UNSURE
+difficulty: 1 | 2 | 3 | 4 | 5 | UNSURE
+overall: KEEP | DROP | UNSURE
+notes:
+```
+
+Pass B is withheld until successful Pass A import. It exposes the protected
+source excerpt and canonical decomposition for the same opaque IDs and uses
+only:
+
+```text
+source_supports_stem: PASS | FAIL | UNSURE
+source_supports_answer: PASS | FAIL | UNSURE
+decomposition_correct: PASS | FAIL | UNSURE
+decomposition_leaks_answer: PASS | FAIL | UNSURE
+notes:
+```
+
+For both passes, work independently without AI assistance. A calculator and
+scratch work are allowed; use `UNSURE` rather than guessing. Do not infer model
+identity, and never change headings, review IDs, item order, rubric field
+names, protected visible text, figure assets, index, or block filenames.
+`notes` must be a single ordinary-Unicode line, at most 2,000 characters.
+The parser rejects missing/extra/unknown fields, changed assets or text,
+symlinks and path escapes, unexpected files, incomplete blocks, and any
+non-exact layout. It also keeps model identity, answers, verifier output,
+recommendations, split assignment, provenance, and repeat bindings out of the
+blind review surfaces.
+
+Successful imports atomically publish only private fixed-shape reports:
+
+- `reports/pass-a-labels.json`, status `PASS_A_COMPLETE`, and generated
+  `pass-b/block-*.md` plus `pass-b/_SUCCESS`;
+- `reports/pass-b-labels.json`, status `PASS_B_COMPLETE`.
+
+Treat those paths and statuses as the handoff result. Until human labels
+complete and import successfully, the post-label evaluator, threshold fit,
+unlock controller, acceptance, preference emission, and bundle landing remain
+blocked. Even a complete Pass B does not itself perform any of those actions.
+
+The importer retains suspicious or rolled-back private state rather than
+deleting it. Rollback preservation lives at
+`content/run/calibration/.calibration-rollback-quarantine/`; every import also
+retains a fresh same-filesystem rename-capability probe at
+`content/run/calibration/.capability-probes/`. These mode-0700 areas preserve
+transaction/probe evidence and avoid foreign-data races. The importer never
+auto-deletes or consumes them. An operator may inspect and clean them only when
+no import is active and every retained identity is understood. Do not expose
+their contents, label data, manifests, excerpts, or hashes in logs; failures
+report only the private path and retained-entry count.
+
+The ruler builder opens every input component and file with retained
+descriptors and `O_NOFOLLOW`, retains the exact input bytes and identities
+through final attestation, and performs publication writes and verification
+relative to retained output-root/run descriptors. Rollback moves locks,
+foreign replacements, and uniquely located owned trees with atomic
+rename-no-replace into the private mode-0700
+`content/run/calibration/.calibration-build-quarantine/`; it does not delete or
+overwrite those bindings. `_SUCCESS` is written through the retained run
+descriptor only after final root/run/input/source and exact-workspace
+attestation. After the marker is fsynced, the builder rechecks every exact root,
+Pass A, and figure entry plus every payload identity and byte sequence before
+returning success. Every build first retains a real same-filesystem
+rename-no-replace move/collision probe under the private mode-0700
+`content/run/calibration/.calibration-build-probes/`; probe artifacts are
+operator-cleaned and are never consumed as ruler input.
+
 ---
 
 ## Commands
@@ -711,6 +905,9 @@ is the per-commit-safe check; the account probe and any real run are on-demand.
 | `just shadow-worker-build`   | Build the pinned Docker worker image and print its immutable digest; needs local Docker.                           |
 | `just shadow-worker-sync`    | Install the worker's locked environment into `out/shadow-worker-venv`; no Docker or key needed.                    |
 | `just shadow-foundry`        | Quarantined multi-model generation with exact `--sol-model`/`--opus-model`/`--grok-model`; never lands or pairs.   |
+| `just calibration-ruler`     | Build a private blind ruler and Pass A Markdown from trusted, failure, and finalized real shadow inputs.           |
+| `just calibration-import-a`  | Strictly import one completed private Pass A; may generate Pass B on `PASS_A_COMPLETE`.                            |
+| `just calibration-import-b`  | Strictly import one completed private Pass B after a successful immutable Pass A report.                           |
 | `just check`                 | The overall gate (format, build, lint, all tests), which includes `test-py`.                                       |
 
 The LLM audits and the foundry loop need the optional AI runtime and a key when

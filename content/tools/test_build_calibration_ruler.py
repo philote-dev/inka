@@ -5,11 +5,13 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import shutil
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -21,6 +23,7 @@ import _ai_path  # noqa: E402
 _ai_path.add_ai_core()
 
 import build_calibration_ruler as builder  # noqa: E402
+import import_calibration_pass  # noqa: E402
 from pgrep.ai import model_backend, shadow_portfolio  # noqa: E402
 
 # --- Fixtures --------------------------------------------------------------
@@ -38,6 +41,7 @@ def _stable_attestation() -> builder.ExecutionAttestation:
             head_blob_sha256=character * 64,
         )
         for name, character in {
+            "atomic_rename": "1",
             "build_calibration_ruler": "b",
             "calibration_ruler": "c",
             "calibration_sheet": "d",
@@ -264,6 +268,92 @@ def test_build_publishes_private_pass_a_workspace(
     assert not (run_dir / "pass-b").exists()
 
 
+def _fill_published_pass_a(run_dir: Path) -> None:
+    values = {
+        "your_answer": "B",
+        "stem_clear": "PASS",
+        "distractor_A": "VALID",
+        "distractor_B": "CORRECT_ANSWER",
+        "distractor_C": "INVALID",
+        "distractor_D": "UNSURE",
+        "distractor_E": "VALID",
+        "figure": "MATCHES",
+        "difficulty": "3",
+        "overall": "KEEP",
+    }
+    for path in sorted((run_dir / "pass-a").glob("block-*.md")):
+        document = path.read_text(encoding="utf-8")
+        for field, value in values.items():
+            document = document.replace(
+                f"\n{field}:\n",
+                f"\n{field}: {value}\n",
+            )
+        path.write_text(document, encoding="utf-8")
+
+
+def test_builder_to_pass_b_preserves_excerpts_for_every_stratum(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    run_dir = _build(inputs, tmp_path / "calibration", run_id="excerpt-e2e")
+    manifest_payload = json.loads(
+        (run_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+    ruler = builder.calibration_ruler.RulerManifest.from_dict(manifest_payload["ruler"])
+    assert {item.stratum for item in ruler.items} == {
+        "trusted",
+        "failure",
+        "shadow",
+    }
+    assert all(item.source_excerpt for item in ruler.items)
+    pass_a = "".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((run_dir / "pass-a").glob("block-*.md"))
+    )
+    assert not any(item.source_excerpt in pass_a for item in ruler.items)
+
+    _fill_published_pass_a(run_dir)
+    report = import_calibration_pass.import_pass(
+        run_dir,
+        "a",
+        _allow_test_paths=True,
+    )
+
+    assert report["status"] == "PASS_A_COMPLETE"
+    assert len(list((run_dir / "pass-b").glob("block-*.md"))) == 7
+    pass_b = "".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((run_dir / "pass-b").glob("block-*.md"))
+    )
+    assert all(
+        builder.calibration_sheet.protect_markdown_text(item.source_excerpt) in pass_b
+        for item in ruler.items
+    )
+
+
+def test_builder_rejects_any_selected_item_without_source_excerpt(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    trusted = [builder.offline_problem_item("trusted", index) for index in range(50)]
+    for item in trusted:
+        item.pop("source_excerpt", None)
+    trusted_path = tmp_path / "missing-excerpts.json"
+    trusted_path.write_text(json.dumps(trusted), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="source excerpt"):
+        builder.build(
+            trusted_path=trusted_path,
+            failures_path=inputs["failures"],
+            shadow_path=inputs["shadow"],
+            out_root=tmp_path / "calibration",
+            run_id="missing-excerpt",
+            allow_test_paths=True,
+            _repo_state_fn=_clean_repo_state,
+        )
+    assert not (tmp_path / "calibration" / "missing-excerpt").exists()
+
+
 def test_manifest_is_private_and_records_provenance(
     tmp_path: Path, inputs: dict[str, Path]
 ) -> None:
@@ -274,6 +364,7 @@ def test_manifest_is_private_and_records_provenance(
     assert manifest["build"]["code_sha"]
     assert manifest["build"]["tree_status"] == "clean"
     assert set(manifest["build"]["source_hashes"]) == {
+        "atomic_rename",
         "build_calibration_ruler",
         "calibration_ruler",
         "calibration_sheet",
@@ -325,6 +416,7 @@ def test_build_requires_resolved_clean_repo_state_before_publication(
 @pytest.mark.parametrize(
     "module_name",
     [
+        "atomic_rename",
         "build_calibration_ruler",
         "calibration_ruler",
         "calibration_sheet",
@@ -627,29 +719,32 @@ def test_rejects_dot_dot_input_escape(tmp_path: Path) -> None:
 def test_reads_inputs_once_then_reattests_each_fingerprint(
     tmp_path: Path,
     inputs: dict[str, Path],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    counts: dict[Path, int] = {}
-    original = builder._read_file_once
+    class _RecordLifecycle(builder.PublicationIO):
+        def __init__(self) -> None:
+            self.opens: list[str] = []
+            self.attestations: list[str] = []
 
-    def counted(path: Path, *, name: str) -> bytes:
-        resolved = path.resolve()
-        counts[resolved] = counts.get(resolved, 0) + 1
-        return original(path, name=name)
+        def after_input_open(self, name: str) -> None:
+            self.opens.append(name)
 
-    monkeypatch.setattr(builder, "_read_file_once", counted)
-    _build(inputs, tmp_path / "calibration", run_id="single-read")
-    assert counts[inputs["trusted"].resolve()] == 2
-    assert counts[inputs["failures"].resolve()] == 2
-    for filename in (
-        "manifest.json",
-        "candidates.json",
-        "failures.json",
-        "probe.json",
-        "raw-responses.json",
-    ):
-        assert counts[(inputs["shadow"] / filename).resolve()] == 2
-    assert counts[(inputs["shadow"] / "_SUCCESS").resolve()] == 2
+        def before_input_attestation(self, name: str) -> None:
+            self.attestations.append(name)
+
+    io = _RecordLifecycle()
+    _build(inputs, tmp_path / "calibration", run_id="single-read", io=io)
+    assert len(io.opens) == 8
+    assert sorted(io.attestations) == sorted(io.opens)
+    assert set(io.opens) == {
+        "trusted input",
+        "failure input",
+        "shadow manifest.json",
+        "shadow candidates.json",
+        "shadow failures.json",
+        "shadow probe.json",
+        "shadow raw-responses.json",
+        "shadow success marker",
+    }
 
 
 # --- Output-root safety ----------------------------------------------------
@@ -958,11 +1053,10 @@ class _FailFsync(builder.PublicationIO):
 
 
 class _CorruptFigure(builder.PublicationIO):
-    def read_bytes(self, path: Path) -> bytes:
-        data = super().read_bytes(path)
+    def attest_file(self, path: Path, expected: bytes) -> None:
         if path.suffix == ".svg":
-            return data + b"<!-- tamper -->"
-        return data
+            raise builder.RulerBuildError("injected corrupt figure")
+        super().attest_file(path, expected)
 
 
 class _FailMarker(builder.PublicationIO):
@@ -1086,11 +1180,13 @@ def test_injected_publication_failures_leave_no_final(
 
 
 @pytest.mark.parametrize("io", [_FailLockWrite(), _FailLockFsync()])
-def test_open_lock_failure_removes_owned_lock(tmp_path: Path, io) -> None:
+def test_standalone_open_lock_failure_never_unlinks_owned_lock(
+    tmp_path: Path, io
+) -> None:
     lock = tmp_path / ".owned.lock"
     with pytest.raises(OSError):
         io.open_lock(lock)
-    assert not lock.exists()
+    assert lock.is_file()
 
 
 def test_lock_is_removed_before_success_marker(
@@ -1160,6 +1256,7 @@ def test_during_build_input_drift_removes_final_output(
 @pytest.mark.parametrize(
     "module_name",
     [
+        "atomic_rename",
         "build_calibration_ruler",
         "calibration_ruler",
         "calibration_sheet",
@@ -1690,3 +1787,873 @@ def test_determinism_same_seed_same_bytes(
         assert (first / name).read_text(encoding="utf-8") == (second / name).read_text(
             encoding="utf-8"
         )
+
+
+def test_input_parent_swap_is_rejected_without_reading_attacker_tree(
+    tmp_path: Path,
+) -> None:
+    real_parent = tmp_path / "real-input"
+    real_parent.mkdir()
+    trusted = _write_items(real_parent / "trusted.json", "trusted", 50)
+    moved_parent = tmp_path / "real-input-owned"
+    attacker = tmp_path / "attacker-input"
+    attacker.mkdir()
+    attacker_file = _write_items(attacker / "trusted.json", "attacker", 50)
+
+    class _SwapAfterOpen(builder.PublicationIO):
+        def after_input_open(self, name: str) -> None:
+            if name != "trusted input":
+                return
+            real_parent.rename(moved_parent)
+            real_parent.symlink_to(attacker, target_is_directory=True)
+
+    fingerprint = builder._open_retained_file(
+        trusted,
+        name="trusted input",
+        allow_test_paths=True,
+        required_root=builder.CONTENT_RUN_ROOT,
+        io=_SwapAfterOpen(),
+    )
+    try:
+        assert fingerprint.content != attacker_file.read_bytes()
+        with pytest.raises(ValueError, match="symlink|identity|binding|component"):
+            builder._verify_input_fingerprints(
+                (fingerprint,),
+                builder.PublicationIO(),
+            )
+    finally:
+        builder._close_fingerprints((fingerprint,))
+    assert attacker_file.read_bytes()
+
+
+class _SwapFinalOnCleanup(builder.PublicationIO):
+    def __init__(self) -> None:
+        self.swapped = False
+        self.foreign_sentinel: Path | None = None
+
+    def write_marker(self, path: Path, content: str) -> None:
+        raise OSError("injected marker failure")
+
+    def cleanup_tree(self, path: Path) -> None:
+        if path.name == "rollback-swap" and not self.swapped:
+            moved = path.with_name("rollback-swap-owned")
+            path.rename(moved)
+            path.mkdir()
+            self.foreign_sentinel = path / "foreign-sentinel"
+            self.foreign_sentinel.write_bytes(b"foreign-builder-output\n")
+            self.swapped = True
+        super().cleanup_tree(path)
+
+
+def test_builder_rollback_preserves_replacement_and_owned_output(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    out_root = tmp_path / "calibration"
+    io = _SwapFinalOnCleanup()
+
+    with pytest.raises((OSError, ValueError)):
+        builder.build(
+            trusted_path=inputs["trusted"],
+            failures_path=inputs["failures"],
+            shadow_path=inputs["shadow"],
+            out_root=out_root,
+            run_id="rollback-swap",
+            seed=7,
+            io=io,
+            allow_test_paths=True,
+            _repo_state_fn=_clean_repo_state,
+        )
+
+    assert io.foreign_sentinel is not None
+    assert not (out_root / "rollback-swap").exists()
+    quarantine = out_root / ".calibration-build-quarantine"
+    payloads = [
+        path.read_bytes()
+        for path in quarantine.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    ]
+    assert b"foreign-builder-output\n" in payloads
+    assert any(path.name == "manifest.json" for path in quarantine.rglob("*"))
+
+
+# --- Final acceptance: retained descriptors and preservation-first rollback -
+
+
+def _builder_quarantine_payloads(out_root: Path) -> list[bytes]:
+    quarantine = out_root / ".calibration-build-quarantine"
+    if not quarantine.is_dir():
+        return []
+    return [
+        path.read_bytes()
+        for path in quarantine.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    ]
+
+
+class _SwapFinalDirectoryAtBoundary(builder.PublicationIO):
+    def __init__(self, out_root: Path, run_id: str, boundary: str) -> None:
+        self.run_dir = out_root / run_id
+        self.boundary = boundary
+        self.called = False
+
+    def _swap(self) -> None:
+        if self.called:
+            return
+        self.run_dir.rename(self.run_dir.with_name(f"{self.run_dir.name}.owned"))
+        self.run_dir.mkdir(mode=0o700)
+        (self.run_dir / "foreign-sentinel").write_bytes(b"foreign-final-directory\n")
+        self.called = True
+
+    def before_final_payload(self, relative: str) -> None:
+        if self.boundary == "payload" and relative == "manifest.json":
+            self._swap()
+
+    def before_success_marker(self) -> None:
+        if self.boundary == "success":
+            self._swap()
+
+
+@pytest.mark.parametrize("boundary", ["payload", "success"])
+def test_final_directory_replacement_never_receives_output_or_success(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+    boundary: str,
+) -> None:
+    out_root = tmp_path / "calibration"
+    io = _SwapFinalDirectoryAtBoundary(out_root, "final-swap", boundary)
+
+    with pytest.raises((OSError, ValueError), match="identity|binding|publication"):
+        _build(
+            inputs,
+            out_root,
+            run_id="final-swap",
+            io=io,
+            _attestation_fn=_stable_attestation,
+        )
+
+    assert io.called
+    assert not (out_root / "final-swap").exists()
+    quarantine = out_root / ".calibration-build-quarantine"
+    foreign = next(
+        path.parent
+        for path in quarantine.rglob("foreign-sentinel")
+        if path.read_bytes() == b"foreign-final-directory\n"
+    )
+    assert {path.name for path in foreign.iterdir()} == {"foreign-sentinel"}
+    assert not (foreign / "_SUCCESS").exists()
+    assert any(path.name == "manifest.json" for path in quarantine.rglob("*"))
+
+
+class _SwapOutputRootBeforeDescriptorOpen(builder.PublicationIO):
+    def __init__(self, out_root: Path) -> None:
+        self.out_root = out_root
+        self.owned = out_root.with_name(f"{out_root.name}.owned-before-open")
+        self.called = False
+
+    def before_output_root_open(self, path: Path) -> None:
+        if path != self.out_root or self.called:
+            return
+        self.out_root.rename(self.owned)
+        self.out_root.mkdir(mode=0o700)
+        (self.out_root / "foreign-sentinel").write_bytes(b"foreign-output-root\n")
+        self.called = True
+
+
+def test_output_root_swap_before_descriptor_open_fails_without_publication(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    out_root = tmp_path / "calibration"
+    io = _SwapOutputRootBeforeDescriptorOpen(out_root)
+
+    with pytest.raises((OSError, ValueError), match="output root|identity|binding"):
+        _build(
+            inputs,
+            out_root,
+            run_id="output-root-swap",
+            io=io,
+            _attestation_fn=_stable_attestation,
+        )
+
+    assert io.called
+    assert (out_root / "foreign-sentinel").read_bytes() == b"foreign-output-root\n"
+    assert {path.name for path in out_root.iterdir()} == {"foreign-sentinel"}
+    assert not (out_root / "output-root-swap").exists()
+    assert not (out_root / "_SUCCESS").exists()
+
+
+class _SwapFinalChildDirectoryAtSuccess(builder.PublicationIO):
+    def __init__(self, out_root: Path) -> None:
+        self.run_dir = out_root / "final-child-swap"
+        self.called = False
+
+    def before_success_marker(self) -> None:
+        child = self.run_dir / "pass-a"
+        child.rename(self.run_dir / "pass-a.owned")
+        child.mkdir()
+        (child / "foreign-sentinel").write_bytes(b"foreign-final-child\n")
+        self.called = True
+
+
+def test_final_child_directory_replacement_cannot_receive_success(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    out_root = tmp_path / "calibration"
+    io = _SwapFinalChildDirectoryAtSuccess(out_root)
+
+    with pytest.raises((OSError, ValueError), match="identity|binding|workspace"):
+        _build(
+            inputs,
+            out_root,
+            run_id="final-child-swap",
+            io=io,
+            _attestation_fn=_stable_attestation,
+        )
+
+    assert io.called
+    assert not (out_root / "final-child-swap").exists()
+    quarantine = out_root / ".calibration-build-quarantine"
+    foreign = next(
+        path.parent
+        for path in quarantine.rglob("foreign-sentinel")
+        if path.read_bytes() == b"foreign-final-child\n"
+    )
+    assert {path.name for path in foreign.iterdir()} == {"foreign-sentinel"}
+    assert not any(path.name == "_SUCCESS" for path in quarantine.rglob("*"))
+
+
+class _SwapRetainedInputDirectory(builder.PublicationIO):
+    def __init__(self, trusted: Path) -> None:
+        self.trusted = trusted
+        self.owned_parent = trusted.parent.with_name(f"{trusted.parent.name}.owned")
+        self.called = False
+
+    def after_input_open(self, name: str) -> None:
+        if name != "trusted input" or self.called:
+            return
+        self.trusted.parent.rename(self.owned_parent)
+        self.trusted.parent.mkdir()
+        _write_items(self.trusted, "attacker", 50)
+        self.called = True
+
+
+def test_retained_input_directory_swap_fails_without_reading_replacement(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    original = inputs["trusted"].read_bytes()
+    io = _SwapRetainedInputDirectory(inputs["trusted"])
+    out_root = tmp_path / "calibration"
+
+    with pytest.raises(ValueError, match="input|identity|binding"):
+        _build(
+            inputs,
+            out_root,
+            run_id="input-directory-swap",
+            io=io,
+            _attestation_fn=_stable_attestation,
+        )
+
+    assert io.called
+    assert (io.owned_parent / inputs["trusted"].name).read_bytes() == original
+    assert inputs["trusted"].read_bytes() != original
+    assert not (out_root / "input-directory-swap" / "_SUCCESS").exists()
+
+
+class _SwapRetainedInputFile(builder.PublicationIO):
+    def __init__(self, trusted: Path) -> None:
+        self.trusted = trusted
+        self.owned = trusted.with_name(f"{trusted.name}.owned")
+        self.called = False
+
+    def before_input_attestation(self, name: str) -> None:
+        if name != "trusted input" or self.called:
+            return
+        self.trusted.rename(self.owned)
+        _write_items(self.trusted, "attacker", 50)
+        self.called = True
+
+
+def test_retained_input_file_swap_before_final_attestation_fails_closed(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    original = inputs["trusted"].read_bytes()
+    io = _SwapRetainedInputFile(inputs["trusted"])
+    out_root = tmp_path / "calibration"
+
+    with pytest.raises(ValueError, match="input|identity|binding"):
+        _build(
+            inputs,
+            out_root,
+            run_id="input-file-swap",
+            io=io,
+            _attestation_fn=_stable_attestation,
+        )
+
+    assert io.called
+    assert io.owned.read_bytes() == original
+    assert inputs["trusted"].read_bytes() != original
+    assert not (out_root / "input-file-swap" / "_SUCCESS").exists()
+
+
+class _ReplaceBuilderRollbackSource(builder.PublicationIO):
+    def __init__(self, out_root: Path, run_id: str, target: str) -> None:
+        self.out_root = out_root
+        self.run_id = run_id
+        self.target = target
+        self.called = False
+
+    def write_marker(self, path: Path, content: str) -> None:
+        raise OSError("injected marker failure")
+
+    def before_quarantine(self, relative: str) -> None:
+        expected = self.run_id if self.target == "tree" else f".{self.run_id}.lock"
+        if relative != expected or self.called:
+            return
+        source = self.out_root / expected
+        source.rename(self.out_root / f"{expected}.owned-moved")
+        if self.target == "tree":
+            source.mkdir()
+            (source / "foreign-sentinel").write_bytes(b"foreign-builder-tree\n")
+        else:
+            source.write_bytes(b"foreign-builder-lock\n")
+        self.called = True
+
+
+@pytest.mark.parametrize("target", ["tree", "lock"])
+def test_builder_rollback_replacement_preserves_foreign_and_owned_identity(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+    target: str,
+) -> None:
+    out_root = tmp_path / "calibration"
+    io = _ReplaceBuilderRollbackSource(out_root, "rollback-replacement", target)
+
+    with pytest.raises((OSError, ValueError)):
+        _build(
+            inputs,
+            out_root,
+            run_id="rollback-replacement",
+            io=io,
+            _attestation_fn=_stable_attestation,
+        )
+
+    assert io.called
+    payloads = _builder_quarantine_payloads(out_root)
+    foreign = (
+        b"foreign-builder-tree\n" if target == "tree" else b"foreign-builder-lock\n"
+    )
+    assert foreign in payloads
+    if target == "tree":
+        assert any(
+            path.name == "manifest.json"
+            for path in (out_root / ".calibration-build-quarantine").rglob("*")
+        )
+    else:
+        assert any(payload.startswith(b"pid=") for payload in payloads)
+    assert not (out_root / "rollback-replacement").exists()
+    assert not (out_root / ".rollback-replacement.lock").exists()
+
+
+class _OccupyBuilderQuarantineDestination(builder.PublicationIO):
+    def __init__(self, out_root: Path) -> None:
+        self.out_root = out_root
+        self.called = False
+
+    def write_marker(self, path: Path, content: str) -> None:
+        raise OSError("injected marker failure")
+
+    def before_quarantine_rename(self, relative: str, target_name: str) -> None:
+        if relative != "quarantine-collision" or self.called:
+            return
+        target = self.out_root / ".calibration-build-quarantine" / target_name
+        target.mkdir()
+        (target / "foreign-sentinel").write_bytes(
+            b"foreign-builder-quarantine-target\n"
+        )
+        self.called = True
+
+
+def test_builder_quarantine_destination_collision_never_overwrites(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    out_root = tmp_path / "calibration"
+    io = _OccupyBuilderQuarantineDestination(out_root)
+
+    with pytest.raises((OSError, ValueError)):
+        _build(
+            inputs,
+            out_root,
+            run_id="quarantine-collision",
+            io=io,
+            _attestation_fn=_stable_attestation,
+        )
+
+    assert io.called
+    payloads = _builder_quarantine_payloads(out_root)
+    assert b"foreign-builder-quarantine-target\n" in payloads
+    assert any(
+        path.name == "manifest.json"
+        for path in (out_root / ".calibration-build-quarantine").rglob("*")
+    )
+    assert not (out_root / "quarantine-collision").exists()
+
+
+# --- Broad review: final marker, exact layouts, probes, privacy, and fds ----
+
+
+def _create_foreign_extra(run_dir: Path, level: str, kind: str) -> None:
+    parent = run_dir if level == "root" else run_dir / level
+    if kind == "temp":
+        (parent / ".foreign.tmp").mkdir()
+    elif kind == "hidden":
+        (parent / ".foreign-hidden").write_bytes(b"foreign-hidden\n")
+    elif kind == "symlink":
+        target = run_dir.parent / "outside-extra-sentinel"
+        target.write_bytes(b"outside-extra\n")
+        (parent / "foreign-extra.svg").symlink_to(target)
+    elif kind == "marker":
+        (parent / "_FAILED").write_bytes(b"foreign-marker\n")
+    elif kind == "directory":
+        (parent / "foreign-directory").mkdir()
+    else:
+        (parent / ".foreign-extra.svg").write_bytes(b"foreign-extra\n")
+
+
+class _AddExtraAtSuccessBoundary(builder.PublicationIO):
+    def __init__(
+        self,
+        out_root: Path,
+        run_id: str,
+        *,
+        boundary: str,
+        level: str,
+        kind: str,
+    ) -> None:
+        self.run_dir = out_root / run_id
+        self.boundary = boundary
+        self.level = level
+        self.kind = kind
+        self.called = False
+
+    def _mutate(self) -> None:
+        if self.called:
+            return
+        _create_foreign_extra(self.run_dir, self.level, self.kind)
+        self.called = True
+
+    def before_success_marker(self) -> None:
+        if self.boundary == "before":
+            self._mutate()
+
+    def write_marker(self, path: Path, content: str) -> None:
+        super().write_marker(path, content)
+        if self.boundary == "during":
+            self._mutate()
+
+
+@pytest.mark.parametrize(
+    ("boundary", "level", "kind"),
+    [
+        ("before", "root", "temp"),
+        ("before", "pass-a", "hidden"),
+        ("before", "figures", "symlink"),
+        ("during", "root", "marker"),
+        ("during", "pass-a", "directory"),
+        ("during", "figures", "hidden"),
+    ],
+)
+def test_exact_workspace_entry_sets_reject_foreign_extra_at_success_boundary(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+    boundary: str,
+    level: str,
+    kind: str,
+) -> None:
+    out_root = tmp_path / "calibration"
+    run_id = f"extra-{boundary}-{level}"
+    io = _AddExtraAtSuccessBoundary(
+        out_root,
+        run_id,
+        boundary=boundary,
+        level=level,
+        kind=kind,
+    )
+
+    with pytest.raises((OSError, ValueError), match="workspace|entries|published"):
+        _build(
+            inputs,
+            out_root,
+            run_id=run_id,
+            io=io,
+            _attestation_fn=_stable_attestation,
+        )
+
+    assert io.called
+    assert not (out_root / run_id).exists()
+    assert not (out_root / run_id / "_SUCCESS").exists()
+
+
+class _ReplacePayloadWithSameBytes(builder.PublicationIO):
+    def __init__(self, out_root: Path, *, boundary: str) -> None:
+        self.run_dir = out_root / f"same-bytes-{boundary}"
+        self.boundary = boundary
+        self.called = False
+
+    def _replace(self) -> None:
+        relative = (
+            Path("manifest.json")
+            if self.boundary == "before"
+            else Path("pass-a/block-01.md")
+        )
+        target = self.run_dir / relative
+        content = target.read_bytes()
+        target.rename(target.with_name(f"{target.name}.owned-same-bytes"))
+        target.write_bytes(content)
+        self.called = True
+
+    def before_success_marker(self) -> None:
+        if self.boundary == "before":
+            self._replace()
+
+    def write_marker(self, path: Path, content: str) -> None:
+        super().write_marker(path, content)
+        if self.boundary == "during":
+            self._replace()
+
+
+@pytest.mark.parametrize("boundary", ["before", "during"])
+def test_same_byte_payload_replacement_never_commits_success(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+    boundary: str,
+) -> None:
+    out_root = tmp_path / "calibration"
+    io = _ReplacePayloadWithSameBytes(out_root, boundary=boundary)
+
+    with pytest.raises((OSError, ValueError), match="identity|published"):
+        _build(
+            inputs,
+            out_root,
+            run_id=f"same-bytes-{boundary}",
+            io=io,
+            _attestation_fn=_stable_attestation,
+        )
+
+    assert io.called
+    assert not io.run_dir.exists()
+
+
+class _MutateInputAtMarkerBoundary(builder.PublicationIO):
+    def __init__(self, trusted: Path, *, boundary: str) -> None:
+        self.trusted = trusted
+        self.boundary = boundary
+        self.called = False
+
+    def _mutate(self) -> None:
+        self.trusted.write_bytes(self.trusted.read_bytes() + b" ")
+        self.called = True
+
+    def before_success_marker(self) -> None:
+        if self.boundary == "before":
+            self._mutate()
+
+    def write_marker(self, path: Path, content: str) -> None:
+        super().write_marker(path, content)
+        if self.boundary == "during":
+            self._mutate()
+
+
+@pytest.mark.parametrize("boundary", ["before", "during"])
+def test_input_mutation_at_marker_boundary_never_commits_success(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+    boundary: str,
+) -> None:
+    out_root = tmp_path / "calibration"
+    io = _MutateInputAtMarkerBoundary(inputs["trusted"], boundary=boundary)
+
+    with pytest.raises(ValueError, match="input fingerprint"):
+        _build(
+            inputs,
+            out_root,
+            run_id=f"marker-input-{boundary}",
+            io=io,
+            _attestation_fn=_stable_attestation,
+        )
+
+    assert io.called
+    assert not (out_root / f"marker-input-{boundary}").exists()
+
+
+class _ChangeSourceAttestationAtSuccess(builder.PublicationIO):
+    def __init__(self) -> None:
+        self.changed = False
+
+    def before_success_marker(self) -> None:
+        self.changed = True
+
+
+def test_source_attestation_change_in_success_hook_is_rejected(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+) -> None:
+    io = _ChangeSourceAttestationAtSuccess()
+    stable = _stable_attestation()
+    changed = builder.ExecutionAttestation(
+        head_sha="f" * 40,
+        tree_status="clean",
+        source_hashes=stable.source_hashes,
+    )
+    out_root = tmp_path / "calibration"
+
+    with pytest.raises(ValueError, match="execution attestation changed"):
+        _build(
+            inputs,
+            out_root,
+            run_id="marker-source-change",
+            io=io,
+            _attestation_fn=lambda: changed if io.changed else stable,
+        )
+
+    assert io.changed
+    assert not (out_root / "marker-source-change").exists()
+
+
+class _UnsupportedBuilderRename(builder.PublicationIO):
+    def preflight_rename_noreplace(self) -> None:
+        raise builder.atomic_rename.AtomicRenameError(
+            "injected builder rename capability unavailable"
+        )
+
+
+class _RuntimeUnsupportedBuilderRename(builder.PublicationIO):
+    def rename_noreplace(
+        self,
+        source_dir_fd: int,
+        source_name: str,
+        destination_dir_fd: int,
+        destination_name: str,
+    ) -> None:
+        del source_dir_fd, source_name, destination_dir_fd, destination_name
+        raise OSError(errno.ENOSYS, os.strerror(errno.ENOSYS))
+
+
+class _IncorrectBuilderRename(builder.PublicationIO):
+    def rename_noreplace(
+        self,
+        source_dir_fd: int,
+        source_name: str,
+        destination_dir_fd: int,
+        destination_name: str,
+    ) -> None:
+        os.rename(
+            source_name,
+            destination_name,
+            src_dir_fd=source_dir_fd,
+            dst_dir_fd=destination_dir_fd,
+        )
+
+
+@pytest.mark.parametrize(
+    "io",
+    [
+        _UnsupportedBuilderRename(),
+        _RuntimeUnsupportedBuilderRename(),
+        _IncorrectBuilderRename(),
+    ],
+    ids=["symbol", "runtime", "overwrite"],
+)
+def test_builder_rename_capability_failure_precedes_publication_and_allows_retry(
+    tmp_path: Path,
+    inputs: dict[str, Path],
+    io: builder.PublicationIO,
+) -> None:
+    out_root = tmp_path / "calibration"
+    out_root.mkdir()
+    sentinel = out_root / "operator-sentinel"
+    sentinel.write_bytes(b"operator-owned\n")
+
+    with pytest.raises((OSError, ValueError), match="rename|capability|collision"):
+        _build(
+            inputs,
+            out_root,
+            run_id="capability-failure",
+            io=io,
+            _attestation_fn=_stable_attestation,
+        )
+
+    assert sentinel.read_bytes() == b"operator-owned\n"
+    assert not (out_root / "capability-failure").exists()
+    assert not (out_root / ".capability-failure.lock").exists()
+    assert not list(out_root.glob(".capability-failure.*.tmp"))
+    assert (
+        _build(
+            inputs,
+            out_root,
+            run_id="capability-failure",
+            _attestation_fn=_stable_attestation,
+        )
+        .joinpath("_SUCCESS")
+        .is_file()
+    )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        builder.RulerBuildError(
+            "rejected SECRET_PRIVATE_CONTENT at /private/reviewer/items.json "
+            + "f" * 64
+        ),
+        OSError("SECRET_PRIVATE_CONTENT /private/reviewer/items.json " + "f" * 64),
+    ],
+)
+def test_builder_cli_errors_never_expose_raw_private_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    error: BaseException,
+) -> None:
+    monkeypatch.setattr(builder, "CALIBRATION_ROOT", tmp_path)
+
+    def fail_build(**kwargs: object) -> Path:
+        del kwargs
+        raise error
+
+    monkeypatch.setattr(builder, "build", fail_build)
+
+    with pytest.raises(SystemExit):
+        builder.main(
+            [
+                "--trusted",
+                "trusted.json",
+                "--failures",
+                "failures.json",
+                "--shadow",
+                "shadow-run",
+                "--run",
+                "private-run",
+            ]
+        )
+
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert "CALIBRATION_BUILD_ERROR:" in combined
+    assert "SECRET_PRIVATE_CONTENT" not in combined
+    assert "/private/reviewer" not in combined
+    assert "f" * 64 not in combined
+
+
+def test_builder_cli_success_output_contains_no_private_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    secret_path = tmp_path / "SECRET_PRIVATE_RUN_PATH"
+    monkeypatch.setattr(builder, "CALIBRATION_ROOT", tmp_path)
+    monkeypatch.setattr(builder, "build", lambda **kwargs: secret_path)
+
+    assert (
+        builder.main(
+            [
+                "--trusted",
+                "trusted.json",
+                "--failures",
+                "failures.json",
+                "--shadow",
+                "shadow-run",
+                "--run",
+                "private-run",
+            ]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+    assert output.strip() == "CALIBRATION_BUILD_COMPLETE"
+    assert str(secret_path) not in output
+
+
+def test_builder_cli_argument_errors_hide_rejected_values(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    secret = "SECRET_PRIVATE_SEED_VALUE"
+    with pytest.raises(SystemExit):
+        builder.main(
+            [
+                "--trusted",
+                "trusted.json",
+                "--failures",
+                "failures.json",
+                "--shadow",
+                "shadow-run",
+                "--seed",
+                secret,
+            ]
+        )
+
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert combined.strip() == "CALIBRATION_BUILD_ERROR:arguments"
+    assert secret not in combined
+
+
+def test_atomic_rename_is_in_builder_source_attestation() -> None:
+    assert (
+        builder._SOURCE_PATHS["atomic_rename"]
+        == Path(builder.atomic_rename.__file__).resolve()
+    )
+    assert "atomic_rename" in _stable_attestation().source_hashes
+
+
+def _fd_count() -> int:
+    return len(os.listdir("/dev/fd"))
+
+
+def test_problem_loader_validation_exception_closes_all_retained_fds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _write_items(tmp_path / "fd-problem.json", "trusted", 50)
+    before = _fd_count()
+
+    def injected_failure(document: object) -> None:
+        del document
+        raise RuntimeError("injected post-open problem validation failure")
+
+    monkeypatch.setattr(builder.calibration_ruler, "_validate_json", injected_failure)
+    for _ in range(3):
+        with pytest.raises(RuntimeError, match="injected post-open"):
+            builder.load_problem_set(
+                path,
+                name="trusted",
+                allow_test_paths=True,
+            )
+
+    assert _fd_count() == before
+
+
+def test_shadow_loader_validation_exception_closes_all_retained_fds(
+    tmp_path: Path,
+    shadow_run: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    copied = tmp_path / "fd-shadow-root" / shadow_run.name
+    copied.parent.mkdir()
+    shutil.copytree(shadow_run, copied)
+    before = _fd_count()
+
+    def injected_failure(manifest: Mapping[str, object]) -> None:
+        del manifest
+        raise RuntimeError("injected post-open shadow validation failure")
+
+    monkeypatch.setattr(builder, "_assert_trusted_shadow_manifest", injected_failure)
+    for _ in range(3):
+        with pytest.raises(RuntimeError, match="injected post-open"):
+            builder.load_shadow_run(copied, allow_test_paths=True)
+
+    assert _fd_count() == before

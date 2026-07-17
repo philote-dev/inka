@@ -1386,7 +1386,7 @@ def _candidate_provenance(record: Mapping[str, object]) -> None:
     evidence = candidate.get("provenance")
     if not isinstance(evidence, Mapping):
         raise ValueError("non-refused candidate has no bound provenance")
-    for field in ("source_ref", "chunk_id", "source_title"):
+    for field in ("source_ref", "chunk_id", "source_title", "quote_anchor"):
         _non_empty_string(evidence.get(field), name=f"provenance {field}")
     retrieval = cast(Mapping[str, object], record["retrieval"])
     source_refs = cast(list[object], retrieval["source_refs"])
