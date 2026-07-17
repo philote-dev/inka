@@ -190,14 +190,16 @@ worktree-status:
 # Trim build output from selected stopped worktrees
 [group('review')]
 [unix]
+[positional-arguments]
 worktree-trim *worktrees:
-    ./tools/pgrep_worktrees.py trim {{ worktrees }}
+    ./tools/pgrep_worktrees.py trim "$@"
 
 # Report removable worktrees; pass --apply to remove eligible entries
 [group('review')]
 [unix]
+[positional-arguments]
 worktree-prune *args:
-    ./tools/pgrep_worktrees.py prune {{ args }}
+    ./tools/pgrep_worktrees.py prune "$@"
 
 # Safely remove the disposable review worktree and branch
 [group('review')]
@@ -214,6 +216,7 @@ review:
 # Merge mergeable branches into a combined `review` branch, looping on an interval
 [group('review')]
 [unix]
+[positional-arguments]
 review-sync *branches:
     #!/usr/bin/env bash
     # PGREP_REVIEW_INTERVAL seconds between merges (default 600). Runs once now,
@@ -221,15 +224,23 @@ review-sync *branches:
     # Always call the primary checkout's script so this works when `just` is run
     # from a feature worktree (those would otherwise try to create a nested
     # .worktrees/review and fail with "already used by worktree").
-    root="$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')"
+    root=""
+    while IFS= read -r line; do
+        case "$line" in
+            "worktree "*)
+                root="${line#worktree }"
+                break
+                ;;
+        esac
+    done < <(git worktree list --porcelain)
     interval="${PGREP_REVIEW_INTERVAL:-600}"
     while true; do
-        if "$root/tools/pgrep-sync-review" {{ branches }}; then
+        if "$root/tools/pgrep-sync-review" "$@"; then
             :
         else
             status=$?
-            if [ "$status" -eq 2 ]; then
-                exit "$status"
+            if [ "$status" -eq 75 ]; then
+                exit 2
             fi
         fi
         echo "next sync in ${interval}s (Ctrl-C to stop)"

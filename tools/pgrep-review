@@ -120,10 +120,15 @@ def start(n: int, path: str, port: int) -> None:
     env["PGREP_HEADLESS"] = "1"
     env.setdefault("PGREP_SURFACE_MODE", "exclusive")
     log = open(LOG_DIR / f"inst-{n}.log", "ab")
-    # ./run exists in every worktree, so this does not depend on that branch
+    # run exists in every worktree, so this does not depend on that branch
     # having the _review-instance recipe. Own session so we can kill the whole tree.
     PROCS[n] = subprocess.Popen(
-        ["./run"], cwd=path, env=env, stdout=log, stderr=log, start_new_session=True
+        [str(Path(path) / "run")],
+        cwd=path,
+        env=env,
+        stdout=log,
+        stderr=log,
+        start_new_session=True,
     )
     # Same watcher as `just dev`: rebuild web on ts/sass/web edits (incl. commits).
     watch = _web_watch_script(path)

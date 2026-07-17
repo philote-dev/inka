@@ -15,10 +15,25 @@ set -euo pipefail
 # REVIEW_WT resolves under the worktree and `git worktree add review` fails
 # with "already used by worktree at …/.worktrees/review".
 ROOT_DIR="$(git rev-parse --show-toplevel)"
-ROOT_DIR="$(git -C "$ROOT_DIR" worktree list --porcelain | awk '/^worktree /{print $2; exit}')"
+while IFS= read -r line; do
+  case "$line" in
+    "worktree "*)
+      ROOT_DIR="${line#worktree }"
+      break
+      ;;
+  esac
+done < <(git -C "$ROOT_DIR" worktree list --porcelain)
 cd "$ROOT_DIR"
 
-"$ROOT_DIR/tools/pgrep_worktrees.py" review-disk-guard || exit $?
+if "$ROOT_DIR/tools/pgrep_worktrees.py" review-disk-guard; then
+  :
+else
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    exit 75
+  fi
+  exit "$status"
+fi
 
 REVIEW_WT="$ROOT_DIR/.worktrees/review"
 BASE="${PGREP_REVIEW_BASE:-main}"

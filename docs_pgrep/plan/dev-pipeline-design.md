@@ -189,9 +189,11 @@ commands therefore separate source preservation from disposable build cleanup:
   stopped worktrees whose source tree is clean and whose branch is fully merged
   into `main`; applying it also deletes those merged local branches and runs
   `git worktree prune`. The primary checkout is never eligible.
-- `review-clean` explicitly removes the stopped, clean, disposable review
-  checkout and local `review` branch. If review is running, it refuses and tells
-  the user to stop the row first.
+- `review-clean` explicitly removes only the stopped, clean `review` branch at
+  the conventional normalized path `<primary>/.worktrees/review`, then deletes
+  the local branch. A `review` checkout anywhere else is not considered
+  disposable. If the conventional checkout is running, it refuses and tells the
+  user to stop the row first.
 
 `review-sync` does not delete or trim feature worktrees. Before rebuilding it
 checks available disk space and prints a prominent warning below 30 GiB with the

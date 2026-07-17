@@ -118,7 +118,7 @@ def branch_merged(repo: Path, branch: str) -> bool:
         "merge-base",
         "--is-ancestor",
         f"refs/heads/{branch}",
-        "HEAD",
+        "refs/heads/main",
         check=False,
     )
     return result.returncode == 0
@@ -144,11 +144,21 @@ def _normalized_absolute_path(path: str | Path) -> Path:
 
 
 def _command_contains_path(command: str, path: Path) -> bool:
+    target = _normalized_absolute_path(path)
+    target_text = str(target)
+    start = 0
+    while (index := command.find(target_text, start)) >= 0:
+        before_ok = index == 0 or command[index - 1] in " \t='\""
+        end = index + len(target_text)
+        after_ok = end == len(command) or command[end] in "/ \t'\""
+        if before_ok and after_ok:
+            return True
+        start = index + 1
+
     try:
         tokens = shlex.split(command)
     except ValueError:
         tokens = command.split()
-    target = _normalized_absolute_path(path)
     for token in tokens:
         value = token.partition("=")[2] if "=" in token else token
         if not os.path.isabs(value):
@@ -264,6 +274,36 @@ def prune_eligibility(repo: Path, worktree: Worktree) -> tuple[bool, str]:
     return True, "eligible"
 
 
+def _remove_worktree(primary: Worktree, worktree: Worktree) -> None:
+    """Safely remove a worktree after a final state check."""
+    deinit = _git(
+        worktree.path,
+        "submodule",
+        "deinit",
+        "--all",
+        check=False,
+    )
+    if deinit.returncode:
+        detail = deinit.stderr.strip() or "git submodule deinit refused"
+        raise LifecycleError(f"{worktree.path} submodule deinit failed: {detail}")
+
+    if is_dirty(worktree):
+        raise LifecycleError(f"{worktree.path} became dirty before removal")
+    if processes := running_processes(primary.path, worktree):
+        pid_list = ", ".join(str(pid) for pid, _command in processes)
+        raise LifecycleError(
+            f"{worktree.path} has running processes before removal (PIDs {pid_list})"
+        )
+
+    try:
+        _git(primary.path, "worktree", "remove", str(worktree.path))
+    except subprocess.CalledProcessError as error:
+        detail = error.stderr.strip() if error.stderr else str(error)
+        raise LifecycleError(
+            f"git refused to remove {worktree.path}: {detail}"
+        ) from error
+
+
 def prune_worktrees(
     repo: Path,
     *,
@@ -288,7 +328,7 @@ def prune_worktrees(
         if not eligible:
             continue
         assert worktree.branch is not None
-        _git(primary.path, "worktree", "remove", "--force", str(worktree.path))
+        _remove_worktree(primary, worktree)
         _git(primary.path, "branch", "-d", worktree.branch)
     _git(primary.path, "worktree", "prune")
     return lines
@@ -310,13 +350,19 @@ def review_clean(
     primary = _primary_worktree(discovered)
     if review.primary:
         raise LifecycleError("refusing to remove primary review checkout")
+    expected_path = _normalized_absolute_path(primary.path / ".worktrees" / "review")
+    if _normalized_absolute_path(review.path) != expected_path:
+        raise LifecycleError(
+            f"refusing review checkout outside expected path {expected_path}: "
+            f"{review.path}"
+        )
     if is_dirty(review):
         raise LifecycleError(f"{review.path} is dirty")
     if processes := running_processes(repo, review):
         pid_list = ", ".join(str(pid) for pid, _command in processes)
         raise LifecycleError(f"{review.path} has running processes (PIDs {pid_list})")
 
-    _git(primary.path, "worktree", "remove", "--force", str(review.path))
+    _remove_worktree(primary, review)
     _git(primary.path, "branch", "-D", "review")
     _git(primary.path, "worktree", "prune")
     return f"review: removed {review.path}"

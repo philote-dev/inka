@@ -21,8 +21,14 @@ same CLI before touching the disposable review checkout.
 - Choose worktrees by concurrency, not by language.
 - Never edit or delete tracked or untracked source during trim.
 - Never prune a dirty, running, unmerged, detached, or primary checkout.
+- Determine merge eligibility against `refs/heads/main`, regardless of the
+  primary checkout's current branch.
 - `worktree-prune` is dry-run unless `--apply` is explicit.
-- `review-clean` refuses a running or dirty review checkout.
+- `review-clean` accepts only branch `review` at the normalized conventional
+  path `<primary>/.worktrees/review`, and refuses a running or dirty checkout.
+- Destructive commands deinitialize submodules without force, repeat dirty and
+  running checks, and rely on non-forced `git worktree remove` as Git's final
+  guard.
 - Warn below 30 GiB available; refuse a review build below 10 GiB.
 - Keep `out/node_modules`, `out/pyenv`, and `out/download` when trimming.
 - Use only stdlib modules so lifecycle commands work before a project build.
@@ -155,16 +161,21 @@ def prune_eligibility(repo: Path, wt: Worktree) -> tuple[bool, str]:
         return False, "dirty"
     if running_processes(repo, wt):
         return False, "running"
+    # branch_merged compares to refs/heads/main, not HEAD.
     if not branch_merged(repo, wt.branch):
         return False, "unmerged"
     return True, "eligible"
 ```
 
 `trim` invokes the primary checkout's `tools/clean keep-env` with the selected
-worktree as `cwd`. `prune --apply` uses `git worktree remove --force` only after
-all eligibility checks pass, then `git branch -d`, then `git worktree prune`.
-`review-clean` applies the same dirty/running checks but explicitly removes the
-disposable `review` branch with `git branch -D`.
+worktree as `cwd`. Before removal, `prune --apply` runs
+`git -C <worktree> submodule deinit --all` without force, aborts if that
+refuses, repeats the dirty/running checks, and uses non-forced
+`git worktree remove` as Git's final race guard. Only after removal does it run
+`git branch -d`, followed by `git worktree prune`. `review-clean` applies the
+same removal sequence but requires both branch `review` and the normalized
+path `<primary>/.worktrees/review`, then explicitly deletes the disposable
+branch with `git branch -D`.
 
 - [x] **Step 4: Run focused tests and verify GREEN**
 
@@ -201,26 +212,31 @@ def test_disk_guard_cli_returns_two_below_ten_gib(monkeypatch, capsys):
 worktree-status:
     ./tools/pgrep_worktrees.py status
 
+[positional-arguments]
 worktree-trim *worktrees:
-    ./tools/pgrep_worktrees.py trim {{ worktrees }}
+    ./tools/pgrep_worktrees.py trim "$@"
 
+[positional-arguments]
 worktree-prune *args:
-    ./tools/pgrep_worktrees.py prune {{ args }}
+    ./tools/pgrep_worktrees.py prune "$@"
 
 review-clean:
     ./tools/pgrep_worktrees.py review-clean
 ```
 
+`review-sync` also uses per-recipe `[positional-arguments]` and quoted `"$@"`.
+Primary worktree discovery removes the porcelain `worktree` prefix instead of
+splitting fields, so checkout paths and argument values containing spaces or
+shell metacharacters retain their original boundaries.
+
 - [x] **Step 3: Guard sync before review branch creation or reset**
 
-```bash
-"$ROOT_DIR/tools/pgrep_worktrees.py" review-disk-guard || exit $?
-```
+The sync script maps only disk-guard exit `2` to private status `75`. The
+looping `review-sync` recipe maps `75` back to public exit `2`; all unrelated
+statuses, including `2` from later sync work, remain transient and retry.
 
 `PGREP_REVIEW_AVAILABLE_BYTES` is a test-only override. Without it, the command
 uses `shutil.disk_usage(primary_checkout).free`.
-The `review-sync` loop propagates guard exit code `2` immediately while keeping
-its existing report-and-retry behavior for other transient sync failures.
 
 - [x] **Step 4: Verify recipes and guard**
 
@@ -232,8 +248,9 @@ Run:
 `PGREP_REVIEW_AVAILABLE_BYTES=$((9 * 1024 * 1024 * 1024)) just review-sync`
 
 Expected: exit code 2 before creating, resetting, or building `review`. The
-loop recipe propagates disk-guard exit code 2 instead of swallowing it; other
-transient sync errors remain report-and-retry behavior.
+sync script emits internal status `75`, which the loop maps to public exit `2`;
+other transient sync errors, including an unrelated status `2`, remain
+report-and-retry behavior.
 
 ### Task 4: Documentation and full gate
 

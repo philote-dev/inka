@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import os
 import subprocess
 import sys
@@ -82,7 +83,11 @@ def test_parse_worktrees_marks_primary_and_detached() -> None:
 
 @pytest.mark.parametrize(
     ("gib", "code", "fragment"),
-    [(31, 0, ""), (29, 0, "LOW DISK"), (9, 2, "REFUSING REVIEW BUILD")],
+    [
+        (30, 0, ""),
+        (10, 0, "LOW DISK"),
+        (9, 2, "REFUSING REVIEW BUILD"),
+    ],
 )
 def test_review_disk_guard_thresholds(gib: int, code: int, fragment: str) -> None:
     actual_code, message = review_disk_guard(gib * 1024**3)
@@ -180,6 +185,30 @@ def test_processes_do_not_match_similarly_prefixed_path() -> None:
     assert attributed[primary] == []
 
 
+def test_processes_match_unquoted_absolute_executable_path_with_spaces() -> None:
+    primary = Worktree(Path("/repo with spaces"), "main", True)
+    review = Worktree(
+        Path("/repo with spaces/.worktrees/review with spaces"), "review", False
+    )
+    command = "/repo with spaces/.worktrees/review with spaces/run --flag"
+
+    attributed = attribute_processes(
+        [primary, review],
+        [(104, command)],
+        own_pid=100,
+    )
+
+    assert attributed[primary] == []
+    assert attributed[review] == [(104, command)]
+
+
+def test_review_dashboard_launches_absolute_worktree_run_path() -> None:
+    source = Path(module.__file__).with_name("pgrep-review").read_text(encoding="utf8")
+
+    assert '[str(Path(path) / "run")]' in source
+    assert '["./run"]' not in source
+
+
 def test_status_prints_every_inventory_dimension(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -230,8 +259,10 @@ def test_disk_guard_cli_uses_available_bytes_override(
     assert "REFUSING REVIEW BUILD" in capsys.readouterr().err
 
 
-def test_review_sync_checks_disk_before_review_mutation(tmp_path: Path) -> None:
-    repo = committed_repo(tmp_path / "repo")
+def test_review_sync_checks_disk_before_review_mutation_in_spaced_path(
+    tmp_path: Path,
+) -> None:
+    repo = committed_repo(tmp_path / "repo with spaces")
     tools = repo / "tools"
     tools.mkdir()
     worktree_cli = tools / "pgrep_worktrees.py"
@@ -255,7 +286,7 @@ def test_review_sync_checks_disk_before_review_mutation(tmp_path: Path) -> None:
         text=True,
     )
 
-    assert result.returncode == 2
+    assert result.returncode == 75
     assert "REFUSING REVIEW BUILD" in result.stderr
     review_branch = subprocess.run(
         ["git", "-C", str(repo), "show-ref", "--verify", "refs/heads/review"],
@@ -267,38 +298,24 @@ def test_review_sync_checks_disk_before_review_mutation(tmp_path: Path) -> None:
     assert not (repo / ".worktrees" / "review").exists()
 
 
-def test_review_sync_recipe_retries_transient_failure_and_propagates_two(
+def test_review_sync_recipe_retries_two_and_maps_only_internal_75_to_two(
     tmp_path: Path,
 ) -> None:
-    source = Path("justfile").read_text(encoding="utf8")
-    recipe = source.split("review-sync *branches:\n", 1)[1].split(
-        "\n# ---------------------------------------------------------------------------",
-        1,
-    )[0]
-    recipe = "\n".join(
-        line[4:] if line.startswith("    ") else line for line in recipe.splitlines()
-    ).replace("{{ branches }}", "")
-    root = tmp_path / "repo"
+    root = committed_repo(tmp_path / "repo with spaces")
     tools = root / "tools"
-    tools.mkdir(parents=True)
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    fake_git = fake_bin / "git"
-    fake_git.write_text(
-        '#!/bin/sh\nprintf "worktree %s\\n" "$PGREP_TEST_ROOT"\n',
-        encoding="utf8",
-    )
-    fake_git.chmod(0o755)
+    tools.mkdir()
     counter = tmp_path / "calls"
+    args_log = tmp_path / "args"
     fake_sync = tools / "pgrep-sync-review"
     fake_sync.write_text(
         "#!/bin/sh\n"
+        'printf "%s\\0" "$@" > "$PGREP_TEST_ARGS"\n'
         'count=$(($(cat "$PGREP_TEST_COUNTER" 2>/dev/null || printf 0) + 1))\n'
         'printf "%s" "$count" > "$PGREP_TEST_COUNTER"\n'
         'case "$count" in\n'
         "  1) exit 1 ;;\n"
         "  2) exit 2 ;;\n"
-        '  *) kill -TERM "$PPID"; exit 99 ;;\n'
+        "  *) exit 75 ;;\n"
         "esac\n",
         encoding="utf8",
     )
@@ -306,16 +323,21 @@ def test_review_sync_recipe_retries_transient_failure_and_propagates_two(
     env = os.environ.copy()
     env.update(
         {
-            "PATH": f"{fake_bin}:{env['PATH']}",
             "PGREP_REVIEW_INTERVAL": "0",
+            "PGREP_TEST_ARGS": str(args_log),
             "PGREP_TEST_COUNTER": str(counter),
-            "PGREP_TEST_ROOT": str(root),
         }
     )
-
     result = subprocess.run(
-        ["bash", "-c", recipe],
-        cwd=Path.cwd(),
+        [
+            "just",
+            "--justfile",
+            str(Path("justfile").resolve()),
+            "--working-directory",
+            str(root),
+            "review-sync",
+            "branch with spaces",
+        ],
         env=env,
         check=False,
         capture_output=True,
@@ -324,8 +346,12 @@ def test_review_sync_recipe_retries_transient_failure_and_propagates_two(
     )
 
     assert result.returncode == 2
-    assert counter.read_text(encoding="utf8") == "2"
-    assert result.stdout.count("next sync in 0s") == 1
+    assert counter.read_text(encoding="utf8") == "3"
+    assert result.stdout.count("next sync in 0s") == 2
+    assert args_log.read_bytes().split(b"\0") == [
+        b"branch with spaces",
+        b"",
+    ]
 
 
 def test_justfile_exposes_worktree_lifecycle_recipes() -> None:
@@ -333,14 +359,70 @@ def test_justfile_exposes_worktree_lifecycle_recipes() -> None:
 
     assert "worktree-status:\n    ./tools/pgrep_worktrees.py status" in source
     assert (
+        "[positional-arguments]\n"
         "worktree-trim *worktrees:\n"
-        "    ./tools/pgrep_worktrees.py trim {{ worktrees }}" in source
+        '    ./tools/pgrep_worktrees.py trim "$@"' in source
     )
     assert (
+        "[positional-arguments]\n"
         "worktree-prune *args:\n"
-        "    ./tools/pgrep_worktrees.py prune {{ args }}" in source
+        '    ./tools/pgrep_worktrees.py prune "$@"' in source
     )
+    assert "[positional-arguments]\nreview-sync *branches:\n" in source
+    assert 'if "$root/tools/pgrep-sync-review" "$@"; then' in source
     assert "review-clean:\n    ./tools/pgrep_worktrees.py review-clean" in source
+
+
+@pytest.mark.parametrize(
+    ("recipe", "command"),
+    [("worktree-trim", "trim"), ("worktree-prune", "prune")],
+)
+def test_justfile_lifecycle_recipes_preserve_argument_boundaries(
+    tmp_path: Path,
+    recipe: str,
+    command: str,
+) -> None:
+    repo = tmp_path / "repo with spaces"
+    tools = repo / "tools"
+    tools.mkdir(parents=True)
+    log = tmp_path / f"{recipe}.json"
+    fake_cli = tools / "pgrep_worktrees.py"
+    fake_cli.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, sys\n"
+        "from pathlib import Path\n"
+        'Path(os.environ["PGREP_TEST_LOG"]).write_text(json.dumps(sys.argv[1:]))\n',
+        encoding="utf8",
+    )
+    fake_cli.chmod(0o755)
+    hostile = "branch;$(touch should-not-exist)"
+    env = os.environ.copy()
+    env["PGREP_TEST_LOG"] = str(log)
+
+    result = subprocess.run(
+        [
+            "just",
+            "--justfile",
+            str(Path("justfile").resolve()),
+            "--working-directory",
+            str(repo),
+            recipe,
+            "branch with spaces",
+            hostile,
+        ],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(log.read_text(encoding="utf8")) == [
+        command,
+        "branch with spaces",
+        hostile,
+    ]
+    assert not (repo / "should-not-exist").exists()
 
 
 def test_prune_defaults_to_dry_run(
@@ -401,6 +483,115 @@ def test_prune_compares_merges_to_primary_when_run_from_secondary(
 
     assert not candidate.exists()
     assert caller.exists()
+
+
+def test_prune_compares_candidate_to_main_when_primary_is_on_feature(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    candidate = add_worktree(repo, tmp_path / "candidate", "candidate")
+    (candidate / "candidate.txt").write_text("candidate", encoding="utf8")
+    git(candidate, "add", "candidate.txt")
+    git(candidate, "commit", "-m", "candidate")
+    git(repo, "switch", "-c", "primary-feature")
+    git(repo, "merge", "--no-edit", "candidate")
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    assert main(["prune", "--apply"]) == 0
+
+    assert "candidate: unmerged" in capsys.readouterr().out
+    assert candidate.exists()
+    assert git(repo, "show-ref", "--verify", "refs/heads/candidate").returncode == 0
+
+
+def test_prune_apply_preserves_dirty_and_unmerged_alongside_eligible(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    eligible = add_worktree(repo, tmp_path / "eligible", "eligible")
+    dirty = add_worktree(repo, tmp_path / "dirty", "dirty")
+    (dirty / "untracked.txt").write_text("dirty", encoding="utf8")
+    unmerged = add_worktree(repo, tmp_path / "unmerged", "unmerged")
+    (unmerged / "unmerged.txt").write_text("unmerged", encoding="utf8")
+    git(unmerged, "add", "unmerged.txt")
+    git(unmerged, "commit", "-m", "unmerged")
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    assert main(["prune", "--apply"]) == 0
+
+    assert not eligible.exists()
+    assert dirty.exists()
+    assert unmerged.exists()
+    assert git(repo, "show-ref", "--verify", "refs/heads/dirty").returncode == 0
+    assert git(repo, "show-ref", "--verify", "refs/heads/unmerged").returncode == 0
+
+
+def test_prune_rechecks_dirty_state_immediately_before_removal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    candidate_path = add_worktree(repo, tmp_path / "candidate", "candidate")
+    real_is_dirty = module.is_dirty
+    checks = 0
+
+    def dirty_on_final_check(worktree: Worktree) -> bool:
+        nonlocal checks
+        if worktree.path == candidate_path:
+            checks += 1
+            if checks == 2:
+                (candidate_path / "late.txt").write_text("late", encoding="utf8")
+        return real_is_dirty(worktree)
+
+    monkeypatch.setattr(module, "is_dirty", dirty_on_final_check)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    with pytest.raises(module.LifecycleError, match="dirty"):
+        module.prune_worktrees(repo, apply=True)
+
+    assert checks == 2
+    assert candidate_path.exists()
+    assert (candidate_path / "late.txt").exists()
+    assert git(repo, "show-ref", "--verify", "refs/heads/candidate").returncode == 0
+
+
+def test_prune_preserves_worktree_when_submodule_deinit_refuses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    candidate_path = add_worktree(repo, tmp_path / "candidate", "candidate")
+    real_git = module._git
+
+    def refuse_deinit(
+        git_repo: Path, *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        if args == ("submodule", "deinit", "--all"):
+            return subprocess.CompletedProcess(
+                ["git", *args], returncode=1, stdout="", stderr="dirty submodule"
+            )
+        return real_git(git_repo, *args, check=check)
+
+    monkeypatch.setattr(module, "_git", refuse_deinit)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    with pytest.raises(module.LifecycleError, match="submodule"):
+        module.prune_worktrees(repo, apply=True)
+
+    assert candidate_path.exists()
+    assert git(repo, "show-ref", "--verify", "refs/heads/candidate").returncode == 0
+
+
+def test_destructive_worktree_removal_never_uses_force() -> None:
+    source = Path(module.__file__).read_text(encoding="utf8")
+
+    assert '"worktree", "remove", "--force"' not in source
+    assert '"submodule", "deinit", "--all", "--force"' not in source
 
 
 @pytest.mark.parametrize(
@@ -501,6 +692,58 @@ def test_trim_refuses_running_worktree(
         module.trim_worktrees([worktree])
 
 
+def test_trim_preflights_all_targets_before_cleaning_any(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    tools = repo / "tools"
+    tools.mkdir()
+    log = tmp_path / "clean.log"
+    cleaner = tools / "clean"
+    cleaner.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$PWD" >> "$PGREP_TEST_LOG"\n',
+        encoding="utf8",
+    )
+    cleaner.chmod(0o755)
+    first_path = add_worktree(repo, tmp_path / "first", "first")
+    second_path = add_worktree(repo, tmp_path / "second", "second")
+    first = Worktree(first_path, "first", False)
+    second = Worktree(second_path, "second", False)
+    monkeypatch.setenv("PGREP_TEST_LOG", str(log))
+    monkeypatch.setattr(
+        module,
+        "running_processes",
+        lambda _repo, worktree: [(123, "app")] if worktree == second else [],
+    )
+
+    with pytest.raises(module.LifecycleError, match="running"):
+        module.trim_worktrees([first, second])
+
+    assert not log.exists()
+
+
+def test_real_cleaner_preserves_source_and_shared_build_dependencies(
+    tmp_path: Path,
+) -> None:
+    sandbox = tmp_path / "cleaner sandbox"
+    out = sandbox / "out"
+    for directory in ("node_modules", "pyenv", "download", "rust", "review-logs"):
+        (out / directory).mkdir(parents=True)
+        (out / directory / "marker").write_text(directory, encoding="utf8")
+    source = sandbox / "source.txt"
+    source.write_text("source", encoding="utf8")
+    cleaner = Path(module.__file__).with_name("clean")
+
+    subprocess.run([str(cleaner), "keep-env"], cwd=sandbox, check=True)
+
+    assert source.read_text(encoding="utf8") == "source"
+    for preserved in ("node_modules", "pyenv", "download"):
+        assert (out / preserved / "marker").exists()
+    assert not (out / "rust").exists()
+    assert not (out / "review-logs").exists()
+
+
 def test_review_clean_removes_clean_unmerged_review_branch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -511,7 +754,8 @@ def test_review_clean_removes_clean_unmerged_review_branch(
     git(repo, "add", "review.txt")
     git(repo, "commit", "-m", "review")
     git(repo, "switch", "main")
-    worktree = tmp_path / "review"
+    worktree = repo / ".worktrees" / "review"
+    worktree.parent.mkdir()
     git(repo, "worktree", "add", str(worktree), "review")
     monkeypatch.chdir(repo)
     monkeypatch.setattr(module, "process_table", lambda: [])
@@ -528,6 +772,54 @@ def test_review_clean_removes_clean_unmerged_review_branch(
     assert branch.returncode != 0
 
 
+def test_review_clean_refuses_review_branch_outside_disposable_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    worktree = tmp_path / "elsewhere" / "review"
+    worktree.parent.mkdir()
+    add_worktree(repo, worktree, "review")
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    with pytest.raises(module.LifecycleError, match=r"\.worktrees/review"):
+        module.review_clean(repo)
+
+    assert worktree.exists()
+    assert git(repo, "show-ref", "--verify", "refs/heads/review").returncode == 0
+
+
+def test_review_clean_rechecks_dirty_state_immediately_before_removal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    review_path = repo / ".worktrees" / "review"
+    review_path.parent.mkdir()
+    add_worktree(repo, review_path, "review")
+    real_is_dirty = module.is_dirty
+    checks = 0
+
+    def dirty_on_final_check(worktree: Worktree) -> bool:
+        nonlocal checks
+        if worktree.path == review_path:
+            checks += 1
+            if checks == 2:
+                (review_path / "late.txt").write_text("late", encoding="utf8")
+        return real_is_dirty(worktree)
+
+    monkeypatch.setattr(module, "is_dirty", dirty_on_final_check)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    with pytest.raises(module.LifecycleError, match="dirty"):
+        module.review_clean(repo)
+
+    assert checks == 2
+    assert review_path.exists()
+    assert (review_path / "late.txt").exists()
+    assert git(repo, "show-ref", "--verify", "refs/heads/review").returncode == 0
+
+
 @pytest.mark.parametrize("unsafe_state", ["dirty", "running"])
 def test_review_clean_refuses_unsafe_review_worktree(
     tmp_path: Path,
@@ -535,7 +827,9 @@ def test_review_clean_refuses_unsafe_review_worktree(
     unsafe_state: str,
 ) -> None:
     repo = committed_repo(tmp_path / "repo")
-    worktree_path = add_worktree(repo, tmp_path / "review", "review")
+    worktree_path = repo / ".worktrees" / "review"
+    worktree_path.parent.mkdir()
+    add_worktree(repo, worktree_path, "review")
     worktree = Worktree(worktree_path, "review", False)
     monkeypatch.setattr(module, "is_dirty", lambda _worktree: unsafe_state == "dirty")
     monkeypatch.setattr(
