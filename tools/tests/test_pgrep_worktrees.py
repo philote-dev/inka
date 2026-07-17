@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -26,15 +29,15 @@ from tools.pgrep_worktrees import (
 )
 
 PORCELAIN = (
-    "worktree /repo\0"
-    "HEAD 1111111111111111111111111111111111111111\0"
-    "branch refs/heads/main\0\0"
-    "worktree /repo/.worktrees/demo\0"
-    "HEAD 2222222222222222222222222222222222222222\0"
-    "branch refs/heads/feat/demo\0\0"
-    "worktree /repo/.worktrees/detached\0"
-    "HEAD 3333333333333333333333333333333333333333\0"
-    "detached\0\0"
+    b"worktree /repo\0"
+    b"HEAD 1111111111111111111111111111111111111111\0"
+    b"branch refs/heads/main\0\0"
+    b"worktree /repo/.worktrees/demo\0"
+    b"HEAD 2222222222222222222222222222222222222222\0"
+    b"branch refs/heads/feat/demo\0\0"
+    b"worktree /repo/.worktrees/detached\0"
+    b"HEAD 3333333333333333333333333333333333333333\0"
+    b"detached\0\0"
 )
 
 
@@ -71,6 +74,12 @@ def add_worktree(repo: Path, path: Path, branch: str) -> Path:
     return path
 
 
+def worktree_operation_lock_path(repo: Path, worktree: Path) -> Path:
+    normalized = os.path.abspath(os.path.normpath(worktree))
+    digest = hashlib.sha256(os.fsencode(normalized)).hexdigest()
+    return repo / ".git" / f"pgrep-worktree-{digest}.lock"
+
+
 def test_parse_worktrees_marks_primary_and_detached() -> None:
     parsed = parse_worktree_porcelain(PORCELAIN)
 
@@ -81,9 +90,9 @@ def test_parse_worktrees_marks_primary_and_detached() -> None:
 
 def test_parse_worktrees_preserves_newline_in_nul_delimited_path() -> None:
     output = (
-        "worktree /repo\nwith-newline\0"
-        "HEAD 1111111111111111111111111111111111111111\0"
-        "branch refs/heads/main\0\0"
+        b"worktree /repo\nwith-newline\0"
+        b"HEAD 1111111111111111111111111111111111111111\0"
+        b"branch refs/heads/main\0\0"
     )
 
     parsed = parse_worktree_porcelain(output)
@@ -91,19 +100,46 @@ def test_parse_worktrees_preserves_newline_in_nul_delimited_path() -> None:
     assert parsed == [Worktree(Path("/repo\nwith-newline"), "main", True)]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="surrogateescape is a Unix path behavior")
+def test_parse_worktrees_preserves_non_utf8_path_bytes() -> None:
+    raw_path = b"/repo/\xff-worktree"
+    output = (
+        b"worktree "
+        + raw_path
+        + b"\0HEAD 1111111111111111111111111111111111111111\0"
+        + b"branch refs/heads/main\0\0"
+    )
+
+    parsed = parse_worktree_porcelain(output)
+
+    assert os.fsencode(parsed[0].path) == raw_path
+
+
 def test_discover_worktrees_requests_nul_delimited_porcelain(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[str, ...]] = []
 
+    def fake_git_bytes(
+        _repo: Path, *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[bytes]:
+        calls.append(args)
+        return subprocess.CompletedProcess(
+            ["git", *args], returncode=0, stdout=PORCELAIN, stderr=b""
+        )
+
     def fake_git(
         _repo: Path, *args: str, check: bool = True
     ) -> subprocess.CompletedProcess[str]:
-        calls.append(args)
+        calls.append(("text-mode", *args))
         return subprocess.CompletedProcess(
-            ["git", *args], returncode=0, stdout=PORCELAIN, stderr=""
+            ["git", *args],
+            returncode=0,
+            stdout=PORCELAIN.decode(),
+            stderr="",
         )
 
+    monkeypatch.setattr(module, "_git_bytes", fake_git_bytes, raising=False)
     monkeypatch.setattr(module, "_git", fake_git)
 
     discovered = module.discover_worktrees(Path("/repo"))
@@ -424,6 +460,78 @@ def test_review_sync_releases_operation_lock_after_success(
     assert not (repo / ".git" / "pgrep-review-operation.lock").exists()
 
 
+def test_review_sync_cleanup_preserves_reacquired_lock(
+    tmp_path: Path,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    tools = repo / "tools"
+    tools.mkdir()
+    worktree_cli = tools / "pgrep_worktrees.py"
+    worktree_cli.write_text(
+        Path(module.__file__).read_text(encoding="utf8"), encoding="utf8"
+    )
+    worktree_cli.chmod(0o755)
+    sync_script = tools / "pgrep-sync-review"
+    source_script = Path(module.__file__).with_name("pgrep-sync-review")
+    sync_script.write_text(source_script.read_text(encoding="utf8"), encoding="utf8")
+    sync_script.chmod(0o755)
+    signal = tmp_path / "lock-acquired"
+    proceed = tmp_path / "proceed"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_git = fake_bin / "git"
+    real_git = shutil.which("git")
+    assert real_git is not None
+    fake_git.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = "show-ref" ]; then\n'
+        '  : > "$PGREP_TEST_SIGNAL"\n'
+        '  while [ ! -e "$PGREP_TEST_PROCEED" ]; do sleep 0.01; done\n'
+        "fi\n"
+        f'exec "{real_git}" "$@"\n',
+        encoding="utf8",
+    )
+    fake_git.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        {
+            "PATH": f"{fake_bin}:{env['PATH']}",
+            "PGREP_REVIEW_AVAILABLE_BYTES": str(30 * 1024**3),
+            "PGREP_TEST_PROCEED": str(proceed),
+            "PGREP_TEST_SIGNAL": str(signal),
+        }
+    )
+    process = subprocess.Popen(
+        [str(sync_script), "main"],
+        cwd=repo,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        for _ in range(500):
+            if signal.exists():
+                break
+            time.sleep(0.01)
+        assert signal.exists()
+        lock = repo / ".git" / "pgrep-review-operation.lock"
+        shutil.rmtree(lock)
+        lock.mkdir()
+        second_owner = lock / "owner"
+        second_record = "review-clean pid=999999 token=second-owner"
+        second_owner.write_text(second_record + "\n", encoding="utf8")
+        proceed.touch()
+        stdout, stderr = process.communicate(timeout=10)
+        assert process.returncode == 0, (stdout, stderr)
+        assert second_owner.read_text(encoding="utf8").strip() == second_record
+        assert lock.exists()
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
+
+
 def test_review_sync_recipe_retries_two_and_maps_only_internal_75_to_two(
     tmp_path: Path,
 ) -> None:
@@ -590,6 +698,44 @@ def test_prune_routes_review_checkout_through_locked_review_clean(
     assert git(repo, "show-ref", "--verify", "refs/heads/review").returncode == 0
 
 
+def test_prune_refuses_existing_worktree_operation_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    candidate = add_worktree(repo, tmp_path / "candidate", "candidate")
+    lock = worktree_operation_lock_path(repo, candidate)
+    lock.mkdir()
+    (lock / "owner").write_text("trim pid=999999 token=owner\n", encoding="utf8")
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    assert main(["prune", "--apply"]) == 2
+
+    assert candidate.exists()
+    assert lock.exists()
+    assert git(repo, "show-ref", "--verify", "refs/heads/candidate").returncode == 0
+
+
+def test_prune_refuses_relative_process_with_worktree_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    candidate = add_worktree(repo, tmp_path / "candidate", "candidate")
+    monkeypatch.chdir(repo)
+    process = subprocess.Popen(["sleep", "30"], cwd=candidate)
+    try:
+        assert main(["prune", "--apply"]) == 0
+        assert "running" in capsys.readouterr().out
+        assert candidate.exists()
+        assert git(repo, "show-ref", "--verify", "refs/heads/candidate").returncode == 0
+    finally:
+        process.terminate()
+        process.wait(timeout=5)
+
+
 def test_prune_apply_removes_only_clean_merged_worktree(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -685,7 +831,16 @@ def test_prune_apply_preserves_dirty_and_unmerged_alongside_eligible(
         ("content/\n", Path("content/private-corpus.json")),
         (".env\n", Path(".env")),
         ("out/\n", Path("out/.env")),
+        ("out/\n", Path("out/content/private-corpus.json")),
+        ("out/\n", Path("out/.ssh/config")),
+        ("out/\n", Path("out/.envrc")),
+        ("out/\n", Path("out/cache/nested/private/gold.json")),
+        ("out/\n", Path("out/cache/corpus.bin")),
+        ("out/\n", Path("out/cache/held_out/eval.json")),
+        ("out/\n", Path("out/cache/credentials/service.json")),
         ("out/\n", Path("out/api-token.txt")),
+        ("out/\n", Path("out/cache/private-key.pem")),
+        ("out/\n", Path("out/cache/service_api_key")),
     ],
 )
 def test_prune_preserves_ignored_private_data_and_branch(
@@ -772,7 +927,7 @@ def test_prune_rechecks_ignored_private_data_immediately_before_removal(
     with pytest.raises(module.LifecycleError, match="ignored private data"):
         module.prune_worktrees(repo, apply=True)
 
-    assert process_checks == 2
+    assert process_checks >= 2
     assert candidate_path.exists()
     assert (candidate_path / "content" / "late-private.json").exists()
     assert git(repo, "show-ref", "--verify", "refs/heads/candidate").returncode == 0
@@ -837,6 +992,28 @@ def test_prune_detects_ref_movement_before_worktree_removal(
 
     assert candidate_path.exists()
     assert git(repo, "rev-parse", "refs/heads/candidate").stdout.strip() == previous_oid
+
+
+def test_prune_refuses_symbolic_branch_ref_and_preserves_referent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    candidate = add_worktree(repo, tmp_path / "candidate", "candidate")
+    git(repo, "symbolic-ref", "refs/heads/candidate", "refs/heads/main")
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    assert main(["prune", "--apply"]) == 0
+
+    assert "symbolic" in capsys.readouterr().out
+    assert candidate.exists()
+    assert (
+        git(repo, "symbolic-ref", "refs/heads/candidate").stdout.strip()
+        == "refs/heads/main"
+    )
+    assert git(repo, "show-ref", "--verify", "refs/heads/main").returncode == 0
 
 
 def test_prune_compare_delete_preserves_ref_moved_after_worktree_removal(
@@ -990,6 +1167,23 @@ def test_trim_runs_primary_cleaner_in_selected_worktree(
     ]
 
 
+def test_cwd_inspection_fails_closed_when_lsof_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], returncode=1, stdout="", stderr="permission denied"
+        ),
+    )
+
+    inspect_cwds = getattr(module, "_process_cwds", lambda: {})
+    with pytest.raises(module.LifecycleError, match="cwd inspection"):
+        inspect_cwds()
+
+
 def test_trim_refuses_running_worktree(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -999,6 +1193,60 @@ def test_trim_refuses_running_worktree(
 
     with pytest.raises(module.LifecycleError, match="running"):
         module.trim_worktrees([worktree])
+
+
+def test_trim_refuses_existing_worktree_operation_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    tools = repo / "tools"
+    tools.mkdir()
+    cleaner = tools / "clean"
+    cleaner.write_text("#!/bin/sh\nrm -f out/disposable\n", encoding="utf8")
+    cleaner.chmod(0o755)
+    git(repo, "add", "tools/clean")
+    git(repo, "commit", "-m", "add cleaner")
+    candidate = add_worktree(repo, tmp_path / "candidate", "candidate")
+    disposable = candidate / "out" / "disposable"
+    disposable.parent.mkdir()
+    disposable.write_text("build", encoding="utf8")
+    lock = worktree_operation_lock_path(repo, candidate)
+    lock.mkdir()
+    (lock / "owner").write_text("prune pid=999999 token=owner\n", encoding="utf8")
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    assert main(["trim", "candidate"]) == 2
+
+    assert disposable.exists()
+    assert lock.exists()
+
+
+def test_trim_refuses_relative_process_with_worktree_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    tools = repo / "tools"
+    tools.mkdir()
+    cleaner = tools / "clean"
+    cleaner.write_text("#!/bin/sh\nrm -f out/disposable\n", encoding="utf8")
+    cleaner.chmod(0o755)
+    git(repo, "add", "tools/clean")
+    git(repo, "commit", "-m", "add cleaner")
+    candidate = add_worktree(repo, tmp_path / "candidate", "candidate")
+    disposable = candidate / "out" / "disposable"
+    disposable.parent.mkdir()
+    disposable.write_text("build", encoding="utf8")
+    monkeypatch.chdir(repo)
+    process = subprocess.Popen(["sleep", "30"], cwd=candidate)
+    try:
+        assert main(["trim", "candidate"]) == 2
+        assert disposable.exists()
+    finally:
+        process.terminate()
+        process.wait(timeout=5)
 
 
 def test_trim_preflights_all_targets_before_cleaning_any(
@@ -1106,6 +1354,41 @@ def test_review_clean_refuses_active_sync_lock_and_preserves_review(
     assert git(repo, "show-ref", "--verify", "refs/heads/review").returncode == 0
 
 
+def test_python_lock_cleanup_preserves_reacquired_lock(tmp_path: Path) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    lock = repo / ".git" / "pgrep-review-operation.lock"
+
+    with module.review_operation_lock(repo, "review-clean"):
+        shutil.rmtree(lock)
+        lock.mkdir()
+        second_owner = lock / "owner"
+        second_record = "sync pid=999999 token=second-owner"
+        second_owner.write_text(second_record + "\n", encoding="utf8")
+
+    assert second_owner.read_text(encoding="utf8").strip() == second_record
+    assert lock.exists()
+
+
+def test_review_clean_refuses_existing_worktree_operation_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    review = repo / ".worktrees" / "review"
+    add_worktree(repo, review, "review")
+    lock = worktree_operation_lock_path(repo, review)
+    lock.mkdir()
+    (lock / "owner").write_text("prune pid=999999 token=owner\n", encoding="utf8")
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    assert main(["review-clean"]) == 2
+
+    assert review.exists()
+    assert lock.exists()
+    assert git(repo, "show-ref", "--verify", "refs/heads/review").returncode == 0
+
+
 def test_review_clean_preserves_ignored_private_content(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1128,6 +1411,27 @@ def test_review_clean_preserves_ignored_private_content(
     assert review_path.exists()
     assert private.exists()
     assert git(repo, "show-ref", "--verify", "refs/heads/review").returncode == 0
+
+
+def test_review_clean_refuses_symbolic_branch_ref_and_preserves_referent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    review = repo / ".worktrees" / "review"
+    add_worktree(repo, review, "review")
+    git(repo, "symbolic-ref", "refs/heads/review", "refs/heads/main")
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    assert main(["review-clean"]) == 2
+
+    assert review.exists()
+    assert (
+        git(repo, "symbolic-ref", "refs/heads/review").stdout.strip()
+        == "refs/heads/main"
+    )
+    assert git(repo, "show-ref", "--verify", "refs/heads/main").returncode == 0
 
 
 def test_review_clean_compare_delete_preserves_ref_moved_after_removal(

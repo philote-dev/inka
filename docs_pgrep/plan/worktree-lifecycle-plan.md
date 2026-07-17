@@ -9,11 +9,12 @@
 disposable build output, remove only clean merged worktrees, clean the disposable
 review checkout, and prevent review builds from exhausting the disk.
 
-**Architecture:** A stdlib-only Python CLI owns NUL-safe worktree discovery,
-eligibility, process checks, ignored-data classification, disk accounting,
-destructive preflight, and compare-and-delete ref handling. Thin `just` recipes
-expose that CLI. `pgrep-sync-review` delegates its free-space decision to the
-same CLI and shares an atomic operation lock with `review-clean`.
+**Architecture:** A stdlib-only Python CLI owns byte-preserving NUL-safe
+worktree discovery, command- and CWD-based process checks, ignored-data
+classification, per-worktree operation locks, destructive preflight, and
+compare-and-delete ref handling. Thin `just` recipes expose that CLI.
+`pgrep-sync-review` delegates its free-space decision to the same CLI and shares
+an atomic review operation lock with `review-clean`.
 
 **Tech Stack:** Python 3 stdlib, Git CLI, Bash, `just`, pytest.
 
@@ -34,10 +35,17 @@ same CLI and shares an atomic operation lock with `review-clean`.
 - Destructive commands deinitialize submodules without force, repeat dirty and
   running and ignored-data checks, revalidate the exact branch OID, and rely on
   non-forced `git worktree remove` as Git's final guard.
-- Branch refs are deleted only with compare-and-delete
-  `git update-ref -d <ref> <expected-oid>`.
+- Symbolic branch refs are never deletion candidates. Direct refs are deleted
+  only with compare-and-delete
+  `git update-ref --no-deref -d <ref> <expected-oid>`.
 - `review-sync` and `review-clean` share an atomic Git-common-directory lock.
-  An existing or stale lock fails closed with manual recovery guidance.
+  All trim/prune/review-clean mutations also hold a per-worktree lock from
+  destructive preflight through the final mutation. Unique ownership tokens
+  ensure cleanup cannot release a manually removed and reacquired lock. An
+  existing or stale lock fails closed with manual recovery guidance.
+- Destructive process checks combine command text with process CWD inspection
+  (`lsof` on macOS and `/proc/<pid>/cwd` on Linux) and fail closed when CWD
+  inspection is unavailable.
 - Warn below 30 GiB available; refuse a review build below 10 GiB.
 - Keep `out/node_modules`, `out/pyenv`, and `out/download` when trimming.
 - Use only stdlib modules so lifecycle commands work before a project build.
@@ -110,9 +118,13 @@ def review_disk_guard(available_bytes: int) -> tuple[int, str]:
 `status` prints one row per checkout with branch, clean/dirty, primary or
 merged/unmerged, stopped/running, total size, build size, and path. Process
 matching excludes the lifecycle process itself and attributes a command to the
-longest matching worktree path. Discovery uses
-`git worktree list --porcelain -z`, so whitespace, C-quoting-sensitive
-characters, and embedded newlines remain part of the original pathname.
+longest matching worktree path. Destructive checks additionally inspect each
+current-user process CWD with `lsof` on macOS or `/proc/<pid>/cwd` on Linux, so
+a relative command with no checkout path in `argv` still blocks mutation. They
+fail closed if CWD inspection is unavailable. Discovery captures
+`git worktree list --porcelain -z` as bytes and decodes paths with
+`os.fsdecode`, preserving whitespace, embedded newlines, C-quoting-sensitive
+characters, and non-UTF-8 Unix pathname bytes.
 
 - [x] **Step 4: Run focused tests and verify GREEN**
 
@@ -186,27 +198,40 @@ worktree as `cwd`. Before removal, `prune --apply` runs
 refuses, repeats dirty/running/ignored-data checks, revalidates the captured ref
 OID (and `main` ancestry for normal prune), and uses non-forced
 `git worktree remove` as Git's final race guard. After removal it deletes the
-branch with `git update-ref -d <ref> <expected-oid>`; if the ref moved, the
-worktree may already be gone but the moved branch survives and the command
-reports a safe partial result. `review-clean` applies the same sequence without
-the `main` ancestry requirement, while requiring both branch `review` and path
+branch with `git update-ref --no-deref -d <ref> <expected-oid>`; symbolic refs
+are refused during capture and revalidation. If a ref moved, the worktree may
+already be gone but the moved branch survives and the command reports a safe
+partial result. `review-clean` applies the same sequence without the `main`
+ancestry requirement, while requiring both branch `review` and path
 `<primary>/.worktrees/review`.
 
 Ignored files are enumerated individually with NUL-delimited
 `git ls-files --others --ignored --exclude-standard -z`. The allowlist covers
 only root `out/`; `.venv`, `node_modules`, `target`, `.svelte-kit`, `.yarn`,
 Python caches, coverage output, documented generated-doc trees, and compiler
-artifacts under paper directories. Any path under `content/` and any
-credential-like filename (including `.env*`) blocks removal even when nested
-inside an otherwise allowed output directory.
+artifacts under paper directories. Before applying that allowlist, every path
+component is denied if it names content, private data, corpora, gold/held-out
+sets, `.ssh`, `.env`/`.envrc`, credentials, secrets, tokens, or key material.
+These names block removal at any depth, including beneath root `out/`.
 
 `review-clean` acquires `<git-common-dir>/pgrep-review-operation.lock` before
 its fresh preflight and holds it through compare-and-delete ref removal.
 `pgrep-sync-review` uses the same atomic directory lock from before review
 branch/worktree creation through reset, clean, merge, lock refresh, and build.
-The owner operation and PID are recorded. Existing locks, including stale ones,
+Each trim, prune, and review-clean mutation also holds a path-hashed
+per-worktree lock under the Git common directory from destructive preflight
+through cleanup/ref deletion. Owner records include a unique token; cleanup
+removes only its token-specific, exactly matching record and removes the lock
+directory only when empty. A first owner therefore cannot release a lock that
+was manually removed and reacquired. Existing locks, including stale ones,
 fail closed; the error tells the user to verify no owner is active before
 manual lock removal.
+
+These locks serialize cooperating lifecycle and review tools, while CWD
+inspection blocks visible active local writers. No local CLI can make deletion
+atomic against an uncooperative external writer that ignores the locks and
+creates a file after the final check; Git's non-forced removal remains the last
+guard for that residual case.
 
 - [x] **Step 4: Run focused tests and verify GREEN**
 

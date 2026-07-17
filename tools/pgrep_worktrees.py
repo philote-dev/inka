@@ -6,12 +6,15 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
+import re
+import secrets
 import shlex
 import shutil
 import subprocess
 import sys
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Sequence
@@ -30,12 +33,12 @@ class LifecycleError(RuntimeError):
     """Raised when a requested worktree operation is unsafe."""
 
 
-def parse_worktree_porcelain(output: str) -> list[Worktree]:
+def parse_worktree_porcelain(output: bytes) -> list[Worktree]:
     """Parse NUL-delimited ``git worktree list --porcelain -z`` output."""
     worktrees: list[Worktree] = []
     path: Path | None = None
     branch: str | None = None
-    for field in output.split("\0"):
+    for field in output.split(b"\0"):
         if not field:
             if path is None:
                 continue
@@ -43,11 +46,11 @@ def parse_worktree_porcelain(output: str) -> list[Worktree]:
             path = None
             branch = None
             continue
-        key, _, value = field.partition(" ")
-        if key == "worktree":
-            path = Path(value)
-        elif key == "branch":
-            branch = value.removeprefix("refs/heads/")
+        key, _, value = field.partition(b" ")
+        if key == b"worktree":
+            path = Path(os.fsdecode(value))
+        elif key == b"branch":
+            branch = os.fsdecode(value).removeprefix("refs/heads/")
     return worktrees
 
 
@@ -62,8 +65,18 @@ def _git(
     )
 
 
+def _git_bytes(
+    repo: Path, *args: str, check: bool = True
+) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=check,
+        capture_output=True,
+    )
+
+
 def discover_worktrees(repo: Path) -> list[Worktree]:
-    result = _git(repo, "worktree", "list", "--porcelain", "-z")
+    result = _git_bytes(repo, "worktree", "list", "--porcelain", "-z")
     return parse_worktree_porcelain(result.stdout)
 
 
@@ -131,37 +144,47 @@ def _ignored_paths(worktree: Worktree) -> list[Path]:
     return [Path(record) for record in result.stdout.split("\0") if record]
 
 
+def _ignored_component_is_sensitive(part: str) -> bool:
+    sensitive_words = {
+        "content",
+        "corpus",
+        "credential",
+        "credentials",
+        "gold",
+        "heldout",
+        "key",
+        "private",
+        "secret",
+        "secrets",
+        "token",
+        "tokens",
+    }
+    word_list = re.findall(r"[a-z0-9]+", part)
+    words = set(word_list)
+    compact = "".join(word_list)
+    return (
+        part == ".ssh"
+        or part == ".envrc"
+        or part == ".env"
+        or part.startswith(".env.")
+        or part in {"id_dsa", "id_ecdsa", "id_ed25519", "id_rsa"}
+        or "heldout" in compact
+        or bool(sensitive_words.intersection(words))
+    )
+
+
 def _ignored_path_is_disposable(path: Path) -> bool:
     """Return true only for known rebuildable ignored output.
 
-    `content/` and credential-like names are denied before this allowlist so
-    private corpora, gold data, and secrets can never be treated as build
-    output, even if they appear under an otherwise disposable directory.
+    Sensitive components are denied before this allowlist so private corpora,
+    gold data, and secrets can never be treated as build output, even if they
+    appear under an otherwise disposable directory.
     """
     parts = path.parts
     if not parts:
         return False
     lowered = tuple(part.lower() for part in parts)
-    if lowered[0] == "content":
-        return False
-    if any(
-        part == ".env"
-        or part.startswith(".env.")
-        or any(
-            marker in part
-            for marker in (
-                "api-key",
-                "api_key",
-                "credential",
-                "private-key",
-                "private_key",
-                "secret",
-                "token",
-            )
-        )
-        or part in {"id_rsa", "id_ed25519"}
-        for part in lowered
-    ):
+    if any(_ignored_component_is_sensitive(part) for part in lowered):
         return False
 
     # These directories contain only generated dependencies, compiler output,
@@ -235,12 +258,31 @@ def branch_merged(repo: Path, branch: str) -> bool:
     return result.returncode == 0
 
 
+def _direct_head_branch(worktree: Worktree) -> str | None:
+    result = _git(
+        worktree.path,
+        "symbolic-ref",
+        "--no-recurse",
+        "-q",
+        "HEAD",
+        check=False,
+    )
+    if result.returncode:
+        return None
+    return result.stdout.strip().removeprefix("refs/heads/")
+
+
 def _branch_ref(branch: str) -> str:
     return f"refs/heads/{branch}"
 
 
 def _read_ref_oid(repo: Path, ref: str) -> str | None:
     result = _git(repo, "rev-parse", "--verify", ref, check=False)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def _symbolic_ref_target(repo: Path, ref: str) -> str | None:
+    result = _git(repo, "symbolic-ref", "-q", ref, check=False)
     return result.stdout.strip() if result.returncode == 0 else None
 
 
@@ -258,19 +300,74 @@ def _oid_merged_to_main(repo: Path, oid: str) -> bool:
     )
 
 
+@dataclass(frozen=True)
+class RefSnapshot:
+    branch: str
+    ref: str
+    oid: str
+    require_main: bool
+
+    @classmethod
+    def capture(
+        cls,
+        repo: Path,
+        branch: str,
+        *,
+        require_main: bool,
+    ) -> RefSnapshot:
+        ref = _branch_ref(branch)
+        if target := _symbolic_ref_target(repo, ref):
+            raise LifecycleError(
+                f"refusing symbolic branch ref before removal: {ref} -> {target}"
+            )
+        oid = _read_ref_oid(repo, ref)
+        if oid is None:
+            raise LifecycleError(f"branch moved or disappeared before removal: {ref}")
+        if require_main and not _oid_merged_to_main(repo, oid):
+            raise LifecycleError(f"branch moved or is no longer merged to main: {ref}")
+        return cls(branch, ref, oid, require_main)
+
+    def revalidate(self, repo: Path) -> None:
+        if target := _symbolic_ref_target(repo, self.ref):
+            raise LifecycleError(
+                f"branch became symbolic before worktree removal: "
+                f"{self.ref} -> {target}"
+            )
+        current_oid = _read_ref_oid(repo, self.ref)
+        if current_oid != self.oid:
+            raise LifecycleError(
+                f"branch moved before worktree removal: {self.ref} expected "
+                f"{self.oid}, found {current_oid or '(missing)'}"
+            )
+        if self.require_main and not _oid_merged_to_main(repo, self.oid):
+            raise LifecycleError(f"branch is no longer merged to main: {self.ref}")
+
+    def delete(self, repo: Path) -> None:
+        result = _git(
+            repo,
+            "update-ref",
+            "--no-deref",
+            "-d",
+            self.ref,
+            self.oid,
+            check=False,
+        )
+        if result.returncode:
+            current_oid = _read_ref_oid(repo, self.ref)
+            raise LifecycleError(
+                f"worktree removed but branch preserved because it moved: "
+                f"{self.ref} expected {self.oid}, "
+                f"found {current_oid or '(missing)'}"
+            )
+
+
 def _capture_validated_ref_oid(
     repo: Path,
     branch: str,
     *,
     require_main: bool,
 ) -> str:
-    ref = _branch_ref(branch)
-    oid = _read_ref_oid(repo, ref)
-    if oid is None:
-        raise LifecycleError(f"branch moved or disappeared before removal: {ref}")
-    if require_main and not _oid_merged_to_main(repo, oid):
-        raise LifecycleError(f"branch moved or is no longer merged to main: {ref}")
-    return oid
+    return RefSnapshot.capture(repo, branch, require_main=require_main).oid
 
 
 def _revalidate_ref_oid(
@@ -280,15 +377,12 @@ def _revalidate_ref_oid(
     *,
     require_main: bool,
 ) -> None:
-    ref = _branch_ref(branch)
-    current_oid = _read_ref_oid(repo, ref)
-    if current_oid != expected_oid:
-        raise LifecycleError(
-            f"branch moved before worktree removal: {ref} expected "
-            f"{expected_oid}, found {current_oid or '(missing)'}"
-        )
-    if require_main and not _oid_merged_to_main(repo, expected_oid):
-        raise LifecycleError(f"branch is no longer merged to main: {ref}")
+    RefSnapshot(
+        branch=branch,
+        ref=_branch_ref(branch),
+        oid=expected_oid,
+        require_main=require_main,
+    ).revalidate(repo)
 
 
 def _delete_branch_ref(
@@ -296,21 +390,12 @@ def _delete_branch_ref(
     branch: str,
     expected_oid: str,
 ) -> None:
-    ref = _branch_ref(branch)
-    result = _git(
-        repo,
-        "update-ref",
-        "-d",
-        ref,
-        expected_oid,
-        check=False,
-    )
-    if result.returncode:
-        current_oid = _read_ref_oid(repo, ref)
-        raise LifecycleError(
-            f"worktree removed but branch preserved because it moved: {ref} "
-            f"expected {expected_oid}, found {current_oid or '(missing)'}"
-        )
+    RefSnapshot(
+        branch=branch,
+        ref=_branch_ref(branch),
+        oid=expected_oid,
+        require_main=False,
+    ).delete(repo)
 
 
 def process_table() -> list[tuple[int, str]]:
@@ -384,9 +469,105 @@ def attribute_processes(
     return attributed
 
 
+def _process_cwds() -> list[tuple[int, Path]]:
+    """Return current-user process CWDs, or fail if inspection is unavailable."""
+    own_pid = os.getpid()
+    if sys.platform == "darwin":
+        try:
+            result = subprocess.run(
+                ["lsof", "-a", "-d", "cwd", "-F0pn", "-u", str(os.getuid())],
+                check=False,
+                capture_output=True,
+            )
+        except OSError as error:
+            raise LifecycleError(
+                f"process cwd inspection unavailable: {error}"
+            ) from error
+        if result.returncode:
+            detail = os.fsdecode(result.stderr).strip() or f"exit {result.returncode}"
+            raise LifecycleError(f"process cwd inspection failed: lsof {detail}")
+
+        cwd_by_pid: list[tuple[int, Path]] = []
+        pid: int | None = None
+        for raw_field in result.stdout.split(b"\0"):
+            field = raw_field.lstrip(b"\n")
+            if field.startswith(b"p") and field[1:].isdigit():
+                pid = int(field[1:])
+            elif field.startswith(b"n") and pid is not None and pid != own_pid:
+                cwd_by_pid.append((pid, Path(os.fsdecode(field[1:]))))
+        return cwd_by_pid
+
+    if sys.platform.startswith("linux"):
+        proc = Path("/proc")
+        if not proc.is_dir():
+            raise LifecycleError("process cwd inspection unavailable: /proc missing")
+        cwd_by_pid = []
+        uid = os.getuid()
+        try:
+            entries = list(proc.iterdir())
+        except OSError as error:
+            raise LifecycleError(
+                f"process cwd inspection unavailable: {error}"
+            ) from error
+        for entry in entries:
+            if not entry.name.isdigit():
+                continue
+            pid = int(entry.name)
+            if pid == own_pid:
+                continue
+            try:
+                if entry.stat().st_uid != uid:
+                    continue
+                cwd = Path(os.readlink(entry / "cwd"))
+            except FileNotFoundError:
+                # Processes can exit, and kernel threads have no cwd.
+                continue
+            except OSError as error:
+                raise LifecycleError(
+                    f"process cwd inspection failed for PID {pid}: {error}"
+                ) from error
+            cwd_by_pid.append((pid, cwd))
+        return cwd_by_pid
+
+    raise LifecycleError(
+        f"process cwd inspection unavailable on platform {sys.platform}"
+    )
+
+
+def attribute_process_cwds(
+    worktrees: Sequence[Worktree],
+    cwd_processes: Sequence[tuple[int, Path]],
+    *,
+    own_pid: int | None = None,
+) -> dict[Worktree, list[tuple[int, str]]]:
+    """Assign CWDs to the longest containing worktree path."""
+    own_pid = os.getpid() if own_pid is None else own_pid
+    attributed: dict[Worktree, list[tuple[int, str]]] = {
+        worktree: [] for worktree in worktrees
+    }
+    longest_first = sorted(
+        worktrees,
+        key=lambda worktree: len(os.fsencode(worktree.path)),
+        reverse=True,
+    )
+    for pid, cwd in cwd_processes:
+        if pid == own_pid:
+            continue
+        normalized_cwd = _normalized_absolute_path(cwd)
+        for worktree in longest_first:
+            target = _normalized_absolute_path(worktree.path)
+            if normalized_cwd == target or normalized_cwd.is_relative_to(target):
+                attributed[worktree].append((pid, f"cwd={cwd}"))
+                break
+    return attributed
+
+
 def running_processes(repo: Path, worktree: Worktree) -> list[tuple[int, str]]:
     worktrees = discover_worktrees(repo)
-    return attribute_processes(worktrees, process_table()).get(worktree, [])
+    commands = attribute_processes(worktrees, process_table()).get(worktree, [])
+    cwd_processes = attribute_process_cwds(worktrees, _process_cwds()).get(worktree, [])
+    seen = {pid for pid, _command in commands}
+    return commands + [process for process in cwd_processes if process[0] not in seen]
 
 
 def _primary_worktree(worktrees: Sequence[Worktree]) -> Worktree:
@@ -410,34 +591,101 @@ def review_operation_lock_path(repo: Path) -> Path:
     return _git_common_dir(repo) / REVIEW_OPERATION_LOCK
 
 
+def worktree_operation_lock_path(repo: Path, worktree: Path) -> Path:
+    normalized = _normalized_absolute_path(worktree)
+    digest = hashlib.sha256(os.fsencode(normalized)).hexdigest()
+    return _git_common_dir(repo) / f"pgrep-worktree-{digest}.lock"
+
+
+@dataclass(frozen=True)
+class LockOwnership:
+    lock_path: Path
+    token: str
+    owner_path: Path
+    owner_record: str
+
+    def release(self) -> None:
+        """Release only this exact token; never disturb a reacquired lock."""
+        try:
+            if self.owner_path.read_text(encoding="utf8") != self.owner_record:
+                return
+            self.owner_path.unlink()
+            self.lock_path.rmdir()
+        except OSError:
+            # A missing/reacquired/modified lock belongs to nobody we can safely
+            # identify. Leave it in place so future operations fail closed.
+            return
+
+
+def _existing_lock_detail(lock: Path) -> str:
+    try:
+        owners = sorted(
+            (
+                path
+                for path in lock.iterdir()
+                if path.name == "owner" or path.name.startswith("owner.")
+            ),
+            key=lambda path: path.name,
+        )
+    except OSError:
+        return "owner unknown"
+    for owner in owners:
+        try:
+            return owner.read_text(encoding="utf8").strip() or "owner unknown"
+        except OSError:
+            continue
+    return "owner unknown"
+
+
 @contextmanager
-def review_operation_lock(repo: Path, operation: str) -> Iterator[None]:
-    lock = review_operation_lock_path(repo)
-    owner = lock / "owner"
+def _operation_lock(
+    lock: Path, operation: str, purpose: str
+) -> Iterator[LockOwnership]:
     try:
         lock.mkdir()
     except FileExistsError as error:
-        try:
-            detail = owner.read_text(encoding="utf8").strip()
-        except OSError:
-            detail = "owner unknown"
+        detail = _existing_lock_detail(lock)
         raise LifecycleError(
-            f"active review operation lock at {lock} ({detail}); stop the owner, "
-            "or if the lock is stale, verify no review sync/clean is running "
+            f"active {purpose} lock at {lock} ({detail}); stop the owner, "
+            "or if the lock is stale, verify no lifecycle operation is running "
             "before removing the lock manually"
         ) from error
 
+    token = secrets.token_hex(16)
+    record = f"{operation} pid={os.getpid()} token={token}\n"
+    ownership = LockOwnership(
+        lock_path=lock,
+        token=token,
+        owner_path=lock / f"owner.{token}",
+        owner_record=record,
+    )
     try:
-        owner.write_text(f"{operation} pid={os.getpid()}\n", encoding="utf8")
-        yield
+        ownership.owner_path.write_text(record, encoding="utf8")
+        yield ownership
     finally:
-        try:
-            owner.unlink(missing_ok=True)
-            lock.rmdir()
-        except OSError:
-            # A leftover lock fails future operations closed. Do not recursively
-            # remove an unexpectedly modified lock directory.
-            pass
+        ownership.release()
+
+
+@contextmanager
+def review_operation_lock(repo: Path, operation: str) -> Iterator[LockOwnership]:
+    with _operation_lock(
+        review_operation_lock_path(repo), operation, "review operation"
+    ) as ownership:
+        yield ownership
+
+
+@contextmanager
+def worktree_operation_lock(
+    repo: Path,
+    worktree: Path,
+    operation: str,
+) -> Iterator[LockOwnership]:
+    with _operation_lock(
+        worktree_operation_lock_path(repo, worktree),
+        operation,
+        "worktree lifecycle operation",
+    ) as ownership:
+        yield ownership
 
 
 def _select_worktrees(
@@ -485,12 +733,26 @@ def trim_worktrees(worktrees: Sequence[Worktree]) -> None:
     cleaner = primary.path / "tools" / "clean"
     if not cleaner.is_file():
         raise LifecycleError(f"cleaner not found: {cleaner}")
-    for worktree in worktrees:
-        subprocess.run(
-            [str(cleaner), "keep-env"],
-            cwd=worktree.path,
-            check=True,
-        )
+    with ExitStack() as locks:
+        for worktree in sorted(worktrees, key=lambda item: os.fsencode(item.path)):
+            locks.enter_context(
+                worktree_operation_lock(primary.path, worktree.path, "trim")
+            )
+
+        # Repeat after all target locks are held, preserving all-or-none trim.
+        for worktree in worktrees:
+            if processes := running_processes(primary.path, worktree):
+                pid_list = ", ".join(str(pid) for pid, _command in processes)
+                raise LifecycleError(
+                    f"{worktree.path} has running processes after lock acquisition "
+                    f"(PIDs {pid_list})"
+                )
+        for worktree in worktrees:
+            subprocess.run(
+                [str(cleaner), "keep-env"],
+                cwd=worktree.path,
+                check=True,
+            )
 
 
 def prune_eligibility(repo: Path, worktree: Worktree) -> tuple[bool, str]:
@@ -508,19 +770,43 @@ def prune_eligibility(repo: Path, worktree: Worktree) -> tuple[bool, str]:
         return False, "unmerged"
     if reason := _ignored_private_reason(worktree):
         return False, reason
+    direct_branch = _direct_head_branch(worktree)
+    if direct_branch != worktree.branch:
+        return (
+            False,
+            f"symbolic branch chain ({direct_branch or '(detached)'} resolves "
+            f"as {worktree.branch})",
+        )
     return True, "eligible"
 
 
+@dataclass(frozen=True)
+class RemovalPreflight:
+    primary: Worktree
+    worktree: Worktree
+    ref_snapshot: RefSnapshot
+
+    def check(self) -> None:
+        """Repeat every mutable deletion guard while its operation lock is held."""
+        self.ref_snapshot.revalidate(self.primary.path)
+        if is_dirty(self.worktree):
+            raise LifecycleError(f"{self.worktree.path} became dirty before removal")
+        if processes := running_processes(self.primary.path, self.worktree):
+            pid_list = ", ".join(str(pid) for pid, _command in processes)
+            raise LifecycleError(
+                f"{self.worktree.path} has running processes before removal "
+                f"(PIDs {pid_list})"
+            )
+        if reason := _ignored_private_reason(self.worktree):
+            raise LifecycleError(f"{self.worktree.path} has {reason} before removal")
+
+
 def _remove_worktree(
-    primary: Worktree,
-    worktree: Worktree,
-    expected_oid: str,
-    *,
-    require_main: bool,
+    preflight: RemovalPreflight,
 ) -> None:
     """Safely remove a worktree after a final state check."""
     deinit = _git(
-        worktree.path,
+        preflight.worktree.path,
         "submodule",
         "deinit",
         "--all",
@@ -528,32 +814,24 @@ def _remove_worktree(
     )
     if deinit.returncode:
         detail = deinit.stderr.strip() or "git submodule deinit refused"
-        raise LifecycleError(f"{worktree.path} submodule deinit failed: {detail}")
-
-    if is_dirty(worktree):
-        raise LifecycleError(f"{worktree.path} became dirty before removal")
-    if processes := running_processes(primary.path, worktree):
-        pid_list = ", ".join(str(pid) for pid, _command in processes)
         raise LifecycleError(
-            f"{worktree.path} has running processes before removal (PIDs {pid_list})"
+            f"{preflight.worktree.path} submodule deinit failed: {detail}"
         )
-    if reason := _ignored_private_reason(worktree):
-        raise LifecycleError(f"{worktree.path} has {reason} before removal")
 
-    assert worktree.branch is not None
-    _revalidate_ref_oid(
-        primary.path,
-        worktree.branch,
-        expected_oid,
-        require_main=require_main,
-    )
-
+    # This check is intentionally adjacent to Git's non-forced removal. The
+    # operation lock has been held since the earlier destructive preflight.
+    preflight.check()
     try:
-        _git(primary.path, "worktree", "remove", str(worktree.path))
+        _git(
+            preflight.primary.path,
+            "worktree",
+            "remove",
+            str(preflight.worktree.path),
+        )
     except subprocess.CalledProcessError as error:
         detail = error.stderr.strip() if error.stderr else str(error)
         raise LifecycleError(
-            f"git refused to remove {worktree.path}: {detail}"
+            f"git refused to remove {preflight.worktree.path}: {detail}"
         ) from error
 
 
@@ -570,14 +848,14 @@ def prune_worktrees(
         (worktree, *prune_eligibility(primary.path, worktree))
         for worktree in discovered
     ]
-    expected_oids: dict[Worktree, str] = {}
+    snapshots: dict[Worktree, RefSnapshot] = {}
     if apply:
         validated_results: list[tuple[Worktree, bool, str]] = []
         for worktree, eligible, reason in results:
             if eligible:
                 assert worktree.branch is not None
                 try:
-                    expected_oids[worktree] = _capture_validated_ref_oid(
+                    snapshots[worktree] = RefSnapshot.capture(
                         primary.path,
                         worktree.branch,
                         require_main=True,
@@ -594,19 +872,29 @@ def prune_worktrees(
     if not apply:
         return lines
 
-    for worktree, eligible, _reason in results:
-        if not eligible:
-            continue
-        assert worktree.branch is not None
-        expected_oid = expected_oids[worktree]
-        _remove_worktree(
-            primary,
-            worktree,
-            expected_oid,
-            require_main=True,
-        )
-        _delete_branch_ref(primary.path, worktree.branch, expected_oid)
-    _git(primary.path, "worktree", "prune")
+    removable = [worktree for worktree, eligible, _reason in results if eligible]
+    with ExitStack() as locks:
+        for worktree in sorted(removable, key=lambda item: os.fsencode(item.path)):
+            locks.enter_context(
+                worktree_operation_lock(primary.path, worktree.path, "prune")
+            )
+
+        preflights: list[RemovalPreflight] = []
+        for worktree in removable:
+            eligible, reason = prune_eligibility(primary.path, worktree)
+            if not eligible:
+                raise LifecycleError(
+                    f"{worktree.path} became unsafe after lock acquisition: {reason}"
+                )
+            snapshot = snapshots[worktree]
+            preflight = RemovalPreflight(primary, worktree, snapshot)
+            preflight.check()
+            preflights.append(preflight)
+
+        for preflight in preflights:
+            _remove_worktree(preflight)
+            preflight.ref_snapshot.delete(primary.path)
+        _git(primary.path, "worktree", "prune")
     return lines
 
 
@@ -624,47 +912,49 @@ def review_clean(
             if worktrees is not None
             else discover_worktrees(primary.path)
         )
+        primary = _primary_worktree(discovered)
+        expected_path = _normalized_absolute_path(
+            primary.path / ".worktrees" / "review"
+        )
         review = next(
+            (
+                worktree
+                for worktree in discovered
+                if _normalized_absolute_path(worktree.path) == expected_path
+            ),
+            None,
+        )
+        branch_review = next(
             (worktree for worktree in discovered if worktree.branch == "review"),
             None,
         )
         if review is None:
-            return "review: not found"
-        primary = _primary_worktree(discovered)
-        if review.primary:
-            raise LifecycleError("refusing to remove primary review checkout")
-        expected_path = _normalized_absolute_path(
-            primary.path / ".worktrees" / "review"
-        )
-        if _normalized_absolute_path(review.path) != expected_path:
+            if branch_review is None:
+                return "review: not found"
             raise LifecycleError(
                 f"refusing review checkout outside expected path {expected_path}: "
-                f"{review.path}"
+                f"{branch_review.path}"
             )
-        if is_dirty(review):
-            raise LifecycleError(f"{review.path} is dirty")
-        if processes := running_processes(primary.path, review):
-            pid_list = ", ".join(str(pid) for pid, _command in processes)
-            raise LifecycleError(
-                f"{review.path} has running processes (PIDs {pid_list})"
-            )
-        if reason := _ignored_private_reason(review):
-            raise LifecycleError(f"{review.path} has {reason}")
-        expected_oid = _capture_validated_ref_oid(
-            primary.path,
-            "review",
-            require_main=False,
-        )
+        if review.primary:
+            raise LifecycleError("refusing to remove primary review checkout")
 
-        _remove_worktree(
-            primary,
-            review,
-            expected_oid,
-            require_main=False,
-        )
-        _delete_branch_ref(primary.path, "review", expected_oid)
-        _git(primary.path, "worktree", "prune")
-        return f"review: removed {review.path}"
+        with worktree_operation_lock(primary.path, review.path, "review-clean"):
+            snapshot = RefSnapshot.capture(
+                primary.path,
+                "review",
+                require_main=False,
+            )
+            if review.branch != "review":
+                raise LifecycleError(
+                    f"refusing expected review path checked out on "
+                    f"{review.branch or '(detached)'}"
+                )
+            preflight = RemovalPreflight(primary, review, snapshot)
+            preflight.check()
+            _remove_worktree(preflight)
+            snapshot.delete(primary.path)
+            _git(primary.path, "worktree", "prune")
+            return f"review: removed {review.path}"
 
 
 def _format_size(size: int) -> str:
