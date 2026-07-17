@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright: Ankitects Pty Ltd and contributors
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
-"""Report pgrep worktree state and guard review builds from low disk space."""
+"""Inspect, trim, and safely remove pgrep worktrees."""
 
 from __future__ import annotations
 
@@ -21,6 +21,10 @@ class Worktree:
     path: Path
     branch: str | None
     primary: bool
+
+
+class LifecycleError(RuntimeError):
+    """Raised when a requested worktree operation is unsafe."""
 
 
 def parse_worktree_porcelain(output: str) -> list[Worktree]:
@@ -186,6 +190,138 @@ def running_processes(repo: Path, worktree: Worktree) -> list[tuple[int, str]]:
     return attribute_processes(worktrees, process_table()).get(worktree, [])
 
 
+def _primary_worktree(worktrees: Sequence[Worktree]) -> Worktree:
+    primary = next((worktree for worktree in worktrees if worktree.primary), None)
+    if primary is None:
+        raise LifecycleError("primary checkout not found")
+    return primary
+
+
+def _select_worktrees(
+    worktrees: Sequence[Worktree],
+    targets: Sequence[str],
+    *,
+    cwd: Path,
+) -> list[Worktree]:
+    selected: list[Worktree] = []
+    for target in targets:
+        target_path = Path(target)
+        if not target_path.is_absolute():
+            target_path = cwd / target_path
+        normalized_target = _normalized_absolute_path(target_path)
+        match = next(
+            (
+                worktree
+                for worktree in worktrees
+                if worktree.branch == target
+                or _normalized_absolute_path(worktree.path) == normalized_target
+            ),
+            None,
+        )
+        if match is None:
+            raise LifecycleError(f"unknown worktree branch or path: {target}")
+        if match not in selected:
+            selected.append(match)
+    return selected
+
+
+def trim_worktrees(worktrees: Sequence[Worktree]) -> None:
+    """Run the primary checkout's cleaner in selected stopped worktrees."""
+    if not worktrees:
+        return
+    repo = worktrees[0].path
+    for worktree in worktrees:
+        if processes := running_processes(repo, worktree):
+            pid_list = ", ".join(str(pid) for pid, _command in processes)
+            raise LifecycleError(
+                f"{worktree.path} has running processes (PIDs {pid_list})"
+            )
+
+    discovered = discover_worktrees(repo)
+    primary = _primary_worktree(discovered)
+    cleaner = primary.path / "tools" / "clean"
+    if not cleaner.is_file():
+        raise LifecycleError(f"cleaner not found: {cleaner}")
+    for worktree in worktrees:
+        subprocess.run(
+            [str(cleaner), "keep-env"],
+            cwd=worktree.path,
+            check=True,
+        )
+
+
+def prune_eligibility(repo: Path, worktree: Worktree) -> tuple[bool, str]:
+    if worktree.primary:
+        return False, "primary checkout"
+    if worktree.branch is None:
+        return False, "detached"
+    if is_dirty(worktree):
+        return False, "dirty"
+    if running_processes(repo, worktree):
+        return False, "running"
+    if not branch_merged(repo, worktree.branch):
+        return False, "unmerged"
+    return True, "eligible"
+
+
+def prune_worktrees(
+    repo: Path,
+    *,
+    apply: bool = False,
+    worktrees: Sequence[Worktree] | None = None,
+) -> list[str]:
+    """Report removable worktrees and optionally remove eligible ones."""
+    discovered = list(worktrees) if worktrees is not None else discover_worktrees(repo)
+    primary = _primary_worktree(discovered)
+    results = [
+        (worktree, *prune_eligibility(primary.path, worktree))
+        for worktree in discovered
+    ]
+    lines = [
+        f"{worktree.branch or '(detached)'}: {reason} {worktree.path}"
+        for worktree, _eligible, reason in results
+    ]
+    if not apply:
+        return lines
+
+    for worktree, eligible, _reason in results:
+        if not eligible:
+            continue
+        assert worktree.branch is not None
+        _git(primary.path, "worktree", "remove", "--force", str(worktree.path))
+        _git(primary.path, "branch", "-d", worktree.branch)
+    _git(primary.path, "worktree", "prune")
+    return lines
+
+
+def review_clean(
+    repo: Path,
+    *,
+    worktrees: Sequence[Worktree] | None = None,
+) -> str:
+    """Remove the disposable review worktree without requiring a merge."""
+    discovered = list(worktrees) if worktrees is not None else discover_worktrees(repo)
+    review = next(
+        (worktree for worktree in discovered if worktree.branch == "review"),
+        None,
+    )
+    if review is None:
+        return "review: not found"
+    primary = _primary_worktree(discovered)
+    if review.primary:
+        raise LifecycleError("refusing to remove primary review checkout")
+    if is_dirty(review):
+        raise LifecycleError(f"{review.path} is dirty")
+    if processes := running_processes(repo, review):
+        pid_list = ", ".join(str(pid) for pid, _command in processes)
+        raise LifecycleError(f"{review.path} has running processes (PIDs {pid_list})")
+
+    _git(primary.path, "worktree", "remove", "--force", str(review.path))
+    _git(primary.path, "branch", "-D", "review")
+    _git(primary.path, "worktree", "prune")
+    return f"review: removed {review.path}"
+
+
 def _format_size(size: int) -> str:
     units = ("B", "KiB", "MiB", "GiB", "TiB")
     amount = float(size)
@@ -244,6 +380,15 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status", help="report registered worktree state")
+    trim = commands.add_parser("trim", help="clean selected stopped worktrees")
+    trim.add_argument("targets", nargs="+", metavar="BRANCH_OR_PATH")
+    prune = commands.add_parser("prune", help="report safely removable worktrees")
+    prune.add_argument(
+        "--apply",
+        action="store_true",
+        help="remove eligible worktrees (default: dry run)",
+    )
+    commands.add_parser("review-clean", help="remove the disposable review worktree")
     commands.add_parser(
         "review-disk-guard", help="warn or refuse review builds when disk is low"
     )
@@ -253,10 +398,28 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     repo = Path.cwd()
-    if args.command == "status":
-        for line in status_lines(repo):
-            print(line)
-        return 0
+    try:
+        if args.command == "status":
+            for line in status_lines(repo):
+                print(line)
+            return 0
+        if args.command == "trim":
+            worktrees = discover_worktrees(repo)
+            selected = _select_worktrees(worktrees, args.targets, cwd=repo)
+            trim_worktrees(selected)
+            for worktree in selected:
+                print(f"trimmed {worktree.branch or '(detached)'} {worktree.path}")
+            return 0
+        if args.command == "prune":
+            for line in prune_worktrees(repo, apply=args.apply):
+                print(line)
+            return 0
+        if args.command == "review-clean":
+            print(review_clean(repo))
+            return 0
+    except LifecycleError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
 
     code, message = review_disk_guard(_available_bytes(repo))
     if message:

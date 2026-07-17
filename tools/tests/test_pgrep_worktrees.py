@@ -40,7 +40,16 @@ detached
 
 def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["git", "-C", str(repo), *args],
+        [
+            "git",
+            "-c",
+            "user.name=Lifecycle Test",
+            "-c",
+            "user.email=lifecycle@example.invalid",
+            "-C",
+            str(repo),
+            *args,
+        ],
         check=True,
         capture_output=True,
         text=True,
@@ -50,11 +59,15 @@ def git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
 def committed_repo(path: Path) -> Path:
     path.mkdir()
     git(path, "init", "-b", "main")
-    git(path, "config", "user.name", "Lifecycle Test")
-    git(path, "config", "user.email", "lifecycle@example.invalid")
     (path / "tracked.txt").write_text("base", encoding="utf8")
     git(path, "add", "tracked.txt")
     git(path, "commit", "-m", "base")
+    return path
+
+
+def add_worktree(repo: Path, path: Path, branch: str) -> Path:
+    git(repo, "branch", branch)
+    git(repo, "worktree", "add", str(path), branch)
     return path
 
 
@@ -214,6 +227,226 @@ def test_disk_guard_cli_uses_available_bytes_override(
 
     assert main(["review-disk-guard"]) == 2
     assert "REFUSING REVIEW BUILD" in capsys.readouterr().err
+
+
+def test_prune_defaults_to_dry_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    worktree = add_worktree(repo, tmp_path / "merged", "merged")
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    assert main(["prune"]) == 0
+
+    assert "eligible" in capsys.readouterr().out
+    assert worktree.exists()
+    assert git(repo, "show-ref", "--verify", "refs/heads/merged").returncode == 0
+
+
+def test_prune_apply_removes_only_clean_merged_worktree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    worktree = add_worktree(repo, tmp_path / "merged", "merged")
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    assert main(["prune", "--apply"]) == 0
+
+    assert not worktree.exists()
+    branch = subprocess.run(
+        ["git", "-C", str(repo), "show-ref", "--verify", "refs/heads/merged"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert branch.returncode != 0
+
+
+def test_prune_compares_merges_to_primary_when_run_from_secondary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    caller = add_worktree(repo, tmp_path / "caller", "caller")
+    (caller / "caller.txt").write_text("caller", encoding="utf8")
+    git(caller, "add", "caller.txt")
+    git(caller, "commit", "-m", "caller advance")
+    (repo / "main.txt").write_text("main", encoding="utf8")
+    git(repo, "add", "main.txt")
+    git(repo, "commit", "-m", "main advance")
+    candidate = add_worktree(repo, tmp_path / "candidate", "candidate")
+    monkeypatch.chdir(caller)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    assert main(["prune", "--apply"]) == 0
+
+    assert not candidate.exists()
+    assert caller.exists()
+
+
+@pytest.mark.parametrize(
+    ("worktree", "dirty", "running", "merged", "reason"),
+    [
+        (Worktree(Path("/repo"), "main", True), False, False, True, "primary"),
+        (
+            Worktree(Path("/repo/detached"), None, False),
+            False,
+            False,
+            True,
+            "detached",
+        ),
+        (
+            Worktree(Path("/repo/dirty"), "dirty", False),
+            True,
+            False,
+            True,
+            "dirty",
+        ),
+        (
+            Worktree(Path("/repo/running"), "running", False),
+            False,
+            True,
+            True,
+            "running",
+        ),
+        (
+            Worktree(Path("/repo/unmerged"), "unmerged", False),
+            False,
+            False,
+            False,
+            "unmerged",
+        ),
+    ],
+)
+def test_prune_eligibility_rejects_unsafe_worktrees(
+    worktree: Worktree,
+    dirty: bool,
+    running: bool,
+    merged: bool,
+    reason: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(module, "is_dirty", lambda _worktree: dirty)
+    monkeypatch.setattr(
+        module,
+        "running_processes",
+        lambda _repo, _worktree: [(123, "app")] if running else [],
+    )
+    monkeypatch.setattr(module, "branch_merged", lambda _repo, _branch: merged)
+
+    eligible, actual_reason = module.prune_eligibility(Path("/repo"), worktree)
+
+    assert eligible is False
+    assert reason in actual_reason
+
+
+def test_trim_runs_primary_cleaner_in_selected_worktree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    tools = repo / "tools"
+    tools.mkdir()
+    cleaner = tools / "clean"
+    cleaner.write_text(
+        "#!/bin/sh\n"
+        'printf "%s\\n" "$PWD" > "$PGREP_TEST_LOG"\n'
+        'printf "%s\\n" "$@" >> "$PGREP_TEST_LOG"\n',
+        encoding="utf8",
+    )
+    cleaner.chmod(0o755)
+    git(repo, "add", "tools/clean")
+    git(repo, "commit", "-m", "add cleaner")
+    worktree = add_worktree(repo, tmp_path / "feature", "feature")
+    log = tmp_path / "clean.log"
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("PGREP_TEST_LOG", str(log))
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    assert main(["trim", "feature"]) == 0
+
+    assert log.read_text(encoding="utf8").splitlines() == [
+        str(worktree),
+        "keep-env",
+    ]
+
+
+def test_trim_refuses_running_worktree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = Worktree(tmp_path, "feature", False)
+    monkeypatch.setattr(module, "running_processes", lambda *_args: [(123, "app")])
+
+    with pytest.raises(module.LifecycleError, match="running"):
+        module.trim_worktrees([worktree])
+
+
+def test_review_clean_removes_clean_unmerged_review_branch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    git(repo, "switch", "-c", "review")
+    (repo / "review.txt").write_text("review", encoding="utf8")
+    git(repo, "add", "review.txt")
+    git(repo, "commit", "-m", "review")
+    git(repo, "switch", "main")
+    worktree = tmp_path / "review"
+    git(repo, "worktree", "add", str(worktree), "review")
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    assert main(["review-clean"]) == 0
+
+    assert not worktree.exists()
+    branch = subprocess.run(
+        ["git", "-C", str(repo), "show-ref", "--verify", "refs/heads/review"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert branch.returncode != 0
+
+
+@pytest.mark.parametrize("unsafe_state", ["dirty", "running"])
+def test_review_clean_refuses_unsafe_review_worktree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unsafe_state: str,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    worktree_path = add_worktree(repo, tmp_path / "review", "review")
+    worktree = Worktree(worktree_path, "review", False)
+    monkeypatch.setattr(module, "is_dirty", lambda _worktree: unsafe_state == "dirty")
+    monkeypatch.setattr(
+        module,
+        "running_processes",
+        lambda _repo, _worktree: ([(123, "app")] if unsafe_state == "running" else []),
+    )
+
+    with pytest.raises(module.LifecycleError, match=unsafe_state):
+        module.review_clean(repo, worktrees=[Worktree(repo, "main", True), worktree])
+
+    assert worktree_path.exists()
+
+
+def test_temporary_repo_helper_does_not_write_git_config(tmp_path: Path) -> None:
+    repo = committed_repo(tmp_path / "repo")
+
+    assert (
+        not (repo / ".git" / "config")
+        .read_text(encoding="utf8")
+        .count("Lifecycle Test")
+    )
+    assert "lifecycle@example.invalid" not in (repo / ".git" / "config").read_text(
+        encoding="utf8"
+    )
 
 
 def test_module_uses_only_stdlib_runtime_imports() -> None:
