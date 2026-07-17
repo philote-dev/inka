@@ -187,8 +187,12 @@ commands therefore separate source preservation from disposable build cleanup:
   tracked or untracked source files and refuses to trim a running checkout.
 - `worktree-prune` is a dry run unless passed `--apply`. It may remove only
   stopped worktrees whose source tree is clean and whose branch is fully merged
-  into `main`; applying it also deletes those merged local branches and runs
+  into `main`, and refuses ignored private data such as `content/`, corpora,
+  gold sets, or credentials. Applying it revalidates the exact branch OID,
+  removes the worktree without force, compare-deletes that same ref, and runs
   `git worktree prune`. The primary checkout is never eligible.
+- `worktree-prune` reports the `review` branch as ineligible and directs users
+  to the lock-protected `review-clean`.
 - `review-clean` explicitly removes only the stopped, clean `review` branch at
   the conventional normalized path `<primary>/.worktrees/review`, then deletes
   the local branch. A `review` checkout anywhere else is not considered
@@ -199,7 +203,14 @@ commands therefore separate source preservation from disposable build cleanup:
 checks available disk space and prints a prominent warning below 30 GiB with the
 exact `worktree-status`, `worktree-trim`, and `review-clean` commands. It refuses
 to start a new review build below 10 GiB so an automated loop cannot fill the
-disk, while leaving all source state untouched.
+disk, while leaving all source state untouched. Sync and `review-clean` share
+the atomic `<git-common-dir>/pgrep-review-operation.lock`, so reset/merge/build
+cannot overlap cleanup. An existing or stale lock fails closed and reports its
+owner plus manual recovery guidance.
+
+Worktree discovery is NUL-delimited, and shell commands derive the primary root
+from Git's absolute common directory, so whitespace and embedded newlines in
+checkout paths are not parsed as separators.
 
 The expected branch lifecycle is: create a normal branch or concurrency-driven
 worktree, develop and verify, merge to `main`, remove any worktree, delete the

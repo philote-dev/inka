@@ -14,15 +14,14 @@ set -euo pipefail
 # `just review-sync`) is invoked from a feature worktree. Otherwise
 # REVIEW_WT resolves under the worktree and `git worktree add review` fails
 # with "already used by worktree at …/.worktrees/review".
-ROOT_DIR="$(git rev-parse --show-toplevel)"
-while IFS= read -r line; do
-  case "$line" in
-    "worktree "*)
-      ROOT_DIR="${line#worktree }"
-      break
-      ;;
-  esac
-done < <(git -C "$ROOT_DIR" worktree list --porcelain)
+GIT_COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir)"
+case "$GIT_COMMON_DIR" in
+  */.git) ROOT_DIR="${GIT_COMMON_DIR%/.git}" ;;
+  *)
+    echo "ERROR: cannot derive primary checkout from Git common dir: $GIT_COMMON_DIR" >&2
+    exit 1
+    ;;
+esac
 cd "$ROOT_DIR"
 
 if "$ROOT_DIR/tools/pgrep_worktrees.py" review-disk-guard; then
@@ -34,6 +33,25 @@ else
   fi
   exit "$status"
 fi
+
+REVIEW_LOCK="$GIT_COMMON_DIR/pgrep-review-operation.lock"
+if ! mkdir "$REVIEW_LOCK" 2>/dev/null; then
+  owner="owner unknown"
+  if [ -r "$REVIEW_LOCK/owner" ]; then
+    owner="$(<"$REVIEW_LOCK/owner")"
+  fi
+  echo "ERROR: active review operation lock at $REVIEW_LOCK ($owner)." >&2
+  echo "Stop the owner, or if stale, verify no review sync/clean is running before removing the lock manually." >&2
+  exit 1
+fi
+printf 'sync pid=%s\n' "$$" > "$REVIEW_LOCK/owner"
+release_review_lock() {
+  rm -f "$REVIEW_LOCK/owner"
+  rmdir "$REVIEW_LOCK" 2>/dev/null || true
+}
+trap release_review_lock EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 REVIEW_WT="$ROOT_DIR/.worktrees/review"
 BASE="${PGREP_REVIEW_BASE:-main}"

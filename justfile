@@ -224,15 +224,14 @@ review-sync *branches:
     # Always call the primary checkout's script so this works when `just` is run
     # from a feature worktree (those would otherwise try to create a nested
     # .worktrees/review and fail with "already used by worktree").
-    root=""
-    while IFS= read -r line; do
-        case "$line" in
-            "worktree "*)
-                root="${line#worktree }"
-                break
-                ;;
-        esac
-    done < <(git worktree list --porcelain)
+    common_dir="$(git rev-parse --path-format=absolute --git-common-dir)"
+    case "$common_dir" in
+        */.git) root="${common_dir%/.git}" ;;
+        *)
+            echo "ERROR: cannot derive primary checkout from Git common dir: $common_dir" >&2
+            exit 1
+            ;;
+    esac
     interval="${PGREP_REVIEW_INTERVAL:-600}"
     while true; do
         if "$root/tools/pgrep-sync-review" "$@"; then

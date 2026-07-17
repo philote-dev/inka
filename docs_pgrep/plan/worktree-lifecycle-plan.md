@@ -9,10 +9,11 @@
 disposable build output, remove only clean merged worktrees, clean the disposable
 review checkout, and prevent review builds from exhausting the disk.
 
-**Architecture:** A stdlib-only Python CLI owns worktree discovery, eligibility,
-process checks, disk accounting, and destructive preflight. Thin `just` recipes
+**Architecture:** A stdlib-only Python CLI owns NUL-safe worktree discovery,
+eligibility, process checks, ignored-data classification, disk accounting,
+destructive preflight, and compare-and-delete ref handling. Thin `just` recipes
 expose that CLI. `pgrep-sync-review` delegates its free-space decision to the
-same CLI before touching the disposable review checkout.
+same CLI and shares an atomic operation lock with `review-clean`.
 
 **Tech Stack:** Python 3 stdlib, Git CLI, Bash, `just`, pytest.
 
@@ -21,14 +22,22 @@ same CLI before touching the disposable review checkout.
 - Choose worktrees by concurrency, not by language.
 - Never edit or delete tracked or untracked source during trim.
 - Never prune a dirty, running, unmerged, detached, or primary checkout.
+- Never remove a checkout containing ignored private data. Ignored paths are
+  allowed only when every file is known disposable build/cache output.
 - Determine merge eligibility against `refs/heads/main`, regardless of the
   primary checkout's current branch.
 - `worktree-prune` is dry-run unless `--apply` is explicit.
+- `worktree-prune` never removes branch `review`; it routes users to the
+  lock-protected `review-clean`.
 - `review-clean` accepts only branch `review` at the normalized conventional
   path `<primary>/.worktrees/review`, and refuses a running or dirty checkout.
 - Destructive commands deinitialize submodules without force, repeat dirty and
-  running checks, and rely on non-forced `git worktree remove` as Git's final
-  guard.
+  running and ignored-data checks, revalidate the exact branch OID, and rely on
+  non-forced `git worktree remove` as Git's final guard.
+- Branch refs are deleted only with compare-and-delete
+  `git update-ref -d <ref> <expected-oid>`.
+- `review-sync` and `review-clean` share an atomic Git-common-directory lock.
+  An existing or stale lock fails closed with manual recovery guidance.
 - Warn below 30 GiB available; refuse a review build below 10 GiB.
 - Keep `out/node_modules`, `out/pyenv`, and `out/download` when trimming.
 - Use only stdlib modules so lifecycle commands work before a project build.
@@ -101,7 +110,9 @@ def review_disk_guard(available_bytes: int) -> tuple[int, str]:
 `status` prints one row per checkout with branch, clean/dirty, primary or
 merged/unmerged, stopped/running, total size, build size, and path. Process
 matching excludes the lifecycle process itself and attributes a command to the
-longest matching worktree path.
+longest matching worktree path. Discovery uses
+`git worktree list --porcelain -z`, so whitespace, C-quoting-sensitive
+characters, and embedded newlines remain part of the original pathname.
 
 - [x] **Step 4: Run focused tests and verify GREEN**
 
@@ -164,18 +175,38 @@ def prune_eligibility(repo: Path, wt: Worktree) -> tuple[bool, str]:
     # branch_merged compares to refs/heads/main, not HEAD.
     if not branch_merged(repo, wt.branch):
         return False, "unmerged"
+    if ignored_private_paths(wt):
+        return False, "ignored private data"
     return True, "eligible"
 ```
 
 `trim` invokes the primary checkout's `tools/clean keep-env` with the selected
 worktree as `cwd`. Before removal, `prune --apply` runs
 `git -C <worktree> submodule deinit --all` without force, aborts if that
-refuses, repeats the dirty/running checks, and uses non-forced
-`git worktree remove` as Git's final race guard. Only after removal does it run
-`git branch -d`, followed by `git worktree prune`. `review-clean` applies the
-same removal sequence but requires both branch `review` and the normalized
-path `<primary>/.worktrees/review`, then explicitly deletes the disposable
-branch with `git branch -D`.
+refuses, repeats dirty/running/ignored-data checks, revalidates the captured ref
+OID (and `main` ancestry for normal prune), and uses non-forced
+`git worktree remove` as Git's final race guard. After removal it deletes the
+branch with `git update-ref -d <ref> <expected-oid>`; if the ref moved, the
+worktree may already be gone but the moved branch survives and the command
+reports a safe partial result. `review-clean` applies the same sequence without
+the `main` ancestry requirement, while requiring both branch `review` and path
+`<primary>/.worktrees/review`.
+
+Ignored files are enumerated individually with NUL-delimited
+`git ls-files --others --ignored --exclude-standard -z`. The allowlist covers
+only root `out/`; `.venv`, `node_modules`, `target`, `.svelte-kit`, `.yarn`,
+Python caches, coverage output, documented generated-doc trees, and compiler
+artifacts under paper directories. Any path under `content/` and any
+credential-like filename (including `.env*`) blocks removal even when nested
+inside an otherwise allowed output directory.
+
+`review-clean` acquires `<git-common-dir>/pgrep-review-operation.lock` before
+its fresh preflight and holds it through compare-and-delete ref removal.
+`pgrep-sync-review` uses the same atomic directory lock from before review
+branch/worktree creation through reset, clean, merge, lock refresh, and build.
+The owner operation and PID are recorded. Existing locks, including stale ones,
+fail closed; the error tells the user to verify no owner is active before
+manual lock removal.
 
 - [x] **Step 4: Run focused tests and verify GREEN**
 
@@ -225,9 +256,10 @@ review-clean:
 ```
 
 `review-sync` also uses per-recipe `[positional-arguments]` and quoted `"$@"`.
-Primary worktree discovery removes the porcelain `worktree` prefix instead of
-splitting fields, so checkout paths and argument values containing spaces or
-shell metacharacters retain their original boundaries.
+Shell entry points derive the primary root from
+`git rev-parse --path-format=absolute --git-common-dir`, avoiding line or field
+splitting. Checkout paths and argument values containing spaces, shell
+metacharacters, or embedded newlines retain their original boundaries.
 
 - [x] **Step 3: Guard sync before review branch creation or reset**
 

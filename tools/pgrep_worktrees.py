@@ -11,9 +11,12 @@ import shlex
 import shutil
 import subprocess
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Iterator, Sequence
+
+REVIEW_OPERATION_LOCK = "pgrep-review-operation.lock"
 
 
 @dataclass(frozen=True)
@@ -28,19 +31,23 @@ class LifecycleError(RuntimeError):
 
 
 def parse_worktree_porcelain(output: str) -> list[Worktree]:
-    """Parse ``git worktree list --porcelain`` output."""
+    """Parse NUL-delimited ``git worktree list --porcelain -z`` output."""
     worktrees: list[Worktree] = []
-    for record in output.split("\n\n"):
-        path: Path | None = None
-        branch: str | None = None
-        for line in record.splitlines():
-            key, _, value = line.partition(" ")
-            if key == "worktree":
-                path = Path(value)
-            elif key == "branch":
-                branch = value.removeprefix("refs/heads/")
-        if path is not None:
+    path: Path | None = None
+    branch: str | None = None
+    for field in output.split("\0"):
+        if not field:
+            if path is None:
+                continue
             worktrees.append(Worktree(path=path, branch=branch, primary=not worktrees))
+            path = None
+            branch = None
+            continue
+        key, _, value = field.partition(" ")
+        if key == "worktree":
+            path = Path(value)
+        elif key == "branch":
+            branch = value.removeprefix("refs/heads/")
     return worktrees
 
 
@@ -56,7 +63,7 @@ def _git(
 
 
 def discover_worktrees(repo: Path) -> list[Worktree]:
-    result = _git(repo, "worktree", "list", "--porcelain")
+    result = _git(repo, "worktree", "list", "--porcelain", "-z")
     return parse_worktree_porcelain(result.stdout)
 
 
@@ -112,6 +119,110 @@ def is_dirty(worktree: Worktree) -> bool:
     return bool(_git(worktree.path, "status", "--porcelain").stdout)
 
 
+def _ignored_paths(worktree: Worktree) -> list[Path]:
+    result = _git(
+        worktree.path,
+        "ls-files",
+        "--others",
+        "--ignored",
+        "--exclude-standard",
+        "-z",
+    )
+    return [Path(record) for record in result.stdout.split("\0") if record]
+
+
+def _ignored_path_is_disposable(path: Path) -> bool:
+    """Return true only for known rebuildable ignored output.
+
+    `content/` and credential-like names are denied before this allowlist so
+    private corpora, gold data, and secrets can never be treated as build
+    output, even if they appear under an otherwise disposable directory.
+    """
+    parts = path.parts
+    if not parts:
+        return False
+    lowered = tuple(part.lower() for part in parts)
+    if lowered[0] == "content":
+        return False
+    if any(
+        part == ".env"
+        or part.startswith(".env.")
+        or any(
+            marker in part
+            for marker in (
+                "api-key",
+                "api_key",
+                "credential",
+                "private-key",
+                "private_key",
+                "secret",
+                "token",
+            )
+        )
+        or part in {"id_rsa", "id_ed25519"}
+        for part in lowered
+    ):
+        return False
+
+    # These directories contain only generated dependencies, compiler output,
+    # or tool caches. Everything else fails closed.
+    if lowered[0] == "out":
+        return True
+    disposable_directories = {
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".svelte-kit",
+        ".venv",
+        ".yarn",
+        "__pycache__",
+        "node_modules",
+        "target",
+    }
+    if any(part in disposable_directories for part in lowered):
+        return True
+    if lowered[0] in {".coverage", "coverage.xml", "htmlcov"}:
+        return True
+    if lowered[:2] in {
+        ("docs", "_build"),
+        ("docs", ".doctrees"),
+        ("docs_pgrep", "_build"),
+    }:
+        return True
+    paper_suffixes = {
+        ".aux",
+        ".bbl",
+        ".bcf",
+        ".blg",
+        ".fdb_latexmk",
+        ".fls",
+        ".run.xml",
+        ".synctex.gz",
+        ".toc",
+    }
+    return "paper" in lowered[:-1] and any(
+        path.name.endswith(suffix) for suffix in paper_suffixes
+    )
+
+
+def ignored_private_paths(worktree: Worktree) -> list[Path]:
+    return [
+        path
+        for path in _ignored_paths(worktree)
+        if not _ignored_path_is_disposable(path)
+    ]
+
+
+def _ignored_private_reason(worktree: Worktree) -> str | None:
+    blockers = ignored_private_paths(worktree)
+    if not blockers:
+        return None
+    displayed = ", ".join(str(path) for path in blockers[:3])
+    if len(blockers) > 3:
+        displayed += f", and {len(blockers) - 3} more"
+    return f"ignored private data ({displayed})"
+
+
 def branch_merged(repo: Path, branch: str) -> bool:
     result = _git(
         repo,
@@ -122,6 +233,84 @@ def branch_merged(repo: Path, branch: str) -> bool:
         check=False,
     )
     return result.returncode == 0
+
+
+def _branch_ref(branch: str) -> str:
+    return f"refs/heads/{branch}"
+
+
+def _read_ref_oid(repo: Path, ref: str) -> str | None:
+    result = _git(repo, "rev-parse", "--verify", ref, check=False)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def _oid_merged_to_main(repo: Path, oid: str) -> bool:
+    return (
+        _git(
+            repo,
+            "merge-base",
+            "--is-ancestor",
+            oid,
+            "refs/heads/main",
+            check=False,
+        ).returncode
+        == 0
+    )
+
+
+def _capture_validated_ref_oid(
+    repo: Path,
+    branch: str,
+    *,
+    require_main: bool,
+) -> str:
+    ref = _branch_ref(branch)
+    oid = _read_ref_oid(repo, ref)
+    if oid is None:
+        raise LifecycleError(f"branch moved or disappeared before removal: {ref}")
+    if require_main and not _oid_merged_to_main(repo, oid):
+        raise LifecycleError(f"branch moved or is no longer merged to main: {ref}")
+    return oid
+
+
+def _revalidate_ref_oid(
+    repo: Path,
+    branch: str,
+    expected_oid: str,
+    *,
+    require_main: bool,
+) -> None:
+    ref = _branch_ref(branch)
+    current_oid = _read_ref_oid(repo, ref)
+    if current_oid != expected_oid:
+        raise LifecycleError(
+            f"branch moved before worktree removal: {ref} expected "
+            f"{expected_oid}, found {current_oid or '(missing)'}"
+        )
+    if require_main and not _oid_merged_to_main(repo, expected_oid):
+        raise LifecycleError(f"branch is no longer merged to main: {ref}")
+
+
+def _delete_branch_ref(
+    repo: Path,
+    branch: str,
+    expected_oid: str,
+) -> None:
+    ref = _branch_ref(branch)
+    result = _git(
+        repo,
+        "update-ref",
+        "-d",
+        ref,
+        expected_oid,
+        check=False,
+    )
+    if result.returncode:
+        current_oid = _read_ref_oid(repo, ref)
+        raise LifecycleError(
+            f"worktree removed but branch preserved because it moved: {ref} "
+            f"expected {expected_oid}, found {current_oid or '(missing)'}"
+        )
 
 
 def process_table() -> list[tuple[int, str]]:
@@ -207,6 +396,50 @@ def _primary_worktree(worktrees: Sequence[Worktree]) -> Worktree:
     return primary
 
 
+def _git_common_dir(repo: Path) -> Path:
+    result = _git(
+        repo,
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+    )
+    return Path(result.stdout.removesuffix("\n"))
+
+
+def review_operation_lock_path(repo: Path) -> Path:
+    return _git_common_dir(repo) / REVIEW_OPERATION_LOCK
+
+
+@contextmanager
+def review_operation_lock(repo: Path, operation: str) -> Iterator[None]:
+    lock = review_operation_lock_path(repo)
+    owner = lock / "owner"
+    try:
+        lock.mkdir()
+    except FileExistsError as error:
+        try:
+            detail = owner.read_text(encoding="utf8").strip()
+        except OSError:
+            detail = "owner unknown"
+        raise LifecycleError(
+            f"active review operation lock at {lock} ({detail}); stop the owner, "
+            "or if the lock is stale, verify no review sync/clean is running "
+            "before removing the lock manually"
+        ) from error
+
+    try:
+        owner.write_text(f"{operation} pid={os.getpid()}\n", encoding="utf8")
+        yield
+    finally:
+        try:
+            owner.unlink(missing_ok=True)
+            lock.rmdir()
+        except OSError:
+            # A leftover lock fails future operations closed. Do not recursively
+            # remove an unexpectedly modified lock directory.
+            pass
+
+
 def _select_worktrees(
     worktrees: Sequence[Worktree],
     targets: Sequence[str],
@@ -265,16 +498,26 @@ def prune_eligibility(repo: Path, worktree: Worktree) -> tuple[bool, str]:
         return False, "primary checkout"
     if worktree.branch is None:
         return False, "detached"
+    if worktree.branch == "review":
+        return False, "use review-clean (operation lock required)"
     if is_dirty(worktree):
         return False, "dirty"
     if running_processes(repo, worktree):
         return False, "running"
     if not branch_merged(repo, worktree.branch):
         return False, "unmerged"
+    if reason := _ignored_private_reason(worktree):
+        return False, reason
     return True, "eligible"
 
 
-def _remove_worktree(primary: Worktree, worktree: Worktree) -> None:
+def _remove_worktree(
+    primary: Worktree,
+    worktree: Worktree,
+    expected_oid: str,
+    *,
+    require_main: bool,
+) -> None:
     """Safely remove a worktree after a final state check."""
     deinit = _git(
         worktree.path,
@@ -294,6 +537,16 @@ def _remove_worktree(primary: Worktree, worktree: Worktree) -> None:
         raise LifecycleError(
             f"{worktree.path} has running processes before removal (PIDs {pid_list})"
         )
+    if reason := _ignored_private_reason(worktree):
+        raise LifecycleError(f"{worktree.path} has {reason} before removal")
+
+    assert worktree.branch is not None
+    _revalidate_ref_oid(
+        primary.path,
+        worktree.branch,
+        expected_oid,
+        require_main=require_main,
+    )
 
     try:
         _git(primary.path, "worktree", "remove", str(worktree.path))
@@ -317,6 +570,23 @@ def prune_worktrees(
         (worktree, *prune_eligibility(primary.path, worktree))
         for worktree in discovered
     ]
+    expected_oids: dict[Worktree, str] = {}
+    if apply:
+        validated_results: list[tuple[Worktree, bool, str]] = []
+        for worktree, eligible, reason in results:
+            if eligible:
+                assert worktree.branch is not None
+                try:
+                    expected_oids[worktree] = _capture_validated_ref_oid(
+                        primary.path,
+                        worktree.branch,
+                        require_main=True,
+                    )
+                except LifecycleError as error:
+                    eligible = False
+                    reason = str(error)
+            validated_results.append((worktree, eligible, reason))
+        results = validated_results
     lines = [
         f"{worktree.branch or '(detached)'}: {reason} {worktree.path}"
         for worktree, _eligible, reason in results
@@ -328,8 +598,14 @@ def prune_worktrees(
         if not eligible:
             continue
         assert worktree.branch is not None
-        _remove_worktree(primary, worktree)
-        _git(primary.path, "branch", "-d", worktree.branch)
+        expected_oid = expected_oids[worktree]
+        _remove_worktree(
+            primary,
+            worktree,
+            expected_oid,
+            require_main=True,
+        )
+        _delete_branch_ref(primary.path, worktree.branch, expected_oid)
     _git(primary.path, "worktree", "prune")
     return lines
 
@@ -340,32 +616,55 @@ def review_clean(
     worktrees: Sequence[Worktree] | None = None,
 ) -> str:
     """Remove the disposable review worktree without requiring a merge."""
-    discovered = list(worktrees) if worktrees is not None else discover_worktrees(repo)
-    review = next(
-        (worktree for worktree in discovered if worktree.branch == "review"),
-        None,
-    )
-    if review is None:
-        return "review: not found"
-    primary = _primary_worktree(discovered)
-    if review.primary:
-        raise LifecycleError("refusing to remove primary review checkout")
-    expected_path = _normalized_absolute_path(primary.path / ".worktrees" / "review")
-    if _normalized_absolute_path(review.path) != expected_path:
-        raise LifecycleError(
-            f"refusing review checkout outside expected path {expected_path}: "
-            f"{review.path}"
+    initial = list(worktrees) if worktrees is not None else discover_worktrees(repo)
+    primary = _primary_worktree(initial)
+    with review_operation_lock(primary.path, "review-clean"):
+        discovered = (
+            list(worktrees)
+            if worktrees is not None
+            else discover_worktrees(primary.path)
         )
-    if is_dirty(review):
-        raise LifecycleError(f"{review.path} is dirty")
-    if processes := running_processes(repo, review):
-        pid_list = ", ".join(str(pid) for pid, _command in processes)
-        raise LifecycleError(f"{review.path} has running processes (PIDs {pid_list})")
+        review = next(
+            (worktree for worktree in discovered if worktree.branch == "review"),
+            None,
+        )
+        if review is None:
+            return "review: not found"
+        primary = _primary_worktree(discovered)
+        if review.primary:
+            raise LifecycleError("refusing to remove primary review checkout")
+        expected_path = _normalized_absolute_path(
+            primary.path / ".worktrees" / "review"
+        )
+        if _normalized_absolute_path(review.path) != expected_path:
+            raise LifecycleError(
+                f"refusing review checkout outside expected path {expected_path}: "
+                f"{review.path}"
+            )
+        if is_dirty(review):
+            raise LifecycleError(f"{review.path} is dirty")
+        if processes := running_processes(primary.path, review):
+            pid_list = ", ".join(str(pid) for pid, _command in processes)
+            raise LifecycleError(
+                f"{review.path} has running processes (PIDs {pid_list})"
+            )
+        if reason := _ignored_private_reason(review):
+            raise LifecycleError(f"{review.path} has {reason}")
+        expected_oid = _capture_validated_ref_oid(
+            primary.path,
+            "review",
+            require_main=False,
+        )
 
-    _remove_worktree(primary, review)
-    _git(primary.path, "branch", "-D", "review")
-    _git(primary.path, "worktree", "prune")
-    return f"review: removed {review.path}"
+        _remove_worktree(
+            primary,
+            review,
+            expected_oid,
+            require_main=False,
+        )
+        _delete_branch_ref(primary.path, "review", expected_oid)
+        _git(primary.path, "worktree", "prune")
+        return f"review: removed {review.path}"
 
 
 def _format_size(size: int) -> str:
