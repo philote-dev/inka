@@ -236,8 +236,10 @@ def test_processes_use_longest_worktree_path_and_exclude_self() -> None:
 
     attributed = attribute_processes([primary, review], processes, own_pid=100)
 
-    assert attributed[primary] == [(102, "python /repo/app.py")]
-    assert attributed[review] == [(101, "python /repo/.worktrees/review/app.py")]
+    assert attributed[Path("/repo")] == [(102, "python /repo/app.py")]
+    assert attributed[Path("/repo/.worktrees/review")] == [
+        (101, "python /repo/.worktrees/review/app.py")
+    ]
 
 
 def test_processes_do_not_match_similarly_prefixed_path() -> None:
@@ -249,7 +251,7 @@ def test_processes_do_not_match_similarly_prefixed_path() -> None:
         own_pid=100,
     )
 
-    assert attributed[primary] == []
+    assert attributed[Path("/repo")] == []
 
 
 def test_processes_match_unquoted_absolute_executable_path_with_spaces() -> None:
@@ -265,8 +267,10 @@ def test_processes_match_unquoted_absolute_executable_path_with_spaces() -> None
         own_pid=100,
     )
 
-    assert attributed[primary] == []
-    assert attributed[review] == [(104, command)]
+    assert attributed[Path("/repo with spaces")] == []
+    assert attributed[Path("/repo with spaces/.worktrees/review with spaces")] == [
+        (104, command)
+    ]
 
 
 def test_review_dashboard_launches_absolute_worktree_run_path() -> None:
@@ -274,6 +278,22 @@ def test_review_dashboard_launches_absolute_worktree_run_path() -> None:
 
     assert '[str(Path(path) / "run")]' in source
     assert '["./run"]' not in source
+
+
+def test_running_processes_matches_stale_worktree_by_normalized_path(
+    tmp_path: Path,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    candidate_path = add_worktree(repo, tmp_path / "candidate", "candidate")
+    stale = Worktree(candidate_path / ".." / "candidate", "candidate", False)
+    git(candidate_path, "switch", "-c", "replacement")
+    process = subprocess.Popen(["sleep", "30"], cwd=candidate_path)
+    try:
+        running = module.running_processes(repo, stale)
+        assert any(pid == process.pid for pid, _detail in running)
+    finally:
+        process.terminate()
+        process.wait(timeout=5)
 
 
 def test_status_prints_every_inventory_dimension(
@@ -869,6 +889,80 @@ def test_prune_preserves_ignored_private_data_and_branch(
     assert git(repo, "show-ref", "--verify", "refs/heads/candidate").returncode == 0
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        Path("out/privateCorpus.json"),
+        Path("out/apiKey.json"),
+        Path("out/accessToken.txt"),
+        Path("out/heldout.json"),
+        Path("out/privateData.bin"),
+        Path("out/credentialStore.json"),
+        Path("out/clientSecret.txt"),
+        Path("out/refreshToken.txt"),
+    ],
+)
+def test_ignored_compact_sensitive_names_block_disposal(path: Path) -> None:
+    assert module._ignored_path_is_disposable(path) is False
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        Path("out/monkey.json"),
+        Path("out/tokenizer-cache.bin"),
+        Path("out/golden-ratio.json"),
+        Path("out/secretary-notes.txt"),
+    ],
+)
+def test_ignored_sensitive_matching_avoids_unrelated_substrings(path: Path) -> None:
+    assert module._ignored_path_is_disposable(path) is True
+
+
+def test_ignored_paths_decode_non_utf8_nul_records(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_path = b"out/\xffprivateCorpus.json"
+
+    def fake_git_bytes(
+        _repo: Path, *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(
+            ["git", *args],
+            returncode=0,
+            stdout=raw_path + b"\0",
+            stderr=b"",
+        )
+
+    monkeypatch.setattr(module, "_git_bytes", fake_git_bytes)
+
+    paths = module._ignored_paths(Worktree(Path("/repo"), "candidate", False))
+
+    assert [os.fsencode(path) for path in paths] == [raw_path]
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or sys.platform == "darwin",
+    reason="requires a filesystem accepting non-UTF-8 path bytes",
+)
+def test_ignored_paths_preserve_non_utf8_bytes_and_classify_safely(
+    tmp_path: Path,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    (repo / ".gitignore").write_text("out/\n", encoding="utf8")
+    git(repo, "add", ".gitignore")
+    git(repo, "commit", "-m", "ignore output")
+    candidate = add_worktree(repo, tmp_path / "candidate", "candidate")
+    raw_path = b"out/\xffprivateCorpus.json"
+    ignored = candidate / Path(os.fsdecode(raw_path))
+    ignored.parent.mkdir()
+    ignored.write_bytes(b"private")
+
+    blockers = module.ignored_private_paths(Worktree(candidate, "candidate", False))
+
+    assert [os.fsencode(path) for path in blockers] == [raw_path]
+
+
 def test_prune_allows_ignored_disposable_build_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -992,6 +1086,49 @@ def test_prune_detects_ref_movement_before_worktree_removal(
 
     assert candidate_path.exists()
     assert git(repo, "rev-parse", "refs/heads/candidate").stdout.strip() == previous_oid
+
+
+def test_final_preflight_rejects_changed_direct_branch_with_relative_process(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    candidate_path = add_worktree(repo, tmp_path / "candidate", "candidate")
+    discovered = module.discover_worktrees(repo)
+    real_revalidate = module.RefSnapshot.revalidate
+    process: subprocess.Popen[str] | None = None
+
+    def switch_branch_before_final_preflight(
+        snapshot: module.RefSnapshot,
+        primary: Path,
+    ) -> None:
+        nonlocal process
+        if process is None:
+            git(candidate_path, "switch", "-c", "replacement")
+            process = subprocess.Popen(
+                ["sleep", "30"],
+                cwd=candidate_path,
+                text=True,
+            )
+        real_revalidate(snapshot, primary)
+
+    monkeypatch.setattr(
+        module.RefSnapshot,
+        "revalidate",
+        switch_branch_before_final_preflight,
+    )
+    try:
+        with pytest.raises(module.LifecycleError, match="direct HEAD branch changed"):
+            module.prune_worktrees(repo, apply=True, worktrees=discovered)
+        assert candidate_path.exists()
+        assert git(repo, "show-ref", "--verify", "refs/heads/candidate").returncode == 0
+        assert (
+            git(repo, "show-ref", "--verify", "refs/heads/replacement").returncode == 0
+        )
+    finally:
+        if process is not None:
+            process.terminate()
+            process.wait(timeout=5)
 
 
 def test_prune_refuses_symbolic_branch_ref_and_preserves_referent(
@@ -1218,6 +1355,39 @@ def test_trim_refuses_existing_worktree_operation_lock(
     monkeypatch.setattr(module, "process_table", lambda: [])
 
     assert main(["trim", "candidate"]) == 2
+
+    assert disposable.exists()
+    assert lock.exists()
+
+
+def test_trim_review_refuses_active_review_sync_lock_without_cleaning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    tools = repo / "tools"
+    tools.mkdir()
+    cleaner = tools / "clean"
+    cleaner.write_text("#!/bin/sh\nrm -f out/disposable\n", encoding="utf8")
+    cleaner.chmod(0o755)
+    git(repo, "add", "tools/clean")
+    git(repo, "commit", "-m", "add cleaner")
+    review = repo / ".worktrees" / "review"
+    review.parent.mkdir()
+    add_worktree(repo, review, "review")
+    disposable = review / "out" / "disposable"
+    disposable.parent.mkdir()
+    disposable.write_text("build", encoding="utf8")
+    lock = repo / ".git" / "pgrep-review-operation.lock"
+    lock.mkdir()
+    (lock / "owner").write_text(
+        f"sync pid={os.getpid()} token=active\n",
+        encoding="utf8",
+    )
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    assert main(["trim", "review"]) == 2
 
     assert disposable.exists()
     assert lock.exists()

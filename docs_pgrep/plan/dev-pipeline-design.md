@@ -186,15 +186,17 @@ commands therefore separate source preservation from disposable build cleanup:
   `out/download` by using the existing `clean keep-env` behavior. It never edits
   tracked or untracked source files and refuses to trim a running checkout.
   Command text and process CWDs are both checked, so relative commands running
-  inside a checkout are detected.
+  inside a checkout are detected. Trimming the conventional review checkout
+  also holds the shared review-operation lock.
 - `worktree-prune` is a dry run unless passed `--apply`. It may remove only
   stopped worktrees whose source tree is clean and whose branch is fully merged
   into `main`, and refuses ignored private data such as `content/`, corpora,
   gold/held-out sets, `.ssh`, environment files, keys, tokens, or credentials
-  at any depth, including under `out/`. Applying it rejects symbolic branch
-  refs, revalidates the exact branch OID, removes the worktree without force,
-  compare-deletes that same direct ref with `--no-deref`, and runs
-  `git worktree prune`. The primary checkout is never eligible.
+  at any depth, including CamelCase/compact forms under `out/`. Applying it
+  rejects symbolic branch refs, revalidates the exact branch OID and direct
+  checkout branch, removes the worktree without force, compare-deletes that
+  same direct ref with `--no-deref`, and runs `git worktree prune`. The primary
+  checkout is never eligible.
 - `worktree-prune` reports the `review` branch as ineligible and directs users
   to the lock-protected `review-clean`.
 - `review-clean` explicitly removes only the stopped, clean `review` branch at
@@ -214,17 +216,20 @@ owner plus manual recovery guidance. Unique owner tokens make release
 compare-and-remove: cleanup cannot unlink a manually reacquired lock.
 
 Trim, apply-prune, and review cleanup also hold path-hashed locks under the Git
-common directory from destructive preflight through their final mutation.
+common directory from destructive preflight through their final mutation. The
+global acquisition order is shared review-operation lock first, followed by
+per-worktree locks in normalized path order.
 Destructive checks inspect current-user CWDs with `lsof` on macOS and
 `/proc/<pid>/cwd` on Linux and fail closed if inspection is unavailable. These
 guards serialize cooperating lifecycle/review commands and block visible local
 writers; an uncooperative external writer that ignores the locks remains
 outside what a local CLI can make atomic.
 
-Worktree discovery captures NUL-delimited porcelain as bytes and uses
-filesystem decoding, and shell commands derive the primary root from Git's
-absolute common directory. Whitespace, embedded newlines, and non-UTF-8 Unix
-pathname bytes are therefore not parsed as separators.
+Worktree discovery and ignored-path enumeration capture NUL-delimited output as
+bytes and use filesystem decoding, and shell commands derive the primary root
+from Git's absolute common directory. Process attribution is keyed by normalized
+path instead of mutable branch metadata. Whitespace, embedded newlines, and
+non-UTF-8 Unix pathname bytes are therefore not parsed as separators.
 
 The expected branch lifecycle is: create a normal branch or concurrency-driven
 worktree, develop and verify, merge to `main`, remove any worktree, delete the

@@ -10,7 +10,7 @@ disposable build output, remove only clean merged worktrees, clean the disposabl
 review checkout, and prevent review builds from exhausting the disk.
 
 **Architecture:** A stdlib-only Python CLI owns byte-preserving NUL-safe
-worktree discovery, command- and CWD-based process checks, ignored-data
+worktree discovery, normalized-path-keyed command/CWD process checks, ignored-data
 classification, per-worktree operation locks, destructive preflight, and
 compare-and-delete ref handling. Thin `just` recipes expose that CLI.
 `pgrep-sync-review` delegates its free-space decision to the same CLI and shares
@@ -43,6 +43,9 @@ an atomic review operation lock with `review-clean`.
   destructive preflight through the final mutation. Unique ownership tokens
   ensure cleanup cannot release a manually removed and reacquired lock. An
   existing or stale lock fails closed with manual recovery guidance.
+- The global lock order is always shared review-operation lock first, then
+  per-worktree locks in normalized path order. Trimming the conventional review
+  checkout participates in both lock scopes.
 - Destructive process checks combine command text with process CWD inspection
   (`lsof` on macOS and `/proc/<pid>/cwd` on Linux) and fail closed when CWD
   inspection is unavailable.
@@ -117,11 +120,12 @@ def review_disk_guard(available_bytes: int) -> tuple[int, str]:
 
 `status` prints one row per checkout with branch, clean/dirty, primary or
 merged/unmerged, stopped/running, total size, build size, and path. Process
-matching excludes the lifecycle process itself and attributes a command to the
-longest matching worktree path. Destructive checks additionally inspect each
-current-user process CWD with `lsof` on macOS or `/proc/<pid>/cwd` on Linux, so
-a relative command with no checkout path in `argv` still blocks mutation. They
-fail closed if CWD inspection is unavailable. Discovery captures
+matching excludes the lifecycle process itself, keys attribution by normalized
+path instead of mutable branch metadata, and assigns a command to the longest
+matching worktree path. Destructive checks additionally inspect each current-user
+process CWD with `lsof` on macOS or `/proc/<pid>/cwd` on Linux, so a relative
+command with no checkout path in `argv` still blocks mutation. They fail closed
+if CWD inspection is unavailable. Discovery captures
 `git worktree list --porcelain -z` as bytes and decodes paths with
 `os.fsdecode`, preserving whitespace, embedded newlines, C-quoting-sensitive
 characters, and non-UTF-8 Unix pathname bytes.
@@ -196,7 +200,8 @@ def prune_eligibility(repo: Path, wt: Worktree) -> tuple[bool, str]:
 worktree as `cwd`. Before removal, `prune --apply` runs
 `git -C <worktree> submodule deinit --all` without force, aborts if that
 refuses, repeats dirty/running/ignored-data checks, revalidates the captured ref
-OID (and `main` ancestry for normal prune), and uses non-forced
+OID and the checkout's direct HEAD branch (plus `main` ancestry for normal
+prune), and uses non-forced
 `git worktree remove` as Git's final race guard. After removal it deletes the
 branch with `git update-ref --no-deref -d <ref> <expected-oid>`; symbolic refs
 are refused during capture and revalidation. If a ref moved, the worktree may
@@ -212,7 +217,12 @@ Python caches, coverage output, documented generated-doc trees, and compiler
 artifacts under paper directories. Before applying that allowlist, every path
 component is denied if it names content, private data, corpora, gold/held-out
 sets, `.ssh`, `.env`/`.envrc`, credentials, secrets, tokens, or key material.
-These names block removal at any depth, including beneath root `out/`.
+CamelCase is split before normalization, and common compact forms such as
+`privateCorpus`, `apiKey`, and `accessToken` are denied without treating
+unrelated words such as `monkey` or `tokenizer` as credentials. These names
+block removal at any depth, including beneath root `out/`. Ignored-path output
+is also captured as NUL-delimited bytes and filesystem-decoded, matching
+worktree discovery's non-UTF-8 pathname handling.
 
 `review-clean` acquires `<git-common-dir>/pgrep-review-operation.lock` before
 its fresh preflight and holds it through compare-and-delete ref removal.
@@ -220,7 +230,9 @@ its fresh preflight and holds it through compare-and-delete ref removal.
 branch/worktree creation through reset, clean, merge, lock refresh, and build.
 Each trim, prune, and review-clean mutation also holds a path-hashed
 per-worktree lock under the Git common directory from destructive preflight
-through cleanup/ref deletion. Owner records include a unique token; cleanup
+through cleanup/ref deletion. The shared review-operation lock is always
+acquired before path-sorted per-worktree locks; trim of
+`<primary>/.worktrees/review` acquires both. Owner records include a unique token; cleanup
 removes only its token-specific, exactly matching record and removes the lock
 directory only when empty. A first owner therefore cannot release a lock that
 was manually removed and reacquired. Existing locks, including stale ones,

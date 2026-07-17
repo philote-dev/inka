@@ -133,7 +133,7 @@ def is_dirty(worktree: Worktree) -> bool:
 
 
 def _ignored_paths(worktree: Worktree) -> list[Path]:
-    result = _git(
+    result = _git_bytes(
         worktree.path,
         "ls-files",
         "--others",
@@ -141,10 +141,13 @@ def _ignored_paths(worktree: Worktree) -> list[Path]:
         "--exclude-standard",
         "-z",
     )
-    return [Path(record) for record in result.stdout.split("\0") if record]
+    return [
+        Path(os.fsdecode(record)) for record in result.stdout.split(b"\0") if record
+    ]
 
 
 def _ignored_component_is_sensitive(part: str) -> bool:
+    lowered = part.lower()
     sensitive_words = {
         "content",
         "corpus",
@@ -159,16 +162,34 @@ def _ignored_component_is_sensitive(part: str) -> bool:
         "token",
         "tokens",
     }
-    word_list = re.findall(r"[a-z0-9]+", part)
+    camel_split = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "-", part)
+    camel_split = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", "-", camel_split)
+    word_list = re.findall(r"[a-z0-9]+", camel_split.lower())
     words = set(word_list)
     compact = "".join(word_list)
+    compact_sensitive_names = {
+        "accesstoken",
+        "apikey",
+        "apitoken",
+        "authtoken",
+        "clientsecret",
+        "credentialfile",
+        "credentialstore",
+        "privatecontent",
+        "privatecorpus",
+        "privatedata",
+        "privatekey",
+        "refreshtoken",
+        "sharedsecret",
+    }
     return (
-        part == ".ssh"
-        or part == ".envrc"
-        or part == ".env"
-        or part.startswith(".env.")
-        or part in {"id_dsa", "id_ecdsa", "id_ed25519", "id_rsa"}
+        lowered == ".ssh"
+        or lowered == ".envrc"
+        or lowered == ".env"
+        or lowered.startswith(".env.")
+        or lowered in {"id_dsa", "id_ecdsa", "id_ed25519", "id_rsa"}
         or "heldout" in compact
+        or any(name in compact for name in compact_sensitive_names)
         or bool(sensitive_words.intersection(words))
     )
 
@@ -184,7 +205,7 @@ def _ignored_path_is_disposable(path: Path) -> bool:
     if not parts:
         return False
     lowered = tuple(part.lower() for part in parts)
-    if any(_ignored_component_is_sensitive(part) for part in lowered):
+    if any(_ignored_component_is_sensitive(part) for part in parts):
         return False
 
     # These directories contain only generated dependencies, compiler output,
@@ -448,11 +469,11 @@ def attribute_processes(
     processes: Sequence[tuple[int, str]],
     *,
     own_pid: int | None = None,
-) -> dict[Worktree, list[tuple[int, str]]]:
+) -> dict[Path, list[tuple[int, str]]]:
     """Assign commands to the longest worktree path present in each command."""
     own_pid = os.getpid() if own_pid is None else own_pid
-    attributed: dict[Worktree, list[tuple[int, str]]] = {
-        worktree: [] for worktree in worktrees
+    attributed: dict[Path, list[tuple[int, str]]] = {
+        _normalized_absolute_path(worktree.path): [] for worktree in worktrees
     }
     longest_first = sorted(
         worktrees,
@@ -464,7 +485,9 @@ def attribute_processes(
             continue
         for worktree in longest_first:
             if _command_contains_path(command, worktree.path):
-                attributed[worktree].append((pid, command))
+                attributed[_normalized_absolute_path(worktree.path)].append(
+                    (pid, command)
+                )
                 break
     return attributed
 
@@ -539,11 +562,11 @@ def attribute_process_cwds(
     cwd_processes: Sequence[tuple[int, Path]],
     *,
     own_pid: int | None = None,
-) -> dict[Worktree, list[tuple[int, str]]]:
+) -> dict[Path, list[tuple[int, str]]]:
     """Assign CWDs to the longest containing worktree path."""
     own_pid = os.getpid() if own_pid is None else own_pid
-    attributed: dict[Worktree, list[tuple[int, str]]] = {
-        worktree: [] for worktree in worktrees
+    attributed: dict[Path, list[tuple[int, str]]] = {
+        _normalized_absolute_path(worktree.path): [] for worktree in worktrees
     }
     longest_first = sorted(
         worktrees,
@@ -557,15 +580,16 @@ def attribute_process_cwds(
         for worktree in longest_first:
             target = _normalized_absolute_path(worktree.path)
             if normalized_cwd == target or normalized_cwd.is_relative_to(target):
-                attributed[worktree].append((pid, f"cwd={cwd}"))
+                attributed[target].append((pid, f"cwd={cwd}"))
                 break
     return attributed
 
 
 def running_processes(repo: Path, worktree: Worktree) -> list[tuple[int, str]]:
     worktrees = discover_worktrees(repo)
-    commands = attribute_processes(worktrees, process_table()).get(worktree, [])
-    cwd_processes = attribute_process_cwds(worktrees, _process_cwds()).get(worktree, [])
+    path_key = _normalized_absolute_path(worktree.path)
+    commands = attribute_processes(worktrees, process_table()).get(path_key, [])
+    cwd_processes = attribute_process_cwds(worktrees, _process_cwds()).get(path_key, [])
     seen = {pid for pid, _command in commands}
     return commands + [process for process in cwd_processes if process[0] not in seen]
 
@@ -716,6 +740,11 @@ def _select_worktrees(
     return selected
 
 
+def _is_conventional_review_path(primary: Worktree, path: Path) -> bool:
+    expected = _normalized_absolute_path(primary.path / ".worktrees" / "review")
+    return _normalized_absolute_path(path) == expected
+
+
 def trim_worktrees(worktrees: Sequence[Worktree]) -> None:
     """Run the primary checkout's cleaner in selected stopped worktrees."""
     if not worktrees:
@@ -734,6 +763,12 @@ def trim_worktrees(worktrees: Sequence[Worktree]) -> None:
     if not cleaner.is_file():
         raise LifecycleError(f"cleaner not found: {cleaner}")
     with ExitStack() as locks:
+        # Global lock order: shared review lock, then path-sorted worktree locks.
+        if any(
+            _is_conventional_review_path(primary, worktree.path)
+            for worktree in worktrees
+        ):
+            locks.enter_context(review_operation_lock(primary.path, "trim-review"))
         for worktree in sorted(worktrees, key=lambda item: os.fsencode(item.path)):
             locks.enter_context(
                 worktree_operation_lock(primary.path, worktree.path, "trim")
@@ -789,6 +824,13 @@ class RemovalPreflight:
     def check(self) -> None:
         """Repeat every mutable deletion guard while its operation lock is held."""
         self.ref_snapshot.revalidate(self.primary.path)
+        direct_branch = _direct_head_branch(self.worktree)
+        if direct_branch != self.ref_snapshot.branch:
+            raise LifecycleError(
+                f"{self.worktree.path} direct HEAD branch changed before removal: "
+                f"expected {self.ref_snapshot.branch}, "
+                f"found {direct_branch or '(detached)'}"
+            )
         if is_dirty(self.worktree):
             raise LifecycleError(f"{self.worktree.path} became dirty before removal")
         if processes := running_processes(self.primary.path, self.worktree):
@@ -874,6 +916,12 @@ def prune_worktrees(
 
     removable = [worktree for worktree, eligible, _reason in results if eligible]
     with ExitStack() as locks:
+        # Keep the same global order as trim and review-clean.
+        if any(
+            _is_conventional_review_path(primary, worktree.path)
+            for worktree in removable
+        ):
+            locks.enter_context(review_operation_lock(primary.path, "prune-review"))
         for worktree in sorted(removable, key=lambda item: os.fsencode(item.path)):
             locks.enter_context(
                 worktree_operation_lock(primary.path, worktree.path, "prune")
@@ -986,7 +1034,11 @@ def status_lines(repo: Path) -> list[str]:
             merge_state = "merged"
         else:
             merge_state = "unmerged"
-        process_state = "running" if process_map[worktree] else "stopped"
+        process_state = (
+            "running"
+            if process_map[_normalized_absolute_path(worktree.path)]
+            else "stopped"
+        )
         descendants = [
             candidate.path
             for candidate in worktrees
