@@ -181,6 +181,30 @@ rebuild-web:
 # review
 # ---------------------------------------------------------------------------
 
+# Report registered worktree disk use and safety state
+[group('review')]
+[unix]
+worktree-status:
+    ./tools/pgrep_worktrees.py status
+
+# Trim build output from selected stopped worktrees
+[group('review')]
+[unix]
+worktree-trim *worktrees:
+    ./tools/pgrep_worktrees.py trim {{ worktrees }}
+
+# Report removable worktrees; pass --apply to remove eligible entries
+[group('review')]
+[unix]
+worktree-prune *args:
+    ./tools/pgrep_worktrees.py prune {{ args }}
+
+# Safely remove the disposable review worktree and branch
+[group('review')]
+[unix]
+review-clean:
+    ./tools/pgrep_worktrees.py review-clean
+
 # Multi-branch review dashboard (http://127.0.0.1:40100): start/stop each worktree
 [group('review')]
 [unix]
@@ -200,7 +224,14 @@ review-sync *branches:
     root="$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')"
     interval="${PGREP_REVIEW_INTERVAL:-600}"
     while true; do
-        "$root/tools/pgrep-sync-review" {{ branches }} || true
+        if "$root/tools/pgrep-sync-review" {{ branches }}; then
+            :
+        else
+            status=$?
+            if [ "$status" -eq 2 ]; then
+                exit "$status"
+            fi
+        fi
         echo "next sync in ${interval}s (Ctrl-C to stop)"
         sleep "$interval"
     done

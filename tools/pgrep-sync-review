@@ -18,6 +18,8 @@ ROOT_DIR="$(git rev-parse --show-toplevel)"
 ROOT_DIR="$(git -C "$ROOT_DIR" worktree list --porcelain | awk '/^worktree /{print $2; exit}')"
 cd "$ROOT_DIR"
 
+"$ROOT_DIR/tools/pgrep_worktrees.py" review-disk-guard || exit $?
+
 REVIEW_WT="$ROOT_DIR/.worktrees/review"
 BASE="${PGREP_REVIEW_BASE:-main}"
 

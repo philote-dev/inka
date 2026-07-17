@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -227,6 +228,119 @@ def test_disk_guard_cli_uses_available_bytes_override(
 
     assert main(["review-disk-guard"]) == 2
     assert "REFUSING REVIEW BUILD" in capsys.readouterr().err
+
+
+def test_review_sync_checks_disk_before_review_mutation(tmp_path: Path) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    tools = repo / "tools"
+    tools.mkdir()
+    worktree_cli = tools / "pgrep_worktrees.py"
+    worktree_cli.write_text(
+        Path(module.__file__).read_text(encoding="utf8"), encoding="utf8"
+    )
+    worktree_cli.chmod(0o755)
+    sync_script = tools / "pgrep-sync-review"
+    source_script = Path(module.__file__).with_name("pgrep-sync-review")
+    sync_script.write_text(source_script.read_text(encoding="utf8"), encoding="utf8")
+    sync_script.chmod(0o755)
+    env = os.environ.copy()
+    env["PGREP_REVIEW_AVAILABLE_BYTES"] = str(9 * 1024**3)
+
+    result = subprocess.run(
+        [str(sync_script)],
+        cwd=repo,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "REFUSING REVIEW BUILD" in result.stderr
+    review_branch = subprocess.run(
+        ["git", "-C", str(repo), "show-ref", "--verify", "refs/heads/review"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert review_branch.returncode != 0
+    assert not (repo / ".worktrees" / "review").exists()
+
+
+def test_review_sync_recipe_retries_transient_failure_and_propagates_two(
+    tmp_path: Path,
+) -> None:
+    source = Path("justfile").read_text(encoding="utf8")
+    recipe = source.split("review-sync *branches:\n", 1)[1].split(
+        "\n# ---------------------------------------------------------------------------",
+        1,
+    )[0]
+    recipe = "\n".join(
+        line[4:] if line.startswith("    ") else line for line in recipe.splitlines()
+    ).replace("{{ branches }}", "")
+    root = tmp_path / "repo"
+    tools = root / "tools"
+    tools.mkdir(parents=True)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_git = fake_bin / "git"
+    fake_git.write_text(
+        '#!/bin/sh\nprintf "worktree %s\\n" "$PGREP_TEST_ROOT"\n',
+        encoding="utf8",
+    )
+    fake_git.chmod(0o755)
+    counter = tmp_path / "calls"
+    fake_sync = tools / "pgrep-sync-review"
+    fake_sync.write_text(
+        "#!/bin/sh\n"
+        'count=$(($(cat "$PGREP_TEST_COUNTER" 2>/dev/null || printf 0) + 1))\n'
+        'printf "%s" "$count" > "$PGREP_TEST_COUNTER"\n'
+        'case "$count" in\n'
+        "  1) exit 1 ;;\n"
+        "  2) exit 2 ;;\n"
+        '  *) kill -TERM "$PPID"; exit 99 ;;\n'
+        "esac\n",
+        encoding="utf8",
+    )
+    fake_sync.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        {
+            "PATH": f"{fake_bin}:{env['PATH']}",
+            "PGREP_REVIEW_INTERVAL": "0",
+            "PGREP_TEST_COUNTER": str(counter),
+            "PGREP_TEST_ROOT": str(root),
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", "-c", recipe],
+        cwd=Path.cwd(),
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+
+    assert result.returncode == 2
+    assert counter.read_text(encoding="utf8") == "2"
+    assert result.stdout.count("next sync in 0s") == 1
+
+
+def test_justfile_exposes_worktree_lifecycle_recipes() -> None:
+    source = Path("justfile").read_text(encoding="utf8")
+
+    assert "worktree-status:\n    ./tools/pgrep_worktrees.py status" in source
+    assert (
+        "worktree-trim *worktrees:\n"
+        "    ./tools/pgrep_worktrees.py trim {{ worktrees }}" in source
+    )
+    assert (
+        "worktree-prune *args:\n"
+        "    ./tools/pgrep_worktrees.py prune {{ args }}" in source
+    )
+    assert "review-clean:\n    ./tools/pgrep_worktrees.py review-clean" in source
 
 
 def test_prune_defaults_to_dry_run(
