@@ -194,9 +194,9 @@ commands therefore separate source preservation from disposable build cleanup:
   the user to stop the row first.
 
 `review-sync` does not delete or trim feature worktrees. Before rebuilding it
-checks available disk space and prints a prominent warning below 30 GB with the
+checks available disk space and prints a prominent warning below 30 GiB with the
 exact `worktree-status`, `worktree-trim`, and `review-clean` commands. It refuses
-to start a new review build below 10 GB so an automated loop cannot fill the
+to start a new review build below 10 GiB so an automated loop cannot fill the
 disk, while leaving all source state untouched.
 
 The expected branch lifecycle is: create a normal branch or concurrency-driven

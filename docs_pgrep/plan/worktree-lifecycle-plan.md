@@ -252,7 +252,7 @@ Add a sentence under “Worktree lifecycle and disk policy” pointing to
 Change each completed checkbox in this file from `[ ]` to `[x]` only after its
 command has passed.
 
-- [x] **Step 3: Run the branch gates**
+- [x] **Step 3: Run and record the standalone branch gates**
 
 Run: `just test-py`
 
@@ -261,10 +261,20 @@ Expected: exit 0.
 Run: `just check`
 
 Expected on the standalone branch: lifecycle files introduce no new failure.
-If the current `main` baseline still reports the known `qt/tests/test_mediasrv.py`
-format and `qt/aqt/mediasrv.py` type failures fixed on the separately committed
-`chore/product-layer-cleanup` branch, record those exact blockers without
-duplicating that branch's fixes.
+Because the separately committed `chore/product-layer-cleanup` dependency is
+absent, `just check` may exit 1 only for these recorded baseline blockers:
+
+- dprint: `docs_pgrep/plan/content-foundry-and-verifier-design.md`
+- dprint: `docs_pgrep/plan/login-gate-beta-handoff.md`
+- dprint: `docs_pgrep/plan/deferred-todos.md`
+- dprint: `docs_pgrep/reference/dev-harness.md`
+- dprint: `docs_pgrep/reference/content-and-dependencies.md`
+- Ruff format: `qt/tests/test_mediasrv.py`
+- mypy return type: `qt/aqt/mediasrv.py`
+
+Do not duplicate those fixes on this branch. Step 3 is complete when the
+standalone gates and allowed blockers are executed and recorded; Step 5 proves
+the integrated gate.
 
 - [x] **Step 4: Inspect and commit the documentation**
 
@@ -274,10 +284,13 @@ Expected: only the intended lifecycle CLI, tests, recipes, sync guard, and docs
 are changed across this branch. Commit the two lifecycle docs without amending
 earlier task commits.
 
-- [ ] **Step 5: Verify the integrated review branch**
+- [x] **Step 5: Verify the integrated review branch**
 
 After the controller merges `chore/worktree-lifecycle` into the existing
 disposable `review` branch that already contains `chore/product-layer-cleanup`,
 run `just check`.
 
 Expected: exit 0.
+
+Evidence: review merge `97ead1ab1`; `just check` exited 0 with
+`Build succeeded in 1.02s.`
