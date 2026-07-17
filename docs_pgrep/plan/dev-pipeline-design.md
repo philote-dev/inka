@@ -175,8 +175,8 @@ Choose them by concurrency, not by language:
 - When no local task is active, return the primary checkout to clean `main`.
 
 Build outputs, not Git objects or source copies, drive worktree disk usage. A
-fully built checkout currently consumes roughly 4–8 GB, primarily under
-`out/rust`; Rust incremental artifacts alone can exceed 2 GB. The lifecycle
+fully built checkout currently consumes roughly 4–8 GiB, primarily under
+`out/rust`; Rust incremental artifacts alone can exceed 2 GiB. The lifecycle
 commands therefore separate source preservation from disposable build cleanup:
 
 - `worktree-status` reports every checkout's branch, dirty/clean state, merge
