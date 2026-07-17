@@ -99,6 +99,27 @@ def test_size_reporting_counts_files_and_only_out_as_build(
     assert build_size(tmp_path) == 5
 
 
+def test_status_size_excludes_registered_descendant(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "primary.bin").write_bytes(b"main")
+    descendant = tmp_path / ".worktrees" / "feature"
+    descendant.mkdir(parents=True)
+    (descendant / "feature.bin").write_bytes(b"branch")
+    primary = Worktree(tmp_path, "main", True)
+    feature = Worktree(descendant, "feature", False)
+    monkeypatch.setattr(module, "discover_worktrees", lambda _repo: [primary, feature])
+    monkeypatch.setattr(module, "is_dirty", lambda _worktree: False)
+    monkeypatch.setattr(module, "branch_merged", lambda _repo, _branch: False)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    lines = status_lines(tmp_path)
+
+    assert "total=4.0B" in lines[0]
+    assert "total=6.0B" in lines[1]
+
+
 def test_dirty_and_merge_reporting_uses_git_state(tmp_path: Path) -> None:
     repo = committed_repo(tmp_path / "repo")
     git(repo, "branch", "merged")
@@ -133,6 +154,18 @@ def test_processes_use_longest_worktree_path_and_exclude_self() -> None:
     assert attributed[review] == [(101, "python /repo/.worktrees/review/app.py")]
 
 
+def test_processes_do_not_match_similarly_prefixed_path() -> None:
+    primary = Worktree(Path("/repo"), "main", True)
+
+    attributed = attribute_processes(
+        [primary],
+        [(104, "python /repo-copy/app.py")],
+        own_pid=100,
+    )
+
+    assert attributed[primary] == []
+
+
 def test_status_prints_every_inventory_dimension(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -148,7 +181,7 @@ def test_status_prints_every_inventory_dimension(
         "process_table",
         lambda: [(123, "python /repo/.worktrees/demo/app.py")],
     )
-    monkeypatch.setattr(module, "checkout_size", lambda wt: 2 * 1024**3)
+    monkeypatch.setattr(module, "checkout_size", lambda wt, *_excluded: 2 * 1024**3)
     monkeypatch.setattr(module, "build_size", lambda wt: 512 * 1024**2)
 
     lines = status_lines(Path("/repo"))

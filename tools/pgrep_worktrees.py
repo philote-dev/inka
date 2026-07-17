@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -35,13 +36,13 @@ def parse_worktree_porcelain(output: str) -> list[Worktree]:
             elif key == "branch":
                 branch = value.removeprefix("refs/heads/")
         if path is not None:
-            worktrees.append(
-                Worktree(path=path, branch=branch, primary=not worktrees)
-            )
+            worktrees.append(Worktree(path=path, branch=branch, primary=not worktrees))
     return worktrees
 
 
-def _git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _git(
+    repo: Path, *args: str, check: bool = True
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", "-C", str(repo), *args],
         check=check,
@@ -68,16 +69,22 @@ def review_disk_guard(available_bytes: int) -> tuple[int, str]:
     return 0, ""
 
 
-def _tree_size(path: Path) -> int:
+def _tree_size(path: Path, excluded_paths: Sequence[Path] = ()) -> int:
     total = 0
     if not path.exists():
         return total
+    excluded = {
+        Path(os.path.abspath(os.path.normpath(candidate)))
+        for candidate in excluded_paths
+    }
     for root, directories, files in os.walk(path, followlinks=False):
         root_path = Path(root)
         directories[:] = [
             directory
             for directory in directories
             if not (root_path / directory).is_symlink()
+            and Path(os.path.abspath(os.path.normpath(root_path / directory)))
+            not in excluded
         ]
         for filename in files:
             candidate = root_path / filename
@@ -89,8 +96,8 @@ def _tree_size(path: Path) -> int:
     return total
 
 
-def checkout_size(path: Path) -> int:
-    return _tree_size(path)
+def checkout_size(path: Path, excluded_paths: Sequence[Path] = ()) -> int:
+    return _tree_size(path, excluded_paths)
 
 
 def build_size(path: Path) -> int:
@@ -128,6 +135,26 @@ def process_table() -> list[tuple[int, str]]:
     return processes
 
 
+def _normalized_absolute_path(path: str | Path) -> Path:
+    return Path(os.path.abspath(os.path.normpath(path)))
+
+
+def _command_contains_path(command: str, path: Path) -> bool:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.split()
+    target = _normalized_absolute_path(path)
+    for token in tokens:
+        value = token.partition("=")[2] if "=" in token else token
+        if not os.path.isabs(value):
+            continue
+        candidate = _normalized_absolute_path(value)
+        if candidate == target or candidate.is_relative_to(target):
+            return True
+    return False
+
+
 def attribute_processes(
     worktrees: Sequence[Worktree],
     processes: Sequence[tuple[int, str]],
@@ -148,7 +175,7 @@ def attribute_processes(
         if pid == own_pid:
             continue
         for worktree in longest_first:
-            if str(worktree.path) in command:
+            if _command_contains_path(command, worktree.path):
                 attributed[worktree].append((pid, command))
                 break
     return attributed
@@ -175,7 +202,9 @@ def status_lines(repo: Path) -> list[str]:
     if not worktrees:
         return []
     process_map = attribute_processes(worktrees, process_table())
-    primary = next((worktree for worktree in worktrees if worktree.primary), worktrees[0])
+    primary = next(
+        (worktree for worktree in worktrees if worktree.primary), worktrees[0]
+    )
     lines: list[str] = []
     for worktree in worktrees:
         branch = worktree.branch or "(detached)"
@@ -187,7 +216,12 @@ def status_lines(repo: Path) -> list[str]:
         else:
             merge_state = "unmerged"
         process_state = "running" if process_map[worktree] else "stopped"
-        total = _format_size(checkout_size(worktree.path))
+        descendants = [
+            candidate.path
+            for candidate in worktrees
+            if candidate != worktree and candidate.path.is_relative_to(worktree.path)
+        ]
+        total = _format_size(checkout_size(worktree.path, descendants))
         build = _format_size(build_size(worktree.path))
         lines.append(
             f"{branch} {clean_state} {merge_state} {process_state} "
@@ -209,9 +243,7 @@ def _available_bytes(repo: Path) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser(
-        "status", help="report registered worktree state"
-    )
+    commands.add_parser("status", help="report registered worktree state")
     commands.add_parser(
         "review-disk-guard", help="warn or refuse review builds when disk is low"
     )
