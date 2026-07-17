@@ -63,7 +63,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <div class="rail-clip" class:collapsed aria-hidden={collapsed}>
     <nav class="rail">
         <div class="top">
-            <a class="brand" href="/pgrep" aria-label="pgrep home">
+            <a
+                class="brand"
+                href="/pgrep"
+                aria-label="pgrep home"
+                data-sveltekit-preload-data="false"
+            >
                 <PgrepMark size={30} />
                 <span>pgrep</span>
             </a>
@@ -76,6 +81,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     class="item"
                     class:active={item.name === active}
                     aria-current={item.name === active ? "page" : undefined}
+                    data-sveltekit-preload-data={item.name === "Home"
+                        ? "false"
+                        : undefined}
                     on:click={(event) => onNavClick(event, item.href)}
                 >
                     <svg
