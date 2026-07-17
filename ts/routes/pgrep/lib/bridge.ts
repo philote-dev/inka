@@ -9,6 +9,8 @@
  * automatically, and the "application/binary" content type is required to pass
  * mediasrv's permission check. See docs_pgrep/reference/api-contract.md §1.
  */
+export const DIAGNOSTIC_STATUS_DEPENDENCY = "pgrep:diagnostic-status";
+
 export async function pgrepCall<T = any>(fn: string, args: unknown = {}): Promise<T> {
     const res = await fetch(`/_anki/${fn}`, {
         method: "POST",

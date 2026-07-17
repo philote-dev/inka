@@ -8,6 +8,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
      (Library returns at L4). Diagnostic is a first-run and re-runnable flow, so
      it is reached from Home and Progress rather than a permanent tab. -->
 <script lang="ts">
+    import { browser } from "$app/environment";
     import { afterNavigate } from "$app/navigation";
     import { page } from "$app/state";
     import { onMount } from "svelte";
@@ -35,10 +36,13 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         resolveOperation,
         startOperationMonitor,
     } from "./lib/operation";
+    import type { LayoutData } from "./$types";
 
     import "@fontsource-variable/inter/index.css";
     import "@fontsource-variable/jetbrains-mono/index.css";
     import "./pgrep.scss";
+
+    export let data: LayoutData;
 
     // Map the route to a rail destination. Diagnostic is a flow, not a tab, so
     // it leaves no item active (the rail simply has no highlight there). Nested
@@ -63,7 +67,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     let active = activeFor(page.url.pathname);
-    let isHome = page.url.pathname === "/pgrep";
 
     // The content panel is the one scroll container (the shell is a fixed frame),
     // so reset-to-top and any future scroll control target this element, not the
@@ -83,14 +86,33 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     // learner moves between surfaces. It is skippable inside the component.
     let showSplash = true;
 
-    // First-run onboarding. Until the diagnostic has been completed, Home shows a
-    // landing that asks for it. null while unknown so a completed learner never
-    // sees a flash, and a failed read falls open to showing it. "Maybe later"
-    // hides it for the session; after that the only way in is Settings.
-    let diagnosticDone: boolean | null = null;
-    let landingDismissed = false;
+    // First-run status arrives as route-scoped load data before Home commits, so
+    // Landing is already behind the splash throughout its fade. "Maybe later"
+    // hides it for this browser-tab session; after that the only way in is Settings.
+    const LANDING_DISMISSED_KEY = "pgrep:diagnostic-landing-dismissed";
+    function wasLandingDismissed(): boolean {
+        if (!browser) {
+            return false;
+        }
+        try {
+            return sessionStorage.getItem(LANDING_DISMISSED_KEY) === "true";
+        } catch {
+            return false;
+        }
+    }
+
+    let landingDismissed = wasLandingDismissed();
+    function dismissLanding(): void {
+        landingDismissed = true;
+        try {
+            sessionStorage.setItem(LANDING_DISMISSED_KEY, "true");
+        } catch {
+            // Keep the in-memory dismissal when storage is unavailable.
+        }
+    }
+
     $: showLanding =
-        !showSplash && isHome && diagnosticDone === false && !landingDismissed;
+        data.isHome && data.diagnosticCompleted !== true && !landingDismissed;
 
     // First-run login gate (beta). Shown before the app when the user is neither
     // signed in nor has chosen to continue offline. "unknown" until the check
@@ -140,34 +162,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         gateState = "hide";
     }
 
-    async function loadDiagnosticStatus(): Promise<void> {
-        try {
-            const status = await pgrepCall<{ completed: boolean }>(
-                "pgrepDiagnosticStatus",
-                {},
-            );
-            diagnosticDone = status.completed;
-        } catch {
-            diagnosticDone = false;
-        }
-    }
-
     // Recompute the active rail item on every route change. afterNavigate also
     // fires on first mount, so the initial value and later client navigations
-    // both track the real pathname. Entering Home re-checks the diagnostic, so
-    // completing it and returning reflects at once. null while the check runs
-    // keeps the landing from flashing over the real Home.
+    // both track the real pathname.
     afterNavigate(() => {
         active = activeFor(page.url.pathname);
-        isHome = page.url.pathname === "/pgrep";
         // On phone the rail is an overlay drawer, so a tap on a destination should
         // dismiss it as the new surface loads, the way a mobile drawer expects.
         if ($narrow) {
             closeRail();
-        }
-        if (isHome) {
-            diagnosticDone = null;
-            void loadDiagnosticStatus();
         }
     });
 
@@ -320,7 +323,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             <main class="page" bind:this={pageEl} on:scroll={onPageScroll}>
                 <div class="scroll-edge" class:scrolled aria-hidden="true"></div>
                 {#if showLanding}
-                    <Landing onLater={() => (landingDismissed = true)} />
+                    <Landing onLater={dismissLanding} />
                 {:else}
                     <slot />
                 {/if}

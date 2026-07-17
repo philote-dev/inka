@@ -18,6 +18,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import { manifoldView, type ManifoldView } from "$lib/pgrep/prefs";
 
     import { pgrepCall } from "./lib/bridge";
+    import type { PageData } from "./$types";
+
+    export let data: PageData;
 
     // Tapping a manifold topic (label or region) opens the Study focus drill
     // scoped to it (ux-foundation 5). Study reads the topic from the query and
@@ -86,12 +89,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let heroWidth = 960;
     $: heroHeight = Math.max(240, Math.round(heroWidth * 0.5));
 
-    // Diagnostic is first-run and re-runnable (ux-foundation 7.6). Show the
-    // prompt only until it has been completed once. null while unknown so a
-    // completed learner never sees a flash of the prompt; a failed read falls
-    // open to showing it, so a first-run learner always has the entry.
-    let diagnosticDone: boolean | null = null;
-
     // Each card owns its own loading/error/data so one slow or failed call
     // abstains its own card rather than blocking the surface. All three scores
     // are pure AI-off math and return well within the 100ms feel.
@@ -148,18 +145,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         ]);
     }
 
-    async function loadDiagnosticStatus(): Promise<void> {
-        try {
-            const status = await pgrepCall<{ completed: boolean }>(
-                "pgrepDiagnosticStatus",
-                {},
-            );
-            diagnosticDone = status.completed;
-        } catch {
-            diagnosticDone = false;
-        }
-    }
-
     async function loadManifold(): Promise<void> {
         try {
             surface = await pgrepCall<Surface>("pgrepManifold", {});
@@ -173,7 +158,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
         canWebGL = supportsWebGL();
         void loadScores();
-        void loadDiagnosticStatus();
         void loadManifold();
     });
 
@@ -250,7 +234,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         <div class="head-text">
             <h1>Your knowledge map</h1>
         </div>
-        {#if diagnosticDone === false}
+        {#if data.diagnosticCompleted === false}
             <a class="diag-link" href="/pgrep/diagnostic">
                 <svg
                     width="16"

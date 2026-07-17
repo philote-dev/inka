@@ -10,7 +10,7 @@ there is no cold bucket. No AI, no confidence or self-rating. Styled with the
 pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
 -->
 <script lang="ts">
-    import { goto } from "$app/navigation";
+    import { goto, invalidate } from "$app/navigation";
     import { onDestroy, onMount } from "svelte";
 
     import ChoiceList from "$lib/components/ChoiceList.svelte";
@@ -19,7 +19,7 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
     import { type Surface } from "$lib/pgrep/manifold";
     import { setLearning } from "$lib/pgrep/nav";
 
-    import { pgrepCall } from "../lib/bridge";
+    import { DIAGNOSTIC_STATUS_DEPENDENCY, pgrepCall } from "../lib/bridge";
 
     type Placement = "strong" | "rusty";
 
@@ -152,6 +152,7 @@ pgrep design system (ChoiceList, state colors); the pgrepCall flow is unchanged.
             }));
         try {
             placeData = await pgrepCall<PlaceData>("pgrepDiagnosticPlace", { results });
+            await invalidate(DIAGNOSTIC_STATUS_DEPENDENCY);
             screen = "results";
             // Show the freshly placed knowledge as the top-down map. Best-effort:
             // if the surface read fails, the results still stand on the chips below.
