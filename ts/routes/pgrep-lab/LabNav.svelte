@@ -3,10 +3,9 @@ Copyright: Ankitects Pty Ltd and contributors
 License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
 <!-- Shared pgrep-lab navigation. One segmented switcher: Home, Design, Demo.
-     Home is a plain link to the hub. Design and Demo are the two content zones;
-     selecting one slides the indicator and opens a tray of its links. The tray
-     auto-follows the current route, so a sandbox page opens with its siblings
-     already shown. The active section is derived from the path. -->
+     Home returns to the hub. Design and Demo open a tray of their links. The
+     active section and tray follow the route, while same-route clicks still
+     update the local tray state immediately. -->
 <script lang="ts" context="module">
     export type LabGroup = "home" | "design" | "demo";
     export type LabZone = Exclude<LabGroup, "home">;
@@ -112,9 +111,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <script lang="ts">
-    import { onMount } from "svelte";
-    import { slide } from "svelte/transition";
+    import { browser } from "$app/environment";
     import { page } from "$app/stores";
+    import { slide } from "svelte/transition";
 
     // Optional override. When unset, the active section is read from the path so a
     // caller can drop in <LabNav /> with no wiring.
@@ -145,14 +144,25 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let openTray: LabZone | null = null;
     let lastPath: string | null = null;
 
-    let reducedMotion = false;
-    onMount(() => {
-        reducedMotion =
-            window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
-    });
+    const reducedMotion =
+        browser &&
+        (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false);
 
     function toggle(id: LabZone): void {
         openTray = openTray === id ? null : id;
+    }
+
+    function closeTray(event: MouseEvent): void {
+        if (
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+        ) {
+            return;
+        }
+        openTray = null;
     }
 
     $: current = normalize(active ?? $page.url.pathname);
@@ -162,9 +172,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         lastPath = current;
         openTray = routeSection === "home" ? null : (routeSection as LabZone);
     }
-    // The indicator sits on the open tray, falling back to where you actually are.
+    // The selected segment follows the open tray, falling back to the current route.
     $: activeSeg = openTray ?? routeSection;
-    $: segIndex = SECTIONS.findIndex((s) => s.id === activeSeg);
     // Only read while a tray is open (guarded in markup), so demo-or-design is enough.
     $: trayPages = openTray === "demo" ? demo : design;
 </script>
@@ -177,8 +186,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             lab
         </span>
 
-        <div class="switch" style="--seg: {segIndex}">
-            <span class="switch__indicator" aria-hidden="true"></span>
+        <div class="switch">
             {#each SECTIONS as s (s.id)}
                 {#if s.href}
                     <a
@@ -186,6 +194,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                         class:is-active={activeSeg === s.id}
                         href={s.href}
                         aria-current={current === s.href ? "page" : undefined}
+                        on:click={closeTray}
                     >
                         {s.label}
                     </a>
@@ -248,7 +257,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         margin: 0 1px;
     }
 
-    /* Segmented switcher: three equal columns with one sliding indicator. */
+    /* Segmented switcher: each segment owns its selected fill. Keeping selection
+       and tray content on the same state change avoids a lagging shared indicator. */
     .switch {
         position: relative;
         display: grid;
@@ -259,26 +269,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         background: var(--surface);
     }
 
-    .switch__indicator {
-        position: absolute;
-        top: 4px;
-        bottom: 4px;
-        left: 4px;
-        width: calc((100% - 8px) / 3);
-        border-radius: var(--radius-pill);
-        background: var(--action-bg);
-        transform: translateX(calc(var(--seg, 0) * 100%));
-        transition: transform var(--duration-calm) var(--ease-spring);
-    }
-
     .switch__seg {
         position: relative;
-        z-index: 1;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         appearance: none;
         border: 0;
+        box-shadow: none;
         background: transparent;
         min-width: 72px;
         padding: 6px 16px;
@@ -286,18 +284,21 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         font: inherit;
         font-size: var(--text-small);
         font-weight: 500;
+        line-height: 1;
         color: var(--muted);
         text-decoration: none;
         white-space: nowrap;
         cursor: pointer;
-        transition: color var(--duration-calm) var(--ease-spring);
+        transition: var(--transition-calm);
 
-        &:hover {
+        &:hover:not(.is-active) {
             color: var(--text);
+            background: var(--hover-wash);
         }
 
         &.is-active {
             color: var(--action-fg);
+            background: var(--action-bg);
         }
 
         &:focus-visible {
@@ -344,11 +345,5 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     .tray__ext {
         font-size: 11px;
         opacity: 0.7;
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-        .switch__indicator {
-            transition: none;
-        }
     }
 </style>
