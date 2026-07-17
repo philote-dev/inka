@@ -34,6 +34,7 @@ _AI_ROOT = Path(_ai_path.add_ai_core()).resolve()
 
 import cursor_sandbox  # noqa: E402
 from pgrep.ai import (  # type: ignore[import-not-found]  # noqa: E402
+    batch_safety,
     generation_core,
     model_backend,
     provenance,
@@ -2632,9 +2633,11 @@ class _RecordingBackend:
         backend: model_backend.ModelBackend,
         *,
         secrets: Sequence[str],
+        manager: batch_safety.GenerationManager | None = None,
     ) -> None:
         self.backend = backend
         self.secrets = tuple(secrets)
+        self.manager = manager
         self.events: list[dict[str, object]] = []
         self.slot = 0
         self.origin = ""
@@ -2652,6 +2655,48 @@ class _RecordingBackend:
             str(chunk["source_ref"]) for chunk in chunks
         )
         self.allowed_chunk_ids = frozenset(str(chunk["chunk_id"]) for chunk in chunks)
+
+    def _safety_metadata(
+        self,
+        request: model_backend.ModelRequest,
+    ) -> tuple[str, int]:
+        identity = json.dumps(
+            {
+                "family": request.model.family,
+                "role": request.role,
+                "seed": request.seed,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        operation_id = f"shadow-{hashlib.sha256(identity).hexdigest()}"
+        attempt = 0
+        if (
+            request.role == "generator"
+            and request.prompt_version == shadow_portfolio.CORRECTION_PROMPT_VERSION
+        ):
+            _prefix, separator, suffix = request.request_id.rpartition("-")
+            if not separator or not suffix.isdecimal() or int(suffix) <= 0:
+                raise ValueError("schema-correction request has no retry attempt")
+            attempt = int(suffix)
+        return operation_id, attempt
+
+    def _complete_backend(
+        self,
+        request: model_backend.ModelRequest,
+    ) -> model_backend.ModelResult:
+        if self.manager is None:
+            return self.backend.complete(request)
+
+        operation_id, attempt = self._safety_metadata(request)
+        permit = self.manager.before_call(operation_id, attempt)
+        try:
+            result = self.backend.complete(request)
+        except BaseException:
+            self.manager.after_call(permit, ok=False)
+            raise
+        self.manager.after_call(permit, ok=True)
+        return result
 
     def complete(
         self,
@@ -2710,7 +2755,7 @@ class _RecordingBackend:
             ),
         }
         try:
-            result = self.backend.complete(request)
+            result = self._complete_backend(request)
             safe_result = cast(
                 Mapping[str, object],
                 _sanitize_for_publication(
@@ -2807,6 +2852,7 @@ def run_shadow(
     topic: str = DEFAULT_TOPIC,
     run_id: str | None = None,
     secrets: Sequence[str] = (),
+    manager: batch_safety.GenerationManager | None = None,
 ) -> Path:
     """Run a complete portfolio or finalize an auditable failed diagnostic."""
     resolved_run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -2817,7 +2863,7 @@ def run_shadow(
     raw_responses: list[dict[str, object]] = []
     failure_traces: list[dict[str, object]] = []
     allocation: list[str] = []
-    recorder = _RecordingBackend(backend, secrets=secrets)
+    recorder = _RecordingBackend(backend, secrets=secrets, manager=manager)
 
     try:
         if n < 3:
@@ -2870,14 +2916,25 @@ def run_shadow(
                 search_fn(topic, k=generation_core.CONTEXT_CHUNKS)
             )
             recorder.bind_retrieval(chunks, origin=origin)
-            record = shadow_portfolio.run_candidate(
-                topic=topic,
-                retrieved=chunks,
-                origin=origin,
-                roles=roles,
-                backend=recorder,
-                seed=slot_seed,
-            )
+            if manager is None:
+                record = shadow_portfolio.run_candidate(
+                    topic=topic,
+                    retrieved=chunks,
+                    origin=origin,
+                    roles=roles,
+                    backend=recorder,
+                    seed=slot_seed,
+                )
+            else:
+                record = shadow_portfolio.run_candidate(
+                    topic=topic,
+                    retrieved=chunks,
+                    origin=origin,
+                    roles=roles,
+                    backend=recorder,
+                    seed=slot_seed,
+                    max_schema_corrections=manager.limits.max_retries,
+                )
             _bind_candidate_replay_metadata(
                 record,
                 topic=topic,
@@ -3416,6 +3473,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"built {prepared.image} at immutable digest {prepared.image_digest}")
         return 0
 
+    manager: batch_safety.GenerationManager | None = None
+    batch_run_dir = os.environ.get("PGREP_BATCH_RUN_DIR")
+    if args.shadow and batch_run_dir:
+        try:
+            manager = batch_safety.GenerationManager.attach(batch_run_dir)
+        except batch_safety.BatchStopped as error:
+            print(f"shadow batch safety attach failed: {error}")
+            return 1
+
     roles = _default_roles()
     if args.shadow:
         if not args.sol_model or not args.opus_model or not args.grok_model:
@@ -3487,6 +3553,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             topic=args.topic,
             run_id=run_id,
             secrets=(key,),
+            manager=manager,
         )
     except ShadowRunFailed as error:
         print(str(error))

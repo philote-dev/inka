@@ -367,31 +367,189 @@ shadow-worker-build:
     {{ ninja }} pyenv
     out/pyenv/bin/python content/tools/shadow_foundry.py --build-worker
 
+# Show the latest generation safety state, or pass --run-dir for a specific run.
+[group('content')]
+[unix]
+[positional-arguments]
+generation-status *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/batch_manager.py status "$@"
+
+# Stop all protected generation before the next provider call.
+[group('content')]
+[unix]
+generation-stop:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/batch_manager.py stop
+
+# Remove the global stop file without changing any run state.
+[group('content')]
+[unix]
+generation-resume:
+    {{ ninja }} pyenv
+    out/pyenv/bin/python content/tools/batch_manager.py resume
+
+# Run one high-volume tool behind mandatory limits and a status watcher.
+[private]
+[unix]
+[positional-arguments]
+_generation-protected tool *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tool="$1"
+    shift
+    safety_env_file="${PGREP_BATCH_SAFETY_ENV_FILE:-content/run/batch-safety.env}"
+    if [ -f "$safety_env_file" ]; then
+        set -a
+        . "$safety_env_file"
+        set +a
+    fi
+
+    run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+    output_root=""
+    artifact_dir=""
+    case "$tool" in
+        shadow-foundry)
+            safety_dir="content/run/.batch-safety/shadow-foundry/${run_id}"
+            artifact_dir="content/run/shadow-foundry/${run_id}"
+            command=(out/pyenv/bin/python content/tools/shadow_foundry.py --shadow "$@" --run "$run_id")
+            ;;
+        foundry)
+            output_root="content/run/foundry"
+            argv=("$@")
+            for ((index = 0; index < ${#argv[@]}; index++)); do
+                case "${argv[$index]}" in
+                    --out)
+                        if ((index + 1 < ${#argv[@]})); then output_root="${argv[$((index + 1))]}"; fi
+                        ;;
+                    --out=*) output_root="${argv[$index]#--out=}" ;;
+                esac
+            done
+            safety_dir="content/run/.batch-safety/foundry/${run_id}"
+            artifact_dir="${output_root}/${run_id}"
+            command=(out/pyenv/bin/python content/tools/foundry.py "$@" --run "$run_id")
+            ;;
+        generate-decompositions)
+            output_root="content/run/decompositions"
+            argv=("$@")
+            for ((index = 0; index < ${#argv[@]}; index++)); do
+                case "${argv[$index]}" in
+                    --out)
+                        if ((index + 1 < ${#argv[@]})); then output_root="${argv[$((index + 1))]}"; fi
+                        ;;
+                    --out=*) output_root="${argv[$index]#--out=}" ;;
+                esac
+            done
+            safety_dir="${output_root}/.runs/${run_id}"
+            command=(out/pyenv/bin/python content/tools/generate_decompositions.py "$@")
+            ;;
+        audit-bundle-ai)
+            output_root="content/run/audit"
+            argv=("$@")
+            for ((index = 0; index < ${#argv[@]}; index++)); do
+                case "${argv[$index]}" in
+                    --out)
+                        if ((index + 1 < ${#argv[@]})); then output_root="${argv[$((index + 1))]}"; fi
+                        ;;
+                    --out=*) output_root="${argv[$index]#--out=}" ;;
+                esac
+            done
+            safety_dir="${output_root}/.runs/${run_id}"
+            command=(out/pyenv/bin/python content/tools/audit_bundle_ai.py "$@")
+            ;;
+        *)
+            echo "unknown protected generation tool: $tool" >&2
+            exit 2
+            ;;
+    esac
+
+    export PGREP_BATCH_RUN_DIR="$safety_dir"
+    out/pyenv/bin/python content/tools/batch_manager.py preflight \
+        --tool "$tool" --run-id "$run_id" --run-dir "$safety_dir"
+
+    watcher_pid=""
+    cleanup_watcher() {
+        if [ -n "${watcher_pid:-}" ]; then
+            kill "$watcher_pid" 2>/dev/null || true
+            wait "$watcher_pid" 2>/dev/null || true
+            watcher_pid=""
+        fi
+    }
+    trap cleanup_watcher EXIT INT TERM
+    out/pyenv/bin/python content/tools/batch_manager.py watch --run-dir "$safety_dir" &
+    watcher_pid=$!
+
+    set +e
+    "${command[@]}"
+    command_status=$?
+    set -e
+    cleanup_watcher
+
+    result="failed"
+    if [ "$command_status" -eq 0 ]; then result="completed"; fi
+    set +e
+    if [ -n "$artifact_dir" ]; then
+        out/pyenv/bin/python content/tools/batch_manager.py finish \
+            --run-dir "$safety_dir" --result "$result" --artifact-dir "$artifact_dir"
+    else
+        out/pyenv/bin/python content/tools/batch_manager.py finish \
+            --run-dir "$safety_dir" --result "$result"
+    fi
+    finish_status=$?
+    if [ "$finish_status" -ne 0 ]; then
+        out/pyenv/bin/python content/tools/batch_manager.py status \
+            --run-dir "$safety_dir" || true
+    fi
+    set -e
+
+    exit_status="$command_status"
+    if [ "$exit_status" -eq 0 ] && [ "$finish_status" -ne 0 ]; then
+        exit_status="$finish_status"
+    fi
+    trap - EXIT INT TERM
+    exit "$exit_status"
+
 # Batch-generate gated decomposition tutor data into the bundle (needs content/ + key)
 [group('content')]
 [unix]
+[positional-arguments]
 gen-decompositions *args:
     #!/usr/bin/env bash
     set -euo pipefail
     {{ ninja }} pyenv
     if [ -f "$HOME/.config/truefoundry/gateway.env" ]; then set -a; . "$HOME/.config/truefoundry/gateway.env"; set +a; fi
     if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
-    if [ -z "${OPENAI_API_KEY:-}" ]; then
-        echo "Set OPENAI_API_KEY via ~/.config/truefoundry/gateway.env to generate." >&2
-        exit 1
-    fi
-    out/pyenv/bin/python content/tools/generate_decompositions.py {{ args }}
+    just _generation-protected generate-decompositions "$@"
 
 # Run the five AI content audits over the shipped bundle (pre-release scan)
 [group('content')]
 [unix]
+[positional-arguments]
 audit-bundle-ai *args:
     #!/usr/bin/env bash
     set -euo pipefail
     {{ ninja }} pyenv
     if [ -f "$HOME/.config/truefoundry/gateway.env" ]; then set -a; . "$HOME/.config/truefoundry/gateway.env"; set +a; fi
     if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
-    out/pyenv/bin/python content/tools/audit_bundle_ai.py {{ args }}
+    safety_class="$(
+        out/pyenv/bin/python -c \
+            'import sys; sys.path.insert(0, "content/tools"); import audit_bundle_ai as audit; print("protected" if audit.audit_requires_protection(sys.argv[1:]) else "unprotected")' \
+            "$@"
+    )"
+    case "$safety_class" in
+        unprotected)
+            out/pyenv/bin/python content/tools/audit_bundle_ai.py "$@"
+            ;;
+        protected)
+            just _generation-protected audit-bundle-ai "$@"
+            ;;
+        *)
+            echo "unexpected audit safety classification: $safety_class" >&2
+            exit 2
+            ;;
+    esac
 
 # Offline foundry smoke (no network): runs foundry.py --self-check
 [group('content')]
@@ -404,13 +562,22 @@ foundry-dry *args:
 # Example: `just foundry --dry-run --topic classical_mechanics --n 8`
 [group('content')]
 [unix]
+[positional-arguments]
 foundry *args:
     #!/usr/bin/env bash
     set -euo pipefail
     {{ ninja }} pyenv
     if [ -f "$HOME/.config/truefoundry/gateway.env" ]; then set -a; . "$HOME/.config/truefoundry/gateway.env"; set +a; fi
     if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
-    out/pyenv/bin/python content/tools/foundry.py {{ args }}
+    for arg in "$@"; do
+        case "$arg" in
+            --dry-run|--self-check)
+                out/pyenv/bin/python content/tools/foundry.py "$@"
+                exit $?
+                ;;
+        esac
+    done
+    just _generation-protected foundry "$@"
 
 # List account-available Cursor models without generating content.
 [unix]
@@ -426,9 +593,12 @@ shadow-smoke:
 
 # Quarantined multi-model generation. Never lands content or preference pairs.
 [unix]
+[positional-arguments]
 shadow-foundry *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
     {{ ninja }} pyenv
-    out/pyenv/bin/python content/tools/shadow_foundry.py --shadow {{ args }}
+    just _generation-protected shadow-foundry "$@"
 
 # Build the private blind human ruler and Pass A Markdown blocks.
 [unix]

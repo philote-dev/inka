@@ -19,6 +19,7 @@ import contextlib
 import json
 import os
 import sys
+import tempfile
 import types
 from pathlib import Path
 
@@ -37,6 +38,15 @@ import check_technique_giveaway as giveaway  # type: ignore[import-not-found]  #
 import pgrep_figure_gen as figgen  # type: ignore[import-not-found]  # noqa: E402
 import pgrep_figure_verify as figverify  # type: ignore[import-not-found]  # noqa: E402
 from pgrep.ai import llm  # type: ignore[import-not-found]  # noqa: E402
+from pgrep.ai.batch_safety import (  # type: ignore[import-not-found]  # noqa: E402
+    BatchCounters,
+    BatchLimits,
+    BatchState,
+    BatchStatus,
+    BatchStopped,
+    BatchStopReason,
+    GenerationManager,
+)
 
 _DATED = "gpt-test-2026-01-01"
 
@@ -139,6 +149,63 @@ def _raises(exc):
         caught = True
     if not caught:
         raise AssertionError(f"expected {exc.__name__}")
+
+
+@contextlib.contextmanager
+def _batch_run_dir(path: Path | None):
+    name = "PGREP_BATCH_RUN_DIR"
+    present = name in os.environ
+    previous = os.environ.get(name)
+    if path is None:
+        os.environ.pop(name, None)
+    else:
+        os.environ[name] = str(path)
+    try:
+        yield
+    finally:
+        if present:
+            assert previous is not None
+            os.environ[name] = previous
+        else:
+            os.environ.pop(name, None)
+
+
+@contextlib.contextmanager
+def _working_directory(path: Path):
+    previous = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(previous)
+
+
+def _initialize_batch(
+    run_dir: Path,
+    *,
+    max_calls: int = 12,
+    max_retries: int = 3,
+) -> GenerationManager:
+    manager = GenerationManager(
+        run_id="llm-integration-run",
+        tool="llm-client",
+        run_dir=run_dir,
+        limits=BatchLimits(
+            max_calls=max_calls,
+            max_concurrency=1,
+            max_retries=max_retries,
+            max_minutes=15,
+        ),
+        stop_path=run_dir / "STOP_GENERATION",
+    )
+    manager.initialize()
+    return manager
+
+
+def _batch_state(manager: GenerationManager) -> BatchState:
+    return BatchState.from_dict(
+        json.loads(manager.state_path.read_text(encoding="utf8"))
+    )
 
 
 # --- (a) the shared client -------------------------------------------------
@@ -256,6 +323,177 @@ def test_complete_text_reraises_unknown_error():
         client = llm.LLMClient(_DATED)
         client._client = _ScriptedBackend([("raise", "ValueError")])
         client.complete_text("s", "u")
+
+
+def test_complete_text_without_batch_env_preserves_calls_and_touches_no_safety():
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        backend = _ScriptedBackend(
+            [
+                ("raise", "RateLimitError"),
+                ("return", "unchanged result"),
+            ]
+        )
+        with (
+            _fake_openai(),
+            _no_sleep(),
+            _batch_run_dir(None),
+            _working_directory(root),
+        ):
+            client = llm.LLMClient(_DATED)
+            client._client = backend
+            result = client.complete_text(
+                "unchanged system",
+                "unchanged user",
+                json_object=True,
+            )
+
+        expected_kwargs = {
+            "model": _DATED,
+            "messages": [
+                {"role": "system", "content": "unchanged system"},
+                {"role": "user", "content": "unchanged user"},
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": 0.0,
+            "seed": 7,
+        }
+        assert result == "unchanged result"
+        assert backend.calls == [expected_kwargs, expected_kwargs]
+        assert not list(root.rglob("safety.json"))
+        assert list(root.iterdir()) == []
+
+
+def test_complete_text_protected_success_and_failure_update_safe_counters():
+    with tempfile.TemporaryDirectory() as temporary:
+        run_dir = Path(temporary) / "run"
+        manager = _initialize_batch(run_dir)
+        with _fake_openai(), _batch_run_dir(run_dir):
+            client = llm.LLMClient(_DATED)
+            client._client = _ScriptedBackend(
+                [("return", "PRIVATE_RESPONSE_MUST_NOT_PERSIST")]
+            )
+            assert (
+                client.complete_text(
+                    "PRIVATE_PROMPT_MUST_NOT_PERSIST",
+                    "PRIVATE_SOURCE_TEXT_MUST_NOT_PERSIST",
+                )
+                == "PRIVATE_RESPONSE_MUST_NOT_PERSIST"
+            )
+
+            client._client = _ScriptedBackend([("raise", "ValueError")])
+            with _raises(Exception):
+                client.complete_text("second private prompt", "second private source")
+
+        state = _batch_state(manager)
+        assert state.status is BatchStatus.RUNNING
+        assert state.counters == BatchCounters(
+            calls_started=2,
+            calls_completed=1,
+            calls_failed=1,
+            peak_concurrency=1,
+        )
+        serialized = manager.state_path.read_text(encoding="utf8")
+        for private_value in (
+            "PRIVATE_PROMPT_MUST_NOT_PERSIST",
+            "PRIVATE_SOURCE_TEXT_MUST_NOT_PERSIST",
+            "PRIVATE_RESPONSE_MUST_NOT_PERSIST",
+            "second private prompt",
+            "second private source",
+            _DATED,
+        ):
+            assert private_value not in serialized
+
+
+def test_complete_text_call_limit_stops_before_backend_invocation():
+    with tempfile.TemporaryDirectory() as temporary:
+        run_dir = Path(temporary) / "run"
+        manager = _initialize_batch(run_dir, max_calls=1)
+        with _fake_openai(), _batch_run_dir(run_dir):
+            client = llm.LLMClient(_DATED)
+            client._client = _ScriptedBackend([("return", "first")])
+            assert client.complete_text("system", "user") == "first"
+
+            denied_backend = _ScriptedBackend([("return", "must not run")])
+            client._client = denied_backend
+            try:
+                client.complete_text("system", "user")
+            except BatchStopped as error:
+                assert error.reason is BatchStopReason.CALL_LIMIT
+            else:
+                raise AssertionError("expected the call limit to stop generation")
+
+        assert denied_backend.calls == []
+        state = _batch_state(manager)
+        assert state.status is BatchStatus.STOPPED
+        assert state.stop_reason is BatchStopReason.CALL_LIMIT
+        assert state.counters.calls_started == 1
+
+
+def test_complete_text_option_fallback_and_transient_retry_use_global_attempts():
+    with tempfile.TemporaryDirectory() as temporary:
+        run_dir = Path(temporary) / "run"
+        manager = _initialize_batch(run_dir, max_retries=2)
+        backend = _ScriptedBackend(
+            [
+                ("raise", "BadRequestError"),
+                ("raise", "RateLimitError"),
+                ("return", "recovered"),
+            ]
+        )
+        with (
+            _fake_openai(),
+            _no_sleep(),
+            _batch_run_dir(run_dir),
+        ):
+            client = llm.LLMClient(_DATED)
+            client._client = backend
+            assert client.complete_text("system", "user") == "recovered"
+
+        assert len(backend.calls) == 3
+        assert "seed" in backend.calls[0]
+        assert "seed" not in backend.calls[1]
+        assert backend.calls[1] == backend.calls[2]
+        assert _batch_state(manager).counters == BatchCounters(
+            calls_started=3,
+            calls_completed=1,
+            calls_failed=2,
+            peak_concurrency=1,
+            retries=2,
+        )
+
+
+def test_complete_text_retry_limit_stops_before_next_backend_attempt():
+    with tempfile.TemporaryDirectory() as temporary:
+        run_dir = Path(temporary) / "run"
+        manager = _initialize_batch(run_dir, max_retries=1)
+        backend = _ScriptedBackend(
+            [
+                ("raise", "RateLimitError"),
+                ("raise", "RateLimitError"),
+                ("return", "must not run"),
+            ]
+        )
+        with _fake_openai(), _no_sleep(), _batch_run_dir(run_dir):
+            client = llm.LLMClient(_DATED)
+            client._client = backend
+            try:
+                client.complete_text("system", "user")
+            except BatchStopped as error:
+                assert error.reason is BatchStopReason.RETRY_LIMIT
+            else:
+                raise AssertionError("expected the retry limit to stop generation")
+
+        assert len(backend.calls) == 2
+        state = _batch_state(manager)
+        assert state.status is BatchStatus.STOPPED
+        assert state.stop_reason is BatchStopReason.RETRY_LIMIT
+        assert state.counters == BatchCounters(
+            calls_started=2,
+            calls_failed=2,
+            peak_concurrency=1,
+            retries=1,
+        )
 
 
 # --- (b) the three tools, no network ---------------------------------------

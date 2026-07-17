@@ -26,6 +26,7 @@ _ai_path.add_ai_core()
 
 import shadow_foundry  # noqa: E402
 from pgrep.ai import (  # type: ignore[import-not-found]  # noqa: E402
+    batch_safety,
     model_backend,
     shadow_portfolio,
 )
@@ -163,6 +164,46 @@ class FakeBackend:
 class MissingGrokBackend(FakeBackend):
     def __init__(self) -> None:
         super().__init__(fail_families={"grok"})
+
+
+class ObservedGenerationManager(batch_safety.GenerationManager):
+    def __init__(
+        self,
+        run_dir: Path,
+        *,
+        max_calls: int = 30,
+        max_retries: int = 2,
+    ) -> None:
+        super().__init__(
+            run_id="shadow-safety-run",
+            tool="shadow-foundry",
+            run_dir=run_dir,
+            limits=batch_safety.BatchLimits(
+                max_calls=max_calls,
+                max_concurrency=1,
+                max_retries=max_retries,
+                max_minutes=15,
+            ),
+            stop_path=run_dir / "STOP_GENERATION",
+        )
+        self.admissions: list[tuple[str, int]] = []
+
+    def before_call(
+        self,
+        operation_id: str,
+        attempt: int,
+    ) -> batch_safety.CallPermit:
+        permit = super().before_call(operation_id, attempt)
+        self.admissions.append((operation_id, attempt))
+        return permit
+
+
+def _safety_state(
+    manager: batch_safety.GenerationManager,
+) -> batch_safety.BatchState:
+    return batch_safety.BatchState.from_dict(
+        json.loads(manager.state_path.read_text(encoding="utf-8"))
+    )
 
 
 def _fake_search(query: str, k: int = 6, **_kwargs: object) -> list[dict[str, object]]:
@@ -764,6 +805,28 @@ def test_self_check_is_offline_and_succeeds(
     assert not (run_dir / "preferences.jsonl").exists()
 
 
+def test_synthetic_self_check_stays_unmanaged_with_batch_env_present(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = ObservedGenerationManager(tmp_path / "safety", max_calls=1)
+    manager.initialize()
+    permit = manager.before_call("exhaust-budget", 0)
+    manager.after_call(permit, ok=True)
+    original_state = manager.state_path.read_bytes()
+    monkeypatch.setenv("PGREP_BATCH_RUN_DIR", str(manager.run_dir))
+
+    assert (
+        shadow_foundry._self_check_at(
+            tmp_path / "self-check",
+            allow_test_output=True,
+        )
+        == 0
+    )
+
+    assert manager.state_path.read_bytes() == original_state
+
+
 def test_format_probe_lists_models() -> None:
     text, payload = shadow_foundry.format_probe(
         [
@@ -1149,6 +1212,9 @@ def test_real_shadow_cli_wires_host_retrieval(
     tmp_path: Path,
 ) -> None:
     observed: dict[str, object] = {}
+    safety = ObservedGenerationManager(tmp_path / "safety")
+    safety.initialize()
+    monkeypatch.setenv("PGREP_BATCH_RUN_DIR", str(safety.run_dir))
     prepared = shadow_foundry.PreparedSandbox(
         sandbox=object(),
         image="pgrep-shadow-worker:0123456789abcdef",
@@ -1209,6 +1275,9 @@ def test_real_shadow_cli_wires_host_retrieval(
     )
     assert observed["retrieval"][0] == "mechanics/circular-motion"
     assert observed["run"]["output_root"] == shadow_foundry.QUARANTINE_ROOT
+    attached = observed["run"]["manager"]
+    assert isinstance(attached, batch_safety.GenerationManager)
+    assert attached.run_dir == safety.run_dir
 
 
 def test_security_failure_aborts_after_first_failed_slot(tmp_path: Path) -> None:
@@ -1666,6 +1735,120 @@ def test_request_source_refs_must_match_bound_retrieval_exactly() -> None:
     with pytest.raises(shadow_foundry.ShadowLeakageError, match="source reference"):
         recorder.complete(request)
     assert backend.requests == []
+
+
+def test_recording_backend_accounts_call_and_stops_before_backend_exhaustion(
+    tmp_path: Path,
+) -> None:
+    manager = ObservedGenerationManager(tmp_path / "safety", max_calls=1)
+    manager.initialize()
+    backend = FakeBackend()
+    recorder = shadow_foundry._RecordingBackend(
+        backend,
+        secrets=(),
+        manager=manager,
+    )
+    recorder.bind_retrieval(_retrieved(), origin="sol")
+    request = _request_with()
+
+    result = recorder.complete(request)
+    assert result.request_id == request.request_id
+    assert len(backend.requests) == 1
+    assert _safety_state(manager).counters == batch_safety.BatchCounters(
+        calls_started=1,
+        calls_completed=1,
+        peak_concurrency=1,
+    )
+
+    with pytest.raises(batch_safety.BatchStopped) as raised:
+        recorder.complete(request)
+    assert raised.value.reason is batch_safety.BatchStopReason.CALL_LIMIT
+    assert len(backend.requests) == 1
+    state = _safety_state(manager)
+    assert state.status is batch_safety.BatchStatus.STOPPED
+    assert state.counters.active_calls == 0
+
+
+def test_recording_backend_uses_stable_operation_and_global_retry_metadata(
+    tmp_path: Path,
+) -> None:
+    manager = ObservedGenerationManager(tmp_path / "safety", max_retries=1)
+    manager.initialize()
+    valid = json.dumps(_candidate())
+    backend = FakeBackend([f"```json\n{valid}\n```", valid])
+    recorder = shadow_foundry._RecordingBackend(
+        backend,
+        secrets=(),
+        manager=manager,
+    )
+    retrieved = _retrieved()
+    recorder.bind_retrieval(retrieved, origin="sol")
+
+    shadow_portfolio.run_candidate(
+        topic="mechanics/circular-motion",
+        retrieved=retrieved,
+        origin="sol",
+        roles=_roles(),
+        backend=recorder,
+        seed=7,
+        max_schema_corrections=manager.limits.max_retries,
+    )
+
+    assert [attempt for _operation_id, attempt in manager.admissions] == [0, 1, 0, 0]
+    operation_ids = [operation_id for operation_id, _attempt in manager.admissions]
+    assert operation_ids[0] == operation_ids[1]
+    assert len(set(operation_ids)) == 3
+    assert all(operation_id.startswith("shadow-") for operation_id in operation_ids)
+    for private_value in (
+        "mechanics/circular-motion",
+        "OpenStax",
+        "gpt-5.6-sol-max",
+        _candidate()["stem"],
+    ):
+        assert all(private_value not in operation_id for operation_id in operation_ids)
+        assert private_value not in manager.state_path.read_text(encoding="utf-8")
+    assert _safety_state(manager).counters == batch_safety.BatchCounters(
+        calls_started=4,
+        calls_completed=4,
+        peak_concurrency=1,
+        retries=1,
+    )
+
+
+def test_run_shadow_stops_at_cumulative_manager_retry_limit(
+    tmp_path: Path,
+) -> None:
+    manager = ObservedGenerationManager(tmp_path / "safety", max_retries=1)
+    manager.initialize()
+    invalid = "```json\n{}\n```"
+    backend = FakeBackend([invalid])
+
+    with pytest.raises(shadow_foundry.ShadowRunFailed):
+        shadow_foundry.run_shadow(
+            roles=_roles(),
+            backend=backend,
+            environment=_environment(),
+            output_root=tmp_path / "output",
+            allow_test_output=True,
+            search_fn=_fake_search,
+            n=3,
+            seed=7,
+            topic="mechanics/circular-motion",
+            run_id="bounded-corrections",
+            manager=manager,
+        )
+
+    assert len(backend.requests) == 3
+    assert [attempt for _operation_id, attempt in manager.admissions] == [0, 1, 0]
+    state = _safety_state(manager)
+    assert state.status is batch_safety.BatchStatus.STOPPED
+    assert state.stop_reason is batch_safety.BatchStopReason.RETRY_LIMIT
+    assert state.counters == batch_safety.BatchCounters(
+        calls_started=3,
+        calls_completed=3,
+        peak_concurrency=1,
+        retries=1,
+    )
 
 
 @pytest.mark.parametrize(

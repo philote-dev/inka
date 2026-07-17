@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from . import llm
+from .batch_safety import BatchStopped
 
 
 class _Client(Protocol):
@@ -419,6 +420,8 @@ class Judge:
             raw = (
                 self.client.complete_text(system, user, json_object=True) or "{}"
             ).strip()
+        except BatchStopped:
+            raise
         except Exception as e:  # noqa: BLE001
             return on_error(e)
         try:

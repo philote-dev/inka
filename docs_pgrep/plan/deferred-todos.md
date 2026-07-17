@@ -9,13 +9,13 @@ Checkboxes are the source of truth. `[demo]` marks natural stop-and-review point
 Content and features:
 
 - [ ] Content quality program (foundry / verifier / shadow / human ruler): see the
-  status board in
-  [`content-foundry-and-verifier-design.md`](content-foundry-and-verifier-design.md)
-  — **next gate is WS10 (usage ledger + budgets)** before any paid shadow or
-  foundry online run
+      status board in
+      [`content-foundry-and-verifier-design.md`](content-foundry-and-verifier-design.md)
+      — WS10's circuit breaker is done; **next gate is configuring generous explicit
+      limits and resuming real capped shadow/ruler Pass A / Pass B work**
 - [ ] Generate / refresh decomposition tutor coverage where still missing (triple
-  pool already raised coverage substantially; confirm remaining gaps after the
-  calibrated gate) `just gen-decompositions --apply` [demo]
+      pool already raised coverage substantially; confirm remaining gaps after the
+      calibrated gate) `just gen-decompositions --apply` [demo]
 - [ ] Port the iOS Problems flow from the old ladder to the decomposition tutor [demo]
 - [ ] Content quality: gold-set gate hardening (cut the refusal and malformed-MCQ rate, rerun the batch)
 - [ ] Optional Bragg diffraction figure for problem p4-prob-0136
@@ -44,6 +44,10 @@ macOS unified title bar. Parked, not merged. It defers:
 
 ## Done
 
+- [x] WS10 lightweight generation circuit breaker: protected high-volume recipes
+      require explicit call/concurrency/retry/duration limits, publish `safety.json`,
+      and support global stop/resume controls. It is not a usage ledger or billing
+      system.
 - [x] In-app sync/export operation UI: progress, full-sync decisions, errors, and cancel live in the shell (`OperationCenter`); native Qt only for `PGREP_SURFACE_MODE=off`. Devices framing + last-synced on desktop and iOS Settings — see `in-app-sync-and-export-ui.md`
 - [x] First-run login gate host hookup: `pgrepAuthStatus` / `pgrepSignIn` / `pgrepGateSkip`, shell overlay in `+layout.svelte`, skip in profile meta — see `login-gate-beta-handoff.md` (iOS first-run gate still later)
 - [x] Standalone desktop chrome: window titled "pgrep", Anki admin menus hidden, exclusive surface is the default (the takeover flip); dev keeps the hatch via `PGREP_SURFACE_MODE=hosted`

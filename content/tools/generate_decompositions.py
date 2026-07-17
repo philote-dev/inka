@@ -51,6 +51,7 @@ from pgrep.ai import llm as llm_mod  # noqa: E402
 from pgrep.ai import provenance  # noqa: E402
 from pgrep.ai import retrieval  # noqa: E402
 from pgrep.ai import verify  # noqa: E402
+from pgrep.ai.batch_safety import BatchStopped  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONTENT = os.path.dirname(HERE)
@@ -341,6 +342,8 @@ def main() -> None:
             tutor, flags = build_tutor(
                 problem, client, conn, verify_keys=args.verify_keys, system=system
             )
+        except BatchStopped:
+            raise
         except Exception as exc:  # noqa: BLE001
             with _print_lock:
                 flag_counts[f"error:{type(exc).__name__}"] += 1

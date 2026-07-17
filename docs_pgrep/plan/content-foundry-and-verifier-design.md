@@ -1,8 +1,9 @@
 # pgrep content foundry and calibrated verifier, design
 
 Date: 2026-07-07. Updated: 2026-07-16. Status: Phases 1–3 and the shadow/ruler
-code are on `main`. Online shadow runs and human ruler handoff are **paused**
-until WS10 (usage ledger + budgets) lands. Tier trigger counts are not achieved.
+code are on `main`. WS10's lightweight generation circuit breaker is implemented.
+Online shadow/ruler work remains paused until an operator selects limits and
+resumes it. Tier trigger counts are not achieved.
 Author: pair session.
 
 This spec describes a verification-guided content foundry for pgrep: generate
@@ -26,7 +27,8 @@ Implementation plans (TDD, task-by-task):
   [`shadow-foundry-calibration-design.md`](shadow-foundry-calibration-design.md),
   [`multi-model-shadow-runner-plan.md`](multi-model-shadow-runner-plan.md),
   [`blind-calibration-ruler-plan.md`](blind-calibration-ruler-plan.md)
-  (code on `main`; Pass A handoff / Pass B incomplete; paid runs paused for WS10)
+  (code on `main`; Pass A handoff / Pass B incomplete; online work paused pending
+  operator-selected WS10 limits)
 
 ## Current status board (2026-07-16)
 
@@ -35,39 +37,40 @@ packaging todos remain in [`deferred-todos.md`](deferred-todos.md).
 
 ### Done / landed
 
-| Track | State |
-| --- | --- |
-| Phase 1 — consensus key check, verifier panel, agreement metrics | On `main` |
-| Phase 2 — temptation, difficulty, best-of-N foundry loop | On `main` |
-| Phase 3 — preference dataset + `just eval-verifier` | On `main` (human labels / green gate card not achieved) |
-| Shadow multi-model runner + blind ruler modules | On `main` (Tasks 1–5-ish; Pass B / handoff incomplete) |
-| Triple-pool content growth (problems, figures, decomps, audits) | Ran; bundle grew (~378 problems, high decomp coverage). Quality still needs the calibrated gate |
-| Credential posture | Direct provider keys removed from `content/.env` and shell exports. One TrueFoundry gateway file: `~/.config/truefoundry/gateway.env`. `llm.load_api_key` + `LLMClient` route via `OPENAI_BASE_URL` |
+| Track                                                            | State                                                                                                                                                                                               |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Phase 1 — consensus key check, verifier panel, agreement metrics | On `main`                                                                                                                                                                                           |
+| Phase 2 — temptation, difficulty, best-of-N foundry loop         | On `main`                                                                                                                                                                                           |
+| Phase 3 — preference dataset + `just eval-verifier`              | On `main` (human labels / green gate card not achieved)                                                                                                                                             |
+| Shadow multi-model runner + blind ruler modules                  | On `main` (Tasks 1–5-ish; Pass B / handoff incomplete)                                                                                                                                              |
+| Triple-pool content growth (problems, figures, decomps, audits)  | Ran; bundle grew (~378 problems, high decomp coverage). Quality still needs the calibrated gate                                                                                                     |
+| Credential posture                                               | Direct provider keys removed from `content/.env` and shell exports. One TrueFoundry gateway file: `~/.config/truefoundry/gateway.env`. `llm.load_api_key` + `LLMClient` route via `OPENAI_BASE_URL` |
+| WS10 — lightweight generation circuit breaker                    | Implemented: protected high-volume recipes require explicit per-run call, concurrency, retry, and duration limits; a global stop file blocks the next provider call                                 |
 
 ### Paused / missing (blocks safe resumption of expensive loops)
 
-| Gap | Why it matters |
-| --- | --- |
-| **WS10 — usage ledger, budgets, kill switch** (below) | No central token/$ accounting on `LLMClient`. Ad-hoc counters exist in a couple of old tools only. Cannot answer spend-to-date or stop a runaway batch |
-| Ruler Task 6–7 (Pass B + real Pass A handoff) + human labels | Needed before calibrated unlock |
-| Tier 2 / Tier 3 training triggers | Still future; numeric counts (`300` labeled problems, `1000` pairs) not reached |
+| Gap                                                          | Why it matters                                                                  |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| Ruler Task 6–7 (Pass B + real Pass A handoff) + human labels | Needed before calibrated unlock                                                 |
+| Tier 2 / Tier 3 training triggers                            | Still future; numeric counts (`300` labeled problems, `1000` pairs) not reached |
 
 ### Recommended resume order
 
-1. Implement **WS10** (ledger + soft/hard caps) and set an explicit daily hard cap.
-2. Finish shadow/ruler only behind those caps; prefer TFY model IDs (`gpt-5.5`,
+1. Set generous explicit WS10 limits, then resume capped shadow/ruler Pass A /
+   Pass B work.
+2. Finish shadow/ruler behind those limits; prefer TFY model IDs (`gpt-5.5`,
    `claude-opus-4-8`, `grok-4.5`) over Cursor SDK for generation volume.
 3. Complete Pass A handoff → human labels → Pass B → unlock standing eval.
 4. Only then grow the pool with online foundry acceptance.
 
 ### Model roles (TFY gateway — locked preference)
 
-| Role | Gateway model id | Notes |
-| --- | --- | --- |
-| Default generator | `gpt-5.5` | Bulk stems, decomps, figures |
-| Hard cross-judge | `claude-opus-4-8` | Origin-excluding key/figure/giveaway checks |
-| Diverse second opinion | `grok-4.5` | Blind re-solve / temptation diversity |
-| Cheap weak solver (optional) | `gpt-5.4-mini` or `claude-haiku-4-5` | Distractor temptation / difficulty sim |
+| Role                         | Gateway model id                     | Notes                                       |
+| ---------------------------- | ------------------------------------ | ------------------------------------------- |
+| Default generator            | `gpt-5.5`                            | Bulk stems, decomps, figures                |
+| Hard cross-judge             | `claude-opus-4-8`                    | Origin-excluding key/figure/giveaway checks |
+| Diverse second opinion       | `grok-4.5`                           | Blind re-solve / temptation diversity       |
+| Cheap weak solver (optional) | `gpt-5.4-mini` or `claude-haiku-4-5` | Distractor temptation / difficulty sim      |
 
 Floating gateway IDs replace dated OpenAI snapshots for TFY-routed runs. The
 dated-snapshot pin rule in `LLMClient` needs a TFY-aware exception or a
@@ -150,9 +153,11 @@ sources:
 ## Design principles
 
 - **One seam per concern.** Reuse the existing seams rather than fork them: the
-  `llm.LLMClient` for every model call, the `Judge` for single checks, `verify.py`
-  for SymPy and deterministic leak checks, `eval_metrics.py` for CIs,
-  `review_sheet.py` for human sheets, `assemble_bundle.py` for the gated landing.
+  `llm.LLMClient` for OpenAI-compatible calls,
+  `model_backend.ModelBackend` for quarantined shadow calls, the `Judge` for
+  single checks, `verify.py` for SymPy and deterministic leak checks,
+  `eval_metrics.py` for CIs, `review_sheet.py` for human sheets, and
+  `assemble_bundle.py` for the gated landing.
 - **Trust from objective and consensus checks, not one fuzzy judge.** Keys,
   distractor wrongness, and leaks are decided by SymPy, multi-model consensus, and
   backward checks. Only the genuinely soft residual (misconception plausibility,
@@ -390,91 +395,76 @@ WS9}.
   Red exits nonzero. The offline self-check supplies at least 100 all-correct
   retained accepts plus passing per-slot foundry data and exits 0.
 
-### WS10. Usage ledger, budgets, and kill switch
+### WS10. Lightweight generation circuit breaker
 
-**Problem.** Every paid call eventually goes through `llm.LLMClient` (or a
-bypass in a few legacy tools), but the seam does not record tokens, estimate
-USD, or enforce a cap. After a ~$2000 bill spike, expensive shadow/foundry work
-must not resume without precautionary controls.
+**Status: implemented.** WS10 limits only the high-volume generation work that
+can create a runaway call loop. It is deliberately a per-run operational
+circuit breaker, not a usage ledger or a general paid-call checker.
 
-**Non-goals.** No full accounting product; no syncing the ledger; no dependence
-on scraping a vendor invoice UI in CI. TrueFoundry’s own dashboard remains the
-invoice source of truth; the local ledger is the **run-time** control plane.
+**Protected recipes.** The wrapper applies only to `just shadow-foundry`, the
+future online `just foundry`, `just gen-decompositions`, and
+LLM-backed selections of `just audit-bundle-ai`. Selecting only
+`decomposition_leak` and `citation` bypasses the manager because those audits
+are deterministic, unless `--include-variant-solve` requests an LLM re-solve.
+The default audit selection and any selected LLM audit remain protected. Offline
+self-check/dry-run paths remain unprotected because they do not make provider
+calls. Other tools are unchanged.
 
-**Design.**
+**Mandatory operator limits.** Before a protected recipe starts, all four
+positive integer environment variables must be present; there are no hidden
+defaults:
 
-1. **Record at the seam.** Every successful (and failed-with-usage) completion
-   in `LLMClient` appends one JSONL event under the git-ignored tree
-   `content/run/usage/<yyyy-mm-dd>.jsonl`. Fields (v1):
+| Limit                             | Environment variable          |
+| --------------------------------- | ----------------------------- |
+| Maximum provider calls            | `PGREP_BATCH_MAX_CALLS`       |
+| Maximum concurrent provider calls | `PGREP_BATCH_MAX_CONCURRENCY` |
+| Maximum retries                   | `PGREP_BATCH_MAX_RETRIES`     |
+| Maximum elapsed minutes           | `PGREP_BATCH_MAX_MINUTES`     |
 
-   - `ts` (UTC ISO), `run_id` (optional env `PGREP_USAGE_RUN_ID`), `tool`
-     (optional `PGREP_USAGE_TOOL`), `model`, `ok`
-   - `prompt_tokens`, `completion_tokens`, `total_tokens` (from the response
-     `usage` object when present; else null)
-   - `est_usd` (float or null) from a small local price table keyed by model
-     family; unknown models log tokens with `est_usd: null` and still count
-     toward a **token** cap if configured
-   - `base_url_host` (hostname only of `OPENAI_BASE_URL`, never the key)
+The optional, ignored `content/run/batch-safety.env` may supply those values.
+The wrapper creates a private run state and exports `PGREP_BATCH_RUN_DIR`; calls
+made by `LLMClient` within that protected run reserve a permit before the
+provider call and record only the safe terminal counter afterwards. A missing,
+malformed, corrupt, locked, or otherwise unusable state fails closed.
 
-2. **Price table.** A checked-in, manually maintained map
-   `pylib/anki/pgrep/ai/usage_prices.py` (or YAML beside it) with rough
-   USD/1M-token rates for the TFY portfolio we care about (`gpt-5.5`,
-   `claude-opus-4-8`, `grok-4.5`, minis). Estimates are explicitly approximate;
-   the ledger never claims invoice accuracy.
+**Per-run state and operator surface.** Each protected run writes a
+privacy-safe `safety.json` with the run id, tool, lifecycle status, selected
+limits, counters, timestamps, and an optional stop reason. The wrapper starts a
+terminal status watcher, and `just generation-status [--run-dir <dir>]` can
+inspect the newest state or a named state. The stable one-line status includes
+calls, active calls, retries, elapsed time, state, and stop reason.
 
-3. **Budgets (env + optional local file).** Resolved once per process:
+`just generation-stop` atomically creates the global
+`content/run/STOP_GENERATION`; protected runs refuse their next provider call
+and, when state remains writable, record `STOPPED` with `KILL_SWITCH`.
+`just generation-resume` removes only that global stop file. It does not make a
+stopped run runnable again; begin a new protected run instead. Call,
+concurrency, retry, and duration stops likewise persist a terminal state when
+the state update succeeds.
 
-   | Control | Env / file | Default behavior |
-   | --- | --- | --- |
-   | Soft daily USD | `PGREP_BUDGET_SOFT_USD` | Log warning; continue |
-   | Hard daily USD | `PGREP_BUDGET_HARD_USD` | Raise / abort before the next call |
-   | Hard daily tokens | `PGREP_BUDGET_HARD_TOKENS` | Same abort path |
-   | Per-run USD | `PGREP_BUDGET_RUN_USD` | Abort within one `run_id` |
-   | Disable paid calls | `PGREP_AI_SPEND_LOCK=1` | Fail closed immediately |
+A state-I/O problem always fails closed. When the existing state can still be
+read and written, the manager records `STOPPED` with `STATE_IO`; lock, read, or
+write corruption may only raise `STATE_IO`, leaving the prior state or an
+unreadable file because the failure prevents that update. Terminal command
+output reports the state-I/O failure in either case.
 
-   Optional operator file (git-ignored): `content/run/usage/budget.env` sourced
-   by `just` recipes the same way as the TFY gateway. Caps are **fail-closed**
-   when a hard limit is set and the ledger cannot be read/written.
+Safety state is a sidecar while an artifact is being atomically published. On
+finalization, it is copied beside finalized shadow/foundry artifacts when that
+artifact directory exists. This preserves the run's bounded-call evidence
+without putting prompts, completions, credentials, tokens, prices, or account
+data in the state file.
 
-4. **Kill switch before the call.** `LLMClient.complete_*` loads today’s
-   ledger totals (plus the current run) and refuses the network call if a hard
-   cap would be exceeded. Soft caps only warn (stderr + a `budget_soft` event).
+**Non-goals.** WS10 does not track tokens or USD, keep daily totals, apply
+pricing or model restrictions, clean up legacy client bypasses, govern every
+paid call, or run a network smoke. It has no usage report, spend budget, or
+price table. Vendor billing remains outside this implementation.
 
-5. **Operator surface.**
-
-   - `just usage-report` — today / last N days: tokens, est USD, by model, by
-     tool/run_id
-   - `just usage-smoke` — one tiny TFY completion that must appear in the
-     ledger and respect a tiny hard cap in the smoke’s env
-   - Foundry/shadow/audit recipes set `PGREP_USAGE_TOOL` and a fresh
-     `PGREP_USAGE_RUN_ID` so batches are attributable
-
-6. **Bypass cleanup.** Legacy tools that still construct a raw `OpenAI()`
-   client must either call through `LLMClient` or call a shared
-   `usage.record(...)` helper. No new bypasses.
-
-7. **Firewall / privacy.** The ledger stays under `content/run/` (git-ignored).
-   Events must never include prompts, completions, API keys, or corpus text —
-   metadata and counts only.
-
-**Acceptance.**
-
-- Offline unit tests: fake client returns `usage`; ledger line written; hard
-  cap blocks the next call without network; soft cap does not block; lock env
-  blocks; missing price → tokens recorded, `est_usd` null, token cap still
-  works.
-- `just usage-smoke` (network, TFY) writes one event and exits 0 under a
-  generous cap; exits nonzero when `PGREP_BUDGET_HARD_USD=0` (or equivalent).
-- Docs in [`../reference/content-pipeline.md`](../reference/content-pipeline.md)
-  describe the env knobs and the ledger path.
-- **Gate:** no shadow-foundry, foundry online, or full-bundle AI audit run is
-  considered approved until WS10 is green and a hard daily USD cap is set in
-  the operator’s environment.
-
-**Suggested starting caps (operator-chosen; not code defaults).** Soft
-$25/day, hard $50/day, per-run $20, until a month of TFY invoices calibrates
-the price table. Code defaults are “no cap” so CI and offline tests stay quiet;
-operators must set hard caps for real work.
+**Acceptance and next step.** Offline unit tests cover strict limit parsing,
+cross-process admission, terminal status, stop/resume behavior, LLM retries,
+atomic final-state copying, and the offline shadow smoke. The operational next
+step is to choose generous explicit limits, then resume capped shadow/ruler
+Pass A and Pass B work. That is not an assertion that human labels, Tier 2, or
+Tier 3 are complete.
 
 ## Staged tiers (future gates)
 
@@ -527,9 +517,9 @@ responsibility.
   human adjudication of escalations.
 - **Difficulty misalignment.** Proficiency simulation and ETS anchors, never
   frontier solve-rate. (2512.18880)
-- **Cost.** Binding again after a large bill spike. N remains capped by
-  verifier accuracy; **WS10** makes spend visible and enforces soft/hard caps
-  before any multi-model or best-of-N online run.
+- **Runaway generation.** N remains capped by verifier accuracy; **WS10**
+  requires explicit per-run call, concurrency, retry, and duration limits and
+  offers a global stop before protected multi-model or best-of-N online work.
 
 ## Success criteria
 
@@ -562,21 +552,24 @@ New (Phases 1–3 / shadow — variously merged or branched):
 - tests: `test_pgrep_verifier.py`, `test_pgrep_consensus.py`,
   `test_pgrep_calibration.py`, `test_pgrep_foundry.py`, …
 
-New for WS10 (not started):
+New for WS10:
 
-- `pylib/anki/pgrep/ai/usage.py` (ledger append, totals, cap check)
-- `pylib/anki/pgrep/ai/usage_prices.py` (approximate USD/1M rates)
-- `content/tools/usage_report.py` + `just usage-report` / `just usage-smoke`
-- tests: `test_pgrep_usage.py` (offline)
+- `pylib/anki/pgrep/ai/batch_safety.py` (strict per-run limits, durable state,
+  cross-process permits, terminal stops)
+- `content/tools/batch_manager.py` (preflight, status/watch, finish, stop,
+  resume)
+- tests: `test_pgrep_batch_safety.py`, `test_batch_manager.py`, plus LLM and
+  shadow integration coverage (offline)
 
 Touched:
 
-- `pylib/anki/pgrep/ai/llm.py` (record usage; enforce caps; TFY `base_url`)
+- `pylib/anki/pgrep/ai/llm.py` (honor protected-run permits; TFY `base_url`)
 - `pylib/anki/pgrep/ai/judge.py` (sub-verdict confidence)
 - `content/tools/eval_metrics.py` (balanced accuracy, per-property agreement,
   consistency helpers)
 - `content/tools/review_sheet.py` (per-property sheet variant)
 - `content/tools/crosscheck_keys.py` (reuse the generalized consensus)
-- `justfile` (`eval-verifier`, foundry recipes, usage recipes, TFY gateway load)
+- `justfile` (`eval-verifier`, protected generation recipes, status/stop/resume,
+  TFY gateway load)
 - docs: `../reference/content-pipeline.md`, `../ai/ai-layer.md`,
   `../reference/content-and-dependencies.md`
