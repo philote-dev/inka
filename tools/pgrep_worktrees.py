@@ -156,6 +156,11 @@ def _ignored_component_is_sensitive(part: str) -> bool:
         "gold",
         "heldout",
         "key",
+        "passphrase",
+        "passphrases",
+        "passwd",
+        "password",
+        "passwords",
         "private",
         "secret",
         "secrets",
@@ -175,12 +180,19 @@ def _ignored_component_is_sensitive(part: str) -> bool:
         "clientsecret",
         "credentialfile",
         "credentialstore",
+        "databasepassword",
+        "dbpasswd",
+        "dbpassword",
+        "keypassphrase",
+        "masterpassword",
         "privatecontent",
         "privatecorpus",
         "privatedata",
         "privatekey",
         "refreshtoken",
         "sharedsecret",
+        "userpassphrase",
+        "userpassword",
     }
     return (
         lowered == ".ssh"
@@ -599,6 +611,76 @@ def _primary_worktree(worktrees: Sequence[Worktree]) -> Worktree:
     if primary is None:
         raise LifecycleError("primary checkout not found")
     return primary
+
+
+def verify_review_worktree_identity(repo: Path, expected_path: Path) -> None:
+    """Require the exact registered direct `review` checkout before mutation."""
+    expected = _normalized_absolute_path(expected_path)
+    registered = {
+        _normalized_absolute_path(worktree.path)
+        for worktree in discover_worktrees(repo)
+    }
+    if expected not in registered:
+        raise LifecycleError(
+            f"review worktree identity mismatch: exact path is not registered: "
+            f"{expected}"
+        )
+
+    top_level = _git(
+        expected,
+        "rev-parse",
+        "--show-toplevel",
+        check=False,
+    )
+    if top_level.returncode:
+        raise LifecycleError(
+            f"review worktree identity mismatch: cannot resolve top-level for "
+            f"{expected}"
+        )
+    actual_top = _normalized_absolute_path(top_level.stdout.removesuffix("\n"))
+    if actual_top != expected:
+        raise LifecycleError(
+            f"review worktree identity mismatch: {expected} resolves to {actual_top}"
+        )
+
+    direct_head = _git(
+        expected,
+        "symbolic-ref",
+        "--no-recurse",
+        "-q",
+        "HEAD",
+        check=False,
+    )
+    if direct_head.returncode or direct_head.stdout.strip() != "refs/heads/review":
+        actual = direct_head.stdout.strip() or "(detached)"
+        raise LifecycleError(
+            f"review worktree identity mismatch: direct HEAD is {actual}, "
+            "expected refs/heads/review"
+        )
+
+    review_ref = "refs/heads/review"
+    if (
+        _git(
+            repo,
+            "show-ref",
+            "--verify",
+            "--quiet",
+            review_ref,
+            check=False,
+        ).returncode
+        != 0
+    ):
+        raise LifecycleError(f"review worktree identity mismatch: missing {review_ref}")
+    symbolic = _git(repo, "symbolic-ref", "-q", review_ref, check=False)
+    if symbolic.returncode == 0:
+        raise LifecycleError(
+            f"review worktree identity mismatch: {review_ref} is symbolic to "
+            f"{symbolic.stdout.strip()}"
+        )
+    if symbolic.returncode != 1:
+        raise LifecycleError(
+            f"review worktree identity mismatch: cannot inspect {review_ref}"
+        )
 
 
 def _git_common_dir(repo: Path) -> Path:
@@ -1076,6 +1158,11 @@ def _parser() -> argparse.ArgumentParser:
         help="remove eligible worktrees (default: dry run)",
     )
     commands.add_parser("review-clean", help="remove the disposable review worktree")
+    review_identity = commands.add_parser(
+        "review-identity-guard",
+        help="verify the exact registered direct review checkout",
+    )
+    review_identity.add_argument("path", type=Path, metavar="REVIEW_PATH")
     commands.add_parser(
         "review-disk-guard", help="warn or refuse review builds when disk is low"
     )
@@ -1103,6 +1190,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.command == "review-clean":
             print(review_clean(repo))
+            return 0
+        if args.command == "review-identity-guard":
+            verify_review_worktree_identity(repo, args.path)
             return 0
     except LifecycleError as error:
         print(f"ERROR: {error}", file=sys.stderr)

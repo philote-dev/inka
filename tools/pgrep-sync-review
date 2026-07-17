@@ -80,9 +80,10 @@ fi
 if ! git show-ref --verify --quiet refs/heads/review; then
   git branch review "$BASE"
 fi
-if [ ! -d "$REVIEW_WT" ]; then
+if [ ! -e "$REVIEW_WT" ]; then
   git worktree add "$REVIEW_WT" review >/dev/null
 fi
+"$ROOT_DIR/tools/pgrep_worktrees.py" review-identity-guard "$REVIEW_WT"
 
 # Start clean from the base each run.
 git -C "$REVIEW_WT" reset --hard "$BASE" >/dev/null

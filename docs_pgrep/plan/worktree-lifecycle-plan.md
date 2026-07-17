@@ -217,6 +217,8 @@ Python caches, coverage output, documented generated-doc trees, and compiler
 artifacts under paper directories. Before applying that allowlist, every path
 component is denied if it names content, private data, corpora, gold/held-out
 sets, `.ssh`, `.env`/`.envrc`, credentials, secrets, tokens, or key material.
+Password, passwd, and passphrase names (including CamelCase and explicit compact
+forms) are denied by the same pre-allowlist rule.
 CamelCase is split before normalization, and common compact forms such as
 `privateCorpus`, `apiKey`, and `accessToken` are denied without treating
 unrelated words such as `monkey` or `tokenizer` as credentials. These names
@@ -228,6 +230,10 @@ worktree discovery's non-UTF-8 pathname handling.
 its fresh preflight and holds it through compare-and-delete ref removal.
 `pgrep-sync-review` uses the same atomic directory lock from before review
 branch/worktree creation through reset, clean, merge, lock refresh, and build.
+After acquiring that lock and creating an absent checkout, sync proves that the
+normalized review path is an exact NUL-porcelain registration, its reported Git
+top-level is the same path, direct HEAD is `refs/heads/review`, and that branch
+ref is itself direct. Any mismatch refuses before reset, clean, merge, or build.
 Each trim, prune, and review-clean mutation also holds a path-hashed
 per-worktree lock under the Git common directory from destructive preflight
 through cleanup/ref deletion. The shared review-operation lock is always

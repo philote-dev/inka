@@ -74,6 +74,21 @@ def add_worktree(repo: Path, path: Path, branch: str) -> Path:
     return path
 
 
+def install_review_sync_tools(repo: Path) -> Path:
+    tools = repo / "tools"
+    tools.mkdir(exist_ok=True)
+    worktree_cli = tools / "pgrep_worktrees.py"
+    worktree_cli.write_text(
+        Path(module.__file__).read_text(encoding="utf8"), encoding="utf8"
+    )
+    worktree_cli.chmod(0o755)
+    sync_script = tools / "pgrep-sync-review"
+    source_script = Path(module.__file__).with_name("pgrep-sync-review")
+    sync_script.write_text(source_script.read_text(encoding="utf8"), encoding="utf8")
+    sync_script.chmod(0o755)
+    return sync_script
+
+
 def worktree_operation_lock_path(repo: Path, worktree: Path) -> Path:
     normalized = os.path.abspath(os.path.normpath(worktree))
     digest = hashlib.sha256(os.fsencode(normalized)).hexdigest()
@@ -477,6 +492,95 @@ def test_review_sync_releases_operation_lock_after_success(
     )
 
     assert result.returncode == 0, result.stderr
+    assert not (repo / ".git" / "pgrep-review-operation.lock").exists()
+
+
+@pytest.mark.parametrize("state", ["nested", "other-branch", "detached"])
+def test_review_sync_refuses_invalid_existing_review_path_before_mutation(
+    tmp_path: Path,
+    state: str,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    sync_script = install_review_sync_tools(repo)
+    git(repo, "branch", "review")
+    review_path = repo / ".worktrees" / "review"
+    review_path.parent.mkdir()
+    if state == "nested":
+        review_path.mkdir()
+        (review_path / "sentinel.txt").write_text("nested", encoding="utf8")
+    elif state == "other-branch":
+        add_worktree(repo, review_path, "other")
+        (review_path / "tracked.txt").write_text("other-dirty", encoding="utf8")
+    else:
+        git(repo, "worktree", "add", "--detach", str(review_path), "main")
+        (review_path / "tracked.txt").write_text("detached-dirty", encoding="utf8")
+
+    primary_head = git(repo, "rev-parse", "HEAD").stdout.strip()
+    review_ref = git(repo, "rev-parse", "refs/heads/review").stdout.strip()
+    target_head = (
+        git(review_path, "rev-parse", "HEAD").stdout.strip()
+        if state != "nested"
+        else None
+    )
+    (repo / "tracked.txt").write_text("primary-dirty", encoding="utf8")
+    env = os.environ.copy()
+    env["PGREP_REVIEW_AVAILABLE_BYTES"] = str(30 * 1024**3)
+
+    result = subprocess.run(
+        [str(sync_script), "main"],
+        cwd=repo,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "review worktree identity" in result.stderr
+    assert git(repo, "rev-parse", "HEAD").stdout.strip() == primary_head
+    assert git(repo, "rev-parse", "refs/heads/review").stdout.strip() == review_ref
+    assert (repo / "tracked.txt").read_text(encoding="utf8") == "primary-dirty"
+    if state == "nested":
+        assert (review_path / "sentinel.txt").read_text(encoding="utf8") == "nested"
+    else:
+        assert review_path.exists()
+        assert git(review_path, "rev-parse", "HEAD").stdout.strip() == target_head
+        assert "dirty" in (review_path / "tracked.txt").read_text(encoding="utf8")
+    assert not (repo / ".git" / "pgrep-review-operation.lock").exists()
+
+
+def test_review_sync_accepts_exact_registered_direct_review_worktree(
+    tmp_path: Path,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    sync_script = install_review_sync_tools(repo)
+    review_path = repo / ".worktrees" / "review"
+    review_path.parent.mkdir()
+    add_worktree(repo, review_path, "review")
+    (repo / "tracked.txt").write_text("primary-dirty", encoding="utf8")
+    (review_path / "tracked.txt").write_text("review-dirty", encoding="utf8")
+    generated = review_path / "generated.tmp"
+    generated.write_text("generated", encoding="utf8")
+    env = os.environ.copy()
+    env["PGREP_REVIEW_AVAILABLE_BYTES"] = str(30 * 1024**3)
+
+    result = subprocess.run(
+        [str(sync_script), "main"],
+        cwd=repo,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (repo / "tracked.txt").read_text(encoding="utf8") == "primary-dirty"
+    assert (review_path / "tracked.txt").read_text(encoding="utf8") == "base"
+    assert not generated.exists()
+    assert (
+        git(review_path, "symbolic-ref", "--no-recurse", "-q", "HEAD").stdout.strip()
+        == "refs/heads/review"
+    )
     assert not (repo / ".git" / "pgrep-review-operation.lock").exists()
 
 
@@ -900,6 +1004,10 @@ def test_prune_preserves_ignored_private_data_and_branch(
         Path("out/credentialStore.json"),
         Path("out/clientSecret.txt"),
         Path("out/refreshToken.txt"),
+        Path("out/passwords.json"),
+        Path("out/dbPasswd.txt"),
+        Path("out/userPassphrase"),
+        Path("out/databasePassword.json"),
     ],
 )
 def test_ignored_compact_sensitive_names_block_disposal(path: Path) -> None:
@@ -913,6 +1021,8 @@ def test_ignored_compact_sensitive_names_block_disposal(path: Path) -> None:
         Path("out/tokenizer-cache.bin"),
         Path("out/golden-ratio.json"),
         Path("out/secretary-notes.txt"),
+        Path("out/passwordless-cache.bin"),
+        Path("out/compass-words.json"),
     ],
 )
 def test_ignored_sensitive_matching_avoids_unrelated_substrings(path: Path) -> None:
