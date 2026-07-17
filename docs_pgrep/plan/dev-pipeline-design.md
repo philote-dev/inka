@@ -194,16 +194,25 @@ commands therefore separate source preservation from disposable build cleanup:
   gold/held-out sets, `.ssh`, environment files, keys, tokens, or credentials
   at any depth, including CamelCase/compact password, passwd, and passphrase
   forms under `out/`. Applying it rejects symbolic branch refs, revalidates the
-  exact branch OID and direct checkout branch, removes the worktree without
-  force, compare-deletes that same direct ref with `--no-deref`, and runs
-  `git worktree prune`. The primary checkout is never eligible.
+  exact branch OID and direct checkout branch, compare-deletes that same direct
+  ref with `--no-deref`, and runs `git worktree prune`. The primary checkout is
+  never eligible.
+- Git refuses non-forced removal of any submodule-bearing worktree. The default
+  lifecycle policy therefore refuses these worktrees. Explicit
+  `worktree-prune --apply --force-submodules` recursively requires every
+  initialized nested submodule to have no tracked modifications, untracked
+  files, or ignored files; repeats that scan immediately before non-forced
+  deinit; and only then permits Git's forced worktree removal. Worktrees without
+  registered submodules remain non-forced.
 - `worktree-prune` reports the `review` branch as ineligible and directs users
   to the lock-protected `review-clean`.
 - `review-clean` explicitly removes only the stopped, clean `review` branch at
   the conventional normalized path `<primary>/.worktrees/review`, then deletes
   the local branch. A `review` checkout anywhere else is not considered
   disposable. If the conventional checkout is running, it refuses and tells the
-  user to stop the row first.
+  user to stop the row first. Submodule-bearing review worktrees require the
+  equivalent explicit `review-clean --force-submodules` opt-in and recursive
+  clean scan.
 
 `review-sync` does not delete or trim feature worktrees. Before rebuilding it
 checks available disk space and prints a prominent warning below 30 GiB with the

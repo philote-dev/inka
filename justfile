@@ -204,8 +204,9 @@ worktree-prune *args:
 # Safely remove the disposable review worktree and branch
 [group('review')]
 [unix]
-review-clean:
-    ./tools/pgrep_worktrees.py review-clean
+[positional-arguments]
+review-clean *args:
+    ./tools/pgrep_worktrees.py review-clean "$@"
 
 # Multi-branch review dashboard (http://127.0.0.1:40100): start/stop each worktree
 [group('review')]

@@ -32,9 +32,12 @@ an atomic review operation lock with `review-clean`.
   lock-protected `review-clean`.
 - `review-clean` accepts only branch `review` at the normalized conventional
   path `<primary>/.worktrees/review`, and refuses a running or dirty checkout.
-- Destructive commands deinitialize submodules without force, repeat dirty and
-  running and ignored-data checks, revalidate the exact branch OID, and rely on
-  non-forced `git worktree remove` as Git's final guard.
+- Default destructive commands refuse worktrees with registered submodules and
+  name the explicit `--force-submodules` opt-in. Because Git requires
+  `git worktree remove --force` for any submodule-bearing worktree, force is
+  allowed only with `prune --apply --force-submodules` or
+  `review-clean --force-submodules`, after recursive clean checks and non-forced
+  submodule deinit.
 - Symbolic branch refs are never deletion candidates. Direct refs are deleted
   only with compare-and-delete
   `git update-ref --no-deref -d <ref> <expected-oid>`.
@@ -146,8 +149,8 @@ Expected: all `pgrep_worktrees` tests pass.
 **Interfaces:**
 
 - Produces: `trim <branch-or-path>...`.
-- Produces: `prune [--apply]`.
-- Produces: `review-clean`.
+- Produces: `prune [--apply [--force-submodules]]`.
+- Produces: `review-clean [--force-submodules]`.
 
 - [x] **Step 1: Write failing command tests with temporary Git repositories**
 
@@ -197,17 +200,29 @@ def prune_eligibility(repo: Path, wt: Worktree) -> tuple[bool, str]:
 ```
 
 `trim` invokes the primary checkout's `tools/clean keep-env` with the selected
-worktree as `cwd`. Before removal, `prune --apply` runs
-`git -C <worktree> submodule deinit --all` without force, aborts if that
-refuses, repeats dirty/running/ignored-data checks, revalidates the captured ref
-OID and the checkout's direct HEAD branch (plus `main` ancestry for normal
-prune), and uses non-forced
-`git worktree remove` as Git's final race guard. After removal it deletes the
-branch with `git update-ref --no-deref -d <ref> <expected-oid>`; symbolic refs
-are refused during capture and revalidation. If a ref moved, the worktree may
-already be gone but the moved branch survives and the command reports a safe
-partial result. `review-clean` applies the same sequence without the `main`
-ancestry requirement, while requiring both branch `review` and path
+worktree as `cwd`. Before removal, `prune --apply` repeats
+dirty/running/ignored-data checks and revalidates the captured ref OID and the
+checkout's direct HEAD branch (plus `main` ancestry for normal prune). Worktrees
+without registered submodules use non-forced `git worktree remove`.
+
+Git requires `git worktree remove --force` even after a clean submodule is
+deinitialized. The default therefore refuses every registered-submodule
+worktree. The double opt-in `prune --apply --force-submodules` (or
+`review-clean --force-submodules`) first discovers initialized submodules
+recursively from byte/NUL-safe gitlink records. Every initialized repository
+must have zero tracked modifications, untracked files, and ignored files. This
+scan runs after locks and ordinary preflight, repeats immediately before
+non-forced `git submodule deinit --all`, and only then permits forced worktree
+removal. Uninitialized registered submodules have no nested working data to
+scan but still require the explicit flag. Worktrees without registered
+submodules are never force-removed.
+
+After removal the branch is deleted with
+`git update-ref --no-deref -d <ref> <expected-oid>`; symbolic refs are refused
+during capture and revalidation. If a ref moved, the worktree may already be
+gone but the moved branch survives and the command reports a safe partial
+result. `review-clean` applies the same sequence without the `main` ancestry
+requirement, while requiring both branch `review` and path
 `<primary>/.worktrees/review`.
 
 Ignored files are enumerated individually with NUL-delimited
@@ -248,7 +263,7 @@ manual lock removal.
 These locks serialize cooperating lifecycle and review tools, while CWD
 inspection blocks visible active local writers. No local CLI can make deletion
 atomic against an uncooperative external writer that ignores the locks and
-creates a file after the final check; Git's non-forced removal remains the last
+creates a file after the final check; Git's own removal checks remain the last
 guard for that residual case.
 
 - [x] **Step 4: Run focused tests and verify GREEN**
@@ -294,8 +309,9 @@ worktree-trim *worktrees:
 worktree-prune *args:
     ./tools/pgrep_worktrees.py prune "$@"
 
-review-clean:
-    ./tools/pgrep_worktrees.py review-clean
+[positional-arguments]
+review-clean *args:
+    ./tools/pgrep_worktrees.py review-clean "$@"
 ```
 
 `review-sync` also uses per-recipe `[positional-arguments]` and quoted `"$@"`.

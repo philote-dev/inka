@@ -897,6 +897,125 @@ def prune_eligibility(repo: Path, worktree: Worktree) -> tuple[bool, str]:
     return True, "eligible"
 
 
+def _registered_submodule_paths(repo: Path) -> list[Path]:
+    result = _git_bytes(
+        repo,
+        "ls-files",
+        "--stage",
+        "-z",
+        check=False,
+    )
+    if result.returncode:
+        detail = os.fsdecode(result.stderr).strip() or "git ls-files failed"
+        raise LifecycleError(f"cannot inspect registered submodules: {detail}")
+
+    paths: list[Path] = []
+    for record in result.stdout.split(b"\0"):
+        if not record:
+            continue
+        metadata, separator, raw_path = record.partition(b"\t")
+        if not separator:
+            raise LifecycleError("cannot parse registered submodule metadata")
+        mode = metadata.partition(b" ")[0]
+        if mode == b"160000":
+            paths.append(Path(os.fsdecode(raw_path)))
+    return paths
+
+
+def _initialized_submodule_paths(root: Path) -> list[Path]:
+    initialized: list[Path] = []
+    seen: set[Path] = set()
+
+    def visit(repo: Path) -> None:
+        normalized_repo = _normalized_absolute_path(repo)
+        for relative_path in _registered_submodule_paths(repo):
+            submodule = _normalized_absolute_path(repo / relative_path)
+            if not submodule.is_relative_to(normalized_repo):
+                raise LifecycleError(
+                    f"registered submodule escapes its repository: {relative_path}"
+                )
+            if submodule in seen:
+                raise LifecycleError(
+                    f"recursive initialized submodule cycle at {submodule}"
+                )
+            if not os.path.lexists(os.fsencode(submodule / ".git")):
+                continue
+
+            prefix = _git_bytes(
+                submodule,
+                "rev-parse",
+                "--show-prefix",
+                check=False,
+            )
+            if prefix.returncode or prefix.stdout not in {b"", b"\n"}:
+                raise LifecycleError(
+                    f"initialized submodule identity mismatch at {submodule}"
+                )
+            seen.add(submodule)
+            initialized.append(submodule)
+            visit(submodule)
+
+    visit(root)
+    return initialized
+
+
+def _preflight_initialized_submodules(worktree: Worktree) -> None:
+    for submodule in _initialized_submodule_paths(worktree.path):
+        status = _git_bytes(
+            submodule,
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            check=False,
+        )
+        if status.returncode:
+            detail = os.fsdecode(status.stderr).strip() or "git status failed"
+            raise LifecycleError(
+                f"cannot inspect initialized submodule {submodule}: {detail}"
+            )
+        ignored = _git_bytes(
+            submodule,
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "-z",
+            check=False,
+        )
+        if ignored.returncode:
+            detail = os.fsdecode(ignored.stderr).strip() or "git ls-files failed"
+            raise LifecycleError(
+                f"cannot inspect initialized submodule {submodule}: {detail}"
+            )
+        if status.stdout or ignored.stdout:
+            kinds: list[str] = []
+            if status.stdout:
+                kinds.append("tracked or untracked files")
+            if ignored.stdout:
+                kinds.append("ignored files")
+            raise LifecycleError(
+                f"initialized submodule is not clean: {submodule} ({', '.join(kinds)})"
+            )
+
+
+def _validate_submodule_removal(
+    worktree: Worktree,
+    *,
+    force_submodules: bool,
+) -> bool:
+    registered = _registered_submodule_paths(worktree.path)
+    if not registered:
+        return False
+    if not force_submodules:
+        raise LifecycleError(
+            f"{worktree.path} contains registered submodules; rerun destructive "
+            "prune/cleanup with --force-submodules after verifying submodule data"
+        )
+    _preflight_initialized_submodules(worktree)
+    return True
+
+
 @dataclass(frozen=True)
 class RemovalPreflight:
     primary: Worktree
@@ -927,31 +1046,40 @@ class RemovalPreflight:
 
 def _remove_worktree(
     preflight: RemovalPreflight,
+    *,
+    force_submodules: bool,
 ) -> None:
     """Safely remove a worktree after a final state check."""
-    deinit = _git(
-        preflight.worktree.path,
-        "submodule",
-        "deinit",
-        "--all",
-        check=False,
-    )
-    if deinit.returncode:
-        detail = deinit.stderr.strip() or "git submodule deinit refused"
-        raise LifecycleError(
-            f"{preflight.worktree.path} submodule deinit failed: {detail}"
-        )
-
-    # This check is intentionally adjacent to Git's non-forced removal. The
-    # operation lock has been held since the earlier destructive preflight.
+    # Repeat all mutable checks and recursive submodule inspection immediately
+    # before deinit. The operation lock remains held throughout.
     preflight.check()
-    try:
-        _git(
-            preflight.primary.path,
-            "worktree",
-            "remove",
-            str(preflight.worktree.path),
+    remove_with_force = _validate_submodule_removal(
+        preflight.worktree,
+        force_submodules=force_submodules,
+    )
+    if remove_with_force:
+        deinit = _git(
+            preflight.worktree.path,
+            "submodule",
+            "deinit",
+            "--all",
+            check=False,
         )
+        if deinit.returncode:
+            detail = deinit.stderr.strip() or "git submodule deinit refused"
+            raise LifecycleError(
+                f"{preflight.worktree.path} submodule deinit failed: {detail}"
+            )
+
+    # This check is intentionally adjacent to removal. Force is used only for
+    # explicitly opted-in, recursively clean registered submodules.
+    preflight.check()
+    remove_args = ["worktree", "remove"]
+    if remove_with_force:
+        remove_args.append("--force")
+    remove_args.append(str(preflight.worktree.path))
+    try:
+        _git(preflight.primary.path, *remove_args)
     except subprocess.CalledProcessError as error:
         detail = error.stderr.strip() if error.stderr else str(error)
         raise LifecycleError(
@@ -963,6 +1091,7 @@ def prune_worktrees(
     repo: Path,
     *,
     apply: bool = False,
+    force_submodules: bool = False,
     worktrees: Sequence[Worktree] | None = None,
 ) -> list[str]:
     """Report removable worktrees and optionally remove eligible ones."""
@@ -1019,10 +1148,17 @@ def prune_worktrees(
             snapshot = snapshots[worktree]
             preflight = RemovalPreflight(primary, worktree, snapshot)
             preflight.check()
+            _validate_submodule_removal(
+                worktree,
+                force_submodules=force_submodules,
+            )
             preflights.append(preflight)
 
         for preflight in preflights:
-            _remove_worktree(preflight)
+            _remove_worktree(
+                preflight,
+                force_submodules=force_submodules,
+            )
             preflight.ref_snapshot.delete(primary.path)
         _git(primary.path, "worktree", "prune")
     return lines
@@ -1031,6 +1167,7 @@ def prune_worktrees(
 def review_clean(
     repo: Path,
     *,
+    force_submodules: bool = False,
     worktrees: Sequence[Worktree] | None = None,
 ) -> str:
     """Remove the disposable review worktree without requiring a merge."""
@@ -1081,7 +1218,14 @@ def review_clean(
                 )
             preflight = RemovalPreflight(primary, review, snapshot)
             preflight.check()
-            _remove_worktree(preflight)
+            _validate_submodule_removal(
+                review,
+                force_submodules=force_submodules,
+            )
+            _remove_worktree(
+                preflight,
+                force_submodules=force_submodules,
+            )
             snapshot.delete(primary.path)
             _git(primary.path, "worktree", "prune")
             return f"review: removed {review.path}"
@@ -1157,7 +1301,19 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="remove eligible worktrees (default: dry run)",
     )
-    commands.add_parser("review-clean", help="remove the disposable review worktree")
+    prune.add_argument(
+        "--force-submodules",
+        action="store_true",
+        help="allow force removal only after recursive submodule clean checks",
+    )
+    review_clean_parser = commands.add_parser(
+        "review-clean", help="remove the disposable review worktree"
+    )
+    review_clean_parser.add_argument(
+        "--force-submodules",
+        action="store_true",
+        help="allow force removal only after recursive submodule clean checks",
+    )
     review_identity = commands.add_parser(
         "review-identity-guard",
         help="verify the exact registered direct review checkout",
@@ -1170,7 +1326,10 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if args.command == "prune" and args.force_submodules and not args.apply:
+        parser.error("--force-submodules requires --apply")
     repo = Path.cwd()
     try:
         if args.command == "status":
@@ -1185,11 +1344,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"trimmed {worktree.branch or '(detached)'} {worktree.path}")
             return 0
         if args.command == "prune":
-            for line in prune_worktrees(repo, apply=args.apply):
+            for line in prune_worktrees(
+                repo,
+                apply=args.apply,
+                force_submodules=args.force_submodules,
+            ):
                 print(line)
             return 0
         if args.command == "review-clean":
-            print(review_clean(repo))
+            print(
+                review_clean(
+                    repo,
+                    force_submodules=args.force_submodules,
+                )
+            )
             return 0
         if args.command == "review-identity-guard":
             verify_review_worktree_identity(repo, args.path)

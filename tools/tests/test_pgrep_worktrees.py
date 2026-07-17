@@ -68,6 +68,81 @@ def committed_repo(path: Path) -> Path:
     return path
 
 
+def git_allow_file(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "git",
+            "-c",
+            "protocol.file.allow=always",
+            "-C",
+            str(repo),
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def initialized_submodule_worktree(
+    tmp_path: Path,
+    *,
+    nested: bool = False,
+    branch: str = "candidate",
+    worktree_path: Path | None = None,
+) -> tuple[Path, Path, Path]:
+    leaf_source = committed_repo(tmp_path / "leaf-source")
+    (leaf_source / ".gitignore").write_text(
+        "cache/\nprivate/\n",
+        encoding="utf8",
+    )
+    git(leaf_source, "add", ".gitignore")
+    git(leaf_source, "commit", "-m", "ignore local output")
+
+    if nested:
+        parent_source = committed_repo(tmp_path / "parent-source")
+        git_allow_file(
+            parent_source,
+            "submodule",
+            "add",
+            str(leaf_source),
+            "nested",
+        )
+        git(
+            parent_source,
+            "config",
+            "-f",
+            ".gitmodules",
+            "submodule.nested.ignore",
+            "all",
+        )
+        git(parent_source, "add", ".gitmodules", "nested")
+        git(parent_source, "commit", "-m", "add nested submodule")
+        source = parent_source
+        submodule_path = Path("modules/child/nested")
+    else:
+        source = leaf_source
+        submodule_path = Path("modules/child")
+
+    repo = committed_repo(tmp_path / "repo")
+    git_allow_file(repo, "submodule", "add", str(source), "modules/child")
+    git(
+        repo,
+        "config",
+        "-f",
+        ".gitmodules",
+        "submodule.modules/child.ignore",
+        "all",
+    )
+    git(repo, "add", ".gitmodules", "modules/child")
+    git(repo, "commit", "-m", "add local submodule")
+    candidate_path = worktree_path or tmp_path / branch
+    candidate_path.parent.mkdir(parents=True, exist_ok=True)
+    candidate = add_worktree(repo, candidate_path, branch)
+    git_allow_file(candidate, "submodule", "update", "--init", "--recursive")
+    return repo, candidate, candidate / submodule_path
+
+
 def add_worktree(repo: Path, path: Path, branch: str) -> Path:
     git(repo, "branch", branch)
     git(repo, "worktree", "add", str(path), branch)
@@ -728,7 +803,8 @@ def test_justfile_exposes_worktree_lifecycle_recipes() -> None:
     )
     assert "[positional-arguments]\nreview-sync *branches:\n" in source
     assert 'if "$root/tools/pgrep-sync-review" "$@"; then' in source
-    assert "review-clean:\n    ./tools/pgrep_worktrees.py review-clean" in source
+    assert "[positional-arguments]\nreview-clean *args:\n" in source
+    assert './tools/pgrep_worktrees.py review-clean "$@"' in source
 
 
 @pytest.mark.parametrize(
@@ -1311,19 +1387,194 @@ def test_prune_preserves_worktree_when_submodule_deinit_refuses(
         return real_git(git_repo, *args, check=check)
 
     monkeypatch.setattr(module, "_git", refuse_deinit)
+    monkeypatch.setattr(
+        module,
+        "_registered_submodule_paths",
+        lambda _worktree: [Path("modules/child")],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        module,
+        "_preflight_initialized_submodules",
+        lambda _worktree: None,
+        raising=False,
+    )
     monkeypatch.setattr(module, "process_table", lambda: [])
 
     with pytest.raises(module.LifecycleError, match="submodule"):
-        module.prune_worktrees(repo, apply=True)
+        module.prune_worktrees(repo, apply=True, force_submodules=True)
 
     assert candidate_path.exists()
     assert git(repo, "show-ref", "--verify", "refs/heads/candidate").returncode == 0
 
 
-def test_destructive_worktree_removal_never_uses_force() -> None:
+def test_prune_refuses_submodule_worktree_without_explicit_force(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, candidate, submodule = initialized_submodule_worktree(tmp_path)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    with pytest.raises(module.LifecycleError, match="--force-submodules"):
+        module.prune_worktrees(repo, apply=True)
+
+    assert candidate.exists()
+    assert os.path.lexists(submodule / ".git")
+    assert git(repo, "show-ref", "--verify", "refs/heads/candidate").returncode == 0
+
+
+def test_prune_rejects_force_submodules_without_apply(tmp_path: Path) -> None:
+    repo = committed_repo(tmp_path / "repo")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(module.__file__)),
+            "prune",
+            "--force-submodules",
+        ],
+        cwd=repo,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "--force-submodules requires --apply" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("state", "relative_path"),
+    [
+        ("ignored private", Path("private/credentials.json")),
+        ("ignored ordinary", Path("cache/artifact.bin")),
+        ("untracked", Path("loose.txt")),
+        ("tracked", Path("tracked.txt")),
+    ],
+)
+def test_prune_refuses_initialized_submodule_with_local_data(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    state: str,
+    relative_path: Path,
+) -> None:
+    repo, candidate, submodule = initialized_submodule_worktree(tmp_path)
+    local_data = submodule / relative_path
+    local_data.parent.mkdir(parents=True, exist_ok=True)
+    local_data.write_text(state, encoding="utf8")
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    with pytest.raises(
+        module.LifecycleError,
+        match="initialized submodule.*not clean",
+    ):
+        module.prune_worktrees(repo, apply=True, force_submodules=True)
+
+    assert candidate.exists()
+    assert os.path.lexists(submodule / ".git")
+    assert local_data.read_text(encoding="utf8") == state
+    assert git(repo, "show-ref", "--verify", "refs/heads/candidate").returncode == 0
+
+
+def test_prune_deinitializes_fully_clean_submodule_before_removal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, candidate, _submodule = initialized_submodule_worktree(tmp_path)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    module.prune_worktrees(repo, apply=True, force_submodules=True)
+
+    assert not candidate.exists()
+    assert (
+        subprocess.run(
+            ["git", "-C", str(repo), "show-ref", "--verify", "refs/heads/candidate"],
+            check=False,
+            capture_output=True,
+            text=True,
+        ).returncode
+        != 0
+    )
+
+
+def test_prune_recursively_refuses_ignored_data_in_nested_submodule(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, candidate, nested = initialized_submodule_worktree(tmp_path, nested=True)
+    ignored = nested / "cache" / "nested-artifact.bin"
+    ignored.parent.mkdir()
+    ignored.write_text("nested", encoding="utf8")
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    with pytest.raises(
+        module.LifecycleError,
+        match="initialized submodule.*not clean",
+    ):
+        module.prune_worktrees(repo, apply=True, force_submodules=True)
+
+    assert candidate.exists()
+    assert os.path.lexists(nested / ".git")
+    assert ignored.read_text(encoding="utf8") == "nested"
+    assert git(repo, "show-ref", "--verify", "refs/heads/candidate").returncode == 0
+
+
+def test_review_clean_force_submodules_removes_clean_initialized_submodule(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    review_path = tmp_path / "repo" / ".worktrees" / "review"
+    repo, review, _submodule = initialized_submodule_worktree(
+        tmp_path,
+        branch="review",
+        worktree_path=review_path,
+    )
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    message = module.review_clean(repo, force_submodules=True)
+
+    assert message == f"review: removed {review}"
+    assert not review.exists()
+    assert (
+        subprocess.run(
+            ["git", "-C", str(repo), "show-ref", "--verify", "refs/heads/review"],
+            check=False,
+            capture_output=True,
+            text=True,
+        ).returncode
+        != 0
+    )
+
+
+def test_force_submodules_does_not_force_worktree_without_submodules(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    candidate = add_worktree(repo, tmp_path / "candidate", "candidate")
+    real_git = module._git
+    removal_args: list[tuple[str, ...]] = []
+
+    def capture_remove(
+        git_repo: Path, *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        if args[:2] == ("worktree", "remove"):
+            removal_args.append(args)
+        return real_git(git_repo, *args, check=check)
+
+    monkeypatch.setattr(module, "_git", capture_remove)
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    module.prune_worktrees(repo, apply=True, force_submodules=True)
+
+    assert not candidate.exists()
+    assert len(removal_args) == 1
+    assert "--force" not in removal_args[0]
+
+
+def test_submodule_deinit_never_uses_force() -> None:
     source = Path(module.__file__).read_text(encoding="utf8")
 
-    assert '"worktree", "remove", "--force"' not in source
     assert '"submodule", "deinit", "--all", "--force"' not in source
 
 
