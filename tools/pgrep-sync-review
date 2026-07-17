@@ -93,7 +93,7 @@ merged=()
 skipped=()
 for b in "${branches[@]}"; do
   [ "$b" = "review" ] && continue
-  if git -C "$REVIEW_WT" merge --no-edit --no-ff "$b" >/dev/null 2>&1; then
+  if git -C "$REVIEW_WT" merge --no-edit --no-ff -- "$b" >/dev/null 2>&1; then
     merged+=("$b")
   else
     git -C "$REVIEW_WT" merge --abort >/dev/null 2>&1 || true

@@ -193,17 +193,19 @@ commands therefore separate source preservation from disposable build cleanup:
   into `main`, and refuses ignored private data such as `content/`, corpora,
   gold/held-out sets, `.ssh`, environment files, keys, tokens, or credentials
   at any depth, including CamelCase/compact password, passwd, and passphrase
-  forms under `out/`. Applying it rejects symbolic branch refs, revalidates the
-  exact branch OID and direct checkout branch, compare-deletes that same direct
-  ref with `--no-deref`, and runs `git worktree prune`. The primary checkout is
+  forms and numeric suffixes under `out/`; unrelated `passwordless` names remain
+  allowed. Applying it rejects symbolic branch refs, revalidates the exact
+  branch OID and direct checkout branch, compare-deletes that same direct ref
+  with `--no-deref`, and runs `git worktree prune`. The primary checkout is
   never eligible.
 - Git refuses non-forced removal of any submodule-bearing worktree. The default
   lifecycle policy therefore refuses these worktrees. Explicit
   `worktree-prune --apply --force-submodules` recursively requires every
   initialized nested submodule to have no tracked modifications, untracked
   files, or ignored files; repeats that scan immediately before non-forced
-  deinit; and only then permits Git's forced worktree removal. Worktrees without
-  registered submodules remain non-forced.
+  deinit; and only then permits Git's forced worktree removal. Uninitialized
+  submodule paths must be absent or truly empty, including hidden entries.
+  Worktrees without registered submodules remain non-forced.
 - `worktree-prune` reports the `review` branch as ineligible and directs users
   to the lock-protected `review-clean`.
 - `review-clean` explicitly removes only the stopped, clean `review` branch at
@@ -226,6 +228,7 @@ compare-and-remove: cleanup cannot unlink a manually reacquired lock.
 Before reset, clean, merge, or build, sync requires the normalized review path
 to be an exact registered worktree whose Git top-level is that path, whose
 direct HEAD is `refs/heads/review`, and whose review branch ref is non-symbolic.
+Merge option parsing is terminated with `--` before each branch argument.
 
 Trim, apply-prune, and review cleanup also hold path-hashed locks under the Git
 common directory from destructive preflight through their final mutation. The

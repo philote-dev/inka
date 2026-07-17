@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -659,6 +660,37 @@ def test_review_sync_accepts_exact_registered_direct_review_worktree(
     assert not (repo / ".git" / "pgrep-review-operation.lock").exists()
 
 
+def test_review_sync_treats_leading_dash_branch_as_revision(
+    tmp_path: Path,
+) -> None:
+    repo = committed_repo(tmp_path / "repo")
+    sync_script = install_review_sync_tools(repo)
+    git(repo, "switch", "-c", "source")
+    (repo / "leading-dash.txt").write_text("merged", encoding="utf8")
+    git(repo, "add", "leading-dash.txt")
+    git(repo, "commit", "-m", "leading dash branch")
+    branch_oid = git(repo, "rev-parse", "HEAD").stdout.strip()
+    git(repo, "switch", "main")
+    git(repo, "update-ref", "refs/heads/-leading-dash", branch_oid)
+    env = os.environ.copy()
+    env["PGREP_REVIEW_AVAILABLE_BYTES"] = str(30 * 1024**3)
+
+    result = subprocess.run(
+        [str(sync_script), "-leading-dash"],
+        cwd=repo,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (repo / ".worktrees" / "review" / "leading-dash.txt").read_text(
+        encoding="utf8"
+    ) == "merged"
+    assert "merged  (1): -leading-dash" in result.stdout
+
+
 def test_review_sync_cleanup_preserves_reacquired_lock(
     tmp_path: Path,
 ) -> None:
@@ -1084,6 +1116,10 @@ def test_prune_preserves_ignored_private_data_and_branch(
         Path("out/dbPasswd.txt"),
         Path("out/userPassphrase"),
         Path("out/databasePassword.json"),
+        Path("out/password123.json"),
+        Path("out/dbPassword2.txt"),
+        Path("out/passwd7"),
+        Path("out/passphrase42.bin"),
     ],
 )
 def test_ignored_compact_sensitive_names_block_disposal(path: Path) -> None:
@@ -1423,6 +1459,28 @@ def test_prune_refuses_submodule_worktree_without_explicit_force(
     assert git(repo, "show-ref", "--verify", "refs/heads/candidate").returncode == 0
 
 
+def test_force_submodules_refuses_nonempty_uninitialized_submodule_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, candidate, submodule = initialized_submodule_worktree(tmp_path)
+    git(candidate, "submodule", "deinit", "--all")
+    submodule.mkdir(parents=True, exist_ok=True)
+    hidden_data = submodule / ".local-private-data"
+    hidden_data.write_text("preserve", encoding="utf8")
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    with pytest.raises(
+        module.LifecycleError,
+        match="uninitialized submodule path.*nonempty",
+    ):
+        module.prune_worktrees(repo, apply=True, force_submodules=True)
+
+    assert candidate.exists()
+    assert hidden_data.read_text(encoding="utf8") == "preserve"
+    assert git(repo, "show-ref", "--verify", "refs/heads/candidate").returncode == 0
+
+
 def test_prune_rejects_force_submodules_without_apply(tmp_path: Path) -> None:
     repo = committed_repo(tmp_path / "repo")
 
@@ -1517,6 +1575,26 @@ def test_prune_recursively_refuses_ignored_data_in_nested_submodule(
     assert os.path.lexists(nested / ".git")
     assert ignored.read_text(encoding="utf8") == "nested"
     assert git(repo, "show-ref", "--verify", "refs/heads/candidate").returncode == 0
+
+
+def test_review_clean_refuses_submodule_without_explicit_force(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    review_path = tmp_path / "repo" / ".worktrees" / "review"
+    repo, review, submodule = initialized_submodule_worktree(
+        tmp_path,
+        branch="review",
+        worktree_path=review_path,
+    )
+    monkeypatch.setattr(module, "process_table", lambda: [])
+
+    with pytest.raises(module.LifecycleError, match="--force-submodules"):
+        module.review_clean(repo)
+
+    assert review.exists()
+    assert os.path.lexists(submodule / ".git")
+    assert git(repo, "show-ref", "--verify", "refs/heads/review").returncode == 0
 
 
 def test_review_clean_force_submodules_removes_clean_initialized_submodule(
@@ -1677,7 +1755,9 @@ def test_cwd_inspection_fails_closed_when_lsof_fails(
         ),
     )
 
-    inspect_cwds = getattr(module, "_process_cwds", lambda: {})
+    inspect_cwds: Callable[[], dict[int, Path]] = getattr(
+        module, "_process_cwds", lambda: {}
+    )
     with pytest.raises(module.LifecycleError, match="cwd inspection"):
         inspect_cwds()
 

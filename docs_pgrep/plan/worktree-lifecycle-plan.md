@@ -213,9 +213,10 @@ recursively from byte/NUL-safe gitlink records. Every initialized repository
 must have zero tracked modifications, untracked files, and ignored files. This
 scan runs after locks and ordinary preflight, repeats immediately before
 non-forced `git submodule deinit --all`, and only then permits forced worktree
-removal. Uninitialized registered submodules have no nested working data to
-scan but still require the explicit flag. Worktrees without registered
-submodules are never force-removed.
+removal. For each registered submodule without initialized Git metadata, the
+filesystem path must be absent or a truly empty directory; nonempty, hidden,
+symlinked, or otherwise invalid paths fail closed as local data. Worktrees
+without registered submodules are never force-removed.
 
 After removal the branch is deleted with
 `git update-ref --no-deref -d <ref> <expected-oid>`; symbolic refs are refused
@@ -240,6 +241,9 @@ unrelated words such as `monkey` or `tokenizer` as credentials. These names
 block removal at any depth, including beneath root `out/`. Ignored-path output
 is also captured as NUL-delimited bytes and filesystem-decoded, matching
 worktree discovery's non-UTF-8 pathname handling.
+Password-family tokens followed by digits (for example `password123`,
+`dbPassword2`, `passwd7`, and `passphrase42`) are also denied, while
+`passwordless` remains unrelated.
 
 `review-clean` acquires `<git-common-dir>/pgrep-review-operation.lock` before
 its fresh preflight and holds it through compare-and-delete ref removal.
@@ -249,6 +253,8 @@ After acquiring that lock and creating an absent checkout, sync proves that the
 normalized review path is an exact NUL-porcelain registration, its reported Git
 top-level is the same path, direct HEAD is `refs/heads/review`, and that branch
 ref is itself direct. Any mismatch refuses before reset, clean, merge, or build.
+Per-branch merge commands place `--` before the branch argument so a valid ref
+whose short name begins with `-` cannot be interpreted as an option.
 Each trim, prune, and review-clean mutation also holds a path-hashed
 per-worktree lock under the Git common directory from destructive preflight
 through cleanup/ref deletion. The shared review-operation lock is always

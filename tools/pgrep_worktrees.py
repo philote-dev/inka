@@ -172,6 +172,10 @@ def _ignored_component_is_sensitive(part: str) -> bool:
     word_list = re.findall(r"[a-z0-9]+", camel_split.lower())
     words = set(word_list)
     compact = "".join(word_list)
+    numeric_password_word = any(
+        re.fullmatch(r"(?:passwords?|passwd|passphrases?)\d+", word)
+        for word in word_list
+    )
     compact_sensitive_names = {
         "accesstoken",
         "apikey",
@@ -195,12 +199,11 @@ def _ignored_component_is_sensitive(part: str) -> bool:
         "userpassword",
     }
     return (
-        lowered == ".ssh"
-        or lowered == ".envrc"
-        or lowered == ".env"
+        lowered in {".ssh", ".envrc", ".env"}
         or lowered.startswith(".env.")
         or lowered in {"id_dsa", "id_ecdsa", "id_ed25519", "id_rsa"}
         or "heldout" in compact
+        or numeric_password_word
         or any(name in compact for name in compact_sensitive_names)
         or bool(sensitive_words.intersection(words))
     )
@@ -939,6 +942,25 @@ def _initialized_submodule_paths(root: Path) -> list[Path]:
                     f"recursive initialized submodule cycle at {submodule}"
                 )
             if not os.path.lexists(os.fsencode(submodule / ".git")):
+                encoded_path = os.fsencode(submodule)
+                if os.path.lexists(encoded_path):
+                    if os.path.islink(encoded_path) or not os.path.isdir(encoded_path):
+                        raise LifecycleError(
+                            f"uninitialized submodule path is nonempty or invalid: "
+                            f"{submodule}"
+                        )
+                    try:
+                        with os.scandir(encoded_path) as entries:
+                            nonempty = next(entries, None) is not None
+                    except OSError as error:
+                        raise LifecycleError(
+                            f"cannot inspect uninitialized submodule path "
+                            f"{submodule}: {error}"
+                        ) from error
+                    if nonempty:
+                        raise LifecycleError(
+                            f"uninitialized submodule path is nonempty: {submodule}"
+                        )
                 continue
 
             prefix = _git_bytes(
