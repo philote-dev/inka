@@ -43,7 +43,7 @@ import re
 import sqlite3
 import sys
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
@@ -661,40 +661,63 @@ def _print_summary(results: list, out_dir: str) -> None:
         print("no hard findings -> exit 0")
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument(
+    parser.add_argument(
         "--only", nargs="*", default=None, help="subset of audits (default all)"
     )
-    ap.add_argument("--ids", nargs="*", default=None, help="restrict to problem ids")
-    ap.add_argument("--workers", type=int, default=8)
-    ap.add_argument(
+    parser.add_argument("--ids", nargs="*", default=None, help="restrict to problem ids")
+    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument(
         "--limit", type=int, default=0, help="smoke: only the first N problems"
     )
-    ap.add_argument("--bundle", default=DEFAULT_BUNDLE)
-    ap.add_argument("--out", default=DEFAULT_OUT)
-    ap.add_argument("--model", default=DEFAULT_MODEL)
-    ap.add_argument("--env-file", default=None)
-    ap.add_argument(
+    parser.add_argument("--bundle", default=DEFAULT_BUNDLE)
+    parser.add_argument("--out", default=DEFAULT_OUT)
+    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--env-file", default=None)
+    parser.add_argument(
         "--index", default=None, help="path to corpus.db for the citation audit"
     )
-    ap.add_argument(
+    parser.add_argument(
         "--include-variant-solve",
         action="store_true",
         help="also LLM re-solve each decomposition variant to confirm its key",
     )
-    args = ap.parse_args()
+    return parser
+
+
+def _needs_llm(selected: Sequence[str], *, include_variant_solve: bool) -> bool:
+    return bool(LLM_AUDITS & set(selected)) or (
+        "decomposition_leak" in selected and include_variant_solve
+    )
+
+
+def audit_requires_protection(argv: Sequence[str]) -> bool:
+    """Classify argv with the same parser and selection rules as the audit."""
+
+    args = _parser().parse_args(list(argv))
+    selected = _select_audits(args.only)
+    return _needs_llm(
+        selected,
+        include_variant_solve=args.include_variant_solve,
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parser().parse_args(list(argv) if argv is not None else None)
 
     selected = _select_audits(args.only)
+    need_llm = _needs_llm(
+        selected,
+        include_variant_solve=args.include_variant_solve,
+    )
+
     problems = _load_problems(args.bundle, args.ids, args.limit)
     print(f"auditing {len(problems)} problem(s): {', '.join(selected)}")
 
     judge = None
-    need_llm = bool(LLM_AUDITS & set(selected)) or (
-        "decomposition_leak" in selected and args.include_variant_solve
-    )
     if need_llm:
         llm.load_api_key(args.env_file)
         if not llm.has_api_key():

@@ -28,6 +28,10 @@ if _AI_CORE.is_dir() and str(_AI_CORE) not in sys.path:
     sys.path.append(str(_AI_CORE))
 
 from pgrep.ai import judge, llm  # type: ignore[import-not-found]  # noqa: E402
+from pgrep.ai.batch_safety import (  # type: ignore[import-not-found]  # noqa: E402
+    BatchStopped,
+    BatchStopReason,
+)
 
 _DATED = "gpt-judge-2026-01-01"
 
@@ -54,6 +58,13 @@ class _RaisingClient:
 
     def complete_text(self, *args, **kwargs):
         raise RuntimeError("boom")
+
+
+class _StoppedClient:
+    model = "fake-2026-01-01"
+
+    def complete_text(self, *args, **kwargs):
+        raise BatchStopped(BatchStopReason.CALL_LIMIT)
 
 
 @contextlib.contextmanager
@@ -177,6 +188,28 @@ def test_technique_giveaway_client_error_is_safe_default():
     v = judge.Judge(_DATED, client=_RaisingClient()).technique_giveaway({"stem": "x"})
     assert v.gives_away is False
     assert v.to_dict() == {"gives_away": False, "what": "", "note": "judge call failed"}
+
+
+def test_every_judge_path_reraises_batch_stop():
+    stopped = judge.Judge(_DATED, client=_StoppedClient())
+    paths = (
+        lambda: stopped.figure_fidelity("stem", "<svg/>"),
+        lambda: stopped.technique_giveaway({"stem": "stem"}),
+        lambda: stopped.answer_key(
+            {"stem": "stem", "choices": ["1", "2", "3", "4", "5"], "correct": "A"}
+        ),
+        lambda: stopped.distractor_plausibility(
+            {"stem": "stem", "choices": ["1", "2", "3", "4", "5"], "correct": "A"}
+        ),
+    )
+
+    for invoke in paths:
+        try:
+            invoke()
+        except BatchStopped as error:
+            assert error.reason is BatchStopReason.CALL_LIMIT
+        else:
+            raise AssertionError("Judge swallowed BatchStopped")
 
 
 # --- verdicts and the default seam -----------------------------------------

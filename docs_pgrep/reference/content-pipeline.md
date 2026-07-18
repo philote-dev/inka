@@ -30,24 +30,114 @@ version control. The deep modules the tools share live under
 
 ---
 
-## One LLM seam
+## One OpenAI-compatible LLM seam
 
-`pylib/anki/pgrep/ai/llm.py` `LLMClient` is the single seam for every model call.
+`pylib/anki/pgrep/ai/llm.py` `LLMClient` is the single seam for
+OpenAI-compatible app and content calls outside the quarantined shadow runner.
 It pins an exact dated model snapshot (it refuses a floating alias), uses a low
 temperature and a seed when the snapshot supports one, retries transient errors
 with a short backoff, and drops any option a snapshot rejects so the strongest
 model still works. Its two public methods are `complete_text(system, user, *,
 json_object=False)` for a raw completion and `complete_json(...)` for a parsed
-JSON object. `load_api_key(...)` is the one place that resolves credentials: the
-TrueFoundry gateway file `~/.config/truefoundry/gateway.env` (one token +
-`OPENAI_BASE_URL`), then an explicit `env_file`, then optional non-secret
-`content/.env` / repo-root `.env` fallbacks. Direct provider keys must not live
-in the repo. `openai` is imported lazily, so an AI-off app never loads it.
+JSON object. `load_api_key(...)` is the one place that resolves credentials for
+that seam: the TrueFoundry gateway file
+`~/.config/truefoundry/gateway.env` (one token + `OPENAI_BASE_URL`), then an
+explicit `env_file`, then optional non-secret `content/.env` / repo-root `.env`
+fallbacks. Direct provider keys must not live in the repo. `openai` is imported
+lazily, so an AI-off app never loads it.
+
+Quarantined shadow calls instead use the provider-neutral `ModelBackend`
+protocol through `shadow_foundry.py`'s recording backend. At their respective
+protected boundaries, `LLMClient` attaches to the run manager when
+`PGREP_BATCH_RUN_DIR` is present, while the shadow runner passes that manager
+around its backend calls. Both paths therefore honor the same per-run permits
+when invoked by a protected recipe without pretending that all model calls use
+one client.
 
 The figure generator (`tools/pgrep_figure_gen.py`), the figure judge
 (`tools/pgrep_figure_verify.py`), and the technique-giveaway judge
 (`content/tools/check_technique_giveaway.py`) all route through this client
 instead of each holding a private OpenAI client and retry loop.
+
+---
+
+## Generation circuit breaker (operator controls)
+
+The lightweight circuit breaker protects only high-volume online generation,
+not every use of an LLM client. Before `just shadow-foundry`, future online
+`just foundry`, `just gen-decompositions`, or an LLM-backed
+`just audit-bundle-ai` selection can start, the operator must choose every
+positive limit explicitly:
+
+| Limit                      | Environment variable          |
+| -------------------------- | ----------------------------- |
+| Provider calls             | `PGREP_BATCH_MAX_CALLS`       |
+| Concurrent provider calls  | `PGREP_BATCH_MAX_CONCURRENCY` |
+| Cumulative retries per run | `PGREP_BATCH_MAX_RETRIES`     |
+| Elapsed minutes            | `PGREP_BATCH_MAX_MINUTES`     |
+
+There are no limit defaults. Set the variables in the shell or, optionally, in
+the ignored `content/run/batch-safety.env`, which protected recipes load before
+preflight. Set `PGREP_BATCH_SAFETY_ENV_FILE` to use a different config path;
+leaving it unset preserves the documented default. Missing, non-positive,
+malformed, unreadable, or corrupt safety state fails closed before another
+provider call.
+
+`just foundry --self-check`, `just foundry --dry-run`, `just foundry-dry`, and
+`just shadow-smoke` are offline and unprotected; they make no provider calls.
+So is `just audit-bundle-ai --only decomposition_leak citation` when
+`--include-variant-solve` is absent. The audit tool's own argument parser and
+selection rules classify that path. The default audit selection, any selected
+LLM audit, and decomposition leak with variant re-solve remain protected. The
+circuit breaker does not wrap unrelated tools or act as a global paid-call
+checker.
+
+Each protected run gets a private `safety.json`. It is a sidecar in the run's
+safety directory while output is atomically published; finalized shadow and
+foundry artifact directories receive a copy beside their published files.
+The stable, privacy-safe fields are `run_id`, `tool`, `status`, `limits`,
+`counters`, `started_at`, `updated_at`, and `stop_reason`. Limits contain the
+four selected ceilings. Counters contain started, completed, failed, active,
+peak-concurrency, and retry counts. They never contain prompts, completions,
+credentials, tokens, prices, or account information.
+
+The protected wrapper prints a stable status line and starts a terminal watcher.
+Use `just generation-status` for the latest state below `content/run`, or pass
+`--run-dir <dir>` for one state. The line reports calls, active calls, retries,
+elapsed time, lifecycle state (`RUNNING`, `COMPLETED`, `FAILED`, or `STOPPED`),
+and a stop reason. A running state's elapsed time advances against the current
+time; terminal elapsed time is frozen at `updated_at`.
+
+`just generation-stop` creates the global `content/run/STOP_GENERATION`.
+Protected runs stop before their next provider call and, when state remains
+writable, persist `STOPPED` with `KILL_SWITCH`. `just generation-resume` removes
+only that file: it does not revive a stopped run. Start a new protected run
+after examining its terminal `safety.json`. Call, concurrency, retry, and
+duration stops likewise persist a terminal state when the state update
+succeeds.
+
+A state-I/O problem always fails closed. When the existing state can still be
+read and written, the manager records `STOPPED` with `STATE_IO`; lock, read, or
+write corruption may instead leave the prior state or an unreadable file
+because the failure itself prevents that update. Terminal command output
+reports the state-I/O failure in either case. An unlocked active-call permit is
+evidence that its worker crashed. Attach and terminal finalization persist
+`STOPPED/STATE_IO` when possible and raise; they never reclaim that permit and
+continue or leave a readable run permanently `RUNNING`.
+
+On normal finalization, the wrapper marks a successful command `COMPLETED` and
+a tool error `FAILED`; a persisted circuit-breaker denial remains `STOPPED`. If
+the tool swallowed a denial but returned zero, `batch_manager finish` still
+returns nonzero for the stopped state and the wrapper fails closed. An already
+nonzero tool status remains the wrapper's exit status. If state I/O prevents
+the terminal update, the command fails and reports that error rather than
+presenting the artifact as safely finalized. A failed atomic publication has
+no finalized output directory or success marker, so it cannot be mistaken for
+a completed artifact.
+
+Non-goals: no token/USD or daily accounting, pricing or model policy, usage
+reports, legacy-bypass cleanup, global paid-call interception, or network
+smoke. This is bounded-call safety, not billing.
 
 ---
 
@@ -131,7 +221,10 @@ tests). It runs five audits:
 The HARD audits (`answer_key`, `figure_fidelity`, `decomposition_leak`) make the
 run exit non-zero when they find something; the SOFT audits
 (`distractor_plausibility`, `citation`) report only. The run writes a JSON report
-and a Markdown summary under `content/run/audit/`.
+and a Markdown summary under `content/run/audit/`. Selecting only the two
+deterministic audits runs directly without generation limits; adding
+`--include-variant-solve`, selecting any LLM audit, or using the default
+selection routes through the protected wrapper.
 
 ---
 
@@ -694,29 +787,34 @@ is the per-commit-safe check; the account probe and any real run are on-demand.
 
 ## Commands
 
-| Command                      | What it does                                                                                                       |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `assemble_bundle.py`         | The single gated landing command: land, convert math, wire figures, run invariants.                                |
-| `just test-py`               | Runs the Python tests, including the content-bundle invariant gate (per-commit).                                   |
-| `just audit-bundle-ai`       | Runs the five on-demand AI audits (pre-release or nightly, needs the AI runtime).                                  |
-| `just foundry-dry`           | Offline foundry smoke (`foundry.py --self-check`), no network.                                                     |
-| `just foundry`               | Best-of-N foundry loop; needs AI runtime + key when online generation is enabled.                                  |
-| `foundry.py`                 | Sample, cap N by verifier accuracy, and write four JSON files plus `preferences.jsonl` under each run directory.   |
-| `make_foundry_escalation.py` | Build a human review sheet from the latest run's `escalated.json` (or `--run <name>`).                             |
-| `calibrate_verifier.py`      | Offline smoke (`--self-check`) of the calibration stats and card assembly.                                         |
-| `leakage_check.py`           | Recursively validate foundry preference schema, private-root markers, and private-item copy-in.                    |
-| `just eval-verifier`         | Fit calibration-only thresholds, score held-out labels, apply standing gates, and report slot-clustered intervals. |
-| `just shadow-smoke`          | Offline fake-client shadow portfolio (`shadow_foundry.py --self-check`), no network, Docker, or key.               |
-| `just shadow-models`         | On-demand account model probe; needs a running local Docker engine and `CURSOR_API_KEY`.                           |
-| `just shadow-worker-build`   | Build the pinned Docker worker image and print its immutable digest; needs local Docker.                           |
-| `just shadow-worker-sync`    | Install the worker's locked environment into `out/shadow-worker-venv`; no Docker or key needed.                    |
-| `just shadow-foundry`        | Quarantined multi-model generation with exact `--sol-model`/`--opus-model`/`--grok-model`; never lands or pairs.   |
-| `just check`                 | The overall gate (format, build, lint, all tests), which includes `test-py`.                                       |
+| Command                      | What it does                                                                                                           |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `assemble_bundle.py`         | The single gated landing command: land, convert math, wire figures, run invariants.                                    |
+| `just test-py`               | Runs the Python tests, including the content-bundle invariant gate (per-commit).                                       |
+| `just audit-bundle-ai`       | Runs selected on-demand audits; deterministic-only mode bypasses generation limits, while every LLM mode is protected. |
+| `just foundry-dry`           | Offline foundry smoke (`foundry.py --self-check`), no network.                                                         |
+| `just foundry`               | Best-of-N foundry loop; online use requires AI runtime, key, and explicit circuit-breaker limits.                      |
+| `foundry.py`                 | Sample, cap N by verifier accuracy, and write four JSON files plus `preferences.jsonl` under each run directory.       |
+| `make_foundry_escalation.py` | Build a human review sheet from the latest run's `escalated.json` (or `--run <name>`).                                 |
+| `calibrate_verifier.py`      | Offline smoke (`--self-check`) of the calibration stats and card assembly.                                             |
+| `leakage_check.py`           | Recursively validate foundry preference schema, private-root markers, and private-item copy-in.                        |
+| `just eval-verifier`         | Fit calibration-only thresholds, score held-out labels, apply standing gates, and report slot-clustered intervals.     |
+| `just shadow-smoke`          | Offline fake-client shadow portfolio (`shadow_foundry.py --self-check`), no network, Docker, or key.                   |
+| `just shadow-models`         | On-demand account model probe; needs a running local Docker engine and `CURSOR_API_KEY`.                               |
+| `just shadow-worker-build`   | Build the pinned Docker worker image and print its immutable digest; needs local Docker.                               |
+| `just shadow-worker-sync`    | Install the worker's locked environment into `out/shadow-worker-venv`; no Docker or key needed.                        |
+| `just shadow-foundry`        | Quarantined multi-model generation with exact model IDs and explicit circuit-breaker limits; never lands or pairs.     |
+| `just generation-status`     | Print the latest safety state, or pass `--run-dir <dir>` for a specific protected run.                                 |
+| `just generation-stop`       | Create the global stop file; protected runs stop before their next provider call.                                      |
+| `just generation-resume`     | Remove the global stop file; terminal runs remain terminal.                                                            |
+| `just check`                 | The overall gate (format, build, lint, all tests), which includes `test-py`.                                           |
 
 The LLM audits and the foundry loop need the optional AI runtime and a key when
-they call models; install it once with `just pgrep-ai-deps` and set
-`OPENAI_API_KEY` (or add it to `content/.env`). `just foundry-dry`, `--dry-run`,
-`just eval-verifier`, and the deterministic audits run without a key.
+they call models; install it once with `just ai-deps` and set
+`OPENAI_API_KEY` (or add it to `content/.env`). Protected online work also
+requires the four explicit generation limits above. `just foundry-dry`,
+`--dry-run`, `just eval-verifier`, and deterministic-only audits without
+variant re-solve run without a key or circuit-breaker limits.
 
 The shadow foundry is separate. `just shadow-smoke` and `just shadow-worker-sync`
 run fully offline. `just shadow-models`, `just shadow-worker-build`, and

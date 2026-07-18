@@ -20,6 +20,8 @@ import os
 import re
 from dataclasses import dataclass, field
 
+from .batch_safety import GenerationManager
+
 # Ranking hints for "strongest" chat snapshot, high to low. Matched as substrings
 # against the account's available model ids; the newest matching family wins, and
 # an explicit dated snapshot always beats a floating alias.
@@ -97,6 +99,14 @@ class LLMClient:
         """
         import time
 
+        manager: GenerationManager | None = None
+        operation_id: str | None = None
+        if "PGREP_BATCH_RUN_DIR" in os.environ:
+            import uuid
+
+            manager = GenerationManager.attach(os.environ["PGREP_BATCH_RUN_DIR"])
+            operation_id = f"llm-{uuid.uuid4().hex}"
+
         base: dict = {
             "model": self.model,
             "messages": [
@@ -114,12 +124,25 @@ class LLMClient:
             {},
         ]
         last_exc: Exception | None = None
+        provider_attempt = 0
         for options in option_sets:
             kwargs = dict(base)
             kwargs.update({k: v for k, v in options.items() if v is not None})
             for attempt in range(3):
                 try:
-                    resp = self._client.chat.completions.create(**kwargs)
+                    if manager is None:
+                        provider_attempt += 1
+                        resp = self._client.chat.completions.create(**kwargs)
+                    else:
+                        assert operation_id is not None
+                        permit = manager.before_call(operation_id, provider_attempt)
+                        provider_attempt += 1
+                        try:
+                            resp = self._client.chat.completions.create(**kwargs)
+                        except BaseException:
+                            manager.after_call(permit, ok=False)
+                            raise
+                        manager.after_call(permit, ok=True)
                     return resp.choices[0].message.content
                 except Exception as exc:  # noqa: BLE001
                     name = type(exc).__name__

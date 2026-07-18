@@ -109,22 +109,28 @@ Everything not living in the repo, grouped by when it is first needed.
 
 ### 3.2 AI and content tooling (L4)
 
-| Tool / service   | For                                                      | Cost / note                                                                      |
-| ---------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| LLM API (via TrueFoundry) | generation, tutor grading, session synthesis, eval judge | One gateway token in `~/.config/truefoundry/gateway.env` (outside the repo). OpenAI-compatible `OPENAI_BASE_URL`. No direct provider keys in `content/.env`. Local spend control is **WS10** in [`../plan/content-foundry-and-verifier-design.md`](../plan/content-foundry-and-verifier-design.md) (not built yet). |
-| Embeddings       | RAG over the corpus                                      | local (`sentence-transformers` / `bge`), free, offline, keeps the corpus private |
-| Vector store     | retrieval index                                          | local `sqlite-vec`, no service needed                                            |
-| CAS: SymPy       | verify computational cards and problems without an LLM   | free, deterministic, offline. Central to the gate.                               |
-| PDF extraction   | source PDFs into corpus text                             | `PyMuPDF` (text). Vision models for scanned equations where needed.              |
+| Tool / service            | For                                                      | Cost / note                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| LLM API (via TrueFoundry) | generation, tutor grading, session synthesis, eval judge | One gateway token in `~/.config/truefoundry/gateway.env` (outside the repo). OpenAI-compatible `OPENAI_BASE_URL`. No direct provider keys in `content/.env`. The implemented WS10 circuit breaker requires explicit per-run limits, including a cumulative retry ceiling, for large protected generation jobs; it is not local spend/accounting control. |
+| Embeddings                | RAG over the corpus                                      | local (`sentence-transformers` / `bge`), free, offline, keeps the corpus private                                                                                                                                                                                                                                                                         |
+| Vector store              | retrieval index                                          | local `sqlite-vec`, no service needed                                                                                                                                                                                                                                                                                                                    |
+| CAS: SymPy                | verify computational cards and problems without an LLM   | free, deterministic, offline. Central to the gate.                                                                                                                                                                                                                                                                                                       |
+| PDF extraction            | source PDFs into corpus text                             | `PyMuPDF` (text). Vision models for scanned equations where needed.                                                                                                                                                                                                                                                                                      |
 
-Every model call goes through one pinned client, `pylib/anki/pgrep/ai/llm.py`
-`LLMClient` (TFY gateway id or dated snapshot, shared retries, JSON responses),
-and `load_api_key(...)` is the single place that resolves TrueFoundry gateway
-credentials (then optional local overrides). The offline judges (figure
-fidelity, technique giveaway, and the audit checks) share one `Judge` over that
-client. See [`content-pipeline.md`](content-pipeline.md). Spend tracking and
-hard caps are **WS10** in the foundry design; until that lands, treat every
-online batch as uncapped at the seam.
+OpenAI-compatible app and content calls outside the quarantined shadow runner
+go through `pylib/anki/pgrep/ai/llm.py` `LLMClient` (TFY gateway id or dated
+snapshot, shared retries, JSON responses), and `load_api_key(...)` is the single
+place that resolves TrueFoundry credentials for that seam (then optional local
+overrides). The figure-fidelity, technique-giveaway, and audit checks share one
+`Judge` over that client. Quarantined shadow calls instead use the
+provider-neutral `ModelBackend` through the isolated Cursor sandbox. Under
+their protected recipes, `LLMClient` and the shadow recording backend each
+attach to the per-run safety manager at their respective call boundary. See
+[`content-pipeline.md`](content-pipeline.md). The implemented WS10 circuit
+breaker requires selected positive call, concurrency, cumulative retry, and
+duration limits for protected large jobs. Deterministic-only bundle audits
+remain offline and unprotected. It records per-run safety state, not spend,
+tokens, or daily accounting.
 
 ### 3.3 Mobile and ship (L3 / L6)
 
@@ -143,9 +149,9 @@ Lucide (icons, ISC), D3 7, MathJax 3, Svelte 5 motion. All AGPL-compatible.
 
 Realistic out-of-pocket for the non-LLM stack is essentially $0 to build and
 demo (local sync server, local embeddings, simulator or sideload, SymPy), plus
-Apple Developer ($99/yr) for TestFlight and optionally a small VPS. LLM spend
-goes through TrueFoundry and must be capped locally (WS10) before large batch
-runs.
+Apple Developer ($99/yr) for TestFlight and optionally a small VPS. LLM billing
+goes through TrueFoundry; large protected generation jobs require explicit WS10
+per-run operational limits before they start.
 
 ---
 

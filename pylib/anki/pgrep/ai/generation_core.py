@@ -21,6 +21,7 @@ import json
 from typing import Any
 
 from . import provenance, verify
+from .batch_safety import BatchStopped
 
 # Route anything below this generated-confidence to human review, per
 # feature-forced-generation.md (core-minimum verification).
@@ -153,6 +154,8 @@ def solve_problem(stem: str, choices: list, llm: Any) -> str:
         raw = llm.complete_json(
             PROBLEM_SOLVE_SYSTEM, json.dumps(payload, ensure_ascii=False)
         )
+    except BatchStopped:
+        raise
     except Exception:  # noqa: BLE001
         return ""
     ans = (
