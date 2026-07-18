@@ -26,6 +26,7 @@ from .calibration_ruler import (
     RulerItem,
     RulerManifest,
     pass_a_hash,
+    pass_b_hash,
     validate_manifest,
 )
 
@@ -75,6 +76,22 @@ PASS_A_VALUE_LEGEND = (
     "`notes` = free text",
 )
 
+PASS_B_FIELDS = (
+    "source_supports_stem",
+    "source_supports_answer",
+    "decomposition_correct",
+    "decomposition_leaks_answer",
+    "notes",
+)
+
+PASS_B_VALUE_LEGEND = (
+    "`source_supports_stem` = `PASS`, `FAIL`, or `UNSURE`",
+    "`source_supports_answer` = `PASS`, `FAIL`, or `UNSURE`",
+    "`decomposition_correct` = `PASS`, `FAIL`, or `UNSURE`",
+    "`decomposition_leaks_answer` = `PASS`, `FAIL`, or `UNSURE`",
+    "`notes` = free text",
+)
+
 BLOCK_CAPACITY = 20
 _CHOICE_LABELS = ("A", "B", "C", "D", "E")
 _SAFE_REVIEW_ID = re.compile(r"item-[0-9]{4}\Z", re.ASCII)
@@ -110,6 +127,7 @@ FIGURE = frozenset(
 )
 DIFFICULTY = frozenset({"1", "2", "3", "4", "5", "UNSURE"})
 OVERALL = frozenset({"KEEP", "DROP", "UNSURE"})
+PASS_B_PASS_FAIL = frozenset({"PASS", "FAIL", "UNSURE"})
 
 MAX_NOTES_LENGTH = 2_000
 ANSWER_REPEAT_MIN_MATCHES = 11
@@ -126,7 +144,7 @@ PASS_A_CATEGORICAL_FIELDS = (
     "overall",
 )
 
-_FIELD_VALUES = {
+_PASS_A_FIELD_VALUES = {
     "your_answer": ANSWERS,
     "stem_clear": PASS_FAIL,
     "distractor_A": DISTRACTOR,
@@ -137,6 +155,12 @@ _FIELD_VALUES = {
     "figure": FIGURE,
     "difficulty": DIFFICULTY,
     "overall": OVERALL,
+}
+_PASS_B_FIELD_VALUES = {
+    "source_supports_stem": PASS_B_PASS_FAIL,
+    "source_supports_answer": PASS_B_PASS_FAIL,
+    "decomposition_correct": PASS_B_PASS_FAIL,
+    "decomposition_leaks_answer": PASS_B_PASS_FAIL,
 }
 _HIDDEN_METADATA_FIELDS = frozenset(
     {
@@ -210,10 +234,15 @@ def _validate_note(note: str) -> None:
         raise _reviewer_error("notes must be valid JSON-safe Unicode text") from error
 
 
-def _validate_label_value(field: str, value: str) -> None:
+def _validate_label_value(
+    field: str,
+    value: str,
+    *,
+    field_values: Mapping[str, frozenset[str]] = _PASS_A_FIELD_VALUES,
+) -> None:
     if type(value) is not str:
         raise _reviewer_error(f"{field} must be text")
-    allowed = _FIELD_VALUES[field]
+    allowed = field_values[field]
     if value not in allowed:
         options = ", ".join(sorted(allowed))
         if not value:
@@ -244,7 +273,7 @@ class PassALabel:
     notes: str
 
     def __post_init__(self) -> None:
-        for field in _FIELD_VALUES:
+        for field in _PASS_A_FIELD_VALUES:
             _validate_label_value(field, cast(str, getattr(self, field)))
         _validate_note(self.notes)
 
@@ -261,6 +290,36 @@ class PassALabel:
             "figure": self.figure,
             "difficulty": self.difficulty,
             "overall": self.overall,
+            "notes": self.notes,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PassBLabel:
+    """One immutable, fixed-shape, JSON-safe Pass B judgment."""
+
+    source_supports_stem: str
+    source_supports_answer: str
+    decomposition_correct: str
+    decomposition_leaks_answer: str
+    notes: str
+
+    def __post_init__(self) -> None:
+        for field in _PASS_B_FIELD_VALUES:
+            _validate_label_value(
+                field,
+                cast(str, getattr(self, field)),
+                field_values=_PASS_B_FIELD_VALUES,
+            )
+        _validate_note(self.notes)
+
+    def to_dict(self) -> dict[str, str]:
+        """Return only the fixed Pass B fields as a JSON object."""
+        return {
+            "source_supports_stem": self.source_supports_stem,
+            "source_supports_answer": self.source_supports_answer,
+            "decomposition_correct": self.decomposition_correct,
+            "decomposition_leaks_answer": self.decomposition_leaks_answer,
             "notes": self.notes,
         }
 
@@ -333,8 +392,8 @@ def _render_figure(review_id: str, figure: str) -> str:
     return f"![Figure](../{_figure_asset_path(review_id)})"
 
 
-def _render_rubric() -> str:
-    return "\n".join(f"{field}:" for field in PASS_A_FIELDS)
+def _render_rubric(fields: Sequence[str] = PASS_A_FIELDS) -> str:
+    return "\n".join(f"{field}:" for field in fields)
 
 
 def _render_header() -> str:
@@ -343,6 +402,16 @@ def _render_header() -> str:
         lines.append(f"{index}. {instruction}")
     lines.extend(["", "## Allowed rubric values", ""])
     lines.extend(f"- {legend}" for legend in PASS_A_VALUE_LEGEND)
+    lines.extend(["", "---", ""])
+    return "\n".join(lines)
+
+
+def _render_pass_b_header() -> str:
+    lines = ["# Pass B", ""]
+    for index, instruction in enumerate(PASS_A_INSTRUCTIONS, start=1):
+        lines.append(f"{index}. {instruction}")
+    lines.extend(["", "## Allowed rubric values", ""])
+    lines.extend(f"- {legend}" for legend in PASS_B_VALUE_LEGEND)
     lines.extend(["", "---", ""])
     return "\n".join(lines)
 
@@ -364,6 +433,45 @@ def render_pass_a_block(item: RulerItem) -> str:
     if figure_markup := _render_figure(review_id, figure):
         lines.extend([figure_markup, ""])
     lines.extend([_render_rubric(), "", "---", ""])
+    return "\n".join(lines)
+
+
+def _render_decomposition(value: object) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def render_pass_b_block(item: RulerItem) -> str:
+    """Render one blind Pass B grounding and leakage judgment block."""
+    if not isinstance(item, RulerItem):
+        raise TypeError("render_pass_b_block expects a RulerItem")
+    review_id = _require_review_id(item)
+    content = item.pass_b_content()
+    excerpt = protect_markdown_text(str(content["source_excerpt"]))
+    decomposition = protect_markdown_text(
+        _render_decomposition(content["solution_decomposition"])
+    )
+    lines = [
+        f"### {review_id}",
+        "",
+        "**Source excerpt.**",
+        "",
+        excerpt,
+        "",
+        "**Solution decomposition.**",
+        "",
+        decomposition,
+        "",
+        _render_rubric(PASS_B_FIELDS),
+        "",
+        "---",
+        "",
+    ]
     return "\n".join(lines)
 
 
@@ -401,17 +509,18 @@ def render_blocks(
     *,
     pass_name: str,
 ) -> list[str]:
-    """Render Pass A Markdown documents with at most 20 judgments each."""
-    if pass_name != "a":
-        raise ValueError("pass_name must be 'a' for Pass A rendering")
+    """Render Pass A or Pass B documents with at most 20 judgments each."""
+    if pass_name not in {"a", "b"}:
+        raise ValueError("pass_name must be exactly 'a' or 'b'")
     ordered = _items_from(items)
     if not ordered:
         return []
-    header = _render_header()
+    header = _render_header() if pass_name == "a" else _render_pass_b_header()
+    render_item = render_pass_a_block if pass_name == "a" else render_pass_b_block
     blocks: list[str] = []
     for start in range(0, len(ordered), BLOCK_CAPACITY):
         chunk = ordered[start : start + BLOCK_CAPACITY]
-        body = "".join(render_pass_a_block(item) for item in chunk)
+        body = "".join(render_item(item) for item in chunk)
         blocks.append(header + body)
     return blocks
 
@@ -442,14 +551,20 @@ def _validated_manifest_items(manifest: RulerManifest) -> tuple[RulerItem, ...]:
     return manifest.items
 
 
-def _as_documents(value: str | Sequence[str]) -> tuple[str, ...]:
+def _as_documents(
+    value: str | Sequence[str],
+    *,
+    pass_label: str = "Pass A",
+) -> tuple[str, ...]:
     if type(value) is str:
         return (value,)
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
-        raise _schema_error("Pass A documents must be text or a sequence of text")
+        raise _schema_error(
+            f"{pass_label} documents must be text or a sequence of text"
+        )
     documents = tuple(value)
     if any(type(document) is not str for document in documents):
-        raise _schema_error("every Pass A document must be plain text")
+        raise _schema_error(f"every {pass_label} document must be plain text")
     return documents
 
 
@@ -497,18 +612,23 @@ def _field_names(documents: Sequence[str]) -> list[str]:
 def _validate_document_fields(
     documents: Sequence[str],
     item_count: int,
+    *,
+    fields: Sequence[str] = PASS_A_FIELDS,
+    pass_label: str = "Pass A",
 ) -> None:
     names = _field_names(documents)
     for name in names:
         if name in _HIDDEN_METADATA_FIELDS:
-            raise _schema_error(f"hidden metadata field injected into Pass A: {name}")
-        if name not in PASS_A_FIELDS:
-            raise _schema_error(f"unexpected field injection in Pass A: {name}")
-    for field in PASS_A_FIELDS:
+            raise _schema_error(
+                f"hidden metadata field injected into {pass_label}: {name}"
+            )
+        if name not in fields:
+            raise _schema_error(f"unexpected field injection in {pass_label}: {name}")
+    for field in fields:
         count = names.count(field)
         if count < item_count:
             raise _schema_error(
-                f"incomplete Pass A: field {field} appears {count} times; "
+                f"incomplete {pass_label}: field {field} appears {count} times; "
                 f"expected {item_count}"
             )
         if count > item_count:
@@ -531,10 +651,14 @@ def _validate_document_separators(
         )
 
 
-def _validate_document_headers(documents: Sequence[str]) -> None:
-    header = _render_header()
+def _validate_document_headers(
+    documents: Sequence[str],
+    *,
+    header: str | None = None,
+) -> None:
+    expected_header = header if header is not None else _render_header()
     for index, document in enumerate(documents, start=1):
-        if not document.startswith(header):
+        if not document.startswith(expected_header):
             raise _schema_error(
                 f"document {index} header or allowed-value legend changed"
             )
@@ -543,17 +667,26 @@ def _validate_document_headers(documents: Sequence[str]) -> None:
 def _preflight_documents(
     documents: Sequence[str],
     items: Sequence[RulerItem],
+    *,
+    fields: Sequence[str] = PASS_A_FIELDS,
+    header: str | None = None,
+    pass_label: str = "Pass A",
 ) -> None:
     expected_count = _expected_document_count(items)
     if len(documents) != expected_count:
         raise _schema_error(
-            f"Pass A document count changed: found {len(documents)}; "
+            f"{pass_label} document count changed: found {len(documents)}; "
             f"expected {expected_count}"
         )
     _validate_document_ids(documents, items)
-    _validate_document_fields(documents, len(items))
+    _validate_document_fields(
+        documents,
+        len(items),
+        fields=fields,
+        pass_label=pass_label,
+    )
     _validate_document_separators(documents, len(items))
-    _validate_document_headers(documents)
+    _validate_document_headers(documents, header=header)
 
 
 def _expected_asset_items(
@@ -841,7 +974,7 @@ def parse_pass_a(
 ) -> dict[str, PassALabel]:
     """Parse only exact Pass A renderer output with injected private inputs."""
     items = _validated_manifest_items(manifest)
-    parsed_documents = _as_documents(documents)
+    parsed_documents = _as_documents(documents, pass_label="Pass A")
     _preflight_documents(parsed_documents, items)
     figure_text = _validated_figure_text(items, assets)
     labels: dict[str, PassALabel] = {}
@@ -860,6 +993,190 @@ def parse_pass_a(
         )
     _validate_complete_items(labels, items)
     return labels
+
+
+def _parse_pass_b_visible_line(
+    cursor: _LineCursor,
+    *,
+    review_id: str,
+    label: str,
+    field: str,
+    expected: str,
+) -> str:
+    cursor.expect(label, context=f"{review_id} {field} label")
+    cursor.expect("", context=f"{review_id} blank line before {field}")
+    protected = cursor.take(context=f"{review_id} {field}")
+    visible = _visible_text(
+        protected,
+        expected,
+        review_id=review_id,
+        field=field,
+    )
+    cursor.expect("", context=f"{review_id} blank line after {field}")
+    return visible
+
+
+def _parse_pass_b_field_line(
+    cursor: _LineCursor,
+    review_id: str,
+    field: str,
+) -> str:
+    line = cursor.take(context=f"{review_id} field {field}")
+    prefix = f"{field}:"
+    if line == prefix:
+        value = ""
+    elif line.startswith(prefix + " "):
+        value = line[len(prefix) + 1 :]
+    else:
+        raise _schema_error(f"{review_id} expected exact field {field}, found {line!r}")
+    if field == "notes":
+        _validate_note(value)
+    else:
+        _validate_label_value(
+            field,
+            value,
+            field_values=_PASS_B_FIELD_VALUES,
+        )
+    return value
+
+
+def _pass_b_label_from_values(values: Mapping[str, str]) -> PassBLabel:
+    return PassBLabel(
+        source_supports_stem=values["source_supports_stem"],
+        source_supports_answer=values["source_supports_answer"],
+        decomposition_correct=values["decomposition_correct"],
+        decomposition_leaks_answer=values["decomposition_leaks_answer"],
+        notes=values["notes"],
+    )
+
+
+def _parse_pass_b_item(
+    cursor: _LineCursor,
+    item: RulerItem,
+) -> tuple[str, PassBLabel]:
+    review_id = _require_review_id(item)
+    content = item.pass_b_content()
+    cursor.expect(f"### {review_id}", context=f"{review_id} heading")
+    cursor.expect("", context=f"{review_id} blank line after heading")
+    excerpt = _parse_pass_b_visible_line(
+        cursor,
+        review_id=review_id,
+        label="**Source excerpt.**",
+        field="source excerpt",
+        expected=str(content["source_excerpt"]),
+    )
+    rendered_decomposition = _render_decomposition(content["solution_decomposition"])
+    decomposition_text = _parse_pass_b_visible_line(
+        cursor,
+        review_id=review_id,
+        label="**Solution decomposition.**",
+        field="decomposition",
+        expected=rendered_decomposition,
+    )
+    try:
+        decomposition = json.loads(decomposition_text)
+    except json.JSONDecodeError as error:
+        raise _schema_error(
+            f"immutable content changed for {review_id} decomposition"
+        ) from error
+    visible = {
+        "source_excerpt": excerpt,
+        "solution_decomposition": decomposition,
+    }
+    if pass_b_hash(visible) != item.pass_b_hash:
+        raise _schema_error(
+            f"immutable content hash mismatch for review ID {review_id}"
+        )
+    values = {
+        field: _parse_pass_b_field_line(cursor, review_id, field)
+        for field in PASS_B_FIELDS
+    }
+    cursor.expect("", context=f"{review_id} blank line after rubric")
+    cursor.expect("---", context=f"{review_id} separator")
+    return review_id, _pass_b_label_from_values(values)
+
+
+def _parse_pass_b_document(
+    document: str,
+    items: Sequence[RulerItem],
+    document_number: int,
+) -> dict[str, PassBLabel]:
+    body = document[len(_render_pass_b_header()) :]
+    cursor = _LineCursor(body.split("\n"), document_number)
+    labels: dict[str, PassBLabel] = {}
+    for item in items:
+        review_id, label = _parse_pass_b_item(cursor, item)
+        labels[review_id] = label
+    if cursor.lines[cursor.index :] != [""]:
+        raise _schema_error(
+            f"document {document_number} contains extra or truncated block content"
+        )
+    return labels
+
+
+def _validate_complete_pass_b_items(
+    labels: Mapping[str, PassBLabel],
+    items: Sequence[RulerItem],
+) -> None:
+    if not isinstance(labels, Mapping):
+        raise _reviewer_error("Pass B labels must be a review-ID mapping")
+    expected = [_require_review_id(item) for item in items]
+    actual = list(labels)
+    if any(type(review_id) is not str for review_id in actual):
+        raise _schema_error("Pass B label mapping keys must be review ID strings")
+    if missing := [review_id for review_id in expected if review_id not in labels]:
+        raise _reviewer_error(
+            "incomplete Pass B labels; missing review ID(s): " + ", ".join(missing)
+        )
+    if extras := sorted(set(actual) - set(expected)):
+        raise _schema_error("unexpected labeled review ID(s): " + ", ".join(extras))
+    for review_id in expected:
+        if not isinstance(labels[review_id], PassBLabel):
+            raise _reviewer_error(
+                f"review ID {review_id} does not contain a PassBLabel"
+            )
+
+
+def parse_pass_b(
+    documents: str | Sequence[str],
+    *,
+    manifest: RulerManifest,
+) -> dict[str, PassBLabel]:
+    """Parse exact Pass B renderer output and verify immutable visible content."""
+    items = _validated_manifest_items(manifest)
+    parsed_documents = _as_documents(documents, pass_label="Pass B")
+    _preflight_documents(
+        parsed_documents,
+        items,
+        fields=PASS_B_FIELDS,
+        header=_render_pass_b_header(),
+        pass_label="Pass B",
+    )
+    labels: dict[str, PassBLabel] = {}
+    for document_number, start in enumerate(
+        range(0, len(items), BLOCK_CAPACITY),
+        start=1,
+    ):
+        chunk = items[start : start + BLOCK_CAPACITY]
+        labels.update(
+            _parse_pass_b_document(
+                parsed_documents[document_number - 1],
+                chunk,
+                document_number,
+            )
+        )
+    _validate_complete_pass_b_items(labels, items)
+    return labels
+
+
+def validate_pass_b_complete(
+    labels: Mapping[str, PassBLabel],
+    *,
+    manifest: RulerManifest,
+) -> None:
+    """Require one immutable Pass B label for every private-manifest item."""
+    items = _validated_manifest_items(manifest)
+    _validate_complete_pass_b_items(labels, items)
 
 
 def validate_pass_a_complete(
