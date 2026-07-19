@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
+from typing import Any, TypedDict
 
 from .batch_safety import GenerationManager
 
@@ -27,6 +28,7 @@ from .batch_safety import GenerationManager
 # an explicit dated snapshot always beats a floating alias.
 _FAMILY_RANK = ("gpt-5", "gpt-4.1", "gpt-4o", "o4", "o3", "gpt-4")
 _SNAPSHOT_RE = re.compile(r"-\d{4}-\d{2}-\d{2}$")
+_BATCH_OPERATION_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}")
 # Substrings that mark a model id as NOT a chat-completions model even though it
 # carries a chat family token (for example gpt-4o-audio, gpt-4o-realtime,
 # gpt-4o-search). A floating alias must never resolve to one of these, or the
@@ -46,11 +48,55 @@ _NON_CHAT_MARKERS = (
 )
 
 
+class _OpenAIKwargs(TypedDict, total=False):
+    api_key: str
+    base_url: str
+
+
 @dataclass
 class LLMResult:
     text: str
     model: str
+    response_id: str = ""
     raw: dict = field(default_factory=dict)
+
+
+def _batch_context(
+    batch_operation_id: str | None,
+    batch_retry_offset: int,
+) -> tuple[GenerationManager | None, str | None]:
+    if type(batch_retry_offset) is not int or batch_retry_offset < 0:
+        raise ValueError("batch_retry_offset must be a non-negative integer")
+    if batch_operation_id is not None and (
+        type(batch_operation_id) is not str
+        or _BATCH_OPERATION_RE.fullmatch(batch_operation_id) is None
+    ):
+        raise ValueError("batch_operation_id must be a safe identifier")
+    if "PGREP_BATCH_RUN_DIR" not in os.environ:
+        return None, None
+
+    import uuid
+
+    manager = GenerationManager.attach(os.environ["PGREP_BATCH_RUN_DIR"])
+    return manager, batch_operation_id or f"llm-{uuid.uuid4().hex}"
+
+
+def _request_bases(base: dict, json_object: bool) -> list[dict]:
+    if not json_object:
+        return [base]
+    with_format = dict(base)
+    with_format["response_format"] = {"type": "json_object"}
+    return [with_format, base]
+
+
+def _result_from_response(response: Any) -> LLMResult:
+    response_model = getattr(response, "model", "")
+    response_id = getattr(response, "id", "")
+    return LLMResult(
+        text=response.choices[0].message.content,
+        model=response_model if type(response_model) is str else "",
+        response_id=response_id if type(response_id) is str else "",
+    )
 
 
 # TrueFoundry gateway credentials (one token for every model). Lives outside
@@ -72,7 +118,8 @@ class LLMClient:
     def __init__(self, model: str, *, temperature: float = 0.0, seed: int | None = 7):
         from openai import OpenAI  # type: ignore[import-not-found]
 
-        if _is_floating_alias(model):
+        base_url = os.environ.get("OPENAI_BASE_URL")
+        if not base_url and _is_floating_alias(model):
             raise ValueError(
                 f"refusing a floating alias '{model}'; pin an exact dated snapshot"
             )
@@ -80,16 +127,23 @@ class LLMClient:
         self.temperature = temperature
         self.seed = seed
         # Route through TrueFoundry when OPENAI_BASE_URL is set (gateway.env).
-        kwargs: dict[str, str] = {}
-        base_url = os.environ.get("OPENAI_BASE_URL")
+        kwargs: _OpenAIKwargs = {}
         if base_url:
             kwargs["base_url"] = base_url
+        if api_key := os.environ.get("OPENAI_API_KEY"):
+            kwargs["api_key"] = api_key
         self._client = OpenAI(**kwargs)
 
-    def complete_text(
-        self, system: str, user: str, *, json_object: bool = False
-    ) -> str:
-        """One completion, returned as the raw response text.
+    def complete_result(
+        self,
+        system: str,
+        user: str,
+        *,
+        json_object: bool = False,
+        batch_operation_id: str | None = None,
+        batch_retry_offset: int = 0,
+    ) -> LLMResult:
+        """One completion with its exact provider response metadata.
 
         Reasoning and gpt-5 snapshots can reject a non-default ``temperature`` or
         ``seed``; on that error the call retries with the offending option
@@ -99,14 +153,10 @@ class LLMClient:
         """
         import time
 
-        manager: GenerationManager | None = None
-        operation_id: str | None = None
-        if "PGREP_BATCH_RUN_DIR" in os.environ:
-            import uuid
-
-            manager = GenerationManager.attach(os.environ["PGREP_BATCH_RUN_DIR"])
-            operation_id = f"llm-{uuid.uuid4().hex}"
-
+        manager, operation_id = _batch_context(
+            batch_operation_id,
+            batch_retry_offset,
+        )
         base: dict = {
             "model": self.model,
             "messages": [
@@ -114,8 +164,7 @@ class LLMClient:
                 {"role": "user", "content": user},
             ],
         }
-        if json_object:
-            base["response_format"] = {"type": "json_object"}
+        request_bases = _request_bases(base, json_object)
         # Try richest options first, then progressively drop unsupported ones.
         option_sets: list[dict[str, float | int | None]] = [
             {"temperature": self.temperature, "seed": self.seed},
@@ -125,42 +174,65 @@ class LLMClient:
         ]
         last_exc: Exception | None = None
         provider_attempt = 0
-        for options in option_sets:
-            kwargs = dict(base)
-            kwargs.update({k: v for k, v in options.items() if v is not None})
-            for attempt in range(3):
-                try:
-                    if manager is None:
+        for request_base in request_bases:
+            for options in option_sets:
+                kwargs = dict(request_base)
+                kwargs.update({k: v for k, v in options.items() if v is not None})
+                for attempt in range(3):
+                    try:
+                        provider_attempt_number = batch_retry_offset + provider_attempt
                         provider_attempt += 1
-                        resp = self._client.chat.completions.create(**kwargs)
-                    else:
-                        assert operation_id is not None
-                        permit = manager.before_call(operation_id, provider_attempt)
-                        provider_attempt += 1
-                        try:
-                            resp = self._client.chat.completions.create(**kwargs)
-                        except BaseException:
-                            manager.after_call(permit, ok=False)
-                            raise
-                        manager.after_call(permit, ok=True)
-                    return resp.choices[0].message.content
-                except Exception as exc:  # noqa: BLE001
-                    name = type(exc).__name__
-                    if name in ("BadRequestError", "UnprocessableEntityError"):
-                        last_exc = exc
-                        break  # option unsupported; try the next option set
-                    if name in (
-                        "RateLimitError",
-                        "APITimeoutError",
-                        "APIConnectionError",
-                        "InternalServerError",
-                    ):
-                        last_exc = exc
-                        time.sleep(2 * (attempt + 1))
-                        continue
-                    raise
+                        resp = self._call_provider(
+                            kwargs,
+                            manager=manager,
+                            operation_id=operation_id,
+                            attempt=provider_attempt_number,
+                        )
+                        return _result_from_response(resp)
+                    except Exception as exc:  # noqa: BLE001
+                        name = type(exc).__name__
+                        if name in ("BadRequestError", "UnprocessableEntityError"):
+                            last_exc = exc
+                            break  # unsupported option; try the next request shape
+                        if name in (
+                            "RateLimitError",
+                            "APITimeoutError",
+                            "APIConnectionError",
+                            "InternalServerError",
+                        ):
+                            last_exc = exc
+                            time.sleep(2 * (attempt + 1))
+                            continue
+                        raise
         assert last_exc is not None
         raise last_exc
+
+    def _call_provider(
+        self,
+        kwargs: dict,
+        *,
+        manager: GenerationManager | None,
+        operation_id: str | None,
+        attempt: int,
+    ) -> Any:
+        if manager is None:
+            return self._client.chat.completions.create(**kwargs)
+
+        assert operation_id is not None
+        permit = manager.before_call(operation_id, attempt)
+        try:
+            response = self._client.chat.completions.create(**kwargs)
+        except BaseException:
+            manager.after_call(permit, ok=False)
+            raise
+        manager.after_call(permit, ok=True)
+        return response
+
+    def complete_text(
+        self, system: str, user: str, *, json_object: bool = False
+    ) -> str:
+        """One completion, returned as the raw response text."""
+        return self.complete_result(system, user, json_object=json_object).text
 
     def complete_json(self, system: str, user: str) -> dict:
         """One JSON-object completion, parsed. Uses ``complete_text``'s retries."""
@@ -174,11 +246,18 @@ def _is_floating_alias(model: str) -> bool:
     return _SNAPSHOT_RE.search(model) is None
 
 
-def list_models() -> list[str]:
+def list_models(*, load_credentials: bool = True) -> list[str]:
     """Model ids available on the account (needs the API key)."""
     from openai import OpenAI  # type: ignore[import-not-found]
 
-    client = OpenAI()
+    if load_credentials:
+        load_api_key()
+    kwargs: _OpenAIKwargs = {}
+    if base_url := os.environ.get("OPENAI_BASE_URL"):
+        kwargs["base_url"] = base_url
+    if api_key := os.environ.get("OPENAI_API_KEY"):
+        kwargs["api_key"] = api_key
+    client = OpenAI(**kwargs)
     return sorted(m.id for m in client.models.list().data)
 
 

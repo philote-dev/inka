@@ -1365,8 +1365,16 @@ def _assert_trusted_shadow_manifest(
         raise RulerBuildError("shadow run was built from a dirty tree")
     if manifest.get("synthetic") is not False:
         raise RulerBuildError("shadow run is synthetic and cannot enter the ruler")
-    if manifest.get("execution_mode") != "real":
-        raise RulerBuildError("shadow run must use real execution")
+    runtime = manifest.get("runtime")
+    if not isinstance(runtime, Mapping):
+        raise RulerBuildError("shadow run has no runtime metadata")
+    if runtime.get("backend_kind") != "truefoundry-openai-compatible":
+        raise RulerBuildError("shadow run must use the TrueFoundry backend")
+    if runtime.get("execution_mode") != "gateway":
+        raise RulerBuildError("shadow run must use gateway execution")
+    sdk_version = runtime.get("openai_sdk_version")
+    if type(sdk_version) is not str or not sdk_version.strip():
+        raise RulerBuildError("shadow run has no OpenAI SDK version")
     origins = manifest.get("origins")
     if not isinstance(origins, list) or set(origins) != set(_SHADOW_FAMILIES):
         raise RulerBuildError("shadow run does not verify exactly three families")
@@ -2959,12 +2967,9 @@ def _synthetic_fixture_environment() -> "shadow_foundry.RunEnvironment":
         sdk_version="offline-fake-0.1.9",
     )
     fixture = b"offline-corpus-fixture"
-    image_digest = "sha256:" + hashlib.sha256(b"offline-worker").hexdigest()
     return shadow_foundry.RunEnvironment(
         code_sha=sha,
         tree_status="clean",
-        worker_image="pgrep-shadow-worker:synthetic-test",
-        worker_image_digest=image_digest,
         corpus_index_fingerprint="sha256:" + hashlib.sha256(fixture).hexdigest(),
         probe=probe,
         synthetic=True,
