@@ -166,6 +166,23 @@ class MissingGrokBackend(FakeBackend):
         super().__init__(fail_families={"grok"})
 
 
+class TrueFoundryFakeBackend(FakeBackend):
+    def complete(
+        self,
+        request: model_backend.ModelRequest,
+    ) -> model_backend.ModelResult:
+        result = super().complete(request)
+        return model_backend.ModelResult(
+            request_id=result.request_id,
+            model_id=result.model_id,
+            status=result.status,
+            text=result.text,
+            agent_id="truefoundry-openai-compatible",
+            run_id=result.run_id,
+            error=result.error,
+        )
+
+
 class ObservedGenerationManager(batch_safety.GenerationManager):
     def __init__(
         self,
@@ -260,8 +277,22 @@ def test_shadow_run_publishes_independently_bound_raw_responses(
         + hashlib.sha256((run_dir / "raw-responses.json").read_bytes()).hexdigest()
     )
     assert len(raw) == 9
+    assert all(response["backend_kind"] == "test-fake" for response in raw)
     by_request = {response["request_id"]: response for response in raw}
     for candidate in candidates:
+        traces = [
+            *candidate["generator"]["traces"],
+            *(verifier["trace"] for verifier in candidate["verifiers"]),
+        ]
+        for trace in traces:
+            response = by_request[trace["request_id"]]
+            assert response["agent_id"] == trace["agent_id"]
+            assert response["run_id"] == trace["run_id"]
+            assert response["requested_model_id"] == trace["requested_model_id"]
+            assert response["actual_model_id"] == trace["actual_model_id"]
+            assert response["request_hash"] == trace["request_hash"]
+            assert response["agent_id"]
+            assert response["run_id"]
         traces = candidate["generator"]["traces"]
         final = next(trace for trace in traces if trace["parser_outcome"] == "parsed")
         response = by_request[final["request_id"]]
@@ -618,8 +649,6 @@ def test_run_shadow_requires_probe_ids_before_generation(tmp_path: Path) -> None
     incomplete = shadow_foundry.RunEnvironment(
         code_sha="a" * 40,
         tree_status="clean",
-        worker_image="pgrep-shadow-worker:test",
-        worker_image_digest="sha256:" + ("b" * 64),
         corpus_index_fingerprint="sha256:" + ("c" * 64),
         probe=shadow_foundry.make_probe_metadata(
             [{"id": "gpt-5.6-sol-max", "parameters": [], "variants": []}],
@@ -834,6 +863,8 @@ def test_format_probe_lists_models() -> None:
             {"id": "claude-opus-4-8-thinking-high-fast"},
         ]
     )
+    assert text.startswith("Available TrueFoundry gateway models:")
+    assert "Cursor" not in text
     assert "gpt-5.6-sol-max" in text
     assert payload["models"][0]["id"] == "gpt-5.6-sol-max"
 
@@ -875,8 +906,6 @@ def _environment() -> shadow_foundry.RunEnvironment:
     return shadow_foundry.RunEnvironment(
         code_sha="a" * 40,
         tree_status="dirty",
-        worker_image="pgrep-shadow-worker:0123456789abcdef",
-        worker_image_digest="sha256:" + ("b" * 64),
         corpus_index_fingerprint="sha256:" + ("c" * 64),
         probe=_probe_metadata(),
         synthetic=True,
@@ -885,44 +914,22 @@ def _environment() -> shadow_foundry.RunEnvironment:
     )
 
 
-@pytest.mark.parametrize(
-    ("family", "model_id"),
-    [
-        ("sol", "claude-opus-4-8-for-sol"),
-        ("opus", "cursor-grok-4.5-for-opus"),
-        ("grok", "gpt-5.6-sol-for-grok"),
-        ("sol", "gpt-5.5-sol-max"),
-        ("opus", "claude-opus-4-7-thinking-high"),
-        ("grok", "cursor-grok-4.4-high-fast"),
-    ],
-)
-def test_exact_roles_require_semantic_family_identity(
-    family: str,
-    model_id: str,
-) -> None:
-    roles = _roles()
-    invalid = shadow_portfolio.ModelRoles(
-        sol=(
-            model_backend.ModelSpec("sol", model_id, "high")
-            if family == "sol"
-            else roles.sol
-        ),
-        opus=(
-            model_backend.ModelSpec("opus", model_id, "high")
-            if family == "opus"
-            else roles.opus
-        ),
-        grok=(
-            model_backend.ModelSpec("grok", model_id, "high")
-            if family == "grok"
-            else roles.grok
-        ),
+def test_exact_roles_accept_arbitrary_discovered_ids_by_explicit_assignment() -> None:
+    roles = shadow_portfolio.ModelRoles(
+        sol=model_backend.ModelSpec("sol", "gateway/provider-alpha:current", "high"),
+        opus=model_backend.ModelSpec("opus", "tfy://deployment/unconventional", "high"),
+        grok=model_backend.ModelSpec("grok", "opaque-model-id-7", "high"),
     )
-    with pytest.raises(ValueError, match="family identity"):
-        shadow_foundry.validate_exact_roles(
-            invalid,
-            _probe_metadata()["models"],
-        )
+    models = [
+        {"id": role.model_id, "parameters": [], "variants": []}
+        for role in (roles.sol, roles.opus, roles.grok)
+    ]
+
+    assert shadow_foundry.validate_exact_roles(roles, models) == [
+        roles.sol.model_id,
+        roles.opus.model_id,
+        roles.grok.model_id,
+    ]
 
 
 def test_retrieval_projection_preserves_provenance_without_source_path() -> None:
@@ -968,8 +975,8 @@ def test_nested_success_manifest_contract_is_strict(tmp_path: Path) -> None:
         run_id="nested-incomplete",
         environment=_environment(),
     )
-    del manifest["worker"]["image_digest"]
-    with pytest.raises(ValueError, match="worker"):
+    del manifest["runtime"]["backend_kind"]
+    with pytest.raises(ValueError, match="runtime"):
         shadow_foundry.publish_run(
             tmp_path,
             "nested-incomplete",
@@ -1002,9 +1009,67 @@ def test_candidate_failure_publishes_finalized_diagnostic(tmp_path: Path) -> Non
     failures = json.loads((run_dir / "failures.json").read_text())
     assert failures
     assert failures[0]["error_type"] == "RuntimeError"
+    assert failures[0]["agent_id"] is None
+    assert failures[0]["run_id"] is None
     manifest = json.loads((run_dir / "manifest.json").read_text())
     assert manifest["status"] == "failed"
     assert manifest["training_eligible"] is False
+    assert "worker" not in manifest
+    assert manifest["runtime"]["backend_kind"] == "test-fake"
+    assert manifest["runtime"]["execution_mode"] == "test-fake"
+
+
+def test_gateway_failure_manifest_records_truthful_runtime(tmp_path: Path) -> None:
+    environment = _clean_real_environment()
+    with pytest.raises(shadow_foundry.ShadowRunFailed) as raised:
+        shadow_foundry.run_shadow(
+            roles=_roles(),
+            backend=MissingGrokBackend(),
+            output_root=tmp_path,
+            allow_test_output=True,
+            search_fn=_fake_search,
+            n=3,
+            seed=7,
+            topic="mechanics/circular-motion",
+            run_id="gateway-failure",
+            environment=environment,
+        )
+
+    manifest = json.loads((raised.value.run_dir / "manifest.json").read_text())
+    failures = json.loads((raised.value.run_dir / "failures.json").read_text())
+    assert manifest["status"] == "failed"
+    assert manifest["runtime"] == {
+        "backend_kind": "truefoundry-openai-compatible",
+        "execution_mode": "gateway",
+        "openai_sdk_version": "0.1.9",
+    }
+    assert "worker" not in manifest
+    assert failures[0]["stage"] == "candidate"
+
+
+def test_gateway_result_identity_mismatch_fails_before_success(
+    tmp_path: Path,
+) -> None:
+    backend = FakeBackend()
+    with pytest.raises(shadow_foundry.ShadowRunFailed) as raised:
+        shadow_foundry.run_shadow(
+            roles=_roles(),
+            backend=backend,
+            output_root=tmp_path,
+            allow_test_output=True,
+            search_fn=_fake_search,
+            n=3,
+            seed=7,
+            topic="mechanics/circular-motion",
+            run_id="gateway-identity-mismatch",
+            environment=_clean_real_environment(),
+        )
+
+    failures = json.loads((raised.value.run_dir / "failures.json").read_text())
+    assert len(backend.requests) == 1
+    assert failures[0]["stage"] == "candidate"
+    assert "identity" in failures[0]["message"]
+    assert not (raised.value.run_dir / "_SUCCESS").exists()
 
 
 def test_success_manifest_has_replay_and_environment_metadata(tmp_path: Path) -> None:
@@ -1027,14 +1092,23 @@ def test_success_manifest_has_replay_and_environment_metadata(tmp_path: Path) ->
     assert manifest["candidate_count"] == 3
     assert manifest["failure_count"] == 0
     assert manifest["origins"] == ["grok", "opus", "sol"]
+    assert manifest["manifest_version"] == "pgrep-shadow-run/v7"
     assert manifest["code"] == {"sha": "a" * 40, "tree_status": "dirty"}
-    assert manifest["worker"]["image_digest"] == "sha256:" + ("b" * 64)
+    assert "worker" not in manifest
+    assert manifest["runtime"] == {
+        "backend_kind": "test-fake",
+        "execution_mode": "test-fake",
+        "openai_sdk_version": None,
+    }
     assert manifest["probe"]["sdk_version"] == "0.1.9"
     assert manifest["probe"]["model_catalog_hash"].startswith("sha256:")
     assert manifest["corpus_index"]["fingerprint"] == "sha256:" + ("c" * 64)
     assert len(manifest["request_traces"]) >= 9
     assert all(trace["request_hash"] for trace in manifest["request_traces"])
     assert all(trace["actual_model_id"] for trace in manifest["request_traces"])
+    assert all(
+        trace["backend_kind"] == "test-fake" for trace in manifest["request_traces"]
+    )
     assert all(trace["agent_id"] for trace in manifest["request_traces"])
     assert all(trace["run_id"] for trace in manifest["request_traces"])
     verifier_traces = [
@@ -1207,32 +1281,38 @@ def test_real_sandbox_wiring_discovers_builds_and_pins_image() -> None:
     assert prepared.image_digest == "sha256:" + ("d" * 64)
 
 
-def test_real_shadow_cli_wires_host_retrieval(
+def test_real_shadow_cli_wires_host_retrieval_through_truefoundry(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     observed: dict[str, object] = {}
-    safety = ObservedGenerationManager(tmp_path / "safety")
-    safety.initialize()
-    monkeypatch.setenv("PGREP_BATCH_RUN_DIR", str(safety.run_dir))
-    prepared = shadow_foundry.PreparedSandbox(
-        sandbox=object(),
-        image="pgrep-shadow-worker:0123456789abcdef",
-        image_digest="sha256:" + ("d" * 64),
-        runtime="docker",
-        socket="/var/run/docker.sock",
-    )
-    monkeypatch.setattr(shadow_foundry, "_load_api_key", lambda: "cursor_test_key")
+    backend = FakeBackend()
+
+    class FakeTrueFoundryBackend:
+        def list_models(self) -> list[str]:
+            return [
+                "gpt-5.6-sol-max",
+                "claude-opus-4-8-thinking-high-fast",
+                "cursor-grok-4.5-high-fast",
+            ]
+
+        def complete(
+            self,
+            request: model_backend.ModelRequest,
+        ) -> model_backend.ModelResult:
+            return backend.complete(request)
+
     monkeypatch.setattr(
         shadow_foundry,
-        "prepare_real_sandbox",
-        lambda _key: prepared,
+        "truefoundry_backend",
+        types.SimpleNamespace(
+            PROVIDER_IDENTITY="truefoundry-openai-compatible",
+            openai_sdk_version=lambda: "9.9.9",
+            TrueFoundryBackend=FakeTrueFoundryBackend,
+        ),
     )
-    monkeypatch.setattr(
-        shadow_foundry,
-        "_real_probe",
-        lambda _prepared: _probe_metadata(),
-    )
+    monkeypatch.setenv("OPENAI_API_KEY", "tfy_test_token")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://tfy.example/v1")
     monkeypatch.setattr(
         shadow_foundry,
         "file_attestation",
@@ -1275,9 +1355,12 @@ def test_real_shadow_cli_wires_host_retrieval(
     )
     assert observed["retrieval"][0] == "mechanics/circular-motion"
     assert observed["run"]["output_root"] == shadow_foundry.QUARANTINE_ROOT
-    attached = observed["run"]["manager"]
-    assert isinstance(attached, batch_safety.GenerationManager)
-    assert attached.run_dir == safety.run_dir
+    assert isinstance(observed["run"]["backend"], FakeTrueFoundryBackend)
+    environment = observed["run"]["environment"]
+    assert environment.backend_kind == "truefoundry-openai-compatible"
+    assert environment.execution_mode == "gateway"
+    assert environment.openai_sdk_version == "9.9.9"
+    assert environment.probe["sdk_version"] == "9.9.9"
 
 
 def test_security_failure_aborts_after_first_failed_slot(tmp_path: Path) -> None:
@@ -1398,7 +1481,7 @@ def test_parser_retry_outcomes_survive_failed_diagnostic(tmp_path: Path) -> None
     )
 
 
-def test_same_vendor_triple_fails_semantic_role_validation() -> None:
+def test_same_vendor_ids_are_allowed_when_roles_are_explicit() -> None:
     roles = shadow_portfolio.ModelRoles(
         sol=model_backend.ModelSpec("sol", "gpt-5.6-sol-max", "high"),
         opus=model_backend.ModelSpec("opus", "gpt-5.6-sol-opus-slot", "high"),
@@ -1408,8 +1491,11 @@ def test_same_vendor_triple_fails_semantic_role_validation() -> None:
         {"id": spec.model_id, "parameters": [], "variants": []}
         for spec in (roles.sol, roles.opus, roles.grok)
     ]
-    with pytest.raises(ValueError, match="family identity"):
-        shadow_foundry.validate_exact_roles(roles, models)
+    assert shadow_foundry.validate_exact_roles(roles, models) == [
+        roles.sol.model_id,
+        roles.opus.model_id,
+        roles.grok.model_id,
+    ]
 
 
 class HoldingPublicationIO(shadow_foundry.PublicationIO):
@@ -1617,7 +1703,7 @@ def test_candidate_replay_metadata_is_complete() -> None:
         environment=_environment(),
     )
     assert manifest["category"] == "mechanics"
-    assert manifest["execution_mode"] == "test-fake"
+    assert manifest["runtime"]["execution_mode"] == "test-fake"
     assert manifest["replayable"] is False
     for slot, candidate in enumerate(candidates):
         assert candidate["topic"] == manifest["topic"]
@@ -1674,9 +1760,15 @@ def test_manifest_replay_cross_checks_reject_tampering(
     assert not list(tmp_path.rglob("_SUCCESS"))
 
 
-def test_dirty_real_run_refuses_success_before_model_calls(tmp_path: Path) -> None:
+def test_dirty_gateway_run_refuses_success_before_model_calls(tmp_path: Path) -> None:
     environment = _environment()
-    object.__setattr__(environment, "execution_mode", "real")
+    object.__setattr__(environment, "execution_mode", "gateway")
+    object.__setattr__(
+        environment,
+        "backend_kind",
+        "truefoundry-openai-compatible",
+    )
+    object.__setattr__(environment, "openai_sdk_version", "0.1.9")
     backend = FakeBackend()
     with pytest.raises(shadow_foundry.ShadowRunFailed) as raised:
         shadow_foundry.run_shadow(
@@ -1688,7 +1780,7 @@ def test_dirty_real_run_refuses_success_before_model_calls(tmp_path: Path) -> No
             n=3,
             seed=7,
             topic="mechanics/circular-motion",
-            run_id="dirty-real",
+            run_id="dirty-gateway",
             environment=environment,
         )
     assert backend.requests == []
@@ -2023,6 +2115,7 @@ _CANONICAL_TRACE_FIELDS = (
     "phase",
     "attempt",
     "binding",
+    "backend_kind",
 )
 
 
@@ -2126,12 +2219,13 @@ def test_conflicting_duplicate_candidate_trace_fails_closed(tmp_path: Path) -> N
 def _clean_real_environment() -> shadow_foundry.RunEnvironment:
     environment = _environment()
     object.__setattr__(environment, "tree_status", "clean")
-    object.__setattr__(environment, "execution_mode", "real")
+    object.__setattr__(environment, "execution_mode", "gateway")
     object.__setattr__(
         environment,
-        "worker_image",
-        environment.worker_image_digest,
+        "backend_kind",
+        "truefoundry-openai-compatible",
     )
+    object.__setattr__(environment, "openai_sdk_version", "0.1.9")
     object.__setattr__(environment, "corpus_index_mtime_ns", 123456789)
     object.__setattr__(environment, "corpus_index_size", 4096)
     return environment
@@ -2180,7 +2274,7 @@ def test_final_state_change_publishes_failed_diagnostic(
     with pytest.raises(shadow_foundry.ShadowRunFailed) as raised:
         shadow_foundry.run_shadow(
             roles=_roles(),
-            backend=FakeBackend(),
+            backend=TrueFoundryFakeBackend(),
             output_root=tmp_path,
             allow_test_output=True,
             search_fn=_fake_search,
@@ -2226,7 +2320,7 @@ def test_final_clean_unchanged_state_publishes_success(
     )
     run_dir = shadow_foundry.run_shadow(
         roles=_roles(),
-        backend=FakeBackend(),
+        backend=TrueFoundryFakeBackend(),
         output_root=tmp_path,
         allow_test_output=True,
         search_fn=_fake_search,
@@ -2239,3 +2333,37 @@ def test_final_clean_unchanged_state_publishes_success(
     assert calls == [True]
     assert (run_dir / "_SUCCESS").is_file()
     assert not (run_dir / "_FAILED").exists()
+
+
+def test_probe_models_routes_through_truefoundry_gateway(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    observed: list[str] = []
+
+    class FakeTrueFoundryBackend:
+        def __init__(self) -> None:
+            observed.append("constructed")
+
+        def list_models(self) -> list[str]:
+            observed.append("listed")
+            return ["grok-4.5", "gateway/claude-opus-4-8", "gpt-5.5"]
+
+    monkeypatch.setattr(
+        shadow_foundry,
+        "truefoundry_backend",
+        types.SimpleNamespace(
+            PROVIDER_IDENTITY="truefoundry-openai-compatible",
+            openai_sdk_version=lambda: "9.9.9",
+            TrueFoundryBackend=FakeTrueFoundryBackend,
+        ),
+        raising=False,
+    )
+    monkeypatch.delenv("CURSOR_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "tfy_test_token")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://tfy.example/v1")
+
+    assert shadow_foundry.main(["--probe-models"]) == 0
+
+    assert observed == ["constructed", "listed"]
+    assert "gateway/claude-opus-4-8" in capsys.readouterr().out

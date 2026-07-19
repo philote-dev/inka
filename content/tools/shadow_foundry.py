@@ -3,7 +3,7 @@
 
 """Quarantined multi-model shadow-foundry CLI.
 
-The host retrieves corpus excerpts, the Task 3 Docker sandbox runs exact
+The host retrieves corpus excerpts, the TrueFoundry gateway runs exact
 Sol/Opus/Grok models, and finalized artifacts remain under the repository's
 git-ignored shadow-foundry root. Success is impossible unless the complete
 portfolio and its replay metadata satisfy the strict manifest contract.
@@ -39,6 +39,7 @@ from pgrep.ai import (  # type: ignore[import-not-found]  # noqa: E402
     model_backend,
     provenance,
     shadow_portfolio,
+    truefoundry_backend,
 )
 
 REPO_ROOT = _AI_ROOT.parents[1]
@@ -52,7 +53,9 @@ DEFAULT_REASONING = "high"
 
 SUCCESS_MARKER = "_SUCCESS"
 FAILED_MARKER = "_FAILED"
-MANIFEST_VERSION = "pgrep-shadow-run/v6"
+MANIFEST_VERSION = "pgrep-shadow-run/v7"
+TRUEFOUNDRY_BACKEND_KIND = "truefoundry-openai-compatible"
+TEST_BACKEND_KIND = "test-fake"
 
 _FAMILIES = ("sol", "opus", "grok")
 _BOUND_ARTIFACTS = (
@@ -119,7 +122,6 @@ _TOP_LEVEL_FIELDS = frozenset(
     {
         "manifest_version",
         "mode",
-        "execution_mode",
         "synthetic",
         "replayable",
         "status",
@@ -132,7 +134,7 @@ _TOP_LEVEL_FIELDS = frozenset(
         "roles",
         "probe",
         "code",
-        "worker",
+        "runtime",
         "corpus_index",
         "topic",
         "category",
@@ -172,11 +174,13 @@ _TRACE_FIELDS = frozenset(
         "parser_outcome",
         "parse_error",
         "binding",
+        "backend_kind",
     }
 )
 _RAW_RESPONSE_FIELDS = frozenset(
     {
         "request_id",
+        "request_hash",
         "slot",
         "phase",
         "attempt",
@@ -190,6 +194,21 @@ _RAW_RESPONSE_FIELDS = frozenset(
         "parse_error",
         "parsed_candidate_sha256",
         "binding",
+        "backend_kind",
+        "agent_id",
+        "run_id",
+    }
+)
+_FAILURE_FIELDS = frozenset(
+    {
+        "stage",
+        "slot",
+        "origin_family",
+        "seed",
+        "error_type",
+        "message",
+        "agent_id",
+        "run_id",
     }
 )
 _TRACE_BINDING_FIELDS = frozenset(
@@ -222,16 +241,16 @@ class ShadowRunFailed(RuntimeError):
 
 @dataclass(frozen=True)
 class RunEnvironment:
-    """Host and sandbox metadata frozen before candidate retrieval."""
+    """Host, provider, and replay metadata frozen before candidate retrieval."""
 
     code_sha: str
     tree_status: str
-    worker_image: str
-    worker_image_digest: str | None
     corpus_index_fingerprint: str | None
     probe: Mapping[str, object]
     synthetic: bool
+    backend_kind: str = TEST_BACKEND_KIND
     execution_mode: str = "test-fake"
+    openai_sdk_version: str | None = None
     corpus_index_mtime_ns: int | None = None
     corpus_index_size: int | None = None
     corpus_index_path: Path | None = None
@@ -241,15 +260,15 @@ class RunEnvironment:
             raise ValueError("code SHA must be a complete hexadecimal commit ID")
         if self.tree_status not in {"clean", "dirty"}:
             raise ValueError("tree status must be clean or dirty")
-        if self.execution_mode not in {"real", "offline-self-check", "test-fake"}:
+        if self.execution_mode not in {"gateway", "offline-self-check", "test-fake"}:
             raise ValueError("execution mode is invalid")
         if type(self.synthetic) is not bool:
             raise ValueError("synthetic must be a boolean")
-        _non_empty_string(self.worker_image, name="worker image")
-        if self.worker_image_digest is not None and not _DIGEST_RE.fullmatch(
-            self.worker_image_digest
-        ):
-            raise ValueError("worker image digest must be sha256")
+        _non_empty_string(self.backend_kind, name="backend kind")
+        if self.execution_mode == "gateway":
+            if self.backend_kind != TRUEFOUNDRY_BACKEND_KIND:
+                raise ValueError("gateway execution requires the TrueFoundry backend")
+            _non_empty_string(self.openai_sdk_version, name="OpenAI SDK version")
         if self.corpus_index_fingerprint is not None and not _DIGEST_RE.fullmatch(
             self.corpus_index_fingerprint
         ):
@@ -730,28 +749,6 @@ def _validate_exact_fields(
         )
 
 
-def _model_family(model_id: str) -> str | None:
-    normalized = model_id.lower()
-    matches = {
-        "sol": bool(
-            re.search(r"(?<![a-z0-9])gpt(?![a-z0-9])", normalized)
-            and re.search(r"(?<!\d)5[._-]6(?!\d)", normalized)
-            and re.search(r"(?<![a-z0-9])sol(?![a-z0-9])", normalized)
-        ),
-        "opus": bool(
-            re.search(r"(?<![a-z0-9])claude(?![a-z0-9])", normalized)
-            and re.search(r"(?<![a-z0-9])opus(?![a-z0-9])", normalized)
-            and re.search(r"(?<!\d)4[._-]8(?!\d)", normalized)
-        ),
-        "grok": bool(
-            re.search(r"(?<![a-z0-9])grok(?![a-z0-9])", normalized)
-            and re.search(r"(?<!\d)4[._-]5(?!\d)", normalized)
-        ),
-    }
-    families = [family for family, matched in matches.items() if matched]
-    return families[0] if len(families) == 1 else None
-
-
 def make_probe_metadata(
     models: Sequence[Mapping[str, object]] | Sequence[object],
     *,
@@ -826,7 +823,7 @@ def validate_exact_roles(
     roles: shadow_portfolio.ModelRoles,
     probe_models: Sequence[Mapping[str, object]] | Sequence[object],
 ) -> list[str]:
-    """Require exact, distinct, semantically correct account-listed IDs."""
+    """Require three exact, distinct, explicitly assigned account-listed IDs."""
     if type(roles) is not shadow_portfolio.ModelRoles:
         raise TypeError("roles must be ModelRoles")
     available: set[str] = set()
@@ -845,13 +842,6 @@ def validate_exact_roles(
     if len(set(requested.values())) != 3:
         raise ValueError("exact model roles must use distinct model IDs")
     for family, model_id in requested.items():
-        lowered = model_id.lower()
-        if lowered == "auto" or lowered.startswith("auto/"):
-            raise ValueError("auto/substitution is forbidden for shadow model roles")
-        if _model_family(model_id) != family:
-            raise ValueError(
-                f"{family} model {model_id!r} does not match its family identity"
-            )
         if model_id not in available:
             raise ValueError(
                 f"exact model {model_id!r} for {family} is not in the account probe"
@@ -863,7 +853,7 @@ def format_probe(
     models: Sequence[Mapping[str, object]] | Sequence[object],
 ) -> tuple[str, dict[str, object]]:
     rows: list[dict[str, object]] = []
-    lines = ["Available Cursor models:"]
+    lines = ["Available TrueFoundry gateway models:"]
     for index, entry in enumerate(models):
         model_id = (
             entry.get("id") or entry.get("model_id")
@@ -1018,7 +1008,7 @@ def _expected_replay_state(environment: RunEnvironment) -> ReplayState:
 def _reattest_success_state(environment: RunEnvironment) -> ReplayState:
     """Re-read real repository/index state immediately before success."""
     expected = _expected_replay_state(environment)
-    if environment.execution_mode != "real":
+    if environment.execution_mode != "gateway":
         return expected
     if environment.corpus_index_path is None:
         raise RuntimeError("real run has no corpus index path for re-attestation")
@@ -1032,8 +1022,8 @@ def _require_unchanged_success_state(environment: RunEnvironment) -> None:
     attested = _reattest_success_state(environment)
     if attested != expected:
         raise RuntimeError("repository or corpus replay state changed during run")
-    if environment.execution_mode == "real" and attested[1] != "clean":
-        raise RuntimeError("real run git tree is not clean at final re-attestation")
+    if environment.execution_mode == "gateway" and attested[1] != "clean":
+        raise RuntimeError("gateway run git tree is not clean at final re-attestation")
 
 
 def worker_context_fingerprint() -> str:
@@ -1135,6 +1125,7 @@ def _trace_summary(
     binding: Mapping[str, object],
     secrets: Sequence[str],
     parsed_candidate_sha256: str | None = None,
+    backend_kind: str = TEST_BACKEND_KIND,
 ) -> dict[str, object]:
     safe = cast(
         Mapping[str, object],
@@ -1208,6 +1199,7 @@ def _trace_summary(
         "parser_outcome": parser_outcome,
         "parse_error": parse_error,
         "binding": copy.deepcopy(dict(binding)),
+        "backend_kind": _non_empty_string(backend_kind, name="backend kind"),
     }
 
 
@@ -1219,6 +1211,7 @@ def _raw_response_record(
     binding: Mapping[str, object],
     secrets: Sequence[str],
     parsed_candidate_sha256: str | None,
+    backend_kind: str = TEST_BACKEND_KIND,
 ) -> dict[str, object]:
     safe = cast(
         Mapping[str, object],
@@ -1237,6 +1230,7 @@ def _raw_response_record(
         binding=binding,
         secrets=secrets,
         parsed_candidate_sha256=parsed_candidate_sha256,
+        backend_kind=backend_kind,
     )
     record = {
         field: summary[field]
@@ -1253,6 +1247,7 @@ def _sanitize_candidate_evidence(
     *,
     slot: int,
     secrets: Sequence[str],
+    backend_kind: str = TEST_BACKEND_KIND,
 ) -> tuple[dict[str, object], list[dict[str, object]]]:
     redacted = cast(
         dict[str, object],
@@ -1292,6 +1287,7 @@ def _sanitize_candidate_evidence(
                 binding=binding,
                 secrets=secrets,
                 parsed_candidate_sha256=parsed_sha,
+                backend_kind=backend_kind,
             )
         )
         raw_responses.append(
@@ -1302,6 +1298,7 @@ def _sanitize_candidate_evidence(
                 binding=binding,
                 secrets=secrets,
                 parsed_candidate_sha256=parsed_sha,
+                backend_kind=backend_kind,
             )
         )
     generator["traces"] = generator_summaries
@@ -1332,6 +1329,7 @@ def _sanitize_candidate_evidence(
             binding=binding,
             secrets=secrets,
             parsed_candidate_sha256=None,
+            backend_kind=backend_kind,
         )
         raw_responses.append(
             _raw_response_record(
@@ -1341,6 +1339,7 @@ def _sanitize_candidate_evidence(
                 binding=binding,
                 secrets=secrets,
                 parsed_candidate_sha256=None,
+                backend_kind=backend_kind,
             )
         )
     redacted["slot"] = slot
@@ -1581,7 +1580,6 @@ def build_run_manifest(
     manifest: dict[str, object] = {
         "manifest_version": MANIFEST_VERSION,
         "mode": "shadow",
-        "execution_mode": environment.execution_mode,
         "synthetic": environment.synthetic,
         "replayable": status == "success" and environment.tree_status == "clean",
         "status": status,
@@ -1603,9 +1601,10 @@ def build_run_manifest(
             "sha": environment.code_sha,
             "tree_status": environment.tree_status,
         },
-        "worker": {
-            "image": environment.worker_image,
-            "image_digest": environment.worker_image_digest,
+        "runtime": {
+            "backend_kind": environment.backend_kind,
+            "execution_mode": environment.execution_mode,
+            "openai_sdk_version": environment.openai_sdk_version,
         },
         "corpus_index": {
             "fingerprint": environment.corpus_index_fingerprint,
@@ -1651,6 +1650,7 @@ def _validate_trace_hashes_and_identity(
     roles: Mapping[str, object],
     *,
     success: bool,
+    runtime_backend_kind: str,
 ) -> None:
     _non_empty_string(trace["request_id"], name="request ID")
     request_hash = _non_empty_string(trace["request_hash"], name="request hash")
@@ -1680,6 +1680,12 @@ def _validate_trace_hashes_and_identity(
     actual = trace["actual_model_id"]
     if success and actual != requested:
         raise ValueError("success trace actual model does not match requested model")
+    if (
+        runtime_backend_kind == TRUEFOUNDRY_BACKEND_KIND
+        and trace["status"] == "finished"
+        and trace["agent_id"] != runtime_backend_kind
+    ):
+        raise ValueError("trace agent identity does not match runtime backend")
     if success:
         if response_hash is None:
             raise ValueError("success trace has no sanitized response hash")
@@ -1742,12 +1748,14 @@ def _validate_trace(
     roles: Mapping[str, object],
     *,
     success: bool,
+    runtime_backend_kind: str,
 ) -> None:
     _validate_exact_fields(trace, _TRACE_FIELDS, name="request trace")
     _validate_trace_hashes_and_identity(
         trace,
         roles,
         success=success,
+        runtime_backend_kind=runtime_backend_kind,
     )
     _validate_trace_replay(trace, success=success)
 
@@ -1830,7 +1838,7 @@ def _validate_candidate_structure(
 def _validate_manifest_nested_objects(manifest: Mapping[str, object]) -> None:
     exact_shapes = {
         "code": frozenset({"sha", "tree_status"}),
-        "worker": frozenset({"image", "image_digest"}),
+        "runtime": frozenset({"backend_kind", "execution_mode", "openai_sdk_version"}),
         "corpus_index": frozenset({"fingerprint", "mtime_ns", "size"}),
         "seeds": frozenset({"portfolio", "slots"}),
         "prompt_versions": frozenset(
@@ -1893,6 +1901,18 @@ def _manifest_status_and_counts(
         raise ValueError("manifest candidate/failure counts must be integers")
     if candidate_count != len(candidates) or failure_count != len(failures):
         raise ValueError("manifest candidate/failure counts do not match artifacts")
+    for failure in failures:
+        if not isinstance(failure, Mapping):
+            raise ValueError("failure artifact must contain objects")
+        _validate_exact_fields(failure, _FAILURE_FIELDS, name="failure record")
+        agent_id = failure["agent_id"]
+        run_id = failure["run_id"]
+        if agent_id is not None:
+            _non_empty_string(agent_id, name="failure agent ID")
+        if run_id is not None:
+            _non_empty_string(run_id, name="failure run ID")
+        if (agent_id is None) != (run_id is None):
+            raise ValueError("failure provider IDs must both be null or nonempty")
     return (
         cast(str, status),
         expected,
@@ -1924,8 +1944,9 @@ def _validate_manifest_replayability(
     *,
     status: str,
 ) -> str:
-    execution_mode = manifest["execution_mode"]
-    if execution_mode not in {"real", "offline-self-check", "test-fake"}:
+    runtime = cast(Mapping[str, object], manifest["runtime"])
+    execution_mode = runtime["execution_mode"]
+    if execution_mode not in {"gateway", "offline-self-check", "test-fake"}:
         raise ValueError("manifest execution mode is invalid")
     code = cast(Mapping[str, object], manifest["code"])
     if not _SHA_RE.fullmatch(str(code.get("sha", ""))):
@@ -1939,32 +1960,35 @@ def _validate_manifest_replayability(
         raise ValueError("manifest replayability does not match tree status")
     if (
         status == "success"
-        and execution_mode == "real"
+        and execution_mode == "gateway"
         and code.get("tree_status") != "clean"
     ):
-        raise ValueError("successful real shadow runs require a clean git tree")
+        raise ValueError("successful gateway shadow runs require a clean git tree")
     return cast(str, execution_mode)
 
 
-def _validate_manifest_worker_corpus(
+def _validate_manifest_runtime_corpus(
     manifest: Mapping[str, object],
     *,
     status: str,
     execution_mode: str,
 ) -> None:
-    worker = cast(Mapping[str, object], manifest["worker"])
+    runtime = cast(Mapping[str, object], manifest["runtime"])
     corpus = cast(Mapping[str, object], manifest["corpus_index"])
-    _non_empty_string(worker.get("image"), name="worker image")
-    if status == "success" and not _DIGEST_RE.fullmatch(
-        str(worker.get("image_digest", ""))
-    ):
-        raise ValueError("success manifest has no worker image digest")
-    if (
-        status == "success"
-        and execution_mode == "real"
-        and worker.get("image") != worker.get("image_digest")
-    ):
-        raise ValueError("real manifest is not bound to its immutable worker image")
+    backend_kind = _non_empty_string(
+        runtime.get("backend_kind"),
+        name="runtime backend kind",
+    )
+    sdk_version = runtime.get("openai_sdk_version")
+    if execution_mode == "gateway":
+        if backend_kind != TRUEFOUNDRY_BACKEND_KIND:
+            raise ValueError("gateway runtime must use the TrueFoundry backend")
+        _non_empty_string(sdk_version, name="runtime OpenAI SDK version")
+        probe = cast(Mapping[str, object], manifest["probe"])
+        if probe.get("sdk_version") != sdk_version:
+            raise ValueError("runtime OpenAI SDK version does not match probe")
+    elif backend_kind != TEST_BACKEND_KIND:
+        raise ValueError("non-gateway runtime must use the test backend")
     if status == "success" and not _DIGEST_RE.fullmatch(
         str(corpus.get("fingerprint", ""))
     ):
@@ -1986,7 +2010,7 @@ def _validate_manifest_environment(
     if not isinstance(probe, Mapping):
         raise ValueError("manifest probe is missing")
     _validate_probe(probe, allow_incomplete=status == "failed")
-    _validate_manifest_worker_corpus(
+    _validate_manifest_runtime_corpus(
         manifest,
         status=status,
         execution_mode=execution_mode,
@@ -2016,10 +2040,19 @@ def _manifest_allocation_and_traces(
     traces = manifest["request_traces"]
     if not isinstance(traces, list):
         raise ValueError("manifest request traces must be an array")
+    runtime = cast(Mapping[str, object], manifest["runtime"])
+    backend_kind = runtime["backend_kind"]
     for trace in traces:
         if not isinstance(trace, Mapping):
             raise ValueError("request trace must be an object")
-        _validate_trace(trace, roles, success=success)
+        if trace.get("backend_kind") != backend_kind:
+            raise ValueError("request trace backend does not match runtime")
+        _validate_trace(
+            trace,
+            roles,
+            success=success,
+            runtime_backend_kind=cast(str, backend_kind),
+        )
     return allocation, traces
 
 
@@ -2052,9 +2085,6 @@ def _validate_success_role_models(
     }
     if len(set(model_ids.values())) != 3:
         raise ValueError("success roles must use distinct exact model IDs")
-    for family, model_id in model_ids.items():
-        if _model_family(model_id) != family:
-            raise ValueError("success role has the wrong semantic family identity")
     validate_exact_roles(
         shadow_portfolio.ModelRoles(
             **{
@@ -2186,6 +2216,9 @@ def validate_raw_response_binding(
             raw["response_text"],
             name="raw response text",
         )
+        _non_empty_string(raw["request_hash"], name="raw request hash")
+        _non_empty_string(raw["agent_id"], name="raw agent ID")
+        _non_empty_string(raw["run_id"], name="raw run ID")
         expected_hash = hashlib.sha256(response_text.encode()).hexdigest()
         if raw["response_hash"] != expected_hash:
             raise ValueError("raw response hash does not match response text")
@@ -2222,8 +2255,20 @@ def validate_raw_response_binding(
                 raise ValueError("candidate trace has no bound raw response")
             if raw["response_hash"] != trace["response_hash"]:
                 raise ValueError("raw response hash does not match candidate trace")
+            if raw["request_hash"] != trace["request_hash"]:
+                raise ValueError("raw request hash does not match candidate trace")
+            if raw["requested_model_id"] != trace["requested_model_id"]:
+                raise ValueError("raw requested model does not match candidate trace")
+            if raw["actual_model_id"] != trace["actual_model_id"]:
+                raise ValueError("raw actual model does not match candidate trace")
+            if raw["agent_id"] != trace["agent_id"]:
+                raise ValueError("raw agent identity does not match candidate trace")
+            if raw["run_id"] != trace["run_id"]:
+                raise ValueError("raw response ID does not match candidate trace")
             if raw["binding"] != trace["binding"]:
                 raise ValueError("raw response binding does not match candidate trace")
+            if raw["backend_kind"] != trace["backend_kind"]:
+                raise ValueError("raw response backend does not match candidate trace")
             if raw["parsed_candidate_sha256"] != trace["parsed_candidate_sha256"]:
                 raise ValueError("raw parsed candidate hash does not match trace")
 
@@ -2527,6 +2572,8 @@ def _failure_record(
         "seed": seed,
         "error_type": type(error).__name__,
         "message": _safe_failure_message(error, secrets),
+        "agent_id": None,
+        "run_id": None,
     }
 
 
@@ -2536,6 +2583,7 @@ def _error_trace_summaries(
     slot: int,
     origin: str,
     secrets: Sequence[str],
+    backend_kind: str,
 ) -> list[dict[str, object]]:
     traces = getattr(error, "traces", ())
     if not isinstance(traces, (list, tuple)):
@@ -2565,6 +2613,7 @@ def _error_trace_summaries(
                         model_family=family,
                     ),
                     secrets=secrets,
+                    backend_kind=backend_kind,
                 )
             )
         except (ShadowLeakageError, ValueError):
@@ -2578,6 +2627,7 @@ def _error_raw_responses(
     slot: int,
     origin: str,
     secrets: Sequence[str],
+    backend_kind: str,
 ) -> list[dict[str, object]]:
     traces = getattr(error, "traces", ())
     if not isinstance(traces, (list, tuple)):
@@ -2608,6 +2658,7 @@ def _error_raw_responses(
                     ),
                     secrets=secrets,
                     parsed_candidate_sha256=None,
+                    backend_kind=backend_kind,
                 )
             )
         except (ShadowLeakageError, ValueError):
@@ -2634,10 +2685,12 @@ class _RecordingBackend:
         *,
         secrets: Sequence[str],
         manager: batch_safety.GenerationManager | None = None,
+        backend_kind: str = TEST_BACKEND_KIND,
     ) -> None:
         self.backend = backend
         self.secrets = tuple(secrets)
         self.manager = manager
+        self.backend_kind = _non_empty_string(backend_kind, name="backend kind")
         self.events: list[dict[str, object]] = []
         self.slot = 0
         self.origin = ""
@@ -2753,9 +2806,19 @@ class _RecordingBackend:
                 role=request.role,
                 model_family=request.model.family,
             ),
+            "backend_kind": self.backend_kind,
         }
         try:
             result = self._complete_backend(request)
+            if (
+                self.backend_kind == TRUEFOUNDRY_BACKEND_KIND
+                and result.status == "finished"
+            ):
+                if result.agent_id != self.backend_kind:
+                    raise ValueError(
+                        "gateway model identity does not match runtime backend"
+                    )
+                _non_empty_string(result.run_id, name="gateway result run ID")
             safe_result = cast(
                 Mapping[str, object],
                 _sanitize_for_publication(
@@ -2863,13 +2926,21 @@ def run_shadow(
     raw_responses: list[dict[str, object]] = []
     failure_traces: list[dict[str, object]] = []
     allocation: list[str] = []
-    recorder = _RecordingBackend(backend, secrets=secrets, manager=manager)
+    recorder = _RecordingBackend(
+        backend,
+        secrets=secrets,
+        manager=manager,
+        backend_kind=environment.backend_kind,
+    )
 
     try:
         if n < 3:
             raise ValueError("shadow runs require at least three candidates")
-        if environment.execution_mode == "real" and environment.tree_status != "clean":
-            raise ValueError("real shadow runs require a clean git tree")
+        if (
+            environment.execution_mode == "gateway"
+            and environment.tree_status != "clean"
+        ):
+            raise ValueError("gateway shadow runs require a clean git tree")
         _validate_probe(environment.probe, allow_incomplete=False)
         validate_exact_roles(
             roles,
@@ -2945,6 +3016,7 @@ def run_shadow(
                 record,
                 slot=slot,
                 secrets=secrets,
+                backend_kind=environment.backend_kind,
             )
             _candidate_provenance(sanitized)
             candidates.append(sanitized)
@@ -2956,6 +3028,7 @@ def run_shadow(
                     slot=slot,
                     origin=origin,
                     secrets=secrets,
+                    backend_kind=environment.backend_kind,
                 )
             )
             failure_traces.extend(
@@ -2964,6 +3037,7 @@ def run_shadow(
                     slot=slot,
                     origin=origin,
                     secrets=secrets,
+                    backend_kind=environment.backend_kind,
                 )
             )
             failures.append(
@@ -3001,6 +3075,8 @@ def run_shadow(
                     "seed": None,
                     "error_type": "IncompletePortfolio",
                     "message": "all three model families did not complete",
+                    "agent_id": None,
+                    "run_id": None,
                 }
             ],
             raw_responses=raw_responses,
@@ -3207,8 +3283,6 @@ def _offline_environment() -> RunEnvironment:
     return RunEnvironment(
         code_sha=sha,
         tree_status=tree_status,
-        worker_image="pgrep-shadow-worker:offline-self-check",
-        worker_image_digest="sha256:" + hashlib.sha256(b"offline-worker").hexdigest(),
         corpus_index_fingerprint=(
             "sha256:" + hashlib.sha256(b"offline-corpus-fixture").hexdigest()
         ),
@@ -3339,9 +3413,8 @@ def _build_roles(
 
 def _partial_environment(
     *,
-    image: str,
-    digest: str | None = None,
     probe: Mapping[str, object] | None = None,
+    openai_sdk_version: str,
     corpus_fingerprint: str | None = None,
     corpus_mtime_ns: int | None = None,
     corpus_size: int | None = None,
@@ -3351,8 +3424,8 @@ def _partial_environment(
     return RunEnvironment(
         code_sha=sha,
         tree_status=tree_status,
-        worker_image=image,
-        worker_image_digest=digest,
+        backend_kind=TRUEFOUNDRY_BACKEND_KIND,
+        openai_sdk_version=openai_sdk_version,
         corpus_index_fingerprint=corpus_fingerprint,
         probe=probe
         or make_probe_metadata(
@@ -3360,7 +3433,7 @@ def _partial_environment(
             sdk_version="unavailable",
         ),
         synthetic=False,
-        execution_mode="real",
+        execution_mode="gateway",
         corpus_index_mtime_ns=corpus_mtime_ns,
         corpus_index_size=corpus_size,
         corpus_index_path=corpus_path,
@@ -3381,7 +3454,7 @@ def _publish_cli_preflight_failure(
     failures = [
         _failure_record(
             error,
-            stage="sandbox_preflight",
+            stage="gateway_preflight",
             slot=None,
             origin=None,
             seed=None,
@@ -3460,10 +3533,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return self_check()
 
     run_id = args.run or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    key = _load_api_key()
-    if not args.build_worker and not key:
-        print("CURSOR_API_KEY is required for model probing or shadow mode")
-        return 1
     if args.build_worker:
         try:
             prepared = prepare_real_sandbox("", force_build=True)
@@ -3472,15 +3541,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
         print(f"built {prepared.image} at immutable digest {prepared.image_digest}")
         return 0
-
-    manager: batch_safety.GenerationManager | None = None
-    batch_run_dir = os.environ.get("PGREP_BATCH_RUN_DIR")
-    if args.shadow and batch_run_dir:
-        try:
-            manager = batch_safety.GenerationManager.attach(batch_run_dir)
-        except batch_safety.BatchStopped as error:
-            print(f"shadow batch safety attach failed: {error}")
-            return 1
 
     roles = _default_roles()
     if args.shadow:
@@ -3493,10 +3553,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             opus_model=args.opus_model,
             grok_model=args.grok_model,
         )
-    partial = _partial_environment(image=worker_image_tag())
+    sdk_version = "unavailable"
+    partial = _partial_environment(openai_sdk_version=sdk_version)
+    key = ""
     try:
-        prepared = prepare_real_sandbox(key)
-        probe = _real_probe(prepared)
+        sdk_version = truefoundry_backend.openai_sdk_version()
+        partial = _partial_environment(openai_sdk_version=sdk_version)
+        backend = truefoundry_backend.TrueFoundryBackend()
+        models = backend.list_models()
+        probe = make_probe_metadata(
+            [{"id": model_id, "parameters": [], "variants": []} for model_id in models],
+            sdk_version=sdk_version,
+        )
+        key = os.environ.get("OPENAI_API_KEY", "")
     except Exception as error:  # noqa: BLE001
         diagnostic = _publish_cli_preflight_failure(
             run_id=run_id,
@@ -3509,7 +3578,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             secrets=(key,),
         )
         print(
-            f"shadow sandbox preflight failed: {type(error).__name__}: {error}; "
+            f"shadow gateway preflight failed: {type(error).__name__}: {error}; "
             f"diagnostic run: {diagnostic}"
         )
         return 1
@@ -3530,9 +3599,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         index_path = Path(retrieval.default_index_path())
         corpus_fingerprint, corpus_mtime_ns, corpus_size = file_attestation(index_path)
         environment = _partial_environment(
-            image=prepared.image,
-            digest=prepared.image_digest,
             probe=probe,
+            openai_sdk_version=sdk_version,
             corpus_fingerprint=corpus_fingerprint,
             corpus_mtime_ns=corpus_mtime_ns,
             corpus_size=corpus_size,
@@ -3540,7 +3608,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         run_dir = run_shadow(
             roles=roles,
-            backend=prepared.sandbox,
+            backend=backend,
             environment=environment,
             output_root=QUARANTINE_ROOT,
             search_fn=lambda query, k: retrieval.search(
@@ -3553,16 +3621,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             topic=args.topic,
             run_id=run_id,
             secrets=(key,),
-            manager=manager,
         )
     except ShadowRunFailed as error:
         print(str(error))
         return 1
     except Exception as error:  # noqa: BLE001
         complete = _partial_environment(
-            image=prepared.image,
-            digest=prepared.image_digest,
             probe=probe,
+            openai_sdk_version=sdk_version,
         )
         diagnostic = _publish_cli_preflight_failure(
             run_id=run_id,

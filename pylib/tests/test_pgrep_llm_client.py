@@ -58,13 +58,27 @@ class _FakeOpenAI:
     """Stand-in for ``openai.OpenAI``; the real backend is swapped in per test."""
 
     last_kwargs: dict = {}
+    model_ids: list[str] = []
 
     def __init__(self, *args, **kwargs):
         type(self).last_kwargs = dict(kwargs)
+        self.models = types.SimpleNamespace(
+            list=lambda: types.SimpleNamespace(
+                data=[types.SimpleNamespace(id=model_id) for model_id in self.model_ids]
+            )
+        )
 
 
 class _Resp:
-    def __init__(self, content: str):
+    def __init__(
+        self,
+        content: str,
+        *,
+        model: str = _DATED,
+        response_id: str = "chatcmpl-test-1",
+    ):
+        self.id = response_id
+        self.model = model
         self.choices = [
             types.SimpleNamespace(message=types.SimpleNamespace(content=content))
         ]
@@ -89,6 +103,8 @@ class _ScriptedBackend:
         action, payload = self.script.pop(0)
         if action == "raise":
             raise type(payload, (Exception,), {})()
+        if isinstance(payload, _Resp):
+            return payload
         return _Resp(payload)
 
 
@@ -212,8 +228,13 @@ def _batch_state(manager: GenerationManager) -> BatchState:
 
 
 def test_llmclient_refuses_floating_alias():
-    with _fake_openai(), _raises(ValueError):
-        llm.LLMClient("gpt-5.5")
+    old = os.environ.pop("OPENAI_BASE_URL", None)
+    try:
+        with _fake_openai(), _raises(ValueError):
+            llm.LLMClient("gpt-5.5")
+    finally:
+        if old is not None:
+            os.environ["OPENAI_BASE_URL"] = old
 
 
 def test_llmclient_passes_openai_base_url():
@@ -228,6 +249,51 @@ def test_llmclient_passes_openai_base_url():
             else:
                 os.environ["OPENAI_BASE_URL"] = old
     assert _FakeOpenAI.last_kwargs.get("base_url") == "https://example.test/llm"
+
+
+def test_llmclient_accepts_arbitrary_gateway_model_id():
+    with _fake_openai():
+        old = os.environ.get("OPENAI_BASE_URL")
+        os.environ["OPENAI_BASE_URL"] = "https://tfy.example/v1"
+        try:
+            client = llm.LLMClient("gateway/claude-opus-4-8")
+        finally:
+            if old is None:
+                os.environ.pop("OPENAI_BASE_URL", None)
+            else:
+                os.environ["OPENAI_BASE_URL"] = old
+
+    assert client.model == "gateway/claude-opus-4-8"
+
+
+def test_list_models_uses_configured_gateway_client_and_sorts_exact_ids():
+    with _fake_openai():
+        old_base_url = os.environ.get("OPENAI_BASE_URL")
+        old_key = os.environ.get("OPENAI_API_KEY")
+        old_load_api_key = llm.load_api_key
+        os.environ["OPENAI_BASE_URL"] = "https://tfy.example/v1"
+        os.environ["OPENAI_API_KEY"] = "tfy_test_token"
+        llm.load_api_key = lambda: None
+        _FakeOpenAI.model_ids = ["grok-4.5", "gateway/claude-opus-4-8", "gpt-5.5"]
+        try:
+            models = llm.list_models()
+        finally:
+            _FakeOpenAI.model_ids = []
+            llm.load_api_key = old_load_api_key
+            if old_base_url is None:
+                os.environ.pop("OPENAI_BASE_URL", None)
+            else:
+                os.environ["OPENAI_BASE_URL"] = old_base_url
+            if old_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = old_key
+
+    assert models == ["gateway/claude-opus-4-8", "gpt-5.5", "grok-4.5"]
+    assert _FakeOpenAI.last_kwargs == {
+        "api_key": "tfy_test_token",
+        "base_url": "https://tfy.example/v1",
+    }
 
 
 def test_load_api_key_prefers_truefoundry_gateway():
@@ -287,6 +353,53 @@ def test_complete_text_drops_temperature_and_seed_on_bad_request():
     assert backend.calls[-1].get("response_format") == {"type": "json_object"}
 
 
+def test_complete_json_retries_without_response_format_after_option_fallbacks():
+    with _fake_openai():
+        client = llm.LLMClient(_DATED)
+        backend = _ScriptedBackend(
+            [
+                ("raise", "BadRequestError"),
+                ("raise", "BadRequestError"),
+                ("raise", "BadRequestError"),
+                ("raise", "BadRequestError"),
+                ("return", '{"instruction_only": true}'),
+            ]
+        )
+        client._client = backend
+
+        assert client.complete_json("Return one JSON object.", "user") == {
+            "instruction_only": True
+        }
+
+    assert len(backend.calls) == 5
+    assert all(
+        call.get("response_format") == {"type": "json_object"}
+        for call in backend.calls[:4]
+    )
+    assert "response_format" not in backend.calls[4]
+
+
+def test_complete_json_strictly_rejects_malformed_instruction_only_fallback():
+    with _fake_openai():
+        client = llm.LLMClient(_DATED)
+        backend = _ScriptedBackend(
+            [
+                ("raise", "BadRequestError"),
+                ("raise", "BadRequestError"),
+                ("raise", "BadRequestError"),
+                ("raise", "BadRequestError"),
+                ("return", "not JSON"),
+            ]
+        )
+        client._client = backend
+
+        with _raises(json.JSONDecodeError):
+            client.complete_json("Return one JSON object.", "user")
+
+    assert len(backend.calls) == 5
+    assert "response_format" not in backend.calls[-1]
+
+
 def test_complete_text_without_json_object_sets_no_response_format():
     with _fake_openai():
         client = llm.LLMClient(_DATED)
@@ -295,6 +408,32 @@ def test_complete_text_without_json_object_sets_no_response_format():
         out = client.complete_text("sys", "usr")
     assert out == "plain text"
     assert "response_format" not in backend.calls[0]
+
+
+def test_complete_result_retains_exact_response_metadata():
+    with _fake_openai():
+        client = llm.LLMClient(_DATED)
+        response = _Resp(
+            '{"ok":true}',
+            model=_DATED,
+            response_id="chatcmpl-tfy-metadata",
+        )
+        client._client = _ScriptedBackend([("return", response)])
+        result = client.complete_result("system", "user", json_object=True)
+
+    assert result.text == '{"ok":true}'
+    assert result.model == _DATED
+    assert result.response_id == "chatcmpl-tfy-metadata"
+
+
+def test_complete_result_treats_missing_response_id_as_empty():
+    with _fake_openai():
+        client = llm.LLMClient(_DATED)
+        response = _Resp("{}", response_id=None)  # type: ignore[arg-type]
+        client._client = _ScriptedBackend([("return", response)])
+        result = client.complete_result("system", "user")
+
+    assert result.response_id == ""
 
 
 def test_complete_json_parses_object():
@@ -306,7 +445,7 @@ def test_complete_json_parses_object():
 
 def test_complete_text_retries_transient_then_succeeds():
     with _fake_openai(), _no_sleep():
-        client = llm.LLMClient(_DATED)
+        client = llm.LLMClient(_DATED, seed=41)
         backend = _ScriptedBackend(
             [
                 ("raise", "RateLimitError"),
@@ -316,6 +455,7 @@ def test_complete_text_retries_transient_then_succeeds():
         client._client = backend
         assert client.complete_json("s", "u") == {"ok": True}
     assert len(backend.calls) == 2
+    assert [call["seed"] for call in backend.calls] == [41, 41]
 
 
 def test_complete_text_reraises_unknown_error():
@@ -446,12 +586,12 @@ def test_complete_text_option_fallback_and_transient_retry_use_global_attempts()
             _no_sleep(),
             _batch_run_dir(run_dir),
         ):
-            client = llm.LLMClient(_DATED)
+            client = llm.LLMClient(_DATED, seed=41)
             client._client = backend
             assert client.complete_text("system", "user") == "recovered"
 
         assert len(backend.calls) == 3
-        assert "seed" in backend.calls[0]
+        assert backend.calls[0]["seed"] == 41
         assert "seed" not in backend.calls[1]
         assert backend.calls[1] == backend.calls[2]
         assert _batch_state(manager).counters == BatchCounters(
@@ -460,6 +600,71 @@ def test_complete_text_option_fallback_and_transient_retry_use_global_attempts()
             calls_failed=2,
             peak_concurrency=1,
             retries=2,
+        )
+
+
+def test_external_retry_offsets_bound_corrections_and_provider_fallbacks():
+    with tempfile.TemporaryDirectory() as temporary:
+        run_dir = Path(temporary) / "run"
+        manager = _initialize_batch(run_dir, max_calls=10, max_retries=3)
+        with _fake_openai(), _batch_run_dir(run_dir):
+            client = llm.LLMClient(_DATED)
+
+            client._client = _ScriptedBackend([("return", "{}")])
+            client.complete_result(
+                "system",
+                "initial",
+                json_object=True,
+                batch_operation_id="tfy-shadow-initial",
+                batch_retry_offset=0,
+            )
+
+            correction_one = _ScriptedBackend(
+                [
+                    ("raise", "BadRequestError"),
+                    ("return", "{}"),
+                ]
+            )
+            client._client = correction_one
+            client.complete_result(
+                "system",
+                "correction one",
+                json_object=True,
+                batch_operation_id="tfy-shadow-correction-1",
+                batch_retry_offset=1,
+            )
+
+            client._client = _ScriptedBackend([("return", "{}")])
+            client.complete_result(
+                "system",
+                "correction two",
+                json_object=True,
+                batch_operation_id="tfy-shadow-correction-2",
+                batch_retry_offset=2,
+            )
+
+            denied_backend = _ScriptedBackend([("return", "must not run")])
+            client._client = denied_backend
+            with _raises(BatchStopped):
+                client.complete_result(
+                    "system",
+                    "correction three",
+                    json_object=True,
+                    batch_operation_id="tfy-shadow-correction-3",
+                    batch_retry_offset=3,
+                )
+
+        assert len(correction_one.calls) == 2
+        assert denied_backend.calls == []
+        state = _batch_state(manager)
+        assert state.status is BatchStatus.STOPPED
+        assert state.stop_reason is BatchStopReason.RETRY_LIMIT
+        assert state.counters == BatchCounters(
+            calls_started=4,
+            calls_completed=3,
+            calls_failed=1,
+            peak_concurrency=1,
+            retries=3,
         )
 
 

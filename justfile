@@ -579,7 +579,7 @@ foundry *args:
     done
     just _generation-protected foundry "$@"
 
-# List account-available Cursor models without generating content.
+# List account-available TrueFoundry gateway models without generating content.
 [unix]
 shadow-models *args:
     {{ ninja }} pyenv

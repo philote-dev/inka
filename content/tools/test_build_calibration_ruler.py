@@ -91,13 +91,12 @@ class _ProductionFixtureBackend:
             model_id=request.model.model_id,
             status="finished",
             text=text,
-            agent_id=f"fixture-agent-{self.calls}",
+            agent_id="truefoundry-openai-compatible",
             run_id=f"fixture-run-{self.calls}",
         )
 
 
 def _production_fixture_environment() -> "builder.shadow_foundry.RunEnvironment":
-    image_digest = "sha256:" + hashlib.sha256(b"fixture-worker").hexdigest()
     corpus = b"fixture-corpus"
     probe = builder.shadow_foundry.make_probe_metadata(
         [
@@ -113,17 +112,17 @@ def _production_fixture_environment() -> "builder.shadow_foundry.RunEnvironment"
                 "variants": [],
             },
         ],
-        sdk_version="test-fixture-1",
+        sdk_version="9.9.9",
     )
     return builder.shadow_foundry.RunEnvironment(
         code_sha="a" * 40,
         tree_status="clean",
-        worker_image=image_digest,
-        worker_image_digest=image_digest,
+        backend_kind="truefoundry-openai-compatible",
+        openai_sdk_version="9.9.9",
         corpus_index_fingerprint="sha256:" + hashlib.sha256(corpus).hexdigest(),
         probe=probe,
         synthetic=False,
-        execution_mode="real",
+        execution_mode="gateway",
         corpus_index_mtime_ns=0,
         corpus_index_size=len(corpus),
     )
@@ -142,6 +141,7 @@ def _write_production_shaped_shadow_run(
     recorder = builder.shadow_foundry._RecordingBackend(
         _ProductionFixtureBackend(),
         secrets=(),
+        backend_kind=environment.backend_kind,
     )
     chunks = builder.shadow_foundry.sanitize_retrieved(
         builder.shadow_foundry._offline_search(builder.shadow_foundry.DEFAULT_TOPIC)
@@ -169,6 +169,7 @@ def _write_production_shaped_shadow_run(
             record,
             slot=slot,
             secrets=(),
+            backend_kind=environment.backend_kind,
         )
         candidates.append(candidate)
         raw_responses.extend(raw)
@@ -229,6 +230,28 @@ def shadow_run(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 def test_production_module_exposes_no_real_shaped_fixture_bypass() -> None:
     assert not hasattr(builder, "_production_shaped_test_shadow_run")
+
+
+def test_finalized_truefoundry_run_is_accepted_by_ruler_loader(
+    shadow_run: Path,
+) -> None:
+    manifest = json.loads((shadow_run / "manifest.json").read_text(encoding="utf-8"))
+
+    items, run_id, manifest_sha = builder.load_shadow_run(
+        shadow_run,
+        allow_test_paths=True,
+    )
+
+    assert items
+    assert run_id == "test-shadow"
+    assert manifest_sha
+    assert manifest["manifest_version"] == "pgrep-shadow-run/v7"
+    assert manifest["runtime"] == {
+        "backend_kind": "truefoundry-openai-compatible",
+        "execution_mode": "gateway",
+        "openai_sdk_version": "9.9.9",
+    }
+    assert "worker" not in manifest
 
 
 @pytest.fixture()
@@ -805,8 +828,8 @@ def test_offline_shadow_run_is_synthetic_and_rejected(tmp_path: Path) -> None:
     )
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["synthetic"] is True
-    assert manifest["execution_mode"] == "test-fake"
-    with pytest.raises(ValueError, match="synthetic|real execution"):
+    assert manifest["runtime"]["execution_mode"] == "test-fake"
+    with pytest.raises(ValueError, match="synthetic|gateway execution"):
         builder.load_shadow_run(run_dir, allow_test_paths=True)
 
 
@@ -844,6 +867,31 @@ def test_rejects_tampered_shadow_candidate_bytes(
     candidates = tampered / "candidates.json"
     candidates.write_bytes(candidates.read_bytes() + b" ")
     with pytest.raises(ValueError, match="candidates.json.*digest"):
+        builder.load_shadow_run(tampered, allow_test_paths=True)
+
+
+def test_ruler_rejects_raw_provider_identity_mismatch(
+    tmp_path: Path,
+    shadow_run: Path,
+) -> None:
+    tampered = tmp_path / "test-shadow"
+    shutil.copytree(shadow_run, tampered)
+    raw_path = tampered / "raw-responses.json"
+    manifest_path = tampered / "manifest.json"
+    raw = json.loads(raw_path.read_text(encoding="utf-8"))
+    raw[0]["agent_id"] = "wrong-provider"
+    raw_bytes = builder.shadow_foundry._strict_json(raw).encode()
+    raw_path.write_bytes(raw_bytes)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["artifact_digests"]["raw_responses_json"] = (
+        "sha256:" + hashlib.sha256(raw_bytes).hexdigest()
+    )
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="agent|identity|backend"):
         builder.load_shadow_run(tampered, allow_test_paths=True)
 
 
@@ -971,7 +1019,7 @@ def test_ruler_independently_reparses_raw_generator_response(
     [
         ("offline-self-check", True),
         ("test-fake", True),
-        ("real", True),
+        ("gateway", True),
     ],
 )
 def test_rejects_synthetic_or_non_real_shadow_run(
@@ -984,13 +1032,31 @@ def test_rejects_synthetic_or_non_real_shadow_run(
     shutil.copytree(shadow_run, tampered)
     path = tampered / "manifest.json"
     manifest = json.loads(path.read_text(encoding="utf-8"))
-    manifest["execution_mode"] = execution_mode
+    manifest["runtime"]["execution_mode"] = execution_mode
     manifest["synthetic"] = synthetic
     path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n",
         encoding="utf-8",
     )
-    with pytest.raises(ValueError, match="synthetic|real execution"):
+    with pytest.raises(ValueError, match="synthetic|gateway execution|runtime|backend"):
+        builder.load_shadow_run(tampered, allow_test_paths=True)
+
+
+def test_rejects_non_truefoundry_gateway_runtime(
+    tmp_path: Path,
+    shadow_run: Path,
+) -> None:
+    tampered = tmp_path / "test-shadow"
+    shutil.copytree(shadow_run, tampered)
+    path = tampered / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest["runtime"]["backend_kind"] = "cursor-docker-worker"
+    path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="TrueFoundry|backend"):
         builder.load_shadow_run(tampered, allow_test_paths=True)
 
 
@@ -1014,7 +1080,8 @@ def test_accepts_valid_shadow_run(shadow_run: Path) -> None:
     assert families == {"sol", "opus", "grok"}
     manifest = json.loads((shadow_run / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["synthetic"] is False
-    assert manifest["execution_mode"] == "real"
+    assert manifest["runtime"]["execution_mode"] == "gateway"
+    assert manifest["runtime"]["backend_kind"] == "truefoundry-openai-compatible"
 
 
 # --- Publication fault injection -------------------------------------------

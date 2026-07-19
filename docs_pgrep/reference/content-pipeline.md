@@ -630,85 +630,36 @@ The seam is provider-neutral: `pylib/anki/pgrep/ai/model_backend.py` defines
 `ModelSpec`, `ModelRequest`, `ModelResult`, and the `ModelBackend` protocol, and
 `pylib/anki/pgrep/ai/shadow_portfolio.py` holds the pure allocation, strict
 candidate parsing, and origin-excluding cross-verification. `content/tools/`
-holds the two host-side tools: `cursor_sandbox.py` (the Docker adapter) and
-`shadow_foundry.py` (the CLI, corpus retrieval, model probe, firewall checks,
-and atomic publication).
+holds `shadow_foundry.py` (the CLI, corpus retrieval, model probe, firewall
+checks, and atomic publication). The shipped online backend is
+`pylib/anki/pgrep/ai/truefoundry_backend.py`.
 
-### Docker-only local Unix socket
+### TrueFoundry gateway runtime
 
-The Cursor SDK call runs inside a disposable local Docker container, one prompt
-per container. This first implementation is Docker-only. `detect_runtime`
-returns Docker or raises, and `discover_local_runtime` accepts only a verified,
-allowlisted local Unix socket: on macOS `~/.docker/run/docker.sock` or
-`/var/run/docker.sock`, on Linux `/var/run/docker.sock`, `/run/docker.sock`, or
-`/run/user/<uid>/docker.sock`. Remote endpoints (`ssh://`, `tcp://`, `http://`,
-`https://`, `npipe://`, or an explicit `unix://` URL) are rejected, the socket
-must not be a symlink, and it must be a real socket owned by root or the calling
-user. Podman and any other runtime are not supported. If no verified local
-Docker socket is available, or the per-request mount boundary cannot be proven,
-the run fails before the first prompt. There is no non-Docker fallback: an
-unavailable engine is a hard stop, not a reason to run a model on the host.
-
-Each container is hardened: only the freshly created request directory is bound
-to `/work`, the API key is forwarded by name (`--env CURSOR_API_KEY`, never as
-an argument or in `request.json`), and the container runs read-only with
-`--cap-drop ALL`, `no-new-privileges`, a pids limit, memory and CPU caps, and a
-`noexec` tmpfs. No repository checkout, parent path, HOME, Docker socket, MCP
-server, ambient setting source, or other host credential is exposed. Before the
-worker runs, a keyless two-way mount-nonce probe proves that the container sees
-exactly that request directory and nothing else. Symlinks, hard links, path
-escapes, and private training-data markers (gold, held-out, ETS, GR9677,
-GR1777, Tier 3) are rejected before any container spawns, and every captured
-error is redacted.
-
-### Worker build and sync
-
-The isolated worker lives under `tools/shadow_worker/` (`Dockerfile`,
-`pyproject.toml`, `uv.lock`, `worker.py`) and depends only on `cursor-sdk` in
-its own locked environment. `worker.py` reads `/work/request.json`, writes
-`/work/result.json`, and supports only the `models` and `prompt` actions; it
-imports `cursor_sdk` lazily so root CI can load the protocol without the SDK.
-
-- `just shadow-worker-sync` installs the worker's locked environment into
-  `out/shadow-worker-venv` without creating a nested project virtualenv. It does
-  not build an image and needs no Docker daemon.
-- `just shadow-worker-build` builds the pinned Docker image and prints its
-  immutable `sha256:` digest. It needs a running local Docker engine.
-
-The runner does not rely on a floating image tag. `prepare_real_sandbox` builds
-the image from the whitelisted `tools/shadow_worker/` context, inspects its
-immutable digest, and rebinds the sandbox to that exact digest, so the model
-call, the mount probe, and the manifest all reference one immutable image. The
-image tag itself is derived from a fingerprint of the worker context files
-(`pgrep-shadow-worker:<hash>`).
+Real shadow probes and completions use the OpenAI-compatible TrueFoundry gateway
+directly. Credentials come only from
+`~/.config/truefoundry/gateway.env`: `OPENAI_API_KEY` is the TrueFoundry token
+and `OPENAI_BASE_URL` is the gateway URL. Ambient direct-provider values and
+repository/content `.env` files are not fallback sources. The backend imports
+the OpenAI client lazily, preserves exact gateway model IDs, and records only
+sanitized exception class/status context.
 
 ### Exact model probe and required IDs
 
-The runner never assumes a display name is a callable model. Inside the sandbox,
-the worker calls `Cursor.models.list()` and returns the account catalog with its
-per-model `parameters` and `variants` plus the actual `cursor-sdk` version. The
-host normalizes this into a probe object with `models`, `sdk_version`,
-`probed_at`, and a `model_catalog_hash`.
+The backend calls the gateway model-list endpoint and returns exact accessible
+IDs. The host normalizes this into a probe object with `models`, the actual
+OpenAI Python package `sdk_version`, `probed_at`, and a `model_catalog_hash`.
 
 `just shadow-models` runs only the probe. It prints a human-readable list and
-the strict JSON, and generates nothing. Real generation requires three exact,
-distinct, account-listed IDs, one per family. The shipped defaults, and the IDs
-`shadow-models` must show, are:
-
-| Family | Required model ID                    |
-| ------ | ------------------------------------ |
-| Sol    | `gpt-5.6-sol-max`                    |
-| Opus   | `claude-opus-4-8-thinking-high-fast` |
-| Grok   | `cursor-grok-4.5-high-fast`          |
+the strict JSON, and generates nothing. Gateway generation requires three
+exact, distinct, account-listed IDs assigned explicitly to the Sol, Opus, and
+Grok portfolio roles.
 
 `validate_exact_roles` requires that each requested ID is present in the account
-probe, that the three IDs are distinct, and that each ID matches its family
-identity (a Sol ID must read as GPT 5.6 Sol, an Opus ID as Claude Opus 4.8, a
-Grok ID as Grok 4.5). `auto` and any `auto/...` alias are forbidden. If a
-requested family's exact model is missing or renamed, the run fails before the
-first candidate call and does not substitute another model. A missing family is
-an external handoff blocker, not an implementation failure, and no model is
-treated as verified until the probe lists it.
+probe and that the three IDs are distinct. Provider prefixes, deployment names,
+versions, and unconventional IDs are preserved without parsing or inference.
+If a requested exact model is missing, the run fails before the first candidate
+call and does not substitute another model.
 
 ### Quarantine root and artifacts
 
@@ -729,13 +680,14 @@ without one. Diagnostic `_FAILED` runs are preserved for inspection. Raw
 transcripts stay under the run directory; API keys and authorization headers are
 never written, and captured errors are redacted.
 
-### Immutable image and replay manifest
+### Gateway runtime and replay manifest
 
-The manifest (`manifest_version` `pgrep-shadow-run/v4`) binds the run to the
-exact code, image, corpus, and model state so a success is replayable:
+The manifest (`manifest_version` `pgrep-shadow-run/v7`) binds the run to the
+exact code, gateway runtime, corpus, and model state so a success is replayable:
 
-- `worker.image` and `worker.image_digest`, the immutable `sha256:` digest the
-  run actually executed;
+- `runtime.backend_kind` (`truefoundry-openai-compatible`),
+  `runtime.execution_mode` (`gateway`), and the actual
+  `runtime.openai_sdk_version`;
 - `code.sha` and `code.tree_status`, with `replayable` true only for a success
   produced from a clean tree;
 - `corpus_index` fingerprint, `mtime_ns`, and size;
@@ -743,8 +695,9 @@ exact code, image, corpus, and model state so a success is replayable:
 - `roles`, `allocation`, `seeds`, and `choice_permutations`;
 - `prompt_versions`, `schema_versions`, and per-candidate `request_traces` with
   request hashes;
-- `execution_mode` (`real` for a corpus run, `offline-self-check` for the
-  smoke).
+- each request trace and quarantined raw response binds the exact backend kind,
+  `agent_id`, provider response `run_id`, requested/actual model IDs, and request
+  hash.
 
 ### No acceptance, pairs, or landing
 
@@ -760,28 +713,21 @@ later work (`blind-calibration-ruler-plan.md`).
 ### Offline smoke
 
 `just shadow-smoke` runs `shadow_foundry.py --self-check`: a fully offline
-fake-client portfolio with no network, no Docker, and no key. It exercises
+fake-client portfolio with no network and no key. It exercises
 allocation, parsing, cross-verification, manifest assembly, and atomic
 publication into the real quarantine root, then reports the run directory. This
 is the per-commit-safe check; the account probe and any real run are on-demand.
 
 ### Troubleshooting
 
-- `CURSOR_API_KEY is required for model probing or shadow mode`: export
-  `CURSOR_API_KEY` or add it to `content/.env` (or a repo-root `.env`). The
-  probe and real generation both need it; `shadow-smoke` and
-  `shadow-worker-sync` do not.
-- `Docker was not found`: install local Docker.
-- `local runtime socket is unavailable` or `no verified local Unix socket`: the
-  Docker CLI is present but the daemon is not running, or its socket is not one
-  of the allowlisted local paths. Start the local engine. The runner will not
-  fall back to a non-Docker path.
-- `exact model <id> ... is not in the account probe` or `does not match its
-  family identity`: run `just shadow-models`, use an exact listed ID per family,
-  and never substitute. A missing family is an external blocker.
+- `TrueFoundry gateway environment file is unavailable`: create the external
+  gateway file with nonempty `OPENAI_API_KEY` and `OPENAI_BASE_URL`.
+- `exact model <id> ... is not in the account probe`: run
+  `just shadow-models`, assign three distinct exact listed IDs, and never
+  substitute.
 - A `_FAILED` run directory: read its `manifest.json` and `failures.json`. A
-  preflight failure (missing Docker, missing model, mount-probe failure) records
-  the redacted reason without touching the corpus.
+  gateway preflight failure records the redacted reason without touching the
+  corpus.
 
 ### Blind calibration ruler: offline operator handoff
 
@@ -790,13 +736,8 @@ real_ shadow run. It is not a way to make a synthetic ruler, run models, fit a
 threshold, unlock acceptance, emit preferences, or mutate the shipped bundle.
 Do not run a real shadow portfolio just to exercise this handoff.
 
-Real paid shadow generation is currently an external operational blocker: WS10
-is implemented only in a separate uncommitted worktree, not on this branch or
-main. Wait until WS10 lands, then have the operator select generous limits
-before building the finalized real shadow run. This document does not duplicate
-the WS10 design.
-
-Once that prerequisite is satisfied, the exact private workflow is:
+Real paid shadow generation uses the external TrueFoundry gateway and explicit
+circuit-breaker limits. The exact private workflow is:
 
 1. Probe the calling account and capture the exact listed model ID for each
    family:
@@ -993,10 +934,10 @@ operator-cleaned and are never consumed as ruler input.
 | `calibrate_verifier.py`      | Offline smoke (`--self-check`) of the calibration stats and card assembly.                                             |
 | `leakage_check.py`           | Recursively validate foundry preference schema, private-root markers, and private-item copy-in.                        |
 | `just eval-verifier`         | Fit calibration-only thresholds, score held-out labels, apply standing gates, and report slot-clustered intervals.     |
-| `just shadow-smoke`          | Offline fake-client shadow portfolio (`shadow_foundry.py --self-check`), no network, Docker, or key.                   |
-| `just shadow-models`         | On-demand account model probe; needs a running local Docker engine and `CURSOR_API_KEY`.                               |
-| `just shadow-worker-build`   | Build the pinned Docker worker image and print its immutable digest; needs local Docker.                               |
-| `just shadow-worker-sync`    | Install the worker's locked environment into `out/shadow-worker-venv`; no Docker or key needed.                        |
+| `just shadow-smoke`          | Offline fake-client shadow portfolio (`shadow_foundry.py --self-check`), no network or key.                            |
+| `just shadow-models`         | Probe exact IDs through the external TrueFoundry OpenAI-compatible gateway.                                            |
+| `just shadow-worker-build`   | Legacy developer utility for the retained isolated-worker tests; not used by the gateway production path.              |
+| `just shadow-worker-sync`    | Legacy developer utility for the retained isolated-worker tests; not used by the gateway production path.              |
 | `just shadow-foundry`        | Quarantined multi-model generation with exact model IDs and explicit circuit-breaker limits; never lands or pairs.     |
 | `just calibration-ruler`     | Build a private blind ruler and Pass A Markdown from trusted, failure, and finalized real shadow inputs.               |
 | `just calibration-import-a`  | Strictly import one completed private Pass A; may generate Pass B on `PASS_A_COMPLETE`.                                |
@@ -1013,8 +954,7 @@ requires the four explicit generation limits above. `just foundry-dry`,
 `--dry-run`, `just eval-verifier`, and deterministic-only audits without
 variant re-solve run without a key or circuit-breaker limits.
 
-The shadow foundry is separate. `just shadow-smoke` and `just shadow-worker-sync`
-run fully offline. `just shadow-models`, `just shadow-worker-build`, and
-`just shadow-foundry` need a running local Docker engine, and the probe and real
-generation also need `CURSOR_API_KEY` (in the environment, `content/.env`, or a
-repo-root `.env`).
+The shadow foundry is separate. `just shadow-smoke` runs fully offline.
+`just shadow-models` and `just shadow-foundry` use only the external
+TrueFoundry gateway file. The retained worker commands are developer utilities
+and are not part of real shadow execution or manifest provenance.
