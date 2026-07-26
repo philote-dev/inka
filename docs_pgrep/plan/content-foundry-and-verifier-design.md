@@ -1,9 +1,10 @@
 # pgrep content foundry and calibrated verifier, design
 
-Date: 2026-07-07. Updated: 2026-07-16. Status: Phases 1–3 and the shadow/ruler
-code are on `main`. Online shadow runs and human ruler handoff are **paused**
-until WS10 (usage ledger + budgets) lands. Tier trigger counts are not achieved.
-Author: pair session.
+Date: 2026-07-07. Updated: 2026-07-26. Status: Phases 1–3, the shadow/ruler code,
+and WS10 (usage ledger + budgets) are on `main`. Paid runs are unblocked once the
+operator sets a hard daily cap; the human ruler handoff (Pass A → labels → Pass
+B) is still outstanding, so the calibrated accept gate remains uncalibrated and
+Tier trigger counts are not achieved. Author: pair session.
 
 This spec describes a verification-guided content foundry for pgrep: generate
 many candidate problems, pass each through a calibrated verifier panel, and emit
@@ -28,7 +29,7 @@ Implementation plans (TDD, task-by-task):
   [`blind-calibration-ruler-plan.md`](blind-calibration-ruler-plan.md)
   (code on `main`; Pass A handoff / Pass B incomplete; paid runs paused for WS10)
 
-## Current status board (2026-07-16)
+## Current status board (2026-07-26)
 
 Single place to see where the content-quality program stands. Learner-facing
 packaging todos remain in [`deferred-todos.md`](deferred-todos.md).
@@ -43,22 +44,31 @@ packaging todos remain in [`deferred-todos.md`](deferred-todos.md).
 | Shadow multi-model runner + blind ruler modules | On `main` (Tasks 1–5-ish; Pass B / handoff incomplete) |
 | Triple-pool content growth (problems, figures, decomps, audits) | Ran; bundle grew (~378 problems, high decomp coverage). Quality still needs the calibrated gate |
 | Credential posture | Direct provider keys removed from `content/.env` and shell exports. One TrueFoundry gateway file: `~/.config/truefoundry/gateway.env`. `llm.load_api_key` + `LLMClient` route via `OPENAI_BASE_URL` |
+| **WS10 — usage ledger, budgets, kill switch** | On `main`. `LLMClient` records every call to `content/run/usage/<day>.jsonl` and refuses the next one past a cap; `just usage-report` / `just usage-smoke`; foundry, decomposition and audit recipes tag their batches. Caps are operator-set and default to none |
+| Gateway model pin | On `main`. Allowlisted TFY floating ids (`gpt-5.5`, `claude-opus-4-8`, `grok-4.5`, minis) are accepted when `OPENAI_BASE_URL` is set, recorded as `pinned: false` |
 
-### Paused / missing (blocks safe resumption of expensive loops)
+### Missing (still blocks the calibrated accept gate)
 
 | Gap | Why it matters |
 | --- | --- |
-| **WS10 — usage ledger, budgets, kill switch** (below) | No central token/$ accounting on `LLMClient`. Ad-hoc counters exist in a couple of old tools only. Cannot answer spend-to-date or stop a runaway batch |
-| Ruler Task 6–7 (Pass B + real Pass A handoff) + human labels | Needed before calibrated unlock |
+| Ruler Task 6–7 (Pass B + real Pass A handoff) + human labels | Needed before calibrated unlock. Until this lands, generated content can be produced in volume but not *accepted* on a trustworthy gate |
 | Tier 2 / Tier 3 training triggers | Still future; numeric counts (`300` labeled problems, `1000` pairs) not reached |
+| Ledger coverage of legacy tools | The ~13 one-off tools that build a raw `OpenAI()` client, and the sandboxed shadow worker (separate Cursor billing), are not on the ledger. Prefer the seam-routed recipes for volume |
 
 ### Recommended resume order
 
-1. Implement **WS10** (ledger + soft/hard caps) and set an explicit daily hard cap.
-2. Finish shadow/ruler only behind those caps; prefer TFY model IDs (`gpt-5.5`,
-   `claude-opus-4-8`, `grok-4.5`) over Cursor SDK for generation volume.
+1. **Set an explicit hard daily cap** before any paid batch: put
+   `PGREP_BUDGET_HARD_USD` (and a `PGREP_BUDGET_SOFT_USD`) in
+   `content/run/usage/budget.env`, then confirm with `just usage-smoke` and
+   `just usage-report`. Caps default to none, so an unset environment spends
+   without a brake.
+2. Run shadow/ruler behind those caps; prefer TFY model IDs (`gpt-5.5`,
+   `claude-opus-4-8`, `grok-4.5`) over Cursor SDK for generation volume, since
+   only the TFY path is on the ledger.
 3. Complete Pass A handoff → human labels → Pass B → unlock standing eval.
-4. Only then grow the pool with online foundry acceptance.
+4. Only then grow the pool with online foundry acceptance. Growing it before the
+   gate is calibrated repeats the current problem: more items, same unverified
+   quality (key correctness `0.69` against a `0.95` bar).
 
 ### Model roles (TFY gateway — locked preference)
 
@@ -70,8 +80,12 @@ packaging todos remain in [`deferred-todos.md`](deferred-todos.md).
 | Cheap weak solver (optional) | `gpt-5.4-mini` or `claude-haiku-4-5` | Distractor temptation / difficulty sim |
 
 Floating gateway IDs replace dated OpenAI snapshots for TFY-routed runs. The
-dated-snapshot pin rule in `LLMClient` needs a TFY-aware exception or a
-gateway-id allowlist before production recipes rely on it.
+dated-snapshot pin rule in `LLMClient` now allows these ids through
+`llm.GATEWAY_MODELS` when `OPENAI_BASE_URL` is set (extend for one run with
+`PGREP_GATEWAY_MODELS`). Such a client reports `pinned = False` and the ledger
+records it, so a run manifest still shows where reproducibility was traded for
+gateway routing. Add a price entry in `usage_prices.py` for any id added to the
+allowlist, or the USD cap cannot bound it.
 
 ## Context
 
@@ -392,8 +406,16 @@ WS9}.
 
 ### WS10. Usage ledger, budgets, and kill switch
 
+**Status: landed on `main`.** Implemented as specified below, in
+`pylib/anki/pgrep/ai/usage.py` + `usage_prices.py`, wired into `LLMClient`, with
+`just usage-report` / `just usage-smoke` and offline tests in
+`pylib/tests/test_pgrep_usage.py`. The operator half is not automatic: caps
+default to none, so a hard daily cap has to be set before a paid batch. Ledger
+coverage is the seam only; see the coverage boundary in
+[`../reference/content-pipeline.md`](../reference/content-pipeline.md).
+
 **Problem.** Every paid call eventually goes through `llm.LLMClient` (or a
-bypass in a few legacy tools), but the seam does not record tokens, estimate
+bypass in a few legacy tools), but the seam did not record tokens, estimate
 USD, or enforce a cap. After a ~$2000 bill spike, expensive shadow/foundry work
 must not resume without precautionary controls.
 

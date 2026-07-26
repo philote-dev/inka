@@ -33,21 +33,90 @@ version control. The deep modules the tools share live under
 ## One LLM seam
 
 `pylib/anki/pgrep/ai/llm.py` `LLMClient` is the single seam for every model call.
-It pins an exact dated model snapshot (it refuses a floating alias), uses a low
-temperature and a seed when the snapshot supports one, retries transient errors
-with a short backoff, and drops any option a snapshot rejects so the strongest
-model still works. Its two public methods are `complete_text(system, user, *,
-json_object=False)` for a raw completion and `complete_json(...)` for a parsed
-JSON object. `load_api_key(...)` is the one place that resolves credentials: the
-TrueFoundry gateway file `~/.config/truefoundry/gateway.env` (one token +
-`OPENAI_BASE_URL`), then an explicit `env_file`, then optional non-secret
-`content/.env` / repo-root `.env` fallbacks. Direct provider keys must not live
-in the repo. `openai` is imported lazily, so an AI-off app never loads it.
+It pins an exact dated model snapshot, uses a low temperature and a seed when the
+snapshot supports one, retries transient errors with a short backoff, and drops
+any option a snapshot rejects so the strongest model still works. Its two public
+methods are `complete_text(system, user, *, json_object=False)` for a raw
+completion and `complete_json(...)` for a parsed JSON object. `load_api_key(...)`
+is the one place that resolves credentials: the TrueFoundry gateway file
+`~/.config/truefoundry/gateway.env` (one token + `OPENAI_BASE_URL`), then an
+explicit `env_file`, then optional non-secret `content/.env` / repo-root `.env`
+fallbacks. Direct provider keys must not live in the repo. `openai` is imported
+lazily, so an AI-off app never loads it.
+
+The gateway is the one exception to the snapshot pin. TrueFoundry exposes
+floating ids (`gpt-5.5`) rather than dated OpenAI snapshots, so an id on
+`llm.GATEWAY_MODELS` is accepted when `OPENAI_BASE_URL` is set; extend the list
+for one run with `PGREP_GATEWAY_MODELS=a,b`. Those clients report
+`pinned = False` and the ledger records it, so a manifest still shows whether the
+exact model was reproducible. A floating alias with no gateway, or an unlisted id
+on one, is still refused.
 
 The figure generator (`tools/pgrep_figure_gen.py`), the figure judge
 (`tools/pgrep_figure_verify.py`), and the technique-giveaway judge
 (`content/tools/check_technique_giveaway.py`) all route through this client
 instead of each holding a private OpenAI client and retry loop.
+
+---
+
+## Spend controls: the usage ledger (WS10)
+
+`pylib/anki/pgrep/ai/usage.py` makes paid calls visible and stoppable. The seam
+consults it before every network attempt and records one event after, so the two
+questions a $2000 surprise raises -- "what have we spent" and "how do I stop it"
+-- both have answers while a batch is still running.
+
+**The ledger** is JSONL, one file per UTC day, at
+`content/run/usage/<yyyy-mm-dd>.jsonl` (git-ignored; `PGREP_USAGE_DIR`
+relocates it). One event per call: timestamp, model, ok, prompt/completion/total
+tokens, an estimated USD, the base URL **hostname**, whether the model was
+pinned, and the optional `run_id` / `tool` tags. Never prompts, completions,
+corpus text, keys, or a full URL. Retries that eventually succeed record one
+event; a call that fails outright records one failure event, so a batch's error
+rate is visible without counting a retry as spend.
+
+**USD figures are local estimates**, computed from the hand-maintained table in
+`usage_prices.py` (USD per 1M tokens, matched by longest model-family prefix).
+The TrueFoundry dashboard remains the invoice source of truth; recalibrate the
+table against a real invoice. A model with no price entry is not an error: its
+tokens are recorded, `est_usd` is null, and only a token cap can bound it -- the
+gate warns once per unpriced model when a USD cap is set.
+
+**The caps** resolve once per process from the environment, falling back to an
+optional operator file at `content/run/usage/budget.env` (git-ignored, sourced
+by the `just` recipes the same way as the gateway file):
+
+| Control              | Variable                   | Effect                              |
+| -------------------- | -------------------------- | ----------------------------------- |
+| Soft daily USD       | `PGREP_BUDGET_SOFT_USD`    | Warn once and continue              |
+| Hard daily USD       | `PGREP_BUDGET_HARD_USD`    | Refuse further calls today          |
+| Hard daily tokens    | `PGREP_BUDGET_HARD_TOKENS` | Refuse further calls today          |
+| Per-run USD          | `PGREP_BUDGET_RUN_USD`     | Refuse further calls in this run    |
+| Disable paid calls   | `PGREP_AI_SPEND_LOCK=1`    | Refuse every paid call immediately  |
+
+Code defaults to no cap, so CI and offline tests stay quiet; **operators must set
+a hard daily cap before a paid batch**. Suggested starting point until a month of
+invoices calibrates the price table: soft $25/day, hard $50/day, per-run $20.
+
+Two rules are worth knowing before relying on this. Caps are checked *before*
+each call against spend so far, so the call that crosses a limit completes and
+the *next* one is refused: a cap bounds a batch, it does not clip a request. And
+the gate is fail-closed -- when a hard cap is set and the ledger cannot be read
+or written, calls are refused rather than run blind. With no hard cap set, ledger
+trouble degrades to a warning so an offline checkout still works.
+
+**Attribution.** `just foundry`, `just gen-decompositions`, and
+`just audit-bundle-ai` export `PGREP_USAGE_TOOL` and a fresh
+`PGREP_USAGE_RUN_ID`, so `just usage-report` can break a day down by batch. Set
+`PGREP_USAGE_RUN_ID` yourself to group several recipes into one run.
+
+**Coverage boundary.** The ledger sees what goes through `LLMClient`, which is
+the generation, judge, audit, and foundry path. It does *not* see the legacy
+one-off tools that still build a raw `OpenAI()` client (among them
+`crosscheck_keys.py`, `apply_figure_review.py`, `annotate_community.py`,
+`author_card_gold.py`), nor the shadow foundry's sandboxed worker, which bills a
+separate Cursor account. Those either route through the seam or call
+`usage.record(...)` before they can be trusted under a cap; no new bypasses.
 
 ---
 
@@ -711,6 +780,8 @@ is the per-commit-safe check; the account probe and any real run are on-demand.
 | `just shadow-worker-build`   | Build the pinned Docker worker image and print its immutable digest; needs local Docker.                           |
 | `just shadow-worker-sync`    | Install the worker's locked environment into `out/shadow-worker-venv`; no Docker or key needed.                    |
 | `just shadow-foundry`        | Quarantined multi-model generation with exact `--sol-model`/`--opus-model`/`--grok-model`; never lands or pairs.   |
+| `just usage-report`          | What the AI pipeline has spent, by model, tool and run (`--days N`, `--json`); offline, reads the local ledger.     |
+| `just usage-smoke`           | One tiny real gateway call proving the ledger and the cap are wired; spends a fraction of a cent.                  |
 | `just check`                 | The overall gate (format, build, lint, all tests), which includes `test-py`.                                       |
 
 The LLM audits and the foundry loop need the optional AI runtime and a key when

@@ -11,8 +11,9 @@ Content and features:
 - [ ] Content quality program (foundry / verifier / shadow / human ruler): see the
   status board in
   [`content-foundry-and-verifier-design.md`](content-foundry-and-verifier-design.md)
-  — **next gate is WS10 (usage ledger + budgets)** before any paid shadow or
-  foundry online run
+  — WS10 (usage ledger + budgets) has landed, so **set a hard daily cap in
+  `content/run/usage/budget.env`** before any paid shadow or foundry online run;
+  the remaining gate is the human ruler handoff (Pass A → labels → Pass B)
 - [ ] Generate / refresh decomposition tutor coverage where still missing (triple
   pool already raised coverage substantially; confirm remaining gaps after the
   calibrated gate) `just gen-decompositions --apply` [demo]
