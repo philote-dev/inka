@@ -354,6 +354,28 @@ ai-deps:
     {{ ninja }} pyenv
     {{ uv }} pip install --python out/pyenv/bin/python fastembed openai sympy sqlite-vec numpy
 
+# What the AI pipeline has spent, from the local ledger. `just usage-report --days 7`
+[group('content')]
+[unix]
+usage-report *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ ninja }} pyenv
+    if [ -f content/run/usage/budget.env ]; then set -a; . ./content/run/usage/budget.env; set +a; fi
+    out/pyenv/bin/python content/tools/usage_report.py {{ args }}
+
+# One tiny real call proving the ledger and the cap are wired (spends a fraction of a cent)
+[group('content')]
+[unix]
+usage-smoke *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ ninja }} pyenv
+    if [ -f "$HOME/.config/truefoundry/gateway.env" ]; then set -a; . "$HOME/.config/truefoundry/gateway.env"; set +a; fi
+    if [ -f content/run/usage/budget.env ]; then set -a; . ./content/run/usage/budget.env; set +a; fi
+    export PGREP_USAGE_TOOL="usage-smoke"
+    out/pyenv/bin/python content/tools/usage_smoke.py {{ args }}
+
 # Sync the isolated Cursor worker without creating a nested virtualenv.
 [group('content')]
 [unix]
@@ -376,10 +398,13 @@ gen-decompositions *args:
     {{ ninja }} pyenv
     if [ -f "$HOME/.config/truefoundry/gateway.env" ]; then set -a; . "$HOME/.config/truefoundry/gateway.env"; set +a; fi
     if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
+    if [ -f content/run/usage/budget.env ]; then set -a; . ./content/run/usage/budget.env; set +a; fi
     if [ -z "${OPENAI_API_KEY:-}" ]; then
         echo "Set OPENAI_API_KEY via ~/.config/truefoundry/gateway.env to generate." >&2
         exit 1
     fi
+    export PGREP_USAGE_TOOL="gen-decompositions"
+    export PGREP_USAGE_RUN_ID="${PGREP_USAGE_RUN_ID:-decomp-$(date -u +%Y%m%dT%H%M%SZ)}"
     out/pyenv/bin/python content/tools/generate_decompositions.py {{ args }}
 
 # Run the five AI content audits over the shipped bundle (pre-release scan)
@@ -391,6 +416,9 @@ audit-bundle-ai *args:
     {{ ninja }} pyenv
     if [ -f "$HOME/.config/truefoundry/gateway.env" ]; then set -a; . "$HOME/.config/truefoundry/gateway.env"; set +a; fi
     if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
+    if [ -f content/run/usage/budget.env ]; then set -a; . ./content/run/usage/budget.env; set +a; fi
+    export PGREP_USAGE_TOOL="audit-bundle-ai"
+    export PGREP_USAGE_RUN_ID="${PGREP_USAGE_RUN_ID:-audit-$(date -u +%Y%m%dT%H%M%SZ)}"
     out/pyenv/bin/python content/tools/audit_bundle_ai.py {{ args }}
 
 # Offline foundry smoke (no network): runs foundry.py --self-check
@@ -410,6 +438,9 @@ foundry *args:
     {{ ninja }} pyenv
     if [ -f "$HOME/.config/truefoundry/gateway.env" ]; then set -a; . "$HOME/.config/truefoundry/gateway.env"; set +a; fi
     if [ -f content/.env ]; then set -a; . ./content/.env; set +a; fi
+    if [ -f content/run/usage/budget.env ]; then set -a; . ./content/run/usage/budget.env; set +a; fi
+    export PGREP_USAGE_TOOL="foundry"
+    export PGREP_USAGE_RUN_ID="${PGREP_USAGE_RUN_ID:-foundry-$(date -u +%Y%m%dT%H%M%SZ)}"
     out/pyenv/bin/python content/tools/foundry.py {{ args }}
 
 # List account-available Cursor models without generating content.

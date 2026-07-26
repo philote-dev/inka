@@ -9,6 +9,17 @@ temperature, a seed when the model supports it, and JSON-only responses. The
 generator uses the strongest available snapshot; the judge (elsewhere) uses a
 different one so it never grades its own output.
 
+Two things wrap every call, in :mod:`anki.pgrep.ai.usage`: the spend gate runs
+before it (refusing the call when a configured cap is already reached) and the
+ledger records its token counts after it. This is the one seam paid calls go
+through, so it is the one place those controls have to live.
+
+The TrueFoundry gateway is the exception to the dated-snapshot rule. It exposes
+floating ids (``gpt-5.5``) rather than dated OpenAI snapshots, so an id on
+:data:`GATEWAY_MODELS` is accepted when a gateway base URL is configured. Those
+clients report ``pinned = False`` and the ledger records it, so a run manifest
+can still say whether the exact model was reproducible.
+
 ``openai`` is imported lazily, so an AI-off app never loads it and importing this
 module stays cheap. Snapshot discovery is a helper for pinning at gate time; the
 resolved IDs go straight into the run manifest.
@@ -19,6 +30,8 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
+
+from . import usage
 
 # Ranking hints for "strongest" chat snapshot, high to low. Matched as substrings
 # against the account's available model ids; the newest matching family wins, and
@@ -63,6 +76,32 @@ _TFY_GATEWAY_VARS = (
     "TFY_API_KEY",
 )
 
+# Gateway model ids allowed to skip the dated-snapshot pin, but only when a
+# gateway base URL is configured. These are the locked model roles from
+# docs_pgrep/plan/content-foundry-and-verifier-design.md; extend for one run
+# with PGREP_GATEWAY_MODELS as a comma-separated list.
+GATEWAY_MODELS = (
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "claude-opus-4-8",
+    "claude-haiku-4-5",
+    "grok-4.5",
+)
+
+
+def _gateway_models() -> tuple[str, ...]:
+    extra = os.environ.get("PGREP_GATEWAY_MODELS", "")
+    names = [n.strip() for n in extra.split(",") if n.strip()]
+    return GATEWAY_MODELS + tuple(names)
+
+
+def gateway_alias_allowed(model: str) -> bool:
+    """True when ``model`` is an allowlisted floating id on a configured gateway."""
+    if not os.environ.get("OPENAI_BASE_URL"):
+        return False
+    return model in _gateway_models()
+
 
 class LLMClient:
     """A pinned OpenAI-compatible chat client that returns JSON objects."""
@@ -70,9 +109,12 @@ class LLMClient:
     def __init__(self, model: str, *, temperature: float = 0.0, seed: int | None = 7):
         from openai import OpenAI  # type: ignore[import-not-found]
 
-        if _is_floating_alias(model):
+        self.pinned = not _is_floating_alias(model)
+        if not self.pinned and not gateway_alias_allowed(model):
             raise ValueError(
-                f"refusing a floating alias '{model}'; pin an exact dated snapshot"
+                f"refusing a floating alias '{model}'; pin an exact dated snapshot, "
+                f"or route through the gateway (OPENAI_BASE_URL) with an id on "
+                f"GATEWAY_MODELS / PGREP_GATEWAY_MODELS"
             )
         self.model = model
         self.temperature = temperature
@@ -94,6 +136,12 @@ class LLMClient:
         dropped, so the strongest snapshot still works. Transient errors retry
         with a short backoff. Pass ``json_object=True`` to require a JSON-object
         reply (what ``complete_json`` uses).
+
+        The spend gate runs before every network attempt and raises
+        :class:`anki.pgrep.ai.usage.BudgetExceeded` rather than spending past a
+        configured cap. Retries that eventually succeed record one event; a call
+        that fails outright records one failure event, so a batch's error rate
+        stays visible without counting a retry as spend.
         """
         import time
 
@@ -118,9 +166,9 @@ class LLMClient:
             kwargs = dict(base)
             kwargs.update({k: v for k, v in options.items() if v is not None})
             for attempt in range(3):
+                usage.check_budget(self.model)
                 try:
                     resp = self._client.chat.completions.create(**kwargs)
-                    return resp.choices[0].message.content
                 except Exception as exc:  # noqa: BLE001
                     name = type(exc).__name__
                     if name in ("BadRequestError", "UnprocessableEntityError"):
@@ -135,9 +183,25 @@ class LLMClient:
                         last_exc = exc
                         time.sleep(2 * (attempt + 1))
                         continue
+                    self._record(None, ok=False, error=name)
                     raise
+                self._record(resp, ok=True)
+                return resp.choices[0].message.content
         assert last_exc is not None
+        self._record(None, ok=False, error=type(last_exc).__name__)
         raise last_exc
+
+    def _record(self, resp: object | None, *, ok: bool, error: str | None = None) -> None:
+        prompt, completion, total = usage.usage_from_response(resp)
+        usage.record(
+            model=self.model,
+            ok=ok,
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            total_tokens=total,
+            pinned=self.pinned,
+            error=error,
+        )
 
     def complete_json(self, system: str, user: str) -> dict:
         """One JSON-object completion, parsed. Uses ``complete_text``'s retries."""
@@ -205,9 +269,10 @@ def generator_client(model: str) -> LLMClient:
     """An ``LLMClient`` for the generator, pinned to a dated snapshot.
 
     ``LLMClient`` refuses floating aliases, so a floating ``model`` (for example
-    ``gpt-5.5``) is resolved to the strongest dated snapshot on the account.
+    ``gpt-5.5``) is resolved to the strongest dated snapshot on the account --
+    unless it is an allowlisted id on a configured gateway, which is used as is.
     """
-    if _is_floating_alias(model):
+    if _is_floating_alias(model) and not gateway_alias_allowed(model):
         model = pick_generator_snapshot()
     return LLMClient(model)
 
@@ -216,9 +281,11 @@ def judge_client(model: str, exclude: str = "") -> LLMClient:
     """An ``LLMClient`` for a judge, pinned to a dated snapshot.
 
     A floating ``model`` is resolved to a dated snapshot different from
-    ``exclude`` (the generator, when there is one).
+    ``exclude`` (the generator, when there is one). An allowlisted gateway id is
+    used as is, so the judge still has to be named a different model than the
+    generator by the caller.
     """
-    if _is_floating_alias(model):
+    if _is_floating_alias(model) and not gateway_alias_allowed(model):
         model = pick_judge_snapshot(exclude)
     return LLMClient(model)
 

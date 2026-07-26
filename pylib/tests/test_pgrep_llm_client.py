@@ -36,9 +36,20 @@ for _tool_dir in (REPO / "tools", REPO / "content" / "tools"):
 import check_technique_giveaway as giveaway  # type: ignore[import-not-found]  # noqa: E402
 import pgrep_figure_gen as figgen  # type: ignore[import-not-found]  # noqa: E402
 import pgrep_figure_verify as figverify  # type: ignore[import-not-found]  # noqa: E402
-from pgrep.ai import llm  # type: ignore[import-not-found]  # noqa: E402
+from pgrep.ai import llm, usage  # type: ignore[import-not-found]  # noqa: E402
 
 _DATED = "gpt-test-2026-01-01"
+_LEDGER_ENV = (
+    "PGREP_USAGE_DIR",
+    "PGREP_USAGE_RUN_ID",
+    "PGREP_USAGE_TOOL",
+    "PGREP_BUDGET_SOFT_USD",
+    "PGREP_BUDGET_HARD_USD",
+    "PGREP_BUDGET_HARD_TOKENS",
+    "PGREP_BUDGET_RUN_USD",
+    "PGREP_AI_SPEND_LOCK",
+    "PGREP_GATEWAY_MODELS",
+)
 
 
 # --- fakes -----------------------------------------------------------------
@@ -63,8 +74,10 @@ class _Resp:
 class _ScriptedBackend:
     """Fake ``chat.completions.create`` driven by a script of steps.
 
-    Each step is ``("raise", "<ExceptionName>")`` or ``("return", "<content>")``.
-    Every call's kwargs are recorded so tests can assert which options survived.
+    Each step is ``("raise", "<ExceptionName>")``, ``("return", "<content>")``,
+    or ``("usage", ("<content>", prompt_tokens, completion_tokens))`` for a
+    reply that carries the provider's usage object. Every call's kwargs are
+    recorded so tests can assert which options survived.
     """
 
     def __init__(self, script):
@@ -79,6 +92,15 @@ class _ScriptedBackend:
         action, payload = self.script.pop(0)
         if action == "raise":
             raise type(payload, (Exception,), {})()
+        if action == "usage":
+            content, prompt, completion = payload
+            resp = _Resp(content)
+            resp.usage = types.SimpleNamespace(
+                prompt_tokens=prompt,
+                completion_tokens=completion,
+                total_tokens=prompt + completion,
+            )
+            return resp
         return _Resp(payload)
 
 
@@ -119,6 +141,39 @@ def _fake_openai():
 
 
 @contextlib.contextmanager
+def _tmp_ledger(**env):
+    """A throwaway usage ledger, so a client test never writes into the repo."""
+    import tempfile
+
+    keys = _LEDGER_ENV + ("OPENAI_BASE_URL",)
+    saved = {key: os.environ.get(key) for key in keys}
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            for key in keys:
+                os.environ.pop(key, None)
+            os.environ["PGREP_USAGE_DIR"] = tmp
+            for key, value in env.items():
+                os.environ[key] = str(value)
+            usage.reset()
+            yield tmp
+        finally:
+            usage.reset()
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+
+def _ledger_events():
+    path = usage.day_path()
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as fh:
+        return [json.loads(line) for line in fh if line.strip()]
+
+
+@contextlib.contextmanager
 def _no_sleep():
     import time
 
@@ -145,8 +200,38 @@ def _raises(exc):
 
 
 def test_llmclient_refuses_floating_alias():
-    with _fake_openai(), _raises(ValueError):
+    # No gateway base URL, so the allowlist exemption cannot apply.
+    with _tmp_ledger(), _fake_openai(), _raises(ValueError):
         llm.LLMClient("gpt-5.5")
+
+
+def test_llmclient_refuses_unlisted_alias_even_on_a_gateway():
+    with (
+        _tmp_ledger(OPENAI_BASE_URL="https://tfy.example/llm"),
+        _fake_openai(),
+        _raises(ValueError),
+    ):
+        llm.LLMClient("some-unvetted-model")
+
+
+def test_llmclient_accepts_an_allowlisted_gateway_alias():
+    with _tmp_ledger(OPENAI_BASE_URL="https://tfy.example/llm"), _fake_openai():
+        client = llm.LLMClient("gpt-5.5")
+        assert client.model == "gpt-5.5"
+        assert client.pinned is False
+        # a dated snapshot is still reported as pinned
+        assert llm.LLMClient(_DATED).pinned is True
+
+
+def test_gateway_allowlist_extends_through_the_environment():
+    with (
+        _tmp_ledger(
+            OPENAI_BASE_URL="https://tfy.example/llm",
+            PGREP_GATEWAY_MODELS="house-model,other-model",
+        ),
+        _fake_openai(),
+    ):
+        assert llm.LLMClient("house-model").pinned is False
 
 
 def test_llmclient_passes_openai_base_url():
@@ -196,7 +281,7 @@ def test_load_api_key_prefers_truefoundry_gateway():
 
 
 def test_complete_text_drops_temperature_and_seed_on_bad_request():
-    with _fake_openai():
+    with _tmp_ledger(), _fake_openai():
         client = llm.LLMClient(_DATED)
         backend = _ScriptedBackend(
             [
@@ -221,7 +306,7 @@ def test_complete_text_drops_temperature_and_seed_on_bad_request():
 
 
 def test_complete_text_without_json_object_sets_no_response_format():
-    with _fake_openai():
+    with _tmp_ledger(), _fake_openai():
         client = llm.LLMClient(_DATED)
         backend = _ScriptedBackend([("return", "plain text")])
         client._client = backend
@@ -231,14 +316,14 @@ def test_complete_text_without_json_object_sets_no_response_format():
 
 
 def test_complete_json_parses_object():
-    with _fake_openai():
+    with _tmp_ledger(), _fake_openai():
         client = llm.LLMClient(_DATED)
         client._client = _ScriptedBackend([("return", '{"a": 1, "b": [2, 3]}')])
         assert client.complete_json("s", "u") == {"a": 1, "b": [2, 3]}
 
 
 def test_complete_text_retries_transient_then_succeeds():
-    with _fake_openai(), _no_sleep():
+    with _tmp_ledger(), _fake_openai(), _no_sleep():
         client = llm.LLMClient(_DATED)
         backend = _ScriptedBackend(
             [
@@ -252,10 +337,87 @@ def test_complete_text_retries_transient_then_succeeds():
 
 
 def test_complete_text_reraises_unknown_error():
-    with _fake_openai(), _raises(Exception):
+    with _tmp_ledger(), _fake_openai(), _raises(Exception):
         client = llm.LLMClient(_DATED)
         client._client = _ScriptedBackend([("raise", "ValueError")])
         client.complete_text("s", "u")
+
+
+# --- (a2) the spend gate and the ledger, through the client ----------------
+
+
+def test_client_records_token_counts_from_the_response():
+    with _tmp_ledger(), _fake_openai():
+        os.environ["PGREP_USAGE_TOOL"] = "unit-test"
+        client = llm.LLMClient("gpt-5.5-2026-04-23")
+        client._client = _ScriptedBackend([("usage", ('{"ok": true}', 300, 700))])
+        assert client.complete_json("s", "u") == {"ok": True}
+        events = _ledger_events()
+    assert len(events) == 1
+    assert events[0]["prompt_tokens"] == 300
+    assert events[0]["completion_tokens"] == 700
+    assert events[0]["tool"] == "unit-test"
+    assert events[0]["pinned"] is True
+    assert events[0]["est_usd"] > 0
+
+
+def test_client_refuses_the_call_once_the_hard_cap_is_reached():
+    with _tmp_ledger(PGREP_BUDGET_HARD_USD="0.001"), _fake_openai():
+        client = llm.LLMClient("gpt-5.5-2026-04-23")
+        # 1000 output tokens on this family is about a cent, well over the cap.
+        backend = _ScriptedBackend(
+            [("usage", ('{"a": 1}', 10, 1000)), ("return", '{"b": 2}')]
+        )
+        client._client = backend
+        client.complete_text("s", "u")  # first call goes through
+        with _raises(usage.BudgetExceeded):
+            client.complete_text("s", "u")
+    # the refused call never reached the backend
+    assert len(backend.calls) == 1
+
+
+def test_spend_lock_stops_the_client_before_any_request():
+    with _tmp_ledger(PGREP_AI_SPEND_LOCK="1"), _fake_openai():
+        client = llm.LLMClient(_DATED)
+        backend = _ScriptedBackend([("return", "never")])
+        client._client = backend
+        with _raises(usage.BudgetExceeded):
+            client.complete_text("s", "u")
+    assert backend.calls == []
+
+
+def test_retries_record_one_event_not_one_per_attempt():
+    with _tmp_ledger(), _fake_openai(), _no_sleep():
+        client = llm.LLMClient(_DATED)
+        client._client = _ScriptedBackend(
+            [("raise", "RateLimitError"), ("return", '{"ok": true}')]
+        )
+        client.complete_json("s", "u")
+        events = _ledger_events()
+    assert len(events) == 1
+    assert events[0]["ok"] is True
+
+
+def test_a_failed_call_records_one_failure_event():
+    with _tmp_ledger(), _fake_openai(), _no_sleep():
+        client = llm.LLMClient(_DATED)
+        client._client = _ScriptedBackend([("raise", "AuthenticationError")])
+        with _raises(Exception):
+            client.complete_text("s", "u")
+        events = _ledger_events()
+    assert len(events) == 1
+    assert events[0]["ok"] is False
+    assert events[0]["error"] == "AuthenticationError"
+
+
+def test_gateway_alias_is_recorded_as_unpinned():
+    with _tmp_ledger(OPENAI_BASE_URL="https://tfy.example/llm"), _fake_openai():
+        client = llm.LLMClient("gpt-5.5")
+        client._client = _ScriptedBackend([("return", "ok")])
+        client.complete_text("s", "u")
+        events = _ledger_events()
+    assert events[0]["pinned"] is False
+    assert events[0]["base_url_host"] == "tfy.example"
 
 
 # --- (b) the three tools, no network ---------------------------------------
@@ -295,7 +457,7 @@ def test_gen_returns_empty_on_client_error():
 def test_gen_default_client_builds_llmclient_and_flows():
     # No injected client: the default seam builds a real (pinned) LLMClient for a
     # dated model, and a call flows through complete_text end to end (no network).
-    with _fake_openai():
+    with _tmp_ledger(), _fake_openai():
         gen = figgen.Gen(_DATED)
         assert isinstance(gen.client, llm.LLMClient)
         gen.client._client = _ScriptedBackend(
