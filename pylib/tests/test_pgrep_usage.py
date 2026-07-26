@@ -303,7 +303,7 @@ def test_unwritable_ledger_without_caps_only_warns():
 def test_budget_file_supplies_caps_when_env_is_empty():
     with _sandbox() as tmp:
         with open(os.path.join(tmp, usage.BUDGET_FILE), "w", encoding="utf-8") as fh:
-            fh.write("# operator caps\nPGREP_BUDGET_HARD_USD=\"7.50\"\n")
+            fh.write('# operator caps\nPGREP_BUDGET_HARD_USD="7.50"\n')
         usage.reset()
         assert usage.budgets().hard_usd == 7.50
 

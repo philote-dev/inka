@@ -191,7 +191,9 @@ class LLMClient:
         self._record(None, ok=False, error=type(last_exc).__name__)
         raise last_exc
 
-    def _record(self, resp: object | None, *, ok: bool, error: str | None = None) -> None:
+    def _record(
+        self, resp: object | None, *, ok: bool, error: str | None = None
+    ) -> None:
         prompt, completion, total = usage.usage_from_response(resp)
         usage.record(
             model=self.model,

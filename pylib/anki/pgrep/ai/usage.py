@@ -46,6 +46,7 @@ import json
 import os
 import sys
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
@@ -237,7 +238,7 @@ class Totals:
             self.models[model] = self.models.get(model, 0) + 1
 
 
-def _iter_events(path: str):
+def _iter_events(path: str) -> Iterator[dict]:
     """Yield the parsed events in one day file. Malformed lines are skipped."""
     with open(path, encoding="utf-8") as fh:
         for line in fh:
@@ -473,7 +474,9 @@ def record(
     rule: with a hard cap set, an unwritable ledger means the *next* call would
     run blind, so the failure is raised.
     """
-    if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
+    if total_tokens is None and (
+        prompt_tokens is not None or completion_tokens is not None
+    ):
         total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
     event = {
         "model": model,

@@ -60,7 +60,9 @@ def family_for(model: str) -> str | None:
     return best
 
 
-def estimate_usd(model: str, prompt_tokens: int | None, completion_tokens: int | None) -> float | None:
+def estimate_usd(
+    model: str, prompt_tokens: int | None, completion_tokens: int | None
+) -> float | None:
     """Estimated USD for one call, or None when the model has no price entry.
 
     Missing token counts are treated as zero so a half-reported response still
