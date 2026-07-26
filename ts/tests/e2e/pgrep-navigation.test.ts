@@ -81,9 +81,6 @@ async function holdDiagnosticStatus(
 }
 
 test("lab Home closes an open section on the hub", async ({ page }) => {
-    // The lab shares the shell's first-run diagnostic check, so a nav test has to
-    // settle it up front or it races a cold backend's first status call.
-    await mockDiagnosticStatus(page, true);
     await page.goto("/pgrep-lab");
 
     const design = page.getByRole("button", { name: "Design" });
@@ -97,7 +94,6 @@ test("lab Home closes an open section on the hub", async ({ page }) => {
 });
 
 test("lab modified Home click leaves the open section unchanged", async ({ page }) => {
-    await mockDiagnosticStatus(page, true);
     await page.goto("/pgrep-lab");
 
     const design = page.getByRole("button", { name: "Design" });
