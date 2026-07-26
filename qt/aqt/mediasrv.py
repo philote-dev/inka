@@ -21,6 +21,7 @@ from pathlib import Path
 import flask
 import stringcase
 import waitress.wasyncore
+import werkzeug.wrappers
 from flask import Response, abort, request
 from waitress.server import create_server
 
@@ -194,7 +195,7 @@ def favicon() -> Response:
 
 
 @app.route("/")
-def root_redirect() -> Response:
+def root_redirect() -> werkzeug.wrappers.Response:
     # The bare host has no page of its own, so it would 404. Send it to the pgrep
     # app instead, so opening http://127.0.0.1:40000 (the `just dev` serve) just
     # works rather than showing a "not found" page.
