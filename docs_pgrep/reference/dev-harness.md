@@ -139,10 +139,10 @@ pgrep syncs desktop and iOS through a self-hosted copy of Anki's own sync server
 sync code. The conflict rule it enforces is documented in
 [`sync-conflict-rule.md`](sync-conflict-rule.md).
 
-| Command                             | What it does                                                         |
-| ----------------------------------- | -------------------------------------------------------------------- |
+| Command                            | What it does                                                                               |
+| ---------------------------------- | ------------------------------------------------------------------------------------------ |
 | `just serve-sync`                  | Build pylib, then run the server on `0.0.0.0:8090` as `pgrep:pgrep`. (`sync-server` alias) |
-| `just serve-sync user="me:secret"` | Same, with a custom account.                                         |
+| `just serve-sync user="me:secret"` | Same, with a custom account.                                                               |
 
 The sync server uses port `8090`, not `8080`, because `just run` already binds
 `8080` for the Qt remote-debug and hot-reload server (`tools/reload_webviews.py`).

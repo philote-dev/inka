@@ -125,12 +125,8 @@ class TestDevAllowedOrigin:
         monkeypatch.setenv(
             "PGREP_DEV_ALLOWED_ORIGIN", "https://machine.tail1234.ts.net"
         )
-        assert (
-            is_dev_allowed_origin("https://machine.tail1234.ts.net") is True
-        )
-        assert (
-            is_dev_allowed_origin("https://machine.tail1234.ts.net/pgrep") is True
-        )
+        assert is_dev_allowed_origin("https://machine.tail1234.ts.net") is True
+        assert is_dev_allowed_origin("https://machine.tail1234.ts.net/pgrep") is True
         assert is_dev_allowed_origin("https://evil.ts.net") is False
         assert is_dev_allowed_host("machine.tail1234.ts.net") is True
         assert is_dev_allowed_host("machine.tail1234.ts.net:443") is True
@@ -143,12 +139,12 @@ class TestDevAllowedOrigin:
         monkeypatch.setenv(
             "PGREP_DEV_ALLOWED_ORIGIN", "https://machine.tail1234.ts.net"
         )
-        assert (
-            is_dev_allowed_origin("https://machine.tail1234.ts.net") is False
-        )
+        assert is_dev_allowed_origin("https://machine.tail1234.ts.net") is False
         assert is_dev_allowed_host("machine.tail1234.ts.net") is False
 
-    def test_file_fallback(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_file_fallback(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         import aqt.mediasrv as mediasrv
 
         monkeypatch.setattr(mediasrv, "dev_mode", True)

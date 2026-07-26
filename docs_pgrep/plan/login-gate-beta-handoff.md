@@ -19,13 +19,13 @@ Offline-first stays sacred: study and AI-off scoring work with no account.
 
 ## What is already true (do not rebuild)
 
-| Piece | Where | Notes |
-| --- | --- | --- |
-| Exclusive product surface | `qt/aqt/pgrep_host.py` `_DEFAULT_MODE = "exclusive"` | Anki deck browser / profile chooser suppressed |
-| Sync from Settings | `ts/routes/pgrep/settings/+page.svelte`, `qt/aqt/pgrep.py` `pgrep_sync` | URL + user/pass → Anki sync protocol |
-| Sync server | `just serve-sync` / `tools/sync-server.py` | `SYNC_USER1=user:pass`, port **8090** |
-| Office beta ops | `docs_pgrep/plan/office-beta.md` | Tailscale + unsigned DMG + cable iOS |
-| Prior design | `shell-profiles-login-handoff.md` WI3, `structural-de-anki-design.md` WI3 | Model B login gate |
+| Piece                     | Where                                                                     | Notes                                          |
+| ------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------- |
+| Exclusive product surface | `qt/aqt/pgrep_host.py` `_DEFAULT_MODE = "exclusive"`                      | Anki deck browser / profile chooser suppressed |
+| Sync from Settings        | `ts/routes/pgrep/settings/+page.svelte`, `qt/aqt/pgrep.py` `pgrep_sync`   | URL + user/pass → Anki sync protocol           |
+| Sync server               | `just serve-sync` / `tools/sync-server.py`                                | `SYNC_USER1=user:pass`, port **8090**          |
+| Office beta ops           | `docs_pgrep/plan/office-beta.md`                                          | Tailscale + unsigned DMG + cable iOS           |
+| Prior design              | `shell-profiles-login-handoff.md` WI3, `structural-de-anki-design.md` WI3 | Model B login gate                             |
 
 ## Critical host fix (must stay true)
 
@@ -67,11 +67,11 @@ or a blocking overlay owned by the shell). It must use pgrep tokens
 
 **Fields:**
 
-- Username  
-- Password  
+- Username
+- Password
 - Server URL (default from Settings / `http://127.0.0.1:8090/` in dev; beta
-  build may prefills Tailscale URL via env or a small config endpoint)  
-- Primary button: **Sign in**  
+  build may prefills Tailscale URL via env or a small config endpoint)
+- Primary button: **Sign in**
 - Secondary: **Continue offline**
 
 **Behavior:**
@@ -80,7 +80,7 @@ or a blocking overlay owned by the shell). It must use pgrep tokens
   then call the existing sync bridge (`pgrepSync` / equivalent). On success,
   mark the gate dismissed for this profile and navigate to Home. On failure,
   show a calm error (bad password, unreachable server). Do not block the UI
-  >100 ms without a spinner.
+  > 100 ms without a spinner.
 - **Continue offline:** dismiss the gate, never call sync, land on Home. Study
   works. Settled: remember the skip in **profile meta** (per-device) so we do not
   nag on every cold start; signing in later resolves the gate everywhere via the
@@ -89,9 +89,9 @@ or a blocking overlay owned by the shell). It must use pgrep tokens
 
 **Do not:**
 
-- Show Anki profile manager, language picker, or "Anki" window titles.  
-- Hardcode production URLs.  
-- Require Tailscale install from this page (document in the tester brief).  
+- Show Anki profile manager, language picker, or "Anki" window titles.
+- Hardcode production URLs.
+- Require Tailscale install from this page (document in the tester brief).
 - Invent a second password store separate from the sync credentials Settings
   already uses.
 
@@ -183,17 +183,17 @@ first-run gate mirrors desktop in a follow-up.
 
 ## Beta acceptance
 
-1. `just preview-fresh` → no language dialog, no "Anki" titled startup chrome.  
-2. New user sees pgrep sign-in (or offline) before studying.  
+1. `just preview-fresh` → no language dialog, no "Anki" titled startup chrome.
+2. New user sees pgrep sign-in (or offline) before studying.
 3. Sign-in with a real `SYNC_USER` against `just serve-sync` syncs; Progress /
-   attempts survive a second device.  
-4. Continue offline studies with no server.  
+   attempts survive a second device.
+4. Continue offline studies with no server.
 5. Settings → Devices still shows the same Account URL / user the gate saved.
 
 ## Out of scope for the page agent
 
-- Tailscale / launchd / DMG / cable iOS (see `office-beta.md`)  
-- Notarization / Apple Developer  
-- Firebase / self-serve signup  
-- Webshell / PWA  
+- Tailscale / launchd / DMG / cable iOS (see `office-beta.md`)
+- Notarization / Apple Developer
+- Firebase / self-serve signup
+- Webshell / PWA
 - Changing the Anki sync protocol

@@ -36,6 +36,7 @@ the bearer token / `ANKI_API_HOST=0.0.0.0`.
 Grouped, with the previous name where it changed.
 
 ### develop
+
 - `dev` (was `run` for browser use): headless serve on `:40000`, no window, live-reload
   to browser and phone. Serves both `/pgrep` and `/pgrep-lab`. Dev mode on. Folds in the
   watcher (so standalone `web-watch` retires) and the AI run (so `dev-ai`/`run-ai`
@@ -50,12 +51,14 @@ Grouped, with the previous name where it changed.
 - `serve-sync` (was `sync-server`): local sync server for testing sync/demo.
 
 ### review
+
 - `review`: dashboard for many branches; instances run headless, viewed in browser tabs,
   bound to `127.0.0.1`.
 - `review-sync` (was `sync-review` + `review-loop`): loops, keeps the combined branch
   fresh; its instance auto-rebuilds so a browser refresh shows updates.
 
 ### preview (faithful, dev mode off)
+
 - `preview` (was `stage`): the product as users get it (exclusive, dev off), your
   profile.
 - `preview-fresh` (was `fresh`): same, brand-new-user throwaway profile.
@@ -63,33 +66,41 @@ Grouped, with the previous name where it changed.
   compiled, to feel true performance.
 
 ### verify
+
 - `verify`: full gate (build + lint + unit + e2e).
 - `check`: fast gate (build + lint + unit).
 - `smoke`: fastest sanity (import + Rust).
 
 ### ship
+
 - `ship` (new): build the real installer artifact (wraps `./tools/build-installer`).
 
 ### quality
+
 `test`, `test-rust`, `test-py`, `test-ts`, `test-e2e`, `lint`, `lint-fix` (was
 `fix-lint`), `format` (was `fmt`), `format-fix` (was `fix-fmt`), `bench`, `crash-test`,
 `coverage`.
 
 ### content
+
 `ai-deps` (was `pgrep-ai-deps`), `gen-decompositions`, `audit-bundle-ai`, `eval-public`.
 
 ### ios
+
 `ios-run`, `ios-smoke`, `ios-xcframework`, `ios-manifold`, `ios-mathjax`,
 `ios-sync-proof`.
 
 ### build / misc (public)
+
 `build`, `rebuild-web`, `ftl-sync`, `ci`, `clean`.
 
 ### private (plumbing, hidden from `--list`)
+
 `wheels`, `_review-instance` (was `run-instance`), `minilints`, `fix-minilints`,
 `ftl-deprecate`, `complexipy-diff`, and the existing `_*` helpers.
 
 ### cut
+
 `run`, `run-ai`, `web-watch`, `review-lan`, `candidate`, `review-sync-loop`,
 `pgrep-demo-sync`, `docs`, `docs-serve`, `docs-rust`.
 
@@ -102,7 +113,8 @@ once is what `review` is for (it assigns offset ports per instance).
 
 ## What we build (three pieces)
 
-### 1. Headless `dev` + browser/phone live-reload  (DONE)
+### 1. Headless `dev` + browser/phone live-reload (DONE)
+
 - B1: run the app with the main window hidden so it serves `:40000` with no window
   (`PGREP_HEADLESS`, gated in `main.loadProfile`). Also: `setQuitOnLastWindowClosed(False)`
   so a stray dialog cannot kill the serve; auto-sync skipped in headless (it otherwise
@@ -118,12 +130,14 @@ once is what `review` is for (it assigns offset ports per instance).
   at the same time as `dev`'s own build. `web-watch` is private plumbing.
 
 ### 2. `dev-window` (DONE)
+
 - Dev-only GET `/_anki/pgrepDevShowWindow` shows the running `dev` process's real
   product window on the Qt main thread. `just dev-window` pings it, starting `dev` in
   the background if nothing is on `:40000`. Same server, so it live-reloads with edits.
   Closing the window hides it without stopping the serve.
 
 ### 3. `serve-tail` + dev-gated origin allowlist (DONE)
+
 - Dev-gated allowlist: `PGREP_DEV_ALLOWED_ORIGIN` env, or `out/dev-allowed-origin`
   (written by `serve-tail`). Relaxes only the Host/Origin localhost guard in
   `mediasrv.handle_request`, never `_have_api_access`, so only pgrep endpoints stay
@@ -141,6 +155,7 @@ once is what `review` is for (it assigns offset ports per instance).
   so a refresh (via the live-reload token) shows UI updates. Python/backend changes
   still need a Stop/Start on the dashboard.
 - `run-instance` demoted to `_review-instance`.
+
 ## Mechanical justfile work
 
 - Apply `[group('...')]` headings in the lifecycle order above.
