@@ -69,6 +69,8 @@ class _Resp:
         self.choices = [
             types.SimpleNamespace(message=types.SimpleNamespace(content=content))
         ]
+        # Providers omit this on some error paths, so the ledger has to cope.
+        self.usage: types.SimpleNamespace | None = None
 
 
 class _ScriptedBackend:
