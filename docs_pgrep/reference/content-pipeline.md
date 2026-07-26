@@ -86,21 +86,21 @@ gate warns once per unpriced model when a USD cap is set.
 optional operator file at `content/run/usage/budget.env` (git-ignored, sourced
 by the `just` recipes the same way as the gateway file):
 
-| Control              | Variable                   | Effect                              |
-| -------------------- | -------------------------- | ----------------------------------- |
-| Soft daily USD       | `PGREP_BUDGET_SOFT_USD`    | Warn once and continue              |
-| Hard daily USD       | `PGREP_BUDGET_HARD_USD`    | Refuse further calls today          |
-| Hard daily tokens    | `PGREP_BUDGET_HARD_TOKENS` | Refuse further calls today          |
-| Per-run USD          | `PGREP_BUDGET_RUN_USD`     | Refuse further calls in this run    |
-| Disable paid calls   | `PGREP_AI_SPEND_LOCK=1`    | Refuse every paid call immediately  |
+| Control            | Variable                   | Effect                             |
+| ------------------ | -------------------------- | ---------------------------------- |
+| Soft daily USD     | `PGREP_BUDGET_SOFT_USD`    | Warn once and continue             |
+| Hard daily USD     | `PGREP_BUDGET_HARD_USD`    | Refuse further calls today         |
+| Hard daily tokens  | `PGREP_BUDGET_HARD_TOKENS` | Refuse further calls today         |
+| Per-run USD        | `PGREP_BUDGET_RUN_USD`     | Refuse further calls in this run   |
+| Disable paid calls | `PGREP_AI_SPEND_LOCK=1`    | Refuse every paid call immediately |
 
 Code defaults to no cap, so CI and offline tests stay quiet; **operators must set
 a hard daily cap before a paid batch**. Suggested starting point until a month of
 invoices calibrates the price table: soft $25/day, hard $50/day, per-run $20.
 
-Two rules are worth knowing before relying on this. Caps are checked *before*
+Two rules are worth knowing before relying on this. Caps are checked _before_
 each call against spend so far, so the call that crosses a limit completes and
-the *next* one is refused: a cap bounds a batch, it does not clip a request. And
+the _next_ one is refused: a cap bounds a batch, it does not clip a request. And
 the gate is fail-closed -- when a hard cap is set and the ledger cannot be read
 or written, calls are refused rather than run blind. With no hard cap set, ledger
 trouble degrades to a warning so an offline checkout still works.
@@ -111,7 +111,7 @@ trouble degrades to a warning so an offline checkout still works.
 `PGREP_USAGE_RUN_ID` yourself to group several recipes into one run.
 
 **Coverage boundary.** The ledger sees what goes through `LLMClient`, which is
-the generation, judge, audit, and foundry path. It does *not* see the legacy
+the generation, judge, audit, and foundry path. It does _not_ see the legacy
 one-off tools that still build a raw `OpenAI()` client (among them
 `crosscheck_keys.py`, `apply_figure_review.py`, `annotate_community.py`,
 `author_card_gold.py`), nor the shadow foundry's sandboxed worker, which bills a
@@ -780,7 +780,7 @@ is the per-commit-safe check; the account probe and any real run are on-demand.
 | `just shadow-worker-build`   | Build the pinned Docker worker image and print its immutable digest; needs local Docker.                           |
 | `just shadow-worker-sync`    | Install the worker's locked environment into `out/shadow-worker-venv`; no Docker or key needed.                    |
 | `just shadow-foundry`        | Quarantined multi-model generation with exact `--sol-model`/`--opus-model`/`--grok-model`; never lands or pairs.   |
-| `just usage-report`          | What the AI pipeline has spent, by model, tool and run (`--days N`, `--json`); offline, reads the local ledger.     |
+| `just usage-report`          | What the AI pipeline has spent, by model, tool and run (`--days N`, `--json`); offline, reads the local ledger.    |
 | `just usage-smoke`           | One tiny real gateway call proving the ledger and the cap are wired; spends a fraction of a cent.                  |
 | `just check`                 | The overall gate (format, build, lint, all tests), which includes `test-py`.                                       |
 

@@ -36,24 +36,24 @@ packaging todos remain in [`deferred-todos.md`](deferred-todos.md).
 
 ### Done / landed
 
-| Track | State |
-| --- | --- |
-| Phase 1 — consensus key check, verifier panel, agreement metrics | On `main` |
-| Phase 2 — temptation, difficulty, best-of-N foundry loop | On `main` |
-| Phase 3 — preference dataset + `just eval-verifier` | On `main` (human labels / green gate card not achieved) |
-| Shadow multi-model runner + blind ruler modules | On `main` (Tasks 1–5-ish; Pass B / handoff incomplete) |
-| Triple-pool content growth (problems, figures, decomps, audits) | Ran; bundle grew (~378 problems, high decomp coverage). Quality still needs the calibrated gate |
-| Credential posture | Direct provider keys removed from `content/.env` and shell exports. One TrueFoundry gateway file: `~/.config/truefoundry/gateway.env`. `llm.load_api_key` + `LLMClient` route via `OPENAI_BASE_URL` |
-| **WS10 — usage ledger, budgets, kill switch** | On `main`. `LLMClient` records every call to `content/run/usage/<day>.jsonl` and refuses the next one past a cap; `just usage-report` / `just usage-smoke`; foundry, decomposition and audit recipes tag their batches. Caps are operator-set and default to none |
-| Gateway model pin | On `main`. Allowlisted TFY floating ids (`gpt-5.5`, `claude-opus-4-8`, `grok-4.5`, minis) are accepted when `OPENAI_BASE_URL` is set, recorded as `pinned: false` |
+| Track                                                            | State                                                                                                                                                                                                                                                             |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Phase 1 — consensus key check, verifier panel, agreement metrics | On `main`                                                                                                                                                                                                                                                         |
+| Phase 2 — temptation, difficulty, best-of-N foundry loop         | On `main`                                                                                                                                                                                                                                                         |
+| Phase 3 — preference dataset + `just eval-verifier`              | On `main` (human labels / green gate card not achieved)                                                                                                                                                                                                           |
+| Shadow multi-model runner + blind ruler modules                  | On `main` (Tasks 1–5-ish; Pass B / handoff incomplete)                                                                                                                                                                                                            |
+| Triple-pool content growth (problems, figures, decomps, audits)  | Ran; bundle grew (~378 problems, high decomp coverage). Quality still needs the calibrated gate                                                                                                                                                                   |
+| Credential posture                                               | Direct provider keys removed from `content/.env` and shell exports. One TrueFoundry gateway file: `~/.config/truefoundry/gateway.env`. `llm.load_api_key` + `LLMClient` route via `OPENAI_BASE_URL`                                                               |
+| **WS10 — usage ledger, budgets, kill switch**                    | On `main`. `LLMClient` records every call to `content/run/usage/<day>.jsonl` and refuses the next one past a cap; `just usage-report` / `just usage-smoke`; foundry, decomposition and audit recipes tag their batches. Caps are operator-set and default to none |
+| Gateway model pin                                                | On `main`. Allowlisted TFY floating ids (`gpt-5.5`, `claude-opus-4-8`, `grok-4.5`, minis) are accepted when `OPENAI_BASE_URL` is set, recorded as `pinned: false`                                                                                                 |
 
 ### Missing (still blocks the calibrated accept gate)
 
-| Gap | Why it matters |
-| --- | --- |
-| Ruler Task 6–7 (Pass B + real Pass A handoff) + human labels | Needed before calibrated unlock. Until this lands, generated content can be produced in volume but not *accepted* on a trustworthy gate |
-| Tier 2 / Tier 3 training triggers | Still future; numeric counts (`300` labeled problems, `1000` pairs) not reached |
-| Ledger coverage of legacy tools | The ~13 one-off tools that build a raw `OpenAI()` client, and the sandboxed shadow worker (separate Cursor billing), are not on the ledger. Prefer the seam-routed recipes for volume |
+| Gap                                                          | Why it matters                                                                                                                                                                        |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ruler Task 6–7 (Pass B + real Pass A handoff) + human labels | Needed before calibrated unlock. Until this lands, generated content can be produced in volume but not _accepted_ on a trustworthy gate                                               |
+| Tier 2 / Tier 3 training triggers                            | Still future; numeric counts (`300` labeled problems, `1000` pairs) not reached                                                                                                       |
+| Ledger coverage of legacy tools                              | The ~13 one-off tools that build a raw `OpenAI()` client, and the sandboxed shadow worker (separate Cursor billing), are not on the ledger. Prefer the seam-routed recipes for volume |
 
 ### Recommended resume order
 
@@ -72,12 +72,12 @@ packaging todos remain in [`deferred-todos.md`](deferred-todos.md).
 
 ### Model roles (TFY gateway — locked preference)
 
-| Role | Gateway model id | Notes |
-| --- | --- | --- |
-| Default generator | `gpt-5.5` | Bulk stems, decomps, figures |
-| Hard cross-judge | `claude-opus-4-8` | Origin-excluding key/figure/giveaway checks |
-| Diverse second opinion | `grok-4.5` | Blind re-solve / temptation diversity |
-| Cheap weak solver (optional) | `gpt-5.4-mini` or `claude-haiku-4-5` | Distractor temptation / difficulty sim |
+| Role                         | Gateway model id                     | Notes                                       |
+| ---------------------------- | ------------------------------------ | ------------------------------------------- |
+| Default generator            | `gpt-5.5`                            | Bulk stems, decomps, figures                |
+| Hard cross-judge             | `claude-opus-4-8`                    | Origin-excluding key/figure/giveaway checks |
+| Diverse second opinion       | `grok-4.5`                           | Blind re-solve / temptation diversity       |
+| Cheap weak solver (optional) | `gpt-5.4-mini` or `claude-haiku-4-5` | Distractor temptation / difficulty sim      |
 
 Floating gateway IDs replace dated OpenAI snapshots for TFY-routed runs. The
 dated-snapshot pin rule in `LLMClient` now allows these ids through
@@ -446,13 +446,13 @@ invoice source of truth; the local ledger is the **run-time** control plane.
 
 3. **Budgets (env + optional local file).** Resolved once per process:
 
-   | Control | Env / file | Default behavior |
-   | --- | --- | --- |
-   | Soft daily USD | `PGREP_BUDGET_SOFT_USD` | Log warning; continue |
-   | Hard daily USD | `PGREP_BUDGET_HARD_USD` | Raise / abort before the next call |
-   | Hard daily tokens | `PGREP_BUDGET_HARD_TOKENS` | Same abort path |
-   | Per-run USD | `PGREP_BUDGET_RUN_USD` | Abort within one `run_id` |
-   | Disable paid calls | `PGREP_AI_SPEND_LOCK=1` | Fail closed immediately |
+   | Control            | Env / file                 | Default behavior                   |
+   | ------------------ | -------------------------- | ---------------------------------- |
+   | Soft daily USD     | `PGREP_BUDGET_SOFT_USD`    | Log warning; continue              |
+   | Hard daily USD     | `PGREP_BUDGET_HARD_USD`    | Raise / abort before the next call |
+   | Hard daily tokens  | `PGREP_BUDGET_HARD_TOKENS` | Same abort path                    |
+   | Per-run USD        | `PGREP_BUDGET_RUN_USD`     | Abort within one `run_id`          |
+   | Disable paid calls | `PGREP_AI_SPEND_LOCK=1`    | Fail closed immediately            |
 
    Optional operator file (git-ignored): `content/run/usage/budget.env` sourced
    by `just` recipes the same way as the TFY gateway. Caps are **fail-closed**

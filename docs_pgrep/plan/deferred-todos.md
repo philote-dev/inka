@@ -9,14 +9,14 @@ Checkboxes are the source of truth. `[demo]` marks natural stop-and-review point
 Content and features:
 
 - [ ] Content quality program (foundry / verifier / shadow / human ruler): see the
-  status board in
-  [`content-foundry-and-verifier-design.md`](content-foundry-and-verifier-design.md)
-  — WS10 (usage ledger + budgets) has landed, so **set a hard daily cap in
-  `content/run/usage/budget.env`** before any paid shadow or foundry online run;
-  the remaining gate is the human ruler handoff (Pass A → labels → Pass B)
+      status board in
+      [`content-foundry-and-verifier-design.md`](content-foundry-and-verifier-design.md)
+      — WS10 (usage ledger + budgets) has landed, so **set a hard daily cap in
+      `content/run/usage/budget.env`** before any paid shadow or foundry online run;
+      the remaining gate is the human ruler handoff (Pass A → labels → Pass B)
 - [ ] Generate / refresh decomposition tutor coverage where still missing (triple
-  pool already raised coverage substantially; confirm remaining gaps after the
-  calibrated gate) `just gen-decompositions --apply` [demo]
+      pool already raised coverage substantially; confirm remaining gaps after the
+      calibrated gate) `just gen-decompositions --apply` [demo]
 - [ ] Port the iOS Problems flow from the old ladder to the decomposition tutor [demo]
 - [ ] Content quality: gold-set gate hardening (cut the refusal and malformed-MCQ rate, rerun the batch)
 - [ ] Optional Bragg diffraction figure for problem p4-prob-0136
