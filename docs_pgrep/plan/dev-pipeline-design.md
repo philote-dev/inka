@@ -36,6 +36,7 @@ the bearer token / `ANKI_API_HOST=0.0.0.0`.
 Grouped, with the previous name where it changed.
 
 ### develop
+
 - `dev` (was `run` for browser use): headless serve on `:40000`, no window, live-reload
   to browser and phone. Serves both `/pgrep` and `/pgrep-lab`. Dev mode on. Folds in the
   watcher (so standalone `web-watch` retires) and the AI run (so `dev-ai`/`run-ai`
@@ -50,12 +51,14 @@ Grouped, with the previous name where it changed.
 - `serve-sync` (was `sync-server`): local sync server for testing sync/demo.
 
 ### review
+
 - `review`: dashboard for many branches; instances run headless, viewed in browser tabs,
   bound to `127.0.0.1`.
 - `review-sync` (was `sync-review` + `review-loop`): loops, keeps the combined branch
   fresh; its instance auto-rebuilds so a browser refresh shows updates.
 
 ### preview (faithful, dev mode off)
+
 - `preview` (was `stage`): the product as users get it (exclusive, dev off), your
   profile.
 - `preview-fresh` (was `fresh`): same, brand-new-user throwaway profile.
@@ -63,33 +66,41 @@ Grouped, with the previous name where it changed.
   compiled, to feel true performance.
 
 ### verify
+
 - `verify`: full gate (build + lint + unit + e2e).
 - `check`: fast gate (build + lint + unit).
 - `smoke`: fastest sanity (import + Rust).
 
 ### ship
+
 - `ship` (new): build the real installer artifact (wraps `./tools/build-installer`).
 
 ### quality
+
 `test`, `test-rust`, `test-py`, `test-ts`, `test-e2e`, `lint`, `lint-fix` (was
 `fix-lint`), `format` (was `fmt`), `format-fix` (was `fix-fmt`), `bench`, `crash-test`,
 `coverage`.
 
 ### content
+
 `ai-deps` (was `pgrep-ai-deps`), `gen-decompositions`, `audit-bundle-ai`, `eval-public`.
 
 ### ios
+
 `ios-run`, `ios-smoke`, `ios-xcframework`, `ios-manifold`, `ios-mathjax`,
 `ios-sync-proof`.
 
 ### build / misc (public)
+
 `build`, `rebuild-web`, `ftl-sync`, `ci`, `clean`.
 
 ### private (plumbing, hidden from `--list`)
+
 `wheels`, `_review-instance` (was `run-instance`), `minilints`, `fix-minilints`,
 `ftl-deprecate`, `complexipy-diff`, and the existing `_*` helpers.
 
 ### cut
+
 `run`, `run-ai`, `web-watch`, `review-lan`, `candidate`, `review-sync-loop`,
 `pgrep-demo-sync`, `docs`, `docs-serve`, `docs-rust`.
 
@@ -102,7 +113,8 @@ once is what `review` is for (it assigns offset ports per instance).
 
 ## What we build (three pieces)
 
-### 1. Headless `dev` + browser/phone live-reload  (DONE)
+### 1. Headless `dev` + browser/phone live-reload (DONE)
+
 - B1: run the app with the main window hidden so it serves `:40000` with no window
   (`PGREP_HEADLESS`, gated in `main.loadProfile`). Also: `setQuitOnLastWindowClosed(False)`
   so a stray dialog cannot kill the serve; auto-sync skipped in headless (it otherwise
@@ -118,12 +130,14 @@ once is what `review` is for (it assigns offset ports per instance).
   at the same time as `dev`'s own build. `web-watch` is private plumbing.
 
 ### 2. `dev-window` (DONE)
+
 - Dev-only GET `/_anki/pgrepDevShowWindow` shows the running `dev` process's real
   product window on the Qt main thread. `just dev-window` pings it, starting `dev` in
   the background if nothing is on `:40000`. Same server, so it live-reloads with edits.
   Closing the window hides it without stopping the serve.
 
 ### 3. `serve-tail` + dev-gated origin allowlist (DONE)
+
 - Dev-gated allowlist: `PGREP_DEV_ALLOWED_ORIGIN` env, or `out/dev-allowed-origin`
   (written by `serve-tail`). Relaxes only the Host/Origin localhost guard in
   `mediasrv.handle_request`, never `_have_api_access`, so only pgrep endpoints stay
@@ -141,6 +155,102 @@ once is what `review` is for (it assigns offset ports per instance).
   so a refresh (via the live-reload token) shows UI updates. Python/backend changes
   still need a Stop/Start on the dashboard.
 - `run-instance` demoted to `_review-instance`.
+
+## Worktree lifecycle and disk policy
+
+Implementation details and tests are tracked in
+[`worktree-lifecycle-plan.md`](worktree-lifecycle-plan.md).
+
+Worktrees are an isolation tool, not the default location for every feature.
+Choose them by concurrency, not by language:
+
+- Develop one active task in a normal local branch in the primary checkout. This
+  applies equally to UI, Python, Rust, content tooling, and documentation and
+  reuses one warm `out/` build tree.
+- Use a worktree when two branches must remain checked out simultaneously,
+  parallel agents need isolated files, unfinished work must stay parked while
+  another task proceeds, or branches must run side by side in `just review`.
+- Keep the combined `review` checkout disposable. `review-sync` may recreate it
+  whenever combined review is needed.
+- When no local task is active, return the primary checkout to clean `main`.
+
+Build outputs, not Git objects or source copies, drive worktree disk usage. A
+fully built checkout currently consumes roughly 4–8 GiB, primarily under
+`out/rust`; Rust incremental artifacts alone can exceed 2 GiB. The lifecycle
+commands therefore separate source preservation from disposable build cleanup:
+
+- `worktree-status` reports every checkout's branch, dirty/clean state, merge
+  state relative to `main`, active-process state, and total/build-output size.
+- `worktree-trim` removes only disposable build outputs from explicitly selected,
+  stopped worktrees. It preserves `out/node_modules`, `out/pyenv`, and
+  `out/download` by using the existing `clean keep-env` behavior. It never edits
+  tracked or untracked source files and refuses to trim a running checkout.
+  Command text and process CWDs are both checked, so relative commands running
+  inside a checkout are detected. Trimming the conventional review checkout
+  also holds the shared review-operation lock.
+- `worktree-prune` is a dry run unless passed `--apply`. It may remove only
+  stopped worktrees whose source tree is clean and whose branch is fully merged
+  into `main`, and refuses ignored private data such as `content/`, corpora,
+  gold/held-out sets, `.ssh`, environment files, keys, tokens, or credentials
+  at any depth, including CamelCase/compact password, passwd, and passphrase
+  forms and numeric suffixes under `out/`; unrelated `passwordless` names remain
+  allowed. Applying it rejects symbolic branch refs, revalidates the exact
+  branch OID and direct checkout branch, compare-deletes that same direct ref
+  with `--no-deref`, and runs `git worktree prune`. The primary checkout is
+  never eligible.
+- Git refuses non-forced removal of any submodule-bearing worktree. The default
+  lifecycle policy therefore refuses these worktrees. Explicit
+  `worktree-prune --apply --force-submodules` recursively requires every
+  initialized nested submodule to have no tracked modifications, untracked
+  files, or ignored files; repeats that scan immediately before non-forced
+  deinit; and only then permits Git's forced worktree removal. Uninitialized
+  submodule paths must be absent or truly empty, including hidden entries.
+  Worktrees without registered submodules remain non-forced.
+- `worktree-prune` reports the `review` branch as ineligible and directs users
+  to the lock-protected `review-clean`.
+- `review-clean` explicitly removes only the stopped, clean `review` branch at
+  the conventional normalized path `<primary>/.worktrees/review`, then deletes
+  the local branch. A `review` checkout anywhere else is not considered
+  disposable. If the conventional checkout is running, it refuses and tells the
+  user to stop the row first. Submodule-bearing review worktrees require the
+  equivalent explicit `review-clean --force-submodules` opt-in and recursive
+  clean scan.
+
+`review-sync` does not delete or trim feature worktrees. Before rebuilding it
+checks available disk space and prints a prominent warning below 30 GiB with the
+exact `worktree-status`, `worktree-trim`, and `review-clean` commands. It refuses
+to start a new review build below 10 GiB so an automated loop cannot fill the
+disk, while leaving all source state untouched. Sync and `review-clean` share
+the atomic `<git-common-dir>/pgrep-review-operation.lock`, so reset/merge/build
+cannot overlap cleanup. An existing or stale lock fails closed and reports its
+owner plus manual recovery guidance. Unique owner tokens make release
+compare-and-remove: cleanup cannot unlink a manually reacquired lock.
+Before reset, clean, merge, or build, sync requires the normalized review path
+to be an exact registered worktree whose Git top-level is that path, whose
+direct HEAD is `refs/heads/review`, and whose review branch ref is non-symbolic.
+Merge option parsing is terminated with `--` before each branch argument.
+
+Trim, apply-prune, and review cleanup also hold path-hashed locks under the Git
+common directory from destructive preflight through their final mutation. The
+global acquisition order is shared review-operation lock first, followed by
+per-worktree locks in normalized path order.
+Destructive checks inspect current-user CWDs with `lsof` on macOS and
+`/proc/<pid>/cwd` on Linux and fail closed if inspection is unavailable. These
+guards serialize cooperating lifecycle/review commands and block visible local
+writers; an uncooperative external writer that ignores the locks remains
+outside what a local CLI can make atomic.
+
+Worktree discovery and ignored-path enumeration capture NUL-delimited output as
+bytes and use filesystem decoding, and shell commands derive the primary root
+from Git's absolute common directory. Process attribution is keyed by normalized
+path instead of mutable branch metadata. Whitespace, embedded newlines, and
+non-UTF-8 Unix pathname bytes are therefore not parsed as separators.
+
+The expected branch lifecycle is: create a normal branch or concurrency-driven
+worktree, develop and verify, merge to `main`, remove any worktree, delete the
+merged local branch, then prune registrations. Dirty or unmerged work is never
+deleted automatically.
+
 ## Mechanical justfile work
 
 - Apply `[group('...')]` headings in the lifecycle order above.

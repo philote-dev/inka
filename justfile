@@ -181,6 +181,33 @@ rebuild-web:
 # review
 # ---------------------------------------------------------------------------
 
+# Report registered worktree disk use and safety state
+[group('review')]
+[unix]
+worktree-status:
+    ./tools/pgrep_worktrees.py status
+
+# Trim build output from selected stopped worktrees
+[group('review')]
+[unix]
+[positional-arguments]
+worktree-trim *worktrees:
+    ./tools/pgrep_worktrees.py trim "$@"
+
+# Report removable worktrees; pass --apply to remove eligible entries
+[group('review')]
+[unix]
+[positional-arguments]
+worktree-prune *args:
+    ./tools/pgrep_worktrees.py prune "$@"
+
+# Safely remove the disposable review worktree and branch
+[group('review')]
+[unix]
+[positional-arguments]
+review-clean *args:
+    ./tools/pgrep_worktrees.py review-clean "$@"
+
 # Multi-branch review dashboard (http://127.0.0.1:40100): start/stop each worktree
 [group('review')]
 [unix]
@@ -190,6 +217,7 @@ review:
 # Merge mergeable branches into a combined `review` branch, looping on an interval
 [group('review')]
 [unix]
+[positional-arguments]
 review-sync *branches:
     #!/usr/bin/env bash
     # PGREP_REVIEW_INTERVAL seconds between merges (default 600). Runs once now,
@@ -197,10 +225,24 @@ review-sync *branches:
     # Always call the primary checkout's script so this works when `just` is run
     # from a feature worktree (those would otherwise try to create a nested
     # .worktrees/review and fail with "already used by worktree").
-    root="$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')"
+    common_dir="$(git rev-parse --path-format=absolute --git-common-dir)"
+    case "$common_dir" in
+        */.git) root="${common_dir%/.git}" ;;
+        *)
+            echo "ERROR: cannot derive primary checkout from Git common dir: $common_dir" >&2
+            exit 1
+            ;;
+    esac
     interval="${PGREP_REVIEW_INTERVAL:-600}"
     while true; do
-        "$root/tools/pgrep-sync-review" {{ branches }} || true
+        if "$root/tools/pgrep-sync-review" "$@"; then
+            :
+        else
+            status=$?
+            if [ "$status" -eq 75 ]; then
+                exit 2
+            fi
+        fi
         echo "next sync in ${interval}s (Ctrl-C to stop)"
         sleep "$interval"
     done
