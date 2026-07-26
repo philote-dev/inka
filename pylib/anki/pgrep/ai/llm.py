@@ -284,11 +284,16 @@ def judge_client(model: str, exclude: str = "") -> LLMClient:
 
     A floating ``model`` is resolved to a dated snapshot different from
     ``exclude`` (the generator, when there is one). An allowlisted gateway id is
-    used as is, so the judge still has to be named a different model than the
-    generator by the caller.
+    used as is, but never when it is the generator's: a model must not grade its
+    own output, so that case is refused rather than quietly downgraded.
     """
     if _is_floating_alias(model) and not gateway_alias_allowed(model):
         model = pick_judge_snapshot(exclude)
+    if exclude and model == exclude:
+        raise ValueError(
+            f"refusing '{model}' as judge: it is the generator, and a model must "
+            "not grade its own output. Name a different judge model."
+        )
     return LLMClient(model)
 
 

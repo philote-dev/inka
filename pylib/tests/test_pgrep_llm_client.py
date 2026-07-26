@@ -524,6 +524,21 @@ def test_pick_generator_snapshot_excludes_non_chat():
     assert llm.pick_generator_snapshot(models) == "gpt-5.5-2026-04-23"
 
 
+def test_judge_client_refuses_to_reuse_the_generator_model():
+    with (
+        _tmp_ledger(OPENAI_BASE_URL="https://tfy.example/llm"),
+        _fake_openai(),
+        _raises(ValueError),
+    ):
+        llm.judge_client("gpt-5.5", exclude="gpt-5.5")
+
+
+def test_judge_client_accepts_a_distinct_gateway_model():
+    with _tmp_ledger(OPENAI_BASE_URL="https://tfy.example/llm"), _fake_openai():
+        client = llm.judge_client("claude-opus-4-8", exclude="gpt-5.5")
+        assert client.model == "claude-opus-4-8"
+
+
 def test_pick_judge_snapshot_excludes_non_chat_and_generator():
     models = [
         "gpt-5.5-2026-04-23",
