@@ -43,7 +43,10 @@ interface WorkerFixtures {
 
 export const test = base.extend<object, WorkerFixtures>({
     collectionReady: [
-        async (_deps, use, workerInfo) => {
+        // Playwright reads fixture dependencies off this destructuring pattern, so
+        // it has to stay a pattern even though this fixture depends on nothing.
+        // eslint-disable-next-line no-empty-pattern
+        async ({}, use, workerInfo) => {
             const baseURL = workerInfo.project.use.baseURL;
             if (baseURL) {
                 await waitForCollection(baseURL);
