@@ -25,7 +25,8 @@ dependencies = [
   "pyqt6>=6.2",
   "pyqt6-webengine>=6.2",
   "packaging",
-  # anki dependency is added dynamically in hatch_build.py with exact version
+  # hatch_build.py replaces this with an exact anki==<version> pin at build time
+  "anki",
 ]
 
 [project.optional-dependencies]
