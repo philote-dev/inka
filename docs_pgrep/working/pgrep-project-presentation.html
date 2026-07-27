@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>pgrep project presentation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --canvas: #fbfaf8;
+            --surface: #ffffff;
+            --elevated: #f5f2ec;
+            --border: #e8e4da;
+            --border-strong: #d8d3c8;
+            --text: #262624;
+            --muted: #6e6b64;
+            --quiet: #a5a199;
+            --memory: #a9752a;
+            --performance: #5e81ac;
+            --readiness: #7e6593;
+            --ui: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --mono: "JetBrains Mono", ui-monospace, monospace;
+            --shadow: 0 1px 2px rgba(38, 38, 36, 0.05), 0 18px 50px rgba(38, 38, 36, 0.055);
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background: var(--canvas);
+            color: var(--text);
+            font-family: var(--ui);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .slide {
+            display: none;
+            width: 100%;
+            height: 100%;
+            padding: clamp(34px, 5vw, 76px);
+        }
+
+        .slide.active {
+            display: grid;
+            animation: appear 180ms ease-out;
+        }
+
+        @keyframes appear {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .inner {
+            position: relative;
+            width: min(100%, 1380px);
+            height: 100%;
+            margin: auto;
+        }
+
+        .eyebrow {
+            margin: 0 0 20px;
+            color: var(--muted);
+            font-family: var(--mono);
+            font-size: clamp(10px, 0.8vw, 13px);
+            font-weight: 500;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+        }
+
+        h1, h2, h3, p { margin: 0; }
+
+        h1, h2 {
+            font-weight: 600;
+            letter-spacing: -0.048em;
+        }
+
+        .slide-number {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            color: var(--quiet);
+            font-family: var(--mono);
+            font-size: 12px;
+        }
+
+        /* Opening */
+        .opening .inner {
+            display: grid;
+            grid-template-columns: 0.83fr 1.17fr;
+            align-items: center;
+            gap: clamp(44px, 7vw, 110px);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 13px;
+            margin-bottom: clamp(34px, 5vh, 64px);
+            font-size: clamp(18px, 1.5vw, 25px);
+            font-weight: 600;
+            letter-spacing: -0.02em;
+        }
+
+        .mark {
+            width: 36px;
+            height: 36px;
+        }
+
+        .opening h1 {
+            font-size: clamp(58px, 6vw, 98px);
+            line-height: 0.98;
+        }
+
+        .opening h1 span {
+            display: block;
+            color: var(--muted);
+            font-weight: 400;
+        }
+
+        .map-frame {
+            min-height: 430px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            background: var(--elevated);
+            box-shadow: var(--shadow);
+        }
+
+        .map-frame svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .map-label {
+            fill: var(--muted);
+            font-family: var(--ui);
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .map-caption {
+            fill: var(--quiet);
+            font-family: var(--mono);
+            font-size: 9px;
+        }
+
+        /* Mechanisms */
+        .mechanisms .inner,
+        .experience .inner,
+        .brownfield .inner {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .mechanisms h2 {
+            font-size: clamp(54px, 5vw, 82px);
+            line-height: 0.98;
+            white-space: nowrap;
+        }
+
+        .mechanism-panel {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            min-height: clamp(300px, 35vh, 390px);
+            margin-top: clamp(52px, 7vh, 86px);
+            overflow: hidden;
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            background: var(--elevated);
+        }
+
+        .mechanism {
+            display: flex;
+            min-width: 0;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: clamp(28px, 3vw, 46px);
+        }
+
+        .mechanism + .mechanism { border-left: 1px solid var(--border); }
+
+        .mechanism svg {
+            width: 100%;
+            max-height: 118px;
+            overflow: visible;
+        }
+
+        .diagram-label {
+            fill: var(--muted);
+            font-family: var(--mono);
+            font-size: 11px;
+        }
+
+        .diagram-text {
+            fill: var(--text);
+            font-family: var(--ui);
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .mechanism h3 {
+            font-size: clamp(28px, 2.5vw, 42px);
+            font-weight: 500;
+            letter-spacing: -0.035em;
+        }
+
+        /* Experience */
+        .experience h2, .brownfield h2 {
+            font-size: clamp(58px, 6.2vw, 100px);
+            line-height: 0.98;
+        }
+
+        .experience-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: clamp(22px, 2.5vw, 38px);
+            margin-top: clamp(52px, 7vh, 86px);
+        }
+
+        .experience-card, .foundation-card {
+            display: flex;
+            min-height: clamp(300px, 36vh, 400px);
+            flex-direction: column;
+            justify-content: space-between;
+            padding: clamp(28px, 3vw, 44px);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            background: var(--surface);
+            box-shadow: var(--shadow);
+        }
+
+        .experience-card svg {
+            width: clamp(45px, 4vw, 62px);
+            height: clamp(45px, 4vw, 62px);
+            color: var(--muted);
+        }
+
+        .experience-card h3 {
+            max-width: 310px;
+            font-size: clamp(28px, 2.6vw, 43px);
+            font-weight: 500;
+            line-height: 1.04;
+            letter-spacing: -0.035em;
+        }
+
+        /* Brownfield */
+        .foundation-grid {
+            display: grid;
+            grid-template-columns: 0.9fr 1.1fr;
+            gap: clamp(24px, 3vw, 44px);
+            margin-top: clamp(48px, 7vh, 86px);
+        }
+
+        .foundation-card { min-height: clamp(300px, 35vh, 390px); }
+
+        .foundation-card.addition {
+            border-color: var(--border-strong);
+            background: var(--elevated);
+            box-shadow: none;
+        }
+
+        .foundation-label {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--muted);
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .foundation-label svg {
+            width: 22px;
+            height: 22px;
+            color: var(--text);
+        }
+
+        .foundation-name {
+            max-width: 420px;
+            font-size: clamp(30px, 3vw, 48px);
+            font-weight: 600;
+            line-height: 1.02;
+            letter-spacing: -0.035em;
+        }
+
+        .foundation-list {
+            display: grid;
+            gap: 12px;
+            margin: 28px 0 0;
+            padding: 0;
+            list-style: none;
+            color: var(--muted);
+            font-size: clamp(14px, 1.15vw, 17px);
+        }
+
+        .foundation-list li {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .foundation-list li::before {
+            width: 6px;
+            height: 6px;
+            border: 1px solid var(--quiet);
+            border-radius: 50%;
+            content: "";
+        }
+
+        .extension-principles {
+            display: grid;
+            gap: 10px;
+            margin-top: 26px;
+        }
+
+        .extension-row {
+            display: grid;
+            grid-template-columns: 30px 1fr;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 14px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--surface);
+        }
+
+        .extension-row svg {
+            width: 20px;
+            height: 20px;
+            color: var(--muted);
+        }
+
+        .extension-row strong {
+            display: block;
+            font-size: clamp(13px, 1vw, 16px);
+            font-weight: 500;
+        }
+
+        .extension-row span {
+            display: block;
+            margin-top: 2px;
+            color: var(--muted);
+            font-family: var(--mono);
+            font-size: clamp(10px, 0.78vw, 12px);
+            line-height: 1.45;
+        }
+
+        /* Closing and controls */
+        .closing .inner {
+            display: grid;
+            place-items: center;
+        }
+
+        .closing-lockup {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+
+        .closing-lockup .mark {
+            width: clamp(92px, 9vw, 142px);
+            height: auto;
+            margin-bottom: 28px;
+        }
+
+        .closing h2 {
+            font-size: clamp(76px, 9vw, 145px);
+            line-height: 0.9;
+        }
+
+        .closing-meta {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-top: 38px;
+            color: var(--muted);
+            font-size: clamp(14px, 1.2vw, 19px);
+        }
+
+        .closing-meta i {
+            width: 3px;
+            height: 3px;
+            border-radius: 50%;
+            background: var(--quiet);
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.94);
+            box-shadow: 0 6px 24px rgba(38, 38, 36, 0.08);
+            transform: translateX(-50%);
+        }
+
+        button {
+            font: inherit;
+            cursor: pointer;
+        }
+
+        .control {
+            display: grid;
+            width: 34px;
+            height: 34px;
+            place-items: center;
+            border: 0;
+            border-radius: 50%;
+            background: transparent;
+            color: var(--muted);
+        }
+
+        .control:hover { background: var(--elevated); color: var(--text); }
+
+        .dots { display: flex; gap: 7px; padding: 0 5px; }
+
+        .dot {
+            width: 6px;
+            height: 6px;
+            padding: 0;
+            border: 0;
+            border-radius: 50%;
+            background: var(--border-strong);
+        }
+
+        .dot.active { background: var(--text); }
+
+        @media (max-width: 900px) {
+            body { overflow: auto; }
+            .slide { height: auto; min-height: 100%; }
+            .opening .inner, .mechanism-panel, .experience-grid, .foundation-grid { grid-template-columns: 1fr; }
+            .mechanisms h2 { white-space: normal; }
+            .mechanism + .mechanism { border-top: 1px solid var(--border); border-left: 0; }
+            .experience-card, .foundation-card { min-height: 210px; }
+            .slide-number { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <section class="slide opening active" data-title="pgrep">
+            <div class="inner">
+                <div>
+                    <div class="brand">
+                        <svg class="mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+                            <path d="M16 3.5 C22 3.5 28.5 7.5 28.5 14 C28.5 19 25 21 24 24.5 C23 27.5 20 29 16 28.5 C10.5 28 6.5 25.5 4.5 21 C2.5 16.5 3.5 10.5 7.5 7 C10 4.8 13 3.5 16 3.5 Z" stroke="currentColor" stroke-width="1.4"/>
+                            <path d="M16 8 C20 8 24 10.5 24 14.5 C24 17.5 22 19 21.2 21.2 C20.5 23.2 18.5 24.3 16 24 C12.5 23.6 10 22 8.8 19 C7.6 16 8.2 12.5 10.6 10.3 C12.2 8.9 14 8 16 8 Z" stroke="currentColor" stroke-width="1.4"/>
+                            <path d="M16 12.5 C18.2 12.5 20 13.8 20 15.8 C20 17.3 19 18.1 18.6 19.2 C18.2 20.2 17.2 20.8 16 20.6 C14.2 20.4 13 19.5 12.4 18 C11.8 16.5 12.1 14.8 13.3 13.7 C14.1 13 15 12.5 16 12.5 Z" stroke="currentColor" stroke-width="1.4"/>
+                        </svg>
+                        <span>pgrep</span>
+                    </div>
+                    <p class="eyebrow">Physics GRE preparation</p>
+                    <h1>Remembering <span>is not solving.</span></h1>
+                </div>
+                <div class="map-frame">
+                    <svg viewBox="0 0 760 580" fill="none" aria-label="pgrep knowledge manifold">
+                        <defs>
+                            <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="26"/></filter>
+                            <clipPath id="terrain"><path d="M102 301 C111 197 214 112 337 92 C462 72 612 119 664 228 C711 325 648 442 529 494 C417 543 253 511 160 426 C121 390 96 350 102 301 Z"/></clipPath>
+                        </defs>
+                        <g clip-path="url(#terrain)" opacity="0.22" filter="url(#glow)">
+                            <circle cx="267" cy="260" r="116" fill="#ebcb8b"/><circle cx="502" cy="253" r="120" fill="#81a1c1"/><circle cx="399" cy="403" r="110" fill="#c4a7d6"/>
+                        </g>
+                        <path d="M102 301 C111 197 214 112 337 92 C462 72 612 119 664 228 C711 325 648 442 529 494 C417 543 253 511 160 426 C121 390 96 350 102 301 Z" stroke="#a5a199" stroke-width="1.3"/>
+                        <path d="M133 303 C143 216 227 145 339 126 C447 108 578 143 626 235 C668 317 615 411 514 458 C415 504 281 480 193 407 C152 373 128 338 133 303 Z" stroke="#a9752a" stroke-width="1.1" opacity="0.62"/>
+                        <path d="M167 301 C178 234 241 179 338 159 C429 140 545 163 590 241 C628 307 589 382 500 424 C416 464 306 448 231 389 C193 359 163 331 167 301 Z" stroke="#5e81ac" stroke-width="1.1" opacity="0.66"/>
+                        <path d="M206 301 C216 249 263 211 341 192 C415 174 507 190 548 248 C579 293 555 350 485 387 C417 423 333 414 275 370 C235 340 202 320 206 301 Z" stroke="#7e6593" stroke-width="1.1" opacity="0.7"/>
+                        <path d="M247 300 C257 267 291 242 346 226 C402 210 467 221 504 255 C535 284 520 323 469 351 C419 379 359 375 316 348 C279 325 244 312 247 300 Z" stroke="#a9752a" stroke-width="1.25" opacity="0.72"/>
+                        <path d="M291 298 C302 279 324 268 355 258 C390 247 433 251 459 269 C481 285 472 306 442 324 C410 343 375 342 348 327 C322 313 288 305 291 298 Z" stroke="#5e81ac" stroke-width="1.35" opacity="0.78"/>
+                        <path d="M474 159 C508 167 535 189 539 218 C543 245 526 268 497 276 C468 285 441 272 430 248 C419 224 429 194 451 176 C460 168 467 163 474 159 Z" stroke="#6e6b64" stroke-width="1" stroke-dasharray="5 6" opacity="0.72"/>
+                        <path d="M485 181 C505 187 519 199 520 216 C521 231 511 244 495 249 C478 254 462 246 456 233 C450 219 455 203 468 192 C475 186 480 183 485 181 Z" stroke="#6e6b64" stroke-width="1" stroke-dasharray="4 5" opacity="0.62"/>
+                        <line x1="267" y1="260" x2="170" y2="210" stroke="#a5a199" stroke-width="1"/><circle cx="267" cy="260" r="3" fill="#a9752a"/>
+                        <rect x="56" y="169" width="102" height="52" rx="6" fill="#fbfaf8" opacity="0.92"/><text x="66" y="188" class="map-label">Mechanics</text><text x="66" y="207" class="map-caption">memory</text>
+                        <line x1="505" y1="325" x2="614" y2="366" stroke="#a5a199" stroke-width="1"/><circle cx="505" cy="325" r="3" fill="#5e81ac"/>
+                        <rect x="620" y="347" width="92" height="52" rx="6" fill="#fbfaf8" opacity="0.92"/><text x="630" y="366" class="map-label">E&amp;M</text><text x="630" y="385" class="map-caption">performance</text>
+                        <line x1="360" y1="390" x2="300" y2="458" stroke="#a5a199" stroke-width="1"/><circle cx="360" cy="390" r="3" fill="#7e6593"/>
+                        <rect x="188" y="458" width="104" height="52" rx="6" fill="#fbfaf8" opacity="0.92"/><text x="198" y="477" class="map-label">Quantum</text><text x="198" y="496" class="map-caption">readiness</text>
+                        <line x1="485" y1="217" x2="588" y2="151" stroke="#a5a199" stroke-width="1" stroke-dasharray="3 4"/><circle cx="485" cy="217" r="3" stroke="#6e6b64"/>
+                        <rect x="596" y="118" width="110" height="32" rx="6" fill="#fbfaf8" opacity="0.92"/><text x="604" y="138" class="map-label">Coverage gap</text>
+                    </svg>
+                </div>
+                <span class="slide-number">01 / 05</span>
+            </div>
+        </section>
+
+        <section class="slide mechanisms" data-title="Learning mechanisms">
+            <div class="inner">
+                <div><p class="eyebrow">Learning mechanisms</p><h2>Retrieve. Discriminate. Transfer.</h2></div>
+                <div class="mechanism-panel">
+                    <article class="mechanism">
+                        <svg viewBox="0 0 300 105" fill="none" aria-label="Forgetting curves reset by spaced retrieval">
+                            <line x1="18" y1="82" x2="282" y2="82" stroke="#d8d3c8"/><line x1="18" y1="59" x2="282" y2="59" stroke="#d8d3c8" stroke-dasharray="3 4"/><text x="258" y="97" class="diagram-label">time</text>
+                            <path d="M24 18 C42 27 58 45 78 68" stroke="#a9752a" stroke-width="1.8"/><line x1="78" y1="68" x2="78" y2="18" stroke="#a9752a" stroke-dasharray="3 3"/><circle cx="78" cy="18" r="3.5" fill="#fff" stroke="#a9752a"/>
+                            <path d="M78 18 C100 25 127 42 153 64" stroke="#a9752a" stroke-width="1.8"/><line x1="153" y1="64" x2="153" y2="18" stroke="#a9752a" stroke-dasharray="3 3"/><circle cx="153" cy="18" r="3.5" fill="#fff" stroke="#a9752a"/>
+                            <path d="M153 18 C183 23 222 36 271 57" stroke="#a9752a" stroke-width="1.8"/><text x="59" y="96" class="diagram-label">review</text><text x="134" y="96" class="diagram-label">review</text>
+                        </svg>
+                        <h3>Spaced retrieval</h3>
+                    </article>
+                    <article class="mechanism">
+                        <svg viewBox="0 0 300 105" fill="none" aria-label="Blocked topics rearranged into interleaved practice">
+                            <text x="7" y="28" class="diagram-label">blocked</text><text x="7" y="78" class="diagram-label">mixed</text>
+                            <g fill="#fff" stroke="#d8d3c8"><rect x="58" y="12" width="30" height="28" rx="8"/><rect x="93" y="12" width="30" height="28" rx="8"/><rect x="128" y="12" width="30" height="28" rx="8"/><rect x="163" y="12" width="30" height="28" rx="8"/><rect x="198" y="12" width="30" height="28" rx="8"/><rect x="233" y="12" width="30" height="28" rx="8"/></g>
+                            <g class="diagram-text" text-anchor="middle"><text x="73" y="30">M</text><text x="108" y="30">M</text><text x="143" y="30">E</text><text x="178" y="30">E</text><text x="213" y="30">Q</text><text x="248" y="30">Q</text></g>
+                            <g fill="#fff" stroke="#262624"><rect x="58" y="62" width="30" height="28" rx="8"/><rect x="93" y="62" width="30" height="28" rx="8"/><rect x="128" y="62" width="30" height="28" rx="8"/><rect x="163" y="62" width="30" height="28" rx="8"/><rect x="198" y="62" width="30" height="28" rx="8"/><rect x="233" y="62" width="30" height="28" rx="8"/></g>
+                            <g class="diagram-text" text-anchor="middle"><text x="73" y="80">M</text><text x="108" y="80">E</text><text x="143" y="80">Q</text><text x="178" y="80">M</text><text x="213" y="80">Q</text><text x="248" y="80">E</text></g>
+                        </svg>
+                        <h3>Interleaving</h3>
+                    </article>
+                    <article class="mechanism">
+                        <svg viewBox="0 0 300 105" fill="none" aria-label="A familiar principle applied to a novel problem">
+                            <rect x="17" y="17" width="91" height="68" rx="11" fill="#fff" stroke="#d8d3c8"/><text x="31" y="35" class="diagram-label">familiar</text><text x="62" y="61" class="diagram-text" text-anchor="middle">F = ma</text>
+                            <path d="M121 51 H174" stroke="#5e81ac" stroke-width="1.5"/><polyline points="168,45 174,51 168,57" stroke="#5e81ac" stroke-width="1.5"/>
+                            <rect x="188" y="17" width="95" height="68" rx="11" fill="#fff" stroke="#5e81ac"/><text x="202" y="35" class="diagram-label">novel</text><path d="M207 69 L261 69 L247 44 Z" stroke="#262624" stroke-width="1.2"/><rect x="234" y="47" width="15" height="12" rx="2" transform="rotate(-26 234 47)" fill="#f5f2ec" stroke="#262624" stroke-width="1.2"/>
+                        </svg>
+                        <h3>Productive failure</h3>
+                    </article>
+                </div>
+                <span class="slide-number">02 / 05</span>
+            </div>
+        </section>
+
+        <section class="slide experience" data-title="The Experience">
+            <div class="inner">
+                <div><p class="eyebrow">Alpha AI Engineering</p><h2>The Experience</h2></div>
+                <div class="experience-grid">
+                    <article class="experience-card">
+                        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 46 C12 27 24 11 41 11 C49 11 55 16 55 24 C55 35 43 37 37 44 C33 49 29 54 20 54 C15 54 12 51 12 46 Z"/><path d="M21 43 C21 31 28 21 39 21 C44 21 47 24 47 28 C47 35 40 36 36 40 C33 44 30 47 25 47 C22 47 21 45 21 43 Z"/><circle cx="47" cy="12" r="3" fill="currentColor" stroke="none"/></svg>
+                        <h3>Research liberty</h3>
+                    </article>
+                    <article class="experience-card">
+                        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 55 V10"/><path d="M19 12 C29 6 39 8 49 14 V31 C39 25 29 24 19 30 Z"/><path d="M12 55 H26"/></svg>
+                        <h3>Independent ownership</h3>
+                    </article>
+                    <article class="experience-card">
+                        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 18 L32 7 L54 18 L32 29 Z"/><path d="M10 31 L32 42 L54 31"/><path d="M10 44 L32 55 L54 44"/></svg>
+                        <h3>Technical responsibility</h3>
+                    </article>
+                </div>
+                <span class="slide-number">03 / 05</span>
+            </div>
+        </section>
+
+        <section class="slide brownfield" data-title="Brownfield engineering">
+            <div class="inner">
+                <div><p class="eyebrow">Technical responsibility</p><h2>Build on what works.</h2></div>
+                <div class="foundation-grid">
+                    <article class="foundation-card">
+                        <div class="foundation-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 V6 L12 3 L20 6 V20"/><path d="M8 20 V15 H16 V20"/><path d="M8 9 H8.01"/><path d="M16 9 H16.01"/></svg>Existing Anki foundation</div>
+                        <div><div class="foundation-name">A mature study engine.</div><ul class="foundation-list"><li>Rust scheduler</li><li>FSRS retrievability model</li><li>SQLite storage</li><li>Years of existing behavior</li></ul></div>
+                    </article>
+                    <article class="foundation-card addition">
+                        <div class="foundation-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="2.5"/><circle cx="17" cy="17" r="2.5"/><path d="M9 8.5 L15 15.5"/><path d="M14 6 H20 V12"/></svg>pgrep extension</div>
+                        <div>
+                            <div class="foundation-name">Extend responsibly.</div>
+                            <div class="extension-principles">
+                                <div class="extension-row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3 L20 6 V11.5 C20 16.5 16.6 19.5 12 21 C7.4 19.5 4 16.5 4 11.5 V6 Z"/><path d="M8.5 12 L10.8 14.2 L15.8 9.2"/></svg><div><strong>Preserve core signals</strong><span>FSRS state and scheduler stay authoritative</span></div></div>
+                                <div class="extension-row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 4.5 H17 A2 2 0 0 1 19 6.5 V19.5 H7 A2 2 0 0 0 5 21 Z"/><path d="M5 4.5 V21"/><path d="M9 9 H15"/><path d="M9 13 H15"/></svg><div><strong>Ground new problems</strong><span>Corpus-backed generation with named sources</span></div></div>
+                                <div class="extension-row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 4.5 H15 L19 8.5 V19.5 H5 Z"/><path d="M15 4.5 V8.5 H19"/><path d="M8 14 L10.5 16.5 L15.5 11.5"/></svg><div><strong>Make quality testable</strong><span>Provenance checks and gold-set evaluation</span></div></div>
+                            </div>
+                        </div>
+                    </article>
+                </div>
+                <span class="slide-number">04 / 05</span>
+            </div>
+        </section>
+
+        <section class="slide closing" data-title="pgrep">
+            <div class="inner"><div class="closing-lockup">
+                <svg class="mark" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M16 3.5 C22 3.5 28.5 7.5 28.5 14 C28.5 19 25 21 24 24.5 C23 27.5 20 29 16 28.5 C10.5 28 6.5 25.5 4.5 21 C2.5 16.5 3.5 10.5 7.5 7 C10 4.8 13 3.5 16 3.5 Z" stroke="currentColor" stroke-width="1.15"/><path d="M16 8 C20 8 24 10.5 24 14.5 C24 17.5 22 19 21.2 21.2 C20.5 23.2 18.5 24.3 16 24 C12.5 23.6 10 22 8.8 19 C7.6 16 8.2 12.5 10.6 10.3 C12.2 8.9 14 8 16 8 Z" stroke="currentColor" stroke-width="1.15"/><path d="M16 12.5 C18.2 12.5 20 13.8 20 15.8 C20 17.3 19 18.1 18.6 19.2 C18.2 20.2 17.2 20.8 16 20.6 C14.2 20.4 13 19.5 12.4 18 C11.8 16.5 12.1 14.8 13.3 13.7 C14.1 13 15 12.5 16 12.5 Z" stroke="currentColor" stroke-width="1.15"/></svg>
+                <h2>pgrep</h2><div class="closing-meta"><span>Frank Gonzalez</span><i></i><span>Alpha AI Engineering</span></div>
+            </div><span class="slide-number">05 / 05</span></div>
+        </section>
+    </main>
+    <nav class="controls" aria-label="Presentation controls">
+        <button class="control" id="previous" aria-label="Previous slide">←</button><div class="dots" id="dots"></div><button class="control" id="next" aria-label="Next slide">→</button>
+    </nav>
+    <script>
+        const slides = [...document.querySelectorAll(".slide")];
+        const dots = document.querySelector("#dots");
+        let current = Math.max(0, Math.min(slides.length - 1, Number(location.hash.slice(1)) - 1 || 0));
+        slides.forEach((slide, index) => {
+            const dot = document.createElement("button");
+            dot.className = "dot";
+            dot.ariaLabel = `Go to slide ${index + 1}`;
+            dot.onclick = () => show(index);
+            dots.append(dot);
+        });
+        const dotButtons = [...dots.children];
+        function show(index) {
+            current = Math.max(0, Math.min(slides.length - 1, index));
+            slides.forEach((slide, i) => slide.classList.toggle("active", i === current));
+            dotButtons.forEach((dot, i) => dot.classList.toggle("active", i === current));
+            history.replaceState(null, "", `#${current + 1}`);
+        }
+        document.querySelector("#previous").onclick = () => show(current - 1);
+        document.querySelector("#next").onclick = () => show(current + 1);
+        document.addEventListener("keydown", event => {
+            if (["ArrowRight", "PageDown", " "].includes(event.key)) { event.preventDefault(); show(current + 1); }
+            if (["ArrowLeft", "PageUp"].includes(event.key)) { event.preventDefault(); show(current - 1); }
+            if (event.key === "Home") show(0);
+            if (event.key === "End") show(slides.length - 1);
+        });
+        show(current);
+    </script>
+</body>
+</html>
